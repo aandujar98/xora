@@ -15,6 +15,12 @@ data class RaEmulatorLogin(
     val loginJson: String,
 )
 
+/** Prefetched Connect game payloads so the emulator can seed rcheevos offline of Cloudflare. */
+data class RaEmulatorGameSession(
+    val patchJson: String,
+    val startSessionJson: String,
+)
+
 /** Outcome of username+password sign-in against RetroAchievements. */
 sealed interface RaPasswordLoginResult {
     data class SignedIn(val profile: RaProfile) : RaPasswordLoginResult

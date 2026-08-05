@@ -40,6 +40,12 @@ object LibretroNative {
     external fun nativeRaQueueLoginResponse(loginJson: String)
     /** Queued Connect `r=gameid` JSON so rcheevos can skip a Cloudflare-blocked lookup. */
     external fun nativeRaQueueGameIdResponse(gameIdJson: String)
+    /** Queued Connect `r=patch` JSON (achievement set). */
+    external fun nativeRaQueuePatchResponse(patchJson: String)
+    /** Queued Connect `r=startsession` JSON (unlock state + session). */
+    external fun nativeRaQueueStartSessionResponse(startSessionJson: String)
+    /** Bind [md5Hex] → [gameId] in rcheevos so load_game skips the gameid request. */
+    external fun nativeRaAddGameHash(md5Hex: String, gameId: Int)
     external fun nativeRaLogin(username: String, token: String)
     /** Softcore (false) allows save states; hardcore (true) matches RA leaderboards. */
     external fun nativeRaSetHardcore(enabled: Boolean)

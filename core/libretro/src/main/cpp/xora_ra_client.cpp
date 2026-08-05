@@ -5,6 +5,7 @@
 #include "xora_ra_memory.h"
 
 #include "rc_client.h"
+#include "rc_client_external.h"
 #include "rc_error.h"
 
 #include <android/log.h>
@@ -39,6 +40,18 @@ std::string g_pending_hash;
 std::string g_queued_login_json;
 /** One-shot Connect gameid JSON from Kotlin (Connect + Web API fallback). */
 std::string g_queued_gameid_json;
+/** One-shot Connect patch JSON (achievement set) from Kotlin. */
+std::string g_queued_patch_json;
+/** One-shot Connect startsession JSON from Kotlin. */
+std::string g_queued_startsession_json;
+
+bool consume_queued_json(const char* label, std::string& queue, std::string& body_storage) {
+    if (queue.empty()) return false;
+    body_storage = queue;
+    queue.clear();
+    ALOGI("RA %s: using queued Connect JSON (%zu bytes)", label, body_storage.size());
+    return true;
+}
 
 JNIEnv* env_for_current_thread() {
     if (!g_jvm) return nullptr;
@@ -93,31 +106,25 @@ void server_call(
     jstring jpost = request->post_data ? env->NewStringUTF(request->post_data) : nullptr;
     jstring jct = request->content_type ? env->NewStringUTF(request->content_type) : nullptr;
 
-    // Prefer Kotlin-validated bodies so rcheevos never re-hits Cloudflare for sign-in / gameid.
+    // Prefer Kotlin-validated bodies so rcheevos never re-hits Cloudflare for Connect calls.
     const bool is_login =
         request->post_data && std::strstr(request->post_data, "r=login2") != nullptr;
     const bool is_gameid =
         (request->post_data && std::strstr(request->post_data, "r=gameid") != nullptr) ||
         (request->url && std::strstr(request->url, "r=gameid") != nullptr);
+    const bool is_patch =
+        request->post_data && std::strstr(request->post_data, "r=patch") != nullptr;
+    const bool is_startsession =
+        request->post_data && std::strstr(request->post_data, "r=startsession") != nullptr;
     std::string body_storage;
-    if (is_login && !g_queued_login_json.empty()) {
-        body_storage = g_queued_login_json;
-        g_queued_login_json.clear();
+    const bool used_queue =
+        (is_login && consume_queued_json("login", g_queued_login_json, body_storage)) ||
+        (is_gameid && consume_queued_json("gameid", g_queued_gameid_json, body_storage)) ||
+        (is_patch && consume_queued_json("patch", g_queued_patch_json, body_storage)) ||
+        (is_startsession &&
+         consume_queued_json("startsession", g_queued_startsession_json, body_storage));
+    if (used_queue) {
         response.http_status_code = 200;
-        ALOGI("RA login: using queued Connect login2 JSON (%zu bytes)", body_storage.size());
-        if (jurl) env->DeleteLocalRef(jurl);
-        if (jpost) env->DeleteLocalRef(jpost);
-        if (jct) env->DeleteLocalRef(jct);
-        response.body = body_storage.c_str();
-        response.body_length = body_storage.size();
-        if (callback) callback(&response, callback_data);
-        return;
-    }
-    if (is_gameid && !g_queued_gameid_json.empty()) {
-        body_storage = g_queued_gameid_json;
-        g_queued_gameid_json.clear();
-        response.http_status_code = 200;
-        ALOGI("RA gameid: using queued Connect gameid JSON (%zu bytes)", body_storage.size());
         if (jurl) env->DeleteLocalRef(jurl);
         if (jpost) env->DeleteLocalRef(jpost);
         if (jct) env->DeleteLocalRef(jct);
@@ -161,13 +168,32 @@ void server_call(
         env->ExceptionClear();
     }
 
+    // Empty CLIENT_ERROR bodies become the opaque rcheevos "No response" — always leave a message.
+    if (body_storage.empty() &&
+        (response.http_status_code == RC_API_SERVER_RESPONSE_CLIENT_ERROR ||
+         response.http_status_code < 200 ||
+         response.http_status_code >= 300)) {
+        if (response.http_status_code == RC_API_SERVER_RESPONSE_CLIENT_ERROR) {
+            body_storage = "HTTP request failed";
+        } else {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "HTTP %d with empty body", response.http_status_code);
+            body_storage = buf;
+        }
+        // Keep CLIENT_ERROR so rcheevos surfaces body as the error_message.
+        if (response.http_status_code != RC_API_SERVER_RESPONSE_CLIENT_ERROR &&
+            response.http_status_code != RC_API_SERVER_RESPONSE_RETRYABLE_CLIENT_ERROR) {
+            response.http_status_code = RC_API_SERVER_RESPONSE_CLIENT_ERROR;
+        }
+    }
     response.body = body_storage.c_str();
     response.body_length = body_storage.size();
     if (response.http_status_code < 200 || response.http_status_code >= 300) {
         ALOGW(
-            "RA HTTP %d url=%s body=%.160s",
+            "RA HTTP %d url=%s post=%.80s body=%.160s",
             response.http_status_code,
             request->url ? request->url : "?",
+            request->post_data ? request->post_data : "",
             body_storage.c_str()
         );
     }
@@ -367,6 +393,9 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRaDetach(JNIEnv* env, jclas
     destroy_client_unlocked();
     g_queued_login_json.clear();
     g_queued_gameid_json.clear();
+    g_queued_patch_json.clear();
+    g_queued_startsession_json.clear();
+    g_pending_hash.clear();
     if (g_bridge) {
         env->DeleteGlobalRef(g_bridge);
         g_bridge = nullptr;
@@ -408,6 +437,56 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRaQueueGameIdResponse(
         env->ReleaseStringUTFChars(game_id_json, json);
         ALOGI("RA queued gameid JSON (%zu bytes)", g_queued_gameid_json.size());
     }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeRaQueuePatchResponse(
+    JNIEnv* env,
+    jclass,
+    jstring patch_json
+) {
+    std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
+    g_queued_patch_json.clear();
+    if (!patch_json) return;
+    const char* json = env->GetStringUTFChars(patch_json, nullptr);
+    if (json) {
+        g_queued_patch_json.assign(json);
+        env->ReleaseStringUTFChars(patch_json, json);
+        ALOGI("RA queued patch JSON (%zu bytes)", g_queued_patch_json.size());
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeRaQueueStartSessionResponse(
+    JNIEnv* env,
+    jclass,
+    jstring start_session_json
+) {
+    std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
+    g_queued_startsession_json.clear();
+    if (!start_session_json) return;
+    const char* json = env->GetStringUTFChars(start_session_json, nullptr);
+    if (json) {
+        g_queued_startsession_json.assign(json);
+        env->ReleaseStringUTFChars(start_session_json, json);
+        ALOGI("RA queued startsession JSON (%zu bytes)", g_queued_startsession_json.size());
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeRaAddGameHash(
+    JNIEnv* env,
+    jclass,
+    jstring md5_hex,
+    jint game_id
+) {
+    std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
+    if (!ensure_client_unlocked() || !md5_hex || game_id <= 0) return;
+    const char* hash = env->GetStringUTFChars(md5_hex, nullptr);
+    if (!hash) return;
+    rc_client_add_game_hash(g_client, hash, static_cast<uint32_t>(game_id));
+    ALOGI("RA add_game_hash md5=%s → gameId=%d", hash, static_cast<int>(game_id));
+    env->ReleaseStringUTFChars(md5_hex, hash);
 }
 
 extern "C" JNIEXPORT void JNICALL

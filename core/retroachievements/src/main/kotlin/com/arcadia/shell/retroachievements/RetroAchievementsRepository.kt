@@ -11,6 +11,11 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -172,6 +177,78 @@ class RetroAchievementsRepository @Inject constructor(
         return client.resolveGameId(md5.lowercase(), credentials = creds, consoleId = consoleId)
     }
 
+    /**
+     * Prefetch Connect `patch` + `startsession` JSON on the launcher HTTP stack for the emulator.
+     * Pair with [refreshEmulatorSession] so rcheevos never needs a live dorequest after login.
+     */
+    suspend fun prefetchEmulatorGameSession(
+        username: String,
+        connectToken: String,
+        gameId: Int,
+        md5: String,
+        hardcore: Boolean,
+    ): Result<RaEmulatorGameSession> {
+        val patch = client.fetchPatchBody(username, connectToken, gameId).getOrElse {
+            return Result.failure(
+                IllegalStateException(
+                    RetroAchievementsClient.sanitizeErrorMessage(
+                        it.message ?: "Could not download achievement set.",
+                    ),
+                ),
+            )
+        }
+        connectSuccessOrFail(patch, "Could not download achievement set.").getOrElse {
+            return Result.failure(it)
+        }
+        val start = client.startSessionBody(
+            username = username,
+            connectToken = connectToken,
+            gameId = gameId,
+            md5 = md5,
+            hardcore = hardcore,
+        ).getOrElse {
+            return Result.failure(
+                IllegalStateException(
+                    RetroAchievementsClient.sanitizeErrorMessage(
+                        it.message ?: "Could not start RetroAchievements session.",
+                    ),
+                ),
+            )
+        }
+        connectSuccessOrFail(start, "Could not start RetroAchievements session.").getOrElse {
+            return Result.failure(it)
+        }
+        return Result.success(
+            RaEmulatorGameSession(patchJson = patch, startSessionJson = start),
+        )
+    }
+
+    private fun connectSuccessOrFail(body: String, fallback: String): Result<Unit> {
+        val trimmed = body.trimStart()
+        if (!trimmed.startsWith("{")) {
+            return Result.failure(IllegalStateException("RetroAchievements response was blocked."))
+        }
+        return runCatching {
+            val obj = CONNECT_JSON.parseToJsonElement(trimmed).jsonObject
+            val success = obj["Success"]?.jsonPrimitive?.booleanOrNull
+            if (success == false) {
+                val error = obj["Error"]?.jsonPrimitive?.contentOrNull
+                    ?: obj["Code"]?.jsonPrimitive?.contentOrNull
+                    ?: fallback
+                error(RetroAchievementsClient.sanitizeErrorMessage(error))
+            }
+        }.fold(
+            onSuccess = { Result.success(Unit) },
+            onFailure = {
+                Result.failure(
+                    IllegalStateException(
+                        RetroAchievementsClient.sanitizeErrorMessage(it.message ?: fallback),
+                    ),
+                )
+            },
+        )
+    }
+
     suspend fun lookupSelectedGame(game: Game?): RaGameLookup {
         if (game == null || game.isAndroidApp) return RaGameLookup.NoHash
 
@@ -299,5 +376,6 @@ class RetroAchievementsRepository @Inject constructor(
         const val TAG = "RetroAchievements"
         const val HASH_TIMEOUT_MS = 45_000L
         const val API_TIMEOUT_MS = 30_000L
+        private val CONNECT_JSON = Json { ignoreUnknownKeys = true }
     }
 }
