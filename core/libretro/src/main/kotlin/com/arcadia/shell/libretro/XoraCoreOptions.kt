@@ -45,6 +45,12 @@ object XoraCoreOptions {
         out["mupen64plus-ThreadedRenderer"] = "False"
         out["mupen64plus-rdp-plugin"] = "gliden64"
         out["mupen64plus-rsp-plugin"] = "hle"
+        // Keep the PBuffer FBO modest — high internal res + glReadPixels OOMs weak GPUs.
+        out["mupen64plus-43screensize"] = "640x480"
+        out["mupen64plus-aspect"] = "4:3"
+        out["mupen64plus-EnableNativeResFactor"] = "0"
+        out["mupen64plus-FrameDuping"] = "False"
+        // ParaLLEl: software RDP avoids Vulkan (unsupported by the XOrA GLES host).
         out["parallel-n64-gfx"] = "angrylion"
     }
 

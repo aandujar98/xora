@@ -93,13 +93,17 @@ import com.arcadia.shell.scraper.RomHasher
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import okhttp3.OkHttpClient
 import java.io.File
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
@@ -108,6 +112,10 @@ import kotlin.coroutines.coroutineContext
  * In-process Libretro session. Frames are drawn via Compose [Image] (not SurfaceView /
  * AndroidView) so opaque shell layers cannot hide gameplay. Immersive fullscreen matches the
  * main launcher.
+ *
+ * All Libretro core entry points run on a dedicated single OS thread. Cores such as
+ * Mupen64Plus-Next use libco; [retro_init] / [retro_run] / serialize must share that thread or
+ * N64 sessions SIGSEGV on the first frame or savestate.
  */
 @AndroidEntryPoint
 class XoraLibretroActivity : ComponentActivity() {
@@ -150,6 +158,15 @@ class XoraLibretroActivity : ComponentActivity() {
     private var frameTick by mutableIntStateOf(0)
     private val bitmapLock = Any()
 
+    /**
+     * Dedicated emu thread for every Libretro JNI call (load / run / serialize / unload).
+     * Must not be [Dispatchers.IO] or [Dispatchers.Default] — those hop OS threads and break libco.
+     */
+    private val emuExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "xora-libretro").apply { isDaemon = true }
+    }
+    private val emuDispatcher = emuExecutor.asCoroutineDispatcher()
+
     private val keyPadButtons = AtomicInteger(0)
     private val axisPadButtons = AtomicInteger(0)
     @Volatile private var axisLx: Short = 0
@@ -185,11 +202,20 @@ class XoraLibretroActivity : ComponentActivity() {
         )
         if (!hardcore) {
             actions += MenuAction("Save state") {
-                saveState(0)
-                statusText = "State saved (slot 0)"
+                lifecycleScope.launch(emuDispatcher) {
+                    saveState(0)
+                    withContext(Dispatchers.Main.immediate) {
+                        statusText = "State saved (slot 0)"
+                    }
+                }
             }
             actions += MenuAction("Load state") {
-                statusText = if (loadState(0)) "State loaded (slot 0)" else "No save in slot 0"
+                lifecycleScope.launch(emuDispatcher) {
+                    val ok = loadState(0)
+                    withContext(Dispatchers.Main.immediate) {
+                        statusText = if (ok) "State loaded (slot 0)" else "No save in slot 0"
+                    }
+                }
             }
         } else {
             actions += MenuAction("Save state (hardcore off)") {
@@ -197,10 +223,14 @@ class XoraLibretroActivity : ComponentActivity() {
             }
         }
         actions += MenuAction("Reset") {
-            LibretroNative.nativeReset()
-            raSession?.onEmulatorReset()
-            statusText = "Reset"
-            closeMenu()
+            lifecycleScope.launch(emuDispatcher) {
+                LibretroNative.nativeReset()
+                withContext(Dispatchers.Main.immediate) {
+                    raSession?.onEmulatorReset()
+                    statusText = "Reset"
+                    closeMenu()
+                }
+            }
         }
         if (xoraSettings.netplayEnabled) {
             actions += MenuAction("Netplay: Host") {
@@ -672,7 +702,8 @@ class XoraLibretroActivity : ComponentActivity() {
             val saveImport = withContext(Dispatchers.IO) {
                 saveFileImporter.importForGame(platformId, romPath)
             }
-            val ok = withContext(Dispatchers.IO) {
+            // Core init + first frames must share one OS thread (Mupen/libco).
+            val ok = withContext(emuDispatcher) {
                 val xora = preferences.xoraEmulatorSettings.first()
                 val expand = xora.expandDualDisplay &&
                     platformId in DUAL_SCREEN_PLATFORMS &&
@@ -694,7 +725,9 @@ class XoraLibretroActivity : ComponentActivity() {
                 ) && LibretroNative.nativeLoadGame(romPath)
             }
             if (!ok) {
-                statusText = LibretroNative.nativeLastError() ?: "Failed to load game"
+                statusText = withContext(emuDispatcher) {
+                    LibretroNative.nativeLastError()
+                } ?: "Failed to load game"
                 bootOverlayVisible = false
                 return@launch
             }
@@ -704,7 +737,7 @@ class XoraLibretroActivity : ComponentActivity() {
             // Resume after an accidental home/recents swipe (softcore only — hardcore forbids it).
             val hardcore = raPrefs.hardcore && raPrefs.enabled
             val restored = if (!hardcore) {
-                withContext(Dispatchers.IO) { loadAutosave() }
+                withContext(emuDispatcher) { loadAutosave() }
             } else {
                 false
             }
@@ -1034,13 +1067,16 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun applyCoreOptionsLive(settings: XoraEmulatorSettings) {
         refreshExpandTopology()
-        XoraCoreOptions.variablesFor(
+        val vars = XoraCoreOptions.variablesFor(
             platformId = platformId,
             coreName = coreName,
             settings = settings,
             expandActive = expandActive,
-        ).forEach { (key, value) ->
-            LibretroNative.nativeSetCoreVariable(key, value)
+        )
+        lifecycleScope.launch(emuDispatcher) {
+            vars.forEach { (key, value) ->
+                LibretroNative.nativeSetCoreVariable(key, value)
+            }
         }
     }
 
@@ -1153,18 +1189,29 @@ class XoraLibretroActivity : ComponentActivity() {
         if (!gameLoaded) return
         val hardcore = raSettings.hardcore && raSettings.enabled
         if (hardcore) return
-        runCatching { saveAutosave() }
+        // Must run on the emu thread — Mupen serialize uses libco co_switch.
+        runCatching {
+            runBlocking(emuDispatcher) { saveAutosave() }
+        }
     }
 
+    /** Caller must already be on [emuDispatcher]. */
     private fun saveAutosave() {
         val data = LibretroNative.nativeSerialize() ?: return
         coreStore.autosaveFile(platformId, gameId).writeBytes(data)
     }
 
+    /** Caller must already be on [emuDispatcher]. */
     private fun loadAutosave(): Boolean {
         val file = coreStore.autosaveFile(platformId, gameId)
         if (!file.isFile || file.length() == 0L) return false
-        return LibretroNative.nativeUnserialize(file.readBytes())
+        val bytes = file.readBytes()
+        val ok = LibretroNative.nativeUnserialize(bytes)
+        if (!ok) {
+            // Stale / cross-thread autosaves from older builds can poison every launch.
+            runCatching { file.delete() }
+        }
+        return ok
     }
 
     private fun openMenu() {
@@ -1225,7 +1272,8 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun startLoop() {
         runJob?.cancel()
-        runJob = lifecycleScope.launch(Dispatchers.Default) {
+        // Same OS thread as nativeLoadCore — required for Mupen/libco and GLES context affinity.
+        runJob = lifecycleScope.launch(emuDispatcher) {
             val fps = LibretroNative.nativeGetFps().coerceIn(30.0, 120.0)
             val frameNs = (1_000_000_000.0 / fps).toLong()
             while (coroutineContext.isActive) {
@@ -1251,7 +1299,8 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
                 val elapsed = System.nanoTime() - start
                 val sleepMs = ((frameNs - elapsed) / 1_000_000L).coerceAtLeast(0L)
-                if (sleepMs > 0) Thread.sleep(sleepMs)
+                // delay/yield (not Thread.sleep) so serialize / unload can run on this dispatcher.
+                if (sleepMs > 0) delay(sleepMs) else yield()
             }
         }
     }
@@ -1314,11 +1363,13 @@ class XoraLibretroActivity : ComponentActivity() {
         )
     }
 
+    /** Caller must already be on [emuDispatcher]. */
     private fun saveState(slot: Int) {
         val data = LibretroNative.nativeSerialize() ?: return
         coreStore.stateFile(platformId, gameId, slot).writeBytes(data)
     }
 
+    /** Caller must already be on [emuDispatcher]. */
     private fun loadState(slot: Int): Boolean {
         val file = coreStore.stateFile(platformId, gameId, slot)
         if (!file.isFile) return false
@@ -1350,7 +1401,11 @@ class XoraLibretroActivity : ComponentActivity() {
             bottomBitmap?.recycle()
             bottomBitmap = null
         }
-        LibretroNative.nativeUnload()
+        runCatching {
+            runBlocking(emuDispatcher) { LibretroNative.nativeUnload() }
+        }
+        emuDispatcher.close()
+        emuExecutor.shutdownNow()
         super.onDestroy()
     }
 
