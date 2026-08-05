@@ -35,6 +35,7 @@ import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UI_TEXT_SCALE_PRESETS
 import com.arcadia.shell.datastore.UiFitMode
+import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.isReduceMotionPreferred
@@ -1133,6 +1134,7 @@ class HomeViewModel @Inject constructor(
             "Favorite" -> GamesSecondarySlot.Favorite
             else -> GamesSecondarySlot.Continue
         }
+        val xmbTitleStyle = chrome.settings.xmbTitleStyle
         val xoraCategory = XoraXmbCategory.entries.getOrElse(theme.xora.categoryIndex) {
             XoraXmbCategory.Games
         }
@@ -1224,6 +1226,7 @@ class HomeViewModel @Inject constructor(
                 drilledPlatformId = theme.xora.drilledPlatformId,
                 items = xoraItems,
                 gamesSecondarySlot = gamesSecondarySlot,
+                titleStyle = xmbTitleStyle,
                 focusTitle = xoraSelected?.title ?: xoraCategory.label,
                 focusSubtitle = xoraSelected?.subtitle ?: xoraCategory.label,
                 focusGame = xoraFocusGame,
@@ -3428,6 +3431,13 @@ class HomeViewModel @Inject constructor(
                     else -> "Favorite"
                 }
                 preferences.setGamesSecondarySlot(next)
+            }
+            StartSettingsAction.CycleXmbTitleStyle -> viewModelScope.launch {
+                val next = when (preferences.settings.first().xmbTitleStyle) {
+                    XmbTitleStyle.TitleIcons -> XmbTitleStyle.Text
+                    XmbTitleStyle.Text -> XmbTitleStyle.TitleIcons
+                }
+                preferences.setXmbTitleStyle(next)
             }
             StartSettingsAction.CycleBgmVolume -> viewModelScope.launch {
                 preferences.setBgmVolume(nextVolumeStep(preferences.settings.first().bgmVolume))

@@ -12,6 +12,7 @@ import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
+import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.launcher.BuiltInPlayers
 import com.arcadia.shell.launcher.InstalledPlayerProbe
 import com.arcadia.shell.launcher.PlayerSeeder
@@ -554,6 +555,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { preferences.setThemeMode(mode) }
+    }
+
+    fun setXmbTitleStyle(style: XmbTitleStyle) {
+        viewModelScope.launch { preferences.setXmbTitleStyle(style) }
     }
 
     fun setTrailerEnabled(enabled: Boolean) {
