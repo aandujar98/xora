@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nintendo DS — dual-screen mark derived from Simple Icons 3DS geometry (no face buttons). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M21.272,0H2.728A2.73,2.73 0,0 0,0 2.72v18.542C0.009,22.781 1.228,24 2.728,24h18.526a2.753,2.753 0,0 0,2.756 -2.719V2.737C23.991,1.219 22.772,0 21.272,0zm1.913,21.281a1.92,1.92 0,0 1,-1.912 1.912H2.728a1.92,1.92 0,0 1,-1.913 -1.912v-8.456h22.369v8.456zm0,-9.694H0.815v-8.85A1.92,1.92 0,0 1,2.728 0.824h18.544c1.049,0 1.912,0.863 1.912,1.913v8.85zM17.409,3.112H6.534c-0.3,0 -0.544,0.263 -0.544,0.563V9.15c0,0.3 0.226,0.563 0.544,0.563h10.875a0.548,0.548 0,0 0,0.544 -0.563V3.656a0.543,0.543 0,0 0,-0.544 -0.544zM8.203,15.169h7.575c0.3,0 0.524,0.225 0.544,0.524v5.175c-0.02,0.282 -0.263,0.525 -0.544,0.507H8.203a0.54,0.54 0,0 1,-0.544 -0.525v-5.156c0,-0.301 0.244,-0.525 0.544,-0.525z"/>
+</vector>

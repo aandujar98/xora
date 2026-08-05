@@ -1,0 +1,4484 @@
+package com.arcadia.shell.feature.home
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.SystemClock
+import android.provider.Settings
+import android.util.Log
+import androidx.core.content.FileProvider
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import java.io.File
+import com.arcadia.shell.database.repository.LibraryRepository
+import com.arcadia.shell.database.repository.PlayerRepository
+import com.arcadia.shell.datastore.AvatarSource
+import com.arcadia.shell.datastore.CIRCLE_FRIEND_LIMIT
+import com.arcadia.shell.datastore.CirclePin
+import com.arcadia.shell.datastore.CirclePinSource
+import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
+import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
+import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.HomeThemeMediaStore
+import com.arcadia.shell.datastore.LocalProfile
+import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_COLUMNS
+import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_ROWS
+import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_COLUMNS
+import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_ROWS
+import com.arcadia.shell.datastore.ProfileAvatarStore
+import com.arcadia.shell.datastore.PlatformEmulatorChoice
+import com.arcadia.shell.datastore.RetroAchievementsSettings
+import com.arcadia.shell.datastore.ShellPreferences
+import com.arcadia.shell.datastore.ShellSettings
+import com.arcadia.shell.datastore.ThemeMode
+import com.arcadia.shell.datastore.TrailerDisplayMode
+import com.arcadia.shell.datastore.TrailerSourcePreference
+import com.arcadia.shell.datastore.UI_TEXT_SCALE_PRESETS
+import com.arcadia.shell.datastore.UiFitMode
+import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.ShellThemeCatalog
+import com.arcadia.shell.designsystem.isReduceMotionPreferred
+import com.arcadia.shell.feature.home.component.steamPersonaToPresence
+import com.arcadia.shell.feature.home.rss.RssFeedClient
+import com.arcadia.shell.input.GamepadDispatcher
+import com.arcadia.shell.input.NavAction
+import com.arcadia.shell.launcher.DetectedEmulator
+import com.arcadia.shell.launcher.GameLauncher
+import com.arcadia.shell.launcher.InstalledAppSync
+import com.arcadia.shell.launcher.LaunchResult
+import com.arcadia.shell.launcher.PlatformEmulatorDetector
+import com.arcadia.shell.launcher.PlayerSeeder
+import com.arcadia.shell.launcher.PlaySessionTracker
+import com.arcadia.shell.launcher.RetroArchCoreCatalog
+import com.arcadia.shell.launcher.conversations.ConversationRepository
+import com.arcadia.shell.launcher.conversations.ConversationSource
+import com.arcadia.shell.launcher.conversations.ConversationsUiState
+import com.arcadia.shell.launcher.conversations.NotificationConversation
+import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
+import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
+import com.arcadia.shell.launcher.discord.DiscordRichPresence
+import com.arcadia.shell.launcher.notifications.FriendNetwork
+import com.arcadia.shell.launcher.notifications.ShellNotification
+import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
+import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
+import com.arcadia.shell.model.Game
+import com.arcadia.shell.model.GamePlatform
+import com.arcadia.shell.model.HomeShortcut
+import com.arcadia.shell.model.HomeShortcutKind
+import com.arcadia.shell.model.LaunchDisplayPreference
+import com.arcadia.shell.model.LibraryRoot
+import com.arcadia.shell.model.PlatformSummary
+import com.arcadia.shell.model.Player
+import com.arcadia.shell.model.ScanProgress
+import com.arcadia.shell.model.ScreenRole
+import com.arcadia.shell.model.ShortcutSpan
+import com.arcadia.shell.model.swapped
+import com.arcadia.shell.retroachievements.RaConsoleIds
+import com.arcadia.shell.retroachievements.RaPasswordLoginResult
+import com.arcadia.shell.retroachievements.RaProfile
+import com.arcadia.shell.retroachievements.RaRecentUnlock
+import com.arcadia.shell.retroachievements.RetroAchievementsClient
+import com.arcadia.shell.retroachievements.RetroAchievementsRepository
+import com.arcadia.shell.scanner.LibraryRootManager
+import com.arcadia.shell.scanner.LibraryScanner
+import com.arcadia.shell.scanner.StorageAccess
+import com.arcadia.shell.scraper.PlatformArtRepository
+import com.arcadia.shell.scraper.ScraperPreference
+import com.arcadia.shell.scraper.ScraperScheduler
+import com.arcadia.shell.scraper.SteamOpenId
+import com.arcadia.shell.scraper.SteamWebApiClient
+import com.arcadia.shell.scraper.TrailerResolver
+import com.arcadia.shell.scraper.insight.GameInsight
+import com.arcadia.shell.scraper.insight.GameInsightRepository
+import com.arcadia.shell.scraper.insight.GameScreenshotRepository
+import com.arcadia.shell.scraper.insight.InsightSource
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import java.util.UUID
+import javax.inject.Inject
+
+/**
+ * The single owner of library state and the current selection.
+ *
+ * Both panes observe this one instance, including the pane rendered into a `Presentation` on the
+ * second physical display. That is what makes hero art on one screen track grid movement on the
+ * other with no synchronisation code of its own.
+ */
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    private val libraryRepository: LibraryRepository,
+    private val playerRepository: PlayerRepository,
+    private val rootManager: LibraryRootManager,
+    private val scanner: LibraryScanner,
+    private val launcher: GameLauncher,
+    private val preferences: ShellPreferences,
+    private val storageAccess: StorageAccess,
+    private val sessionTracker: PlaySessionTracker,
+    private val installedAppSync: InstalledAppSync,
+    private val retroAchievements: RetroAchievementsRepository,
+    private val avatarStore: ProfileAvatarStore,
+    private val themeMediaStore: HomeThemeMediaStore,
+    private val trailerResolver: TrailerResolver,
+    private val scraperScheduler: ScraperScheduler,
+    private val platformArtRepository: PlatformArtRepository,
+    private val rssFeedClient: RssFeedClient,
+    private val gameInsightRepository: GameInsightRepository,
+    private val gameScreenshotRepository: GameScreenshotRepository,
+    private val steamWebApiClient: SteamWebApiClient,
+    private val conversationRepository: ConversationRepository,
+    private val discordRichPresence: DiscordRichPresence,
+    val shellNotifications: ShellNotificationCenter,
+    private val shellSystemNotifier: ShellSystemNotifier,
+    private val platformEmulatorDetector: PlatformEmulatorDetector,
+    private val playerSeeder: PlayerSeeder,
+    private val gameCompanionController: GameCompanionController,
+    val gamepadDispatcher: GamepadDispatcher,
+) : ViewModel() {
+
+    /** Companion bottom-screen session, non-null only while a qualifying game is running. */
+    val gameCompanion: StateFlow<GameCompanionUiState?> = gameCompanionController.session
+
+    private data class Selection(val tabIndex: Int = 0, val gameIndex: Int = 0)
+
+    private val selection = MutableStateFlow(Selection())
+    private val homePage = MutableStateFlow(HomePage.Home)
+    private val homeHubSection = MutableStateFlow(HomeHubSection.ShardMenu)
+    private val homeShard = MutableStateFlow(HomeShard.Continue)
+    private val xoraCategoryIndex = MutableStateFlow(XoraXmbCategory.Games.ordinal)
+    private val xoraItemIndex = MutableStateFlow(0)
+    private val xoraDepth = MutableStateFlow(XoraXmbDepth.Category)
+    private val xoraDrilledPlatformId = MutableStateFlow<String?>(null)
+    private val homeShortcutIndex = MutableStateFlow(0)
+    private val homeShortcutsEditMode = MutableStateFlow(false)
+    private val homeShortcuts = MutableStateFlow<List<HomeShortcut>>(emptyList())
+    private val shortcutGridColumns = MutableStateFlow(DEFAULT_HOME_SHORTCUT_GRID_COLUMNS)
+    private val shortcutGridRows = MutableStateFlow(DEFAULT_HOME_SHORTCUT_GRID_ROWS)
+    private val shortcutCustomizeChrome = MutableStateFlow(ShortcutCustomizeChrome.Tiles)
+    private val themesOpen = MutableStateFlow(false)
+    /** Which Themes sheet tab to show when [themesOpen] becomes true. */
+    private val themesSheetTab = MutableStateFlow(ThemesSheetTab.Customize)
+    private val addShortcutOpen = MutableStateFlow(false)
+    private val pendingShortcutKind = MutableStateFlow<PendingShortcutKind?>(null)
+    private val pendingShortcutSpan = MutableStateFlow(ShortcutSpan.Default)
+    private val shortcutTargetPicker = MutableStateFlow<ShortcutTargetPickerUiState?>(null)
+    private val mediaPickerRequests = Channel<HomeMediaPickerRequest>(Channel.BUFFERED)
+    /** Observed from the primary Activity composition only — never under a Presentation. */
+    val mediaPickerRequestFlow: Flow<HomeMediaPickerRequest> = mediaPickerRequests.receiveAsFlow()
+
+    private val externalAuthRequests = Channel<HomeExternalAuthRequest>(Channel.BUFFERED)
+    /** Custom Tab / OAuth launches — Activity-rooted only (same hoist as media pickers). */
+    val externalAuthRequestFlow: Flow<HomeExternalAuthRequest> = externalAuthRequests.receiveAsFlow()
+
+    private val rssUi = MutableStateFlow(RssUiState())
+    private val resolvedPlayerName = MutableStateFlow<String?>(null)
+    private val isLaunching = MutableStateFlow(false)
+    private val accountPanelExpanded = MutableStateFlow(false)
+    private val accountPanelSelectedIndex = MutableStateFlow(0)
+    private val socialMenuTab = MutableStateFlow(SocialMenuTab.Discord)
+    private val steamFriendsUi = MutableStateFlow(SteamFriendsUiState())
+    private val discordSocialUi = MutableStateFlow(DiscordSocialUiState())
+    private val conversationsUi = MutableStateFlow(ConversationsUiState())
+    private val conversationReply = MutableStateFlow(ConversationReplyUiState())
+    private val circlePins = MutableStateFlow<List<CirclePin>>(emptyList())
+    private val managingCircle = MutableStateFlow(false)
+    private val friendSearchQuery = MutableStateFlow("")
+    private val profileEditRequest = MutableStateFlow(0)
+    private val systemPanelExpanded = MutableStateFlow(false)
+    private val systemPanelSelectedIndex = MutableStateFlow(0)
+    private val achievementsPanelExpanded = MutableStateFlow(false)
+    private val achievementsUi = MutableStateFlow(AchievementsUiState())
+    private val raLibraryUi = MutableStateFlow(RaLibraryUiState())
+    private var homePageBeforeRaLibrary: HomePage = HomePage.Home
+    private val guideOpen = MutableStateFlow(false)
+    private val guideSelectedIndex = MutableStateFlow(0)
+    private val startSettingsOpen = MutableStateFlow(false)
+    private val startSettingsCategory = MutableStateFlow(StartSettingsCategory.Display)
+    private val startSettingsRowIndex = MutableStateFlow(0)
+    private val raSettingsState = MutableStateFlow(RetroAchievementsSettings())
+    private val welcomeBackOpen = MutableStateFlow(false)
+    private val isScraping = MutableStateFlow(false)
+    private val lastInputAt = MutableStateFlow(SystemClock.elapsedRealtime())
+    /** False while Settings / options dialog own the shell, or the host asks to pause trailers. */
+    private val trailerGateAllowed = MutableStateFlow(true)
+    private val trailerPlayback = MutableStateFlow(HeroTrailerState())
+    private val insightUi = MutableStateFlow(GameInsightUiState())
+
+    /** ElapsedRealtime when the shell last paused; null until the first onPause. */
+    private var backgroundedAtElapsed: Long? = null
+    /** True when the last pause happened while the display was not interactive (screen off). */
+    private var pausedWhileScreenOff: Boolean = false
+    /**
+     * Process-start greeting candidate. Consumed on the first [onResumed] that can decide
+     * (onboarding complete → show; incomplete → skip without showing later for this cold start).
+     */
+    private var pendingColdStartWelcome: Boolean = true
+
+    /** Bumped to force a re-read of permission state, which is not observable. */
+    private val refreshTrigger = MutableStateFlow(0)
+
+    /**
+     * Which physical display currently shows the grid, and which shows the other pane. Supplied by
+     * the shell because display topology is a hosting concern, but needed here because a Confirm
+     * from the gamepad is handled entirely inside this ViewModel.
+     */
+    private var gridDisplayId: Int? = null
+    private var otherDisplayId: Int? = null
+
+    /** First Steam friends pull only seeds online ids (avoids a banner storm on open). */
+    private var steamOnlineSeeded = false
+    private val knownOnlineSteamIds = linkedSetOf<String>()
+    /** First RA recent-unlock poll only seeds ids so historical unlocks do not toast. */
+    private var raUnlockSeeded = false
+    private val knownRaUnlockKeys = linkedSetOf<String>()
+    private var libraryScanWasRunning = false
+
+    private val events = Channel<HomeEvent>(Channel.BUFFERED)
+    val eventFlow: Flow<HomeEvent> = events.receiveAsFlow()
+
+    /**
+     * Bottom sheets (scrape & library, Choose Emulator) are touch-first Material widgets, and
+     * [com.arcadia.shell.input.GamepadDispatcher] consumes controller keys during Activity key
+     * dispatch, so those sheets never receive D-pad focus or stick motion on their own. The shell
+     * flips [bottomSheetNavOpen] while one is showing and the sheet drives itself from
+     * [sheetNavActions] instead.
+     */
+    private val bottomSheetNavOpen = MutableStateFlow(false)
+
+    private val sheetNavActions = MutableSharedFlow<NavAction>(extraBufferCapacity = 32)
+    val sheetNavActionFlow: SharedFlow<NavAction> = sheetNavActions.asSharedFlow()
+
+    fun setBottomSheetNavOpen(open: Boolean) {
+        bottomSheetNavOpen.value = open
+    }
+
+    private val libraryFlow = combine(
+        libraryRepository.observeGames(),
+        libraryRepository.observePlatformSummaries(),
+        rootManager.observeRoots(),
+    ) { games, summaries, roots -> Triple(games, summaries, roots) }
+
+    private val transientFlow = combine(
+        resolvedPlayerName,
+        isLaunching,
+        refreshTrigger,
+    ) { playerName, launching, _ -> playerName to launching }
+
+    private val panelFlow = combine(
+        accountPanelExpanded,
+        systemPanelExpanded,
+        achievementsPanelExpanded,
+        preferences.profile,
+        achievementsUi,
+    ) { accountOpen, systemOpen, achievementsOpen, profile, achievements ->
+        PanelChrome(accountOpen, systemOpen, achievementsOpen, profile, achievements)
+    }
+
+    private val chromeFlow = combine(
+        preferences.settings,
+        scanner.progress,
+        selection,
+        transientFlow,
+        panelFlow,
+    ) { settings, progress, currentSelection, transient, panels ->
+        ChromeState(
+            settings = settings,
+            progress = progress,
+            selection = currentSelection,
+            resolvedPlayerName = transient.first,
+            isLaunching = transient.second,
+            accountPanelExpanded = panels.accountExpanded,
+            systemPanelExpanded = panels.systemExpanded,
+            achievementsPanelExpanded = panels.achievementsExpanded,
+            profile = panels.profile,
+            profileAvatarModel = resolveAvatarModel(
+                panels.profile,
+                panels.achievements.credentials.username.takeIf {
+                    panels.achievements.credentials.isConfigured
+                },
+            ),
+            achievements = panels.achievements,
+        )
+    }
+
+    private data class PanelChrome(
+        val accountExpanded: Boolean,
+        val systemExpanded: Boolean,
+        val achievementsExpanded: Boolean,
+        val profile: LocalProfile,
+        val achievements: AchievementsUiState,
+    )
+
+    private data class ChromeState(
+        val settings: ShellSettings,
+        val progress: ScanProgress,
+        val selection: Selection,
+        val resolvedPlayerName: String?,
+        val isLaunching: Boolean,
+        val accountPanelExpanded: Boolean,
+        val systemPanelExpanded: Boolean,
+        val achievementsPanelExpanded: Boolean,
+        val profile: LocalProfile,
+        val profileAvatarModel: String?,
+        val achievements: AchievementsUiState,
+    )
+
+    private val guideFlow = combine(
+        guideOpen,
+        guideSelectedIndex,
+        combine(startSettingsOpen, startSettingsCategory, startSettingsRowIndex) { open, category, row ->
+            Triple(open, category, row)
+        },
+        isScraping,
+        raSettingsState,
+    ) { open, index, start, scraping, ra ->
+        GuideAndStartChrome(
+            guideOpen = open,
+            guideSelectedIndex = index,
+            startSettingsOpen = start.first,
+            startSettingsCategory = start.second,
+            startSettingsRowIndex = start.third,
+            isScraping = scraping,
+            raSettings = ra,
+        )
+    }
+
+    private data class GuideAndStartChrome(
+        val guideOpen: Boolean,
+        val guideSelectedIndex: Int,
+        val startSettingsOpen: Boolean,
+        val startSettingsCategory: StartSettingsCategory,
+        val startSettingsRowIndex: Int,
+        val isScraping: Boolean,
+        val raSettings: RetroAchievementsSettings,
+    )
+
+    private val socialPartnersFlow = combine(
+        steamFriendsUi,
+        discordSocialUi,
+        conversationsUi,
+        conversationReply,
+        combine(circlePins, managingCircle, friendSearchQuery) { pins, managing, query ->
+            Triple(pins, managing, query)
+        },
+    ) { steam, discord, conversations, reply, circle ->
+        SocialPartners(
+            steam = steam,
+            discord = discord,
+            conversations = conversations,
+            reply = reply,
+            circlePins = circle.first,
+            managingCircle = circle.second,
+            friendSearchQuery = circle.third,
+        )
+    }
+
+    private data class SocialPartners(
+        val steam: SteamFriendsUiState,
+        val discord: DiscordSocialUiState,
+        val conversations: ConversationsUiState,
+        val reply: ConversationReplyUiState,
+        val circlePins: List<CirclePin>,
+        val managingCircle: Boolean,
+        val friendSearchQuery: String,
+    )
+
+    private val socialFlow = combine(
+        socialMenuTab,
+        socialPartnersFlow,
+        accountPanelSelectedIndex,
+        profileEditRequest,
+    ) { tab, partners, accountIndex, editRequest ->
+        SocialChrome(
+            tab = tab,
+            steam = partners.steam,
+            discord = partners.discord,
+            conversations = partners.conversations,
+            reply = partners.reply,
+            circlePins = partners.circlePins,
+            managingCircle = partners.managingCircle,
+            friendSearchQuery = partners.friendSearchQuery,
+            accountPanelSelectedIndex = accountIndex,
+            profileEditRequest = editRequest,
+        )
+    }
+
+    private data class SocialChrome(
+        val tab: SocialMenuTab,
+        val steam: SteamFriendsUiState,
+        val discord: DiscordSocialUiState,
+        val conversations: ConversationsUiState,
+        val reply: ConversationReplyUiState,
+        val circlePins: List<CirclePin>,
+        val managingCircle: Boolean,
+        val friendSearchQuery: String,
+        val accountPanelSelectedIndex: Int,
+        val profileEditRequest: Int,
+    )
+
+    private val overlayFlow = combine(
+        homePage,
+        rssUi,
+        raLibraryUi,
+        guideFlow,
+        socialFlow,
+    ) { page, rss, ra, guide, social ->
+        OverlayChrome(
+            homePage = page,
+            rss = rss,
+            raLibrary = ra,
+            guideOpen = guide.guideOpen,
+            guideSelectedIndex = guide.guideSelectedIndex,
+            startSettingsOpen = guide.startSettingsOpen,
+            startSettingsCategory = guide.startSettingsCategory,
+            startSettingsRowIndex = guide.startSettingsRowIndex,
+            isScraping = guide.isScraping,
+            raSettings = guide.raSettings,
+            social = social,
+        )
+    }
+
+    private val homeHubNavFlow = combine(
+        combine(
+            homeHubSection,
+            homeShard,
+            homeShortcutIndex,
+            homeShortcutsEditMode,
+        ) { section, shard, shortcutIndex, editMode ->
+            HomeHubNavCore(
+                section = section,
+                shard = shard,
+                shortcutIndex = shortcutIndex,
+                editMode = editMode,
+            )
+        },
+        combine(
+            shortcutGridColumns,
+            shortcutGridRows,
+            shortcutCustomizeChrome,
+        ) { columns, rows, chrome ->
+            HomeHubLayout(
+                columns = columns,
+                rows = rows,
+                customizeChrome = chrome,
+            )
+        },
+    ) { core, layout ->
+        HomeHubNav(
+            section = core.section,
+            shard = core.shard,
+            shortcutIndex = core.shortcutIndex,
+            editMode = core.editMode,
+            gridColumns = layout.columns,
+            gridRows = layout.rows,
+            customizeChrome = layout.customizeChrome,
+        )
+    }
+
+    private data class HomeHubNavCore(
+        val section: HomeHubSection,
+        val shard: HomeShard,
+        val shortcutIndex: Int,
+        val editMode: Boolean,
+    )
+
+    private data class HomeHubLayout(
+        val columns: Int,
+        val rows: Int,
+        val customizeChrome: ShortcutCustomizeChrome,
+    )
+
+    private data class HomeHubNav(
+        val section: HomeHubSection,
+        val shard: HomeShard,
+        val shortcutIndex: Int,
+        val editMode: Boolean,
+        val gridColumns: Int,
+        val gridRows: Int,
+        val customizeChrome: ShortcutCustomizeChrome,
+    )
+
+    private val addShortcutChromeFlow = combine(
+        addShortcutOpen,
+        shortcutTargetPicker,
+        pendingShortcutKind,
+        pendingShortcutSpan,
+    ) { open, picker, kind, span ->
+        AddShortcutChrome(
+            open = open,
+            targetPicker = picker,
+            pendingKind = kind,
+            pendingSpan = span,
+        )
+    }
+
+    private data class AddShortcutChrome(
+        val open: Boolean,
+        val targetPicker: ShortcutTargetPickerUiState?,
+        val pendingKind: PendingShortcutKind?,
+        val pendingSpan: ShortcutSpan,
+    )
+
+    private data class XoraNavChrome(
+        val categoryIndex: Int,
+        val itemIndex: Int,
+        val depth: XoraXmbDepth,
+        val drilledPlatformId: String?,
+    )
+
+    private val xoraNavFlow = combine(
+        xoraCategoryIndex,
+        xoraItemIndex,
+        xoraDepth,
+        xoraDrilledPlatformId,
+    ) { categoryIndex, itemIndex, depth, drilledPlatformId ->
+        XoraNavChrome(
+            categoryIndex = categoryIndex,
+            itemIndex = itemIndex,
+            depth = depth,
+            drilledPlatformId = drilledPlatformId,
+        )
+    }
+
+    private val homeThemeFlow = combine(
+        preferences.settings.map { it.homeWallpaperPath to it.customBgmPath },
+        homeShortcuts,
+        homeHubNavFlow,
+        addShortcutChromeFlow,
+        combine(
+            combine(themesOpen, themesSheetTab) { open, tab -> open to tab },
+            xoraNavFlow,
+        ) { themes, xora -> themes to xora },
+    ) { themePaths, shortcuts, nav, addChrome, themesAndXora ->
+        val themes = themesAndXora.first
+        HomeThemeChrome(
+            wallpaperPath = themePaths.first,
+            customBgmPath = themePaths.second,
+            shortcuts = shortcuts,
+            nav = nav,
+            addShortcutOpen = addChrome.open,
+            shortcutTargetPicker = addChrome.targetPicker,
+            pendingShortcutKind = addChrome.pendingKind,
+            pendingShortcutSpan = addChrome.pendingSpan,
+            themesOpen = themes.first,
+            themesSheetTab = themes.second,
+            xora = themesAndXora.second,
+        )
+    }
+
+    private data class HomeThemeChrome(
+        val wallpaperPath: String?,
+        val customBgmPath: String?,
+        val shortcuts: List<HomeShortcut>,
+        val nav: HomeHubNav,
+        val addShortcutOpen: Boolean,
+        val shortcutTargetPicker: ShortcutTargetPickerUiState?,
+        val pendingShortcutKind: PendingShortcutKind?,
+        val pendingShortcutSpan: ShortcutSpan,
+        val themesOpen: Boolean,
+        val themesSheetTab: ThemesSheetTab,
+        val xora: XoraNavChrome,
+    )
+
+    private data class OverlayChrome(
+        val homePage: HomePage,
+        val rss: RssUiState,
+        val raLibrary: RaLibraryUiState,
+        val guideOpen: Boolean,
+        val guideSelectedIndex: Int,
+        val startSettingsOpen: Boolean,
+        val startSettingsCategory: StartSettingsCategory,
+        val startSettingsRowIndex: Int,
+        val isScraping: Boolean,
+        val raSettings: RetroAchievementsSettings,
+        val social: SocialChrome,
+    )
+
+    private val libraryUiState: StateFlow<HomeUiState> = combine(
+        libraryFlow,
+        chromeFlow,
+        overlayFlow,
+        homeThemeFlow,
+        platformArtRepository.artByPlatformId,
+    ) { library, chrome, overlay, theme, platformArt ->
+        buildState(
+            allGames = library.first,
+            summaries = library.second,
+            roots = library.third,
+            chrome = chrome,
+            homePage = overlay.homePage,
+            rss = overlay.rss,
+            raLibrary = overlay.raLibrary,
+            guideOpen = overlay.guideOpen,
+            guideSelectedIndex = overlay.guideSelectedIndex,
+            startSettingsOpen = overlay.startSettingsOpen,
+            startSettingsCategory = overlay.startSettingsCategory,
+            startSettingsRowIndex = overlay.startSettingsRowIndex,
+            isScraping = overlay.isScraping,
+            raSettings = overlay.raSettings,
+            social = overlay.social,
+            theme = theme,
+            platformArtById = platformArt,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        // Eagerly, because navigation actions read uiState.value synchronously and must never
+        // observe a stale default while the UI is still attaching.
+        started = SharingStarted.Eagerly,
+        initialValue = HomeUiState(),
+    )
+
+    val uiState: StateFlow<HomeUiState> = combine(
+        libraryUiState,
+        trailerPlayback,
+        insightUi,
+        systemPanelSelectedIndex,
+        welcomeBackOpen,
+    ) { base, trailer, insight, systemIndex, welcomeBack ->
+        base.copy(
+            trailer = trailer,
+            insight = insight,
+            systemPanelSelectedIndex = systemIndex,
+            welcomeBackOpen = welcomeBack,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = HomeUiState(),
+    )
+
+    init {
+        refreshInstalledApps()
+        // Warm the feed in the background; Home must not wait on network at startup.
+        refreshRssFeed()
+        migrateTrailerPipeline()
+
+        scraperScheduler.isRunning()
+            .onEach { isScraping.value = it }
+            .launchIn(viewModelScope)
+
+        // Console product art for XMB All Games → system rows (ScreenScraper system media).
+        libraryRepository.observePlatformSummaries()
+            .map { summaries ->
+                summaries
+                    .filter { it.gameCount > 0 && it.platform.id != "android" }
+                    .map { it.platform.id }
+            }
+            .distinctUntilChanged()
+            .onEach { platformIds ->
+                runCatching { platformArtRepository.ensureArt(platformIds) }
+                    .onFailure { Log.w("HomeViewModel", "Platform art scrape failed", it) }
+            }
+            .launchIn(viewModelScope)
+
+        preferences.homeShortcuts
+            .onEach { homeShortcuts.value = it }
+            .launchIn(viewModelScope)
+
+        preferences.homeShortcutGridLayout
+            .onEach { layout ->
+                shortcutGridColumns.value = layout.columns
+                shortcutGridRows.value = layout.rows
+            }
+            .launchIn(viewModelScope)
+
+        preferences.retroAchievementsSettings
+            .onEach { raSettingsState.value = it }
+            .launchIn(viewModelScope)
+
+        gamepadDispatcher.actions
+            .onEach { action ->
+                noteUserActivity()
+                onNavAction(action)
+            }
+            .launchIn(viewModelScope)
+
+        observeIdleTrailer()
+
+        retroAchievements.credentials
+            .onEach { creds ->
+                achievementsUi.update {
+                    it.copy(credentials = creds, needsLogin = !creds.isConfigured && it.needsLogin)
+                }
+            }
+            .launchIn(viewModelScope)
+
+        preferences.steamWebApi
+            .onEach { creds ->
+                val previous = steamFriendsUi.value.credentials
+                steamFriendsUi.update {
+                    it.copy(
+                        credentials = creds,
+                        friends = if (creds.isConfigured) it.friends else emptyList(),
+                        error = if (creds.isConfigured) it.error else null,
+                    )
+                }
+                if (creds != previous && creds.isConfigured && accountPanelExpanded.value) {
+                    refreshSteamFriends()
+                }
+                conversationsUi.update { enrichSteamHints(it, steamFriendsUi.value) }
+            }
+            .launchIn(viewModelScope)
+
+        preferences.discordSocial
+            .onEach { settings ->
+                discordSocialUi.update {
+                    it.copy(settings = settings, presence = discordRichPresence.state.value)
+                }
+            }
+            .launchIn(viewModelScope)
+
+        discordRichPresence.state
+            .onEach { presence ->
+                discordSocialUi.update { it.copy(presence = presence) }
+            }
+            .launchIn(viewModelScope)
+
+        // Track library browsing for Discord status bridge / future Social SDK presence.
+        uiState
+            .map { it.selectedGame }
+            .distinctUntilChangedBy { it?.id }
+            .onEach { game ->
+                if (!discordRichPresence.state.value.isConfigured) return@onEach
+                when {
+                    game == null -> discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
+                    else -> discordRichPresence.setActivity(
+                        DiscordPresenceActivity.Browsing(
+                            gameTitle = game.title,
+                            platformName = game.platform.displayName,
+                        ),
+                    )
+                }
+            }
+            .launchIn(viewModelScope)
+
+        preferences.circlePins
+            .onEach { pins -> circlePins.value = pins }
+            .launchIn(viewModelScope)
+
+        conversationRepository.state
+            .onEach { conversationsUi.value = enrichSteamHints(it, steamFriendsUi.value) }
+            .launchIn(viewModelScope)
+
+        // Re-check notification access when the social panel opens (permission changes off-process).
+        accountPanelExpanded
+            .onEach { open ->
+                if (open) conversationRepository.refreshListenerEnabled()
+                else conversationReply.value = ConversationReplyUiState()
+            }
+            .launchIn(viewModelScope)
+
+        // Resolving which emulator handles a game hits the database, so it is recomputed only when
+        // the selection actually lands on a different game. mapLatest cancels a lookup that is
+        // already in flight when the selection moves on, which is the common case while scrolling.
+        @OptIn(ExperimentalCoroutinesApi::class)
+        uiState
+            .map { it.selectedGame?.id }
+            .distinctUntilChanged()
+            .mapLatest { gameId ->
+                val game = gameId?.let { libraryRepository.findById(it) } ?: return@mapLatest null
+                if (game.isAndroidApp) "Open app" else launcher.resolvePlayer(game)?.name
+            }
+            .onEach { resolvedPlayerName.value = it }
+            .launchIn(viewModelScope)
+
+        observeGameInsights()
+
+        @OptIn(ExperimentalCoroutinesApi::class)
+        combine(
+            achievementsPanelExpanded,
+            uiState.map { it.selectedGame?.id }.distinctUntilChanged(),
+            achievementsUi.map { it.tab }.distinctUntilChanged(),
+            retroAchievements.credentials,
+        ) { expanded, gameId, tab, creds ->
+            AchievementsLoadRequest(expanded, gameId, tab, creds.isConfigured)
+        }
+            .distinctUntilChanged()
+            .mapLatest { request ->
+                if (!request.expanded) {
+                    // mapLatest cancels an in-flight refresh when the panel closes; clear the
+                    // spinner so a cancelled load cannot leave the UI stuck forever.
+                    achievementsUi.update { it.copy(isLoading = false) }
+                    return@mapLatest
+                }
+                refreshAchievements(request.gameId, request.tab, request.signedIn)
+            }
+            .launchIn(viewModelScope)
+
+        observeShellNotifications()
+    }
+
+    private data class AchievementsLoadRequest(
+        val expanded: Boolean,
+        val gameId: String?,
+        val tab: AchievementsPaneTab,
+        val signedIn: Boolean,
+    )
+
+    /**
+     * Poll RA unlocks, watch library scan as download/install stand-in, and seed Steam online
+     * diffs after friend refreshes. Discord friend-online + chat banners emit from launcher.
+     */
+    private fun observeShellNotifications() {
+        viewModelScope.launch {
+            while (isActive) {
+                pollRetroAchievementUnlocks()
+                delay(RA_UNLOCK_POLL_MS)
+            }
+        }
+
+        scanner.progress
+            .onEach { progress -> emitLibraryScanBanners(progress) }
+            .launchIn(viewModelScope)
+    }
+
+    private suspend fun pollRetroAchievementUnlocks() {
+        val raPrefs = preferences.retroAchievementsSettings.first()
+        if (!raPrefs.enabled || !raPrefs.unlockNotifications) return
+        val creds = retroAchievements.credentials.first()
+        if (!creds.isConfigured) return
+        val recent = retroAchievements.fetchRecentUnlocks().getOrElse { return }
+        emitNewRaUnlockBanners(recent)
+    }
+
+    private fun emitNewRaUnlockBanners(recent: List<RaRecentUnlock>) {
+        if (!raUnlockSeeded) {
+            knownRaUnlockKeys.clear()
+            knownRaUnlockKeys.addAll(recent.map { raUnlockKey(it) })
+            raUnlockSeeded = true
+            return
+        }
+        // API returns newest-first; emit oldest-first so the queue reads chronologically.
+        val fresh = recent
+            .filter { raUnlockKey(it) !in knownRaUnlockKeys }
+            .asReversed()
+        for (unlock in fresh) {
+            val key = raUnlockKey(unlock)
+            knownRaUnlockKeys.add(key)
+            shellNotifications.emit(
+                ShellNotification.AchievementUnlocked(
+                    id = "ra:$key",
+                    title = unlock.title,
+                    description = unlock.description.takeIf { it.isNotBlank() },
+                    points = unlock.points.takeIf { it > 0 },
+                    badgeUrl = unlock.badgeUrl,
+                    gameTitle = unlock.gameTitle.takeIf { it.isNotBlank() },
+                    hardcore = unlock.hardcore,
+                ),
+            )
+        }
+        if (knownRaUnlockKeys.size > 200) {
+            val keep = recent.map { raUnlockKey(it) }.toSet()
+            knownRaUnlockKeys.retainAll(keep)
+        }
+    }
+
+    private fun raUnlockKey(unlock: RaRecentUnlock): String =
+        "${unlock.achievementId}|${unlock.date}|${unlock.hardcore}"
+
+    private fun emitLibraryScanBanners(progress: ScanProgress) {
+        if (progress.isRunning && !libraryScanWasRunning) {
+            libraryScanWasRunning = true
+            shellNotifications.emit(
+                ShellNotification.GameDownloading(
+                    id = "scan-start:${SystemClock.elapsedRealtime()}",
+                    title = "Scanning library",
+                    progressLabel = progress.currentRoot?.let { "Scanning $it…" } ?: "Looking for games…",
+                ),
+            )
+        }
+        if (!progress.isRunning && libraryScanWasRunning) {
+            libraryScanWasRunning = false
+            if (progress.error != null) return
+            shellNotifications.emit(
+                ShellNotification.InstallComplete(
+                    id = "scan-done:${progress.finishedAt ?: SystemClock.elapsedRealtime()}",
+                    title = "Library ready",
+                    subtitle = when {
+                        progress.gamesFound <= 0 -> "Scan finished"
+                        progress.gamesFound == 1 -> "1 game found"
+                        else -> "${progress.gamesFound} games found"
+                    },
+                ),
+            )
+        }
+    }
+
+    private fun emitSteamFriendOnlineBanners(friends: List<SteamFriendEntry>) {
+        val onlineNow = friends.filter { it.presence != SocialPresence.Offline }
+        val onlineIds = onlineNow.map { it.steamId }.toSet()
+        if (!steamOnlineSeeded) {
+            knownOnlineSteamIds.clear()
+            knownOnlineSteamIds.addAll(onlineIds)
+            steamOnlineSeeded = true
+            return
+        }
+        for (friend in onlineNow) {
+            if (friend.steamId in knownOnlineSteamIds) continue
+            knownOnlineSteamIds.add(friend.steamId)
+            shellNotifications.emit(
+                ShellNotification.FriendOnline(
+                    id = "steam-online:${friend.steamId}:${SystemClock.elapsedRealtime()}",
+                    displayName = friend.displayName.ifBlank { "Steam friend" },
+                    network = FriendNetwork.Steam,
+                    avatarUrl = friend.avatarUrl,
+                    activityLabel = friend.currentGame,
+                ),
+            )
+        }
+        knownOnlineSteamIds.retainAll(onlineIds)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun observeGameInsights() {
+        libraryUiState
+            .map { it.selectedGame }
+            .distinctUntilChanged { a, b -> a?.id == b?.id }
+            .mapLatest { game ->
+                if (game == null) {
+                    insightUi.value = GameInsightUiState()
+                    return@mapLatest
+                }
+                val cachedInsight = gameInsightRepository.cached(game.id)
+                val cachedShots = gameScreenshotRepository.cached(game.id)
+                if (cachedInsight != null && cachedShots != null) {
+                    insightUi.value = cachedInsight.toUiState(
+                        isLoading = false,
+                        screenshotPaths = cachedShots,
+                        screenshotsLoading = false,
+                    )
+                    return@mapLatest
+                }
+                insightUi.value = GameInsightUiState(
+                    gameId = game.id,
+                    isLoading = cachedInsight == null,
+                    platformLabel = game.platform.displayName,
+                    screenshotPaths = cachedShots.orEmpty().ifEmpty {
+                        listOfNotNull(game.heroImagePath)
+                    },
+                    screenshotsLoading = cachedShots == null,
+                    summary = cachedInsight?.summary,
+                    summarySourceLabel = when (cachedInsight?.summarySource) {
+                        InsightSource.Wikipedia -> "Wikipedia"
+                        InsightSource.Igdb -> "IGDB"
+                        InsightSource.Local -> "Library"
+                        InsightSource.Speedrun -> "Speedrun.com"
+                        null -> null
+                    },
+                    releaseYear = cachedInsight?.releaseYear,
+                    developer = cachedInsight?.developer,
+                    genre = cachedInsight?.genre,
+                    speedrunBlurb = cachedInsight?.speedrunBlurb,
+                    trivia = cachedInsight?.trivia.orEmpty(),
+                )
+                // Debounce while the user holds Left/Right through the strip.
+                delay(INSIGHT_DEBOUNCE_MS)
+                val credentials = preferences.credentials.first()
+                val (insight, screenshots) = coroutineScope {
+                    val insightDeferred = async {
+                        cachedInsight ?: runCatching {
+                            gameInsightRepository.insightFor(game, credentials)
+                        }.getOrElse {
+                            Log.w(TAG, "Insight lookup failed for ${game.title}", it)
+                            GameInsight(
+                                gameId = game.id,
+                                title = game.title,
+                                summary = "Part of your ${game.platform.displayName} library on XOrA.",
+                                summarySource = InsightSource.Local,
+                                platformLabel = game.platform.displayName,
+                                trivia = listOf(
+                                    "Part of your ${game.platform.displayName} library on XOrA.",
+                                ),
+                            )
+                        }
+                    }
+                    val screenshotsDeferred = async {
+                        cachedShots ?: runCatching {
+                            gameScreenshotRepository.screenshotsFor(game, credentials)
+                        }.getOrElse {
+                            Log.w(TAG, "Screenshot lookup failed for ${game.title}", it)
+                            listOfNotNull(game.heroImagePath)
+                        }
+                    }
+                    insightDeferred.await() to screenshotsDeferred.await()
+                }
+                // Drop stale results if selection moved during the network wait.
+                if (libraryUiState.value.selectedGame?.id != game.id) return@mapLatest
+                insightUi.value = insight.toUiState(
+                    isLoading = false,
+                    screenshotPaths = screenshots,
+                    screenshotsLoading = false,
+                )
+            }
+            .launchIn(viewModelScope)
+    }
+
+    private fun GameInsight.toUiState(
+        isLoading: Boolean,
+        screenshotPaths: List<String> = emptyList(),
+        screenshotsLoading: Boolean = false,
+    ): GameInsightUiState = GameInsightUiState(
+        gameId = gameId,
+        isLoading = isLoading,
+        summary = summary,
+        summarySourceLabel = when (summarySource) {
+            InsightSource.Wikipedia -> "Wikipedia"
+            InsightSource.Igdb -> "IGDB"
+            InsightSource.Local -> "Library"
+            InsightSource.Speedrun -> "Speedrun.com"
+            null -> null
+        },
+        releaseYear = releaseYear,
+        developer = developer,
+        genre = genre,
+        platformLabel = platformLabel,
+        speedrunBlurb = speedrunBlurb,
+        trivia = trivia,
+        screenshotPaths = screenshotPaths,
+        screenshotsLoading = screenshotsLoading,
+    )
+
+    private fun buildState(
+        allGames: List<Game>,
+        summaries: List<PlatformSummary>,
+        roots: List<LibraryRoot>,
+        chrome: ChromeState,
+        homePage: HomePage,
+        rss: RssUiState,
+        raLibrary: RaLibraryUiState,
+        guideOpen: Boolean,
+        guideSelectedIndex: Int,
+        startSettingsOpen: Boolean,
+        startSettingsCategory: StartSettingsCategory,
+        startSettingsRowIndex: Int,
+        isScraping: Boolean,
+        raSettings: RetroAchievementsSettings,
+        social: SocialChrome,
+        theme: HomeThemeChrome,
+        platformArtById: Map<String, String> = emptyMap(),
+    ): HomeUiState {
+        val tabs = buildTabs(allGames, summaries)
+        val tabIndex = chrome.selection.tabIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
+        val games = gamesForTab(allGames, tabs.getOrNull(tabIndex))
+        val gameIndex = chrome.selection.gameIndex.coerceIn(0, (games.size - 1).coerceAtLeast(0))
+        val rssIndex = rss.selectedIndex.coerceIn(0, (rss.items.size - 1).coerceAtLeast(0))
+        val guideRows = buildGuideRows(
+            allGames = allGames,
+            raSignedIn = chrome.achievements.credentials.isConfigured,
+            steam = social.steam,
+        )
+        val guideIndex = guideSelectedIndex.coerceIn(0, (guideRows.size - 1).coerceAtLeast(0))
+        val startRows = buildStartSettingsRows(
+            category = startSettingsCategory,
+            settings = chrome.settings,
+            isScraping = isScraping,
+            isScanning = chrome.progress.isRunning,
+            hasCustomBgm = !theme.customBgmPath.isNullOrBlank(),
+            detectedResolutionLabel = detectedResolutionLabel(),
+            raSettings = raSettings,
+        )
+        val startRowIndex = startSettingsRowIndex.coerceIn(0, (startRows.size - 1).coerceAtLeast(0))
+        val quickLaunch = quickLaunchGames(allGames)
+        val continueGame = allGames
+            .filter { !it.isAndroidApp && it.lastPlayedAt != null }
+            .maxByOrNull { it.lastPlayedAt ?: 0L }
+        val favoriteGame = allGames
+            .filter { !it.isAndroidApp && it.favorite }
+            .maxByOrNull { it.lastPlayedAt ?: 0L }
+            ?: allGames.firstOrNull { !it.isAndroidApp && it.favorite }
+        val gamesSecondarySlot = when (chrome.settings.gamesSecondarySlot) {
+            "Favorite" -> GamesSecondarySlot.Favorite
+            else -> GamesSecondarySlot.Continue
+        }
+        val xoraCategory = XoraXmbCategory.entries.getOrElse(theme.xora.categoryIndex) {
+            XoraXmbCategory.Games
+        }
+        val xoraItems = when (theme.xora.depth) {
+            XoraXmbDepth.Category -> buildXoraCategoryItems(
+                category = xoraCategory,
+                profileName = chrome.resolvedPlayerName
+                    ?.takeIf { it.isNotBlank() }
+                    ?: chrome.profile.displayName,
+                gamesSecondarySlot = gamesSecondarySlot,
+                continueGame = continueGame,
+                favoriteGame = favoriteGame,
+            )
+            XoraXmbDepth.Systems -> buildXoraSystemItems(summaries, platformArtById)
+            XoraXmbDepth.Roms -> {
+                val platformId = theme.xora.drilledPlatformId
+                buildXoraRomItems(
+                    allGames.filter { !it.isAndroidApp && it.platformId == platformId },
+                )
+            }
+        }
+        val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
+        val xoraSelected = xoraItems.getOrNull(xoraItemIndex)
+        val xoraFocusGame = when (val action = xoraSelected?.action) {
+            is XoraXmbAction.LaunchGame -> allGames.find { it.id == action.gameId }
+            XoraXmbAction.LaunchContinueOrFavorite -> when (gamesSecondarySlot) {
+                GamesSecondarySlot.Continue -> continueGame
+                GamesSecondarySlot.Favorite -> favoriteGame
+            }
+            else -> null
+        }
+        val socialMenu = SocialMenuUiState(
+            tab = social.tab,
+            steam = social.steam,
+            discord = social.discord,
+            conversations = social.conversations,
+            reply = social.reply,
+            circlePins = social.circlePins,
+            managingCircle = social.managingCircle,
+            friendSearchQuery = social.friendSearchQuery,
+        )
+        val accountRows = buildAccountPanelRows(
+            tab = socialMenu.tab,
+            steam = socialMenu.steam,
+            discord = socialMenu.discord,
+            conversations = socialMenu.conversations,
+            reply = socialMenu.reply,
+            circlePins = socialMenu.circlePins,
+            managingCircle = socialMenu.managingCircle,
+            friendSearchQuery = socialMenu.friendSearchQuery,
+        )
+        val accountIndex = social.accountPanelSelectedIndex.coerceIn(
+            0,
+            (accountRows.size - 1).coerceAtLeast(0),
+        )
+        val raVisible = raLibrary.visibleGames
+        val raIndex = raLibrary.selectedIndex.coerceIn(0, (raVisible.size - 1).coerceAtLeast(0))
+        val shortcutCount = theme.shortcuts.size + if (theme.nav.editMode) 1 else 0
+        val shortcutIndex = theme.nav.shortcutIndex.coerceIn(0, (shortcutCount - 1).coerceAtLeast(0))
+
+        return HomeUiState(
+            isLoading = false,
+            homePage = homePage,
+            homeHub = HomeHubUiState(
+                section = theme.nav.section,
+                shard = theme.nav.shard,
+                shortcutIndex = shortcutIndex,
+                shortcutsEditMode = theme.nav.editMode,
+                customizeChrome = theme.nav.customizeChrome,
+                shortcutGridColumns = theme.nav.gridColumns,
+                shortcutGridRows = theme.nav.gridRows,
+                shortcuts = theme.shortcuts,
+                wallpaperPath = theme.wallpaperPath,
+                customBgmPath = theme.customBgmPath,
+                continueGame = continueGame,
+                themesOpen = theme.themesOpen,
+                themesSheetTab = theme.themesSheetTab,
+                addShortcutOpen = theme.addShortcutOpen,
+                pendingShortcutKind = theme.pendingShortcutKind,
+                pendingShortcutSpan = theme.pendingShortcutSpan,
+                shortcutTargetPicker = theme.shortcutTargetPicker,
+            ),
+            xoraXmb = XoraXmbUiState(
+                categoryIndex = theme.xora.categoryIndex.coerceIn(0, XoraXmbCategory.entries.lastIndex),
+                itemIndex = xoraItemIndex,
+                depth = theme.xora.depth,
+                drilledPlatformId = theme.xora.drilledPlatformId,
+                items = xoraItems,
+                gamesSecondarySlot = gamesSecondarySlot,
+                focusTitle = xoraSelected?.title ?: xoraCategory.label,
+                focusSubtitle = xoraSelected?.subtitle ?: xoraCategory.label,
+                focusGame = xoraFocusGame,
+            ),
+            tabs = tabs,
+            selectedTabIndex = tabIndex,
+            games = games,
+            selectedGameIndex = gameIndex,
+            displayMode = chrome.settings.displayMode,
+            gridColumns = chrome.settings.gridColumns.coerceIn(2, 6),
+            scanProgress = chrome.progress,
+            hasStorageAccess = storageAccess.hasAllFilesAccess,
+            configuredRootCount = roots.size,
+            platformSummaries = summaries,
+            resolvedPlayerName = chrome.resolvedPlayerName,
+            isLaunching = chrome.isLaunching,
+            profile = chrome.profile,
+            profileAvatarModel = chrome.profileAvatarModel,
+            accountPanelExpanded = chrome.accountPanelExpanded,
+            systemPanelExpanded = chrome.systemPanelExpanded,
+            achievementsPanelExpanded = chrome.achievementsPanelExpanded,
+            achievements = chrome.achievements,
+            rss = rss.copy(selectedIndex = rssIndex),
+            guide = GuideUiState(
+                open = guideOpen,
+                selectedIndex = guideIndex,
+                rows = guideRows,
+            ),
+            startSettings = StartSettingsUiState(
+                open = startSettingsOpen,
+                category = startSettingsCategory,
+                selectedRowIndex = startRowIndex,
+                rows = startRows,
+                settings = chrome.settings,
+                isScraping = isScraping,
+                isScanning = chrome.progress.isRunning,
+            ),
+            raLibrary = raLibrary.copy(selectedIndex = raIndex),
+            quickLaunchGames = quickLaunch,
+            socialMenu = socialMenu,
+            accountPanelRows = accountRows,
+            accountPanelSelectedIndex = accountIndex,
+            profileEditRequest = social.profileEditRequest,
+        )
+    }
+
+    private fun quickLaunchGames(allGames: List<Game>): List<Game> {
+        val recent = allGames
+            .filter { !it.isAndroidApp && it.lastPlayedAt != null }
+            .sortedByDescending { it.lastPlayedAt }
+            .take(GUIDE_QUICK_LAUNCH_RECENT)
+        val recentIds = recent.mapTo(mutableSetOf()) { it.id }
+        val favorites = allGames
+            .filter { !it.isAndroidApp && it.favorite && it.id !in recentIds }
+            .take(GUIDE_QUICK_LAUNCH_FAVORITES)
+        return recent + favorites
+    }
+
+    private fun buildAccountPanelRows(
+        tab: SocialMenuTab,
+        steam: SteamFriendsUiState,
+        discord: DiscordSocialUiState,
+        conversations: ConversationsUiState,
+        reply: ConversationReplyUiState,
+        circlePins: List<CirclePin>,
+        managingCircle: Boolean,
+        friendSearchQuery: String,
+    ): List<AccountPanelRow> {
+        val circleKeys = circlePins.mapTo(mutableSetOf()) { it.key }
+        val q = friendSearchQuery.trim()
+
+        return buildList {
+            // Header chrome: Manage + Circle slots are always focusable.
+            add(AccountPanelRow.ManageCircle)
+            repeat(CIRCLE_FRIEND_LIMIT) { slot ->
+                val pin = circlePins.getOrNull(slot)
+                if (pin != null) {
+                    add(AccountPanelRow.CircleMember(pin))
+                } else {
+                    add(AccountPanelRow.CircleEmptySlot(slot))
+                }
+            }
+
+            when (tab) {
+                SocialMenuTab.Discord -> {
+                    val needsLink = discord.presence.capability != DiscordPresenceCapability.Connected
+                    if (needsLink) {
+                        add(AccountPanelRow.DiscordConnect)
+                    }
+                    val friends = discord.friends.filter {
+                        q.isEmpty() || it.displayName.contains(q, ignoreCase = true)
+                    }
+                    if (managingCircle) {
+                        friends.forEach { friend ->
+                            val pin = CirclePin(CirclePinSource.Discord, friend.userId)
+                            if (pin.key in circleKeys) {
+                                add(AccountPanelRow.RemoveFromCircle(pin))
+                            } else {
+                                add(AccountPanelRow.AddToCircle(pin))
+                            }
+                        }
+                    } else {
+                        friends
+                            .filter { CirclePin(CirclePinSource.Discord, it.userId).key !in circleKeys }
+                            .forEach { add(AccountPanelRow.DiscordFriend(it.userId)) }
+                    }
+                }
+                SocialMenuTab.Steam -> {
+                    if (!steam.isConfigured) {
+                        add(AccountPanelRow.SteamConfigure)
+                    } else {
+                        val candidates = steam.friends.filter {
+                            q.isEmpty() ||
+                                it.displayName.contains(q, ignoreCase = true) ||
+                                (it.currentGame?.contains(q, ignoreCase = true) == true)
+                        }
+                        if (managingCircle) {
+                            candidates.forEach { friend ->
+                                val pin = CirclePin(CirclePinSource.Steam, friend.steamId)
+                                if (pin.key in circleKeys) {
+                                    add(AccountPanelRow.RemoveFromCircle(pin))
+                                } else {
+                                    add(AccountPanelRow.AddToCircle(pin))
+                                }
+                            }
+                        } else {
+                            candidates
+                                .filter {
+                                    CirclePin(CirclePinSource.Steam, it.steamId).key !in circleKeys
+                                }
+                                .forEach { add(AccountPanelRow.SteamFriend(it.steamId)) }
+                        }
+                    }
+                }
+                SocialMenuTab.Android -> {
+                    if (!conversations.listenerEnabled) {
+                        add(AccountPanelRow.EnableNotificationAccess)
+                    } else {
+                        if (reply.conversationKey != null) {
+                            add(AccountPanelRow.ConversationReplySend(reply.conversationKey))
+                        }
+                        conversations.conversations.forEach {
+                            add(AccountPanelRow.Conversation(it.key))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun buildGuideRows(
+        allGames: List<Game>,
+        raSignedIn: Boolean,
+        steam: SteamFriendsUiState,
+    ): List<GuideRow> = buildList {
+        add(GuideRow.Profile)
+
+        val recent = allGames
+            .filter { !it.isAndroidApp && it.lastPlayedAt != null }
+            .sortedByDescending { it.lastPlayedAt }
+            .take(GUIDE_QUICK_LAUNCH_RECENT)
+        val recentIds = recent.mapTo(mutableSetOf()) { it.id }
+        val favorites = allGames
+            .filter { !it.isAndroidApp && it.favorite && it.id !in recentIds }
+            .take(GUIDE_QUICK_LAUNCH_FAVORITES)
+        (recent + favorites).forEach { add(GuideRow.QuickLaunch(it)) }
+
+        steam.friends.forEach { friend ->
+            add(
+                GuideRow.Friend(
+                    id = friend.steamId,
+                    displayName = friend.displayName,
+                    online = friend.presence != SocialPresence.Offline,
+                    avatarUrl = friend.avatarUrl,
+                    profileUrl = friend.profileUrl,
+                    currentGame = friend.currentGame,
+                ),
+            )
+        }
+
+        add(GuideRow.Settings)
+        add(GuideRow.Achievements)
+        add(GuideRow.SwapScreens)
+        if (!raSignedIn) add(GuideRow.SignInRa)
+    }
+
+    private fun buildTabs(
+        allGames: List<Game>,
+        summaries: List<PlatformSummary>,
+    ): List<LibraryTab> = buildList {
+        val roms = allGames.filterNot { it.isAndroidApp }
+        val apps = allGames.filter { it.isAndroidApp }
+
+        add(LibraryTab("all", "All games", TabKind.All, gameCount = roms.size))
+
+        val favorites = allGames.count { it.favorite }
+        if (favorites > 0) {
+            add(LibraryTab("favorites", "Favourites", TabKind.Favorites, gameCount = favorites))
+        }
+
+        val played = allGames.count { it.lastPlayedAt != null }
+        if (played > 0) {
+            add(LibraryTab("recent", "Recent", TabKind.Recent, gameCount = played))
+        }
+
+        if (apps.isNotEmpty()) {
+            add(
+                LibraryTab(
+                    id = "apps",
+                    label = "Apps",
+                    kind = TabKind.Apps,
+                    platformId = GamePlatform.Android.id,
+                    gameCount = apps.size,
+                ),
+            )
+        }
+
+        // Summaries already exclude android (it is not in PlatformCatalog.platforms).
+        summaries.forEach { summary ->
+            add(
+                LibraryTab(
+                    id = "platform:${summary.platform.id}",
+                    label = summary.platform.displayName,
+                    kind = TabKind.Platform,
+                    platformId = summary.platform.id,
+                    gameCount = summary.gameCount,
+                ),
+            )
+        }
+    }
+
+    private fun gamesForTab(allGames: List<Game>, tab: LibraryTab?): List<Game> = when (tab?.kind) {
+        null, TabKind.All -> allGames.filterNot { it.isAndroidApp }
+        TabKind.Favorites -> allGames.filter { it.favorite }
+        TabKind.Recent -> allGames
+            .filter { it.lastPlayedAt != null }
+            .sortedByDescending { it.lastPlayedAt }
+        TabKind.Apps -> allGames.filter { it.isAndroidApp }
+        TabKind.Platform -> allGames.filter { it.platformId == tab.platformId }
+    }
+
+    /**
+     * Called by the shell when Settings, the options dialog, or another overlay should suppress
+     * idle trailers. Returning to Home re-enables the idle timer.
+     */
+    fun setTrailerGateAllowed(allowed: Boolean) {
+        trailerGateAllowed.value = allowed
+        if (!allowed) stopTrailer()
+    }
+
+    /** Touch / focus changes that are not NavActions still count as activity. */
+    fun noteUserActivity() {
+        lastInputAt.value = SystemClock.elapsedRealtime()
+        stopTrailer()
+    }
+
+    private fun stopTrailer() {
+        if (trailerPlayback.value.active || trailerPlayback.value.trailerUrl != null) {
+            trailerPlayback.value = HeroTrailerState(
+                displayMode = trailerPlayback.value.displayMode,
+            )
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun observeIdleTrailer() {
+        data class IdleWatch(
+            val gameId: String?,
+            val enabled: Boolean,
+            val mode: TrailerDisplayMode,
+            val idleSeconds: Int,
+            val gateAllowed: Boolean,
+            val launching: Boolean,
+            val panelsOpen: Boolean,
+            val libraryEmpty: Boolean,
+            val onGameSelector: Boolean,
+            val inputAt: Long,
+        )
+
+        combine(
+            libraryUiState.map { state ->
+                // Prefer the XMB-focused game (ROM list / Continue / Favorite).
+                val xmbBrowsingGame = state.homePage == HomePage.Home &&
+                    (
+                        state.xoraXmb.depth == XoraXmbDepth.Roms ||
+                            state.xoraXmb.selectedItem?.action is
+                                XoraXmbAction.LaunchContinueOrFavorite ||
+                            state.xoraXmb.selectedItem?.action is XoraXmbAction.LaunchGame
+                        )
+                val xmbGame = state.xoraXmb.focusGame?.takeIf { xmbBrowsingGame }
+                val game = xmbGame ?: state.selectedGame
+                IdleGameSnapshot(
+                    gameId = game?.id,
+                    isAndroidApp = game?.isAndroidApp == true,
+                    launching = state.isLaunching,
+                    panelsOpen = state.anyHeroPanelExpanded ||
+                        state.guideOpen ||
+                        state.startSettingsOpen ||
+                        state.welcomeBackOpen,
+                    libraryEmpty = state.needsSetup || game == null,
+                    onGameSelector = state.homePage == HomePage.GameSelector ||
+                        (xmbBrowsingGame && game != null),
+                )
+            }.distinctUntilChanged(),
+            preferences.settings.map { settings ->
+                Triple(settings.trailerEnabled, settings.trailerDisplayMode, settings.trailerIdleSeconds)
+            }.distinctUntilChanged(),
+            trailerGateAllowed,
+            lastInputAt,
+        ) { snap, trailerPrefs, gate, inputAt ->
+            IdleWatch(
+                gameId = snap.gameId,
+                enabled = trailerPrefs.first,
+                mode = trailerPrefs.second,
+                idleSeconds = trailerPrefs.third,
+                gateAllowed = gate,
+                launching = snap.launching,
+                panelsOpen = snap.panelsOpen,
+                libraryEmpty = snap.libraryEmpty || snap.isAndroidApp,
+                onGameSelector = snap.onGameSelector,
+                inputAt = inputAt,
+            )
+        }
+            .flatMapLatest { watch ->
+                flow {
+                    emit(HeroTrailerState(displayMode = watch.mode))
+                    val gameId = watch.gameId ?: return@flow
+                    val canIdle = watch.enabled &&
+                        watch.gateAllowed &&
+                        watch.onGameSelector &&
+                        !watch.launching &&
+                        !watch.panelsOpen &&
+                        !watch.libraryEmpty
+                    if (!canIdle) return@flow
+
+                    delay(watch.idleSeconds.coerceIn(5, 60) * 1_000L)
+                    Log.i(TAG, "Idle ${watch.idleSeconds}s elapsed; resolving trailer for $gameId")
+
+                    val trailerUrl = ensureTrailerUrl(gameId)
+                    if (trailerUrl == null) {
+                        Log.i(TAG, "No trailer URL for $gameId after idle")
+                        return@flow
+                    }
+                    // Bail if the user moved or the gate closed while we were resolving.
+                    if (lastInputAt.value != watch.inputAt) return@flow
+                    if (!trailerGateAllowed.value) return@flow
+                    val stillFocused =
+                        libraryUiState.value.xoraXmb.focusGame?.id == gameId ||
+                            libraryUiState.value.selectedGame?.id == gameId
+                    if (!stillFocused) return@flow
+                    if (libraryUiState.value.isLaunching) return@flow
+                    if (libraryUiState.value.anyHeroPanelExpanded) return@flow
+
+                    Log.i(TAG, "Starting trailer playback for $gameId mode=${watch.mode}")
+                    emit(
+                        HeroTrailerState(
+                            active = true,
+                            trailerUrl = trailerUrl,
+                            displayMode = watch.mode,
+                        ),
+                    )
+                }
+            }
+            .onEach { trailerPlayback.value = it }
+            .launchIn(viewModelScope)
+    }
+
+    private data class IdleGameSnapshot(
+        val gameId: String?,
+        val isAndroidApp: Boolean,
+        val launching: Boolean,
+        val panelsOpen: Boolean,
+        val libraryEmpty: Boolean,
+        val onGameSelector: Boolean,
+    )
+
+    private fun migrateTrailerPipeline() {
+        viewModelScope.launch {
+            if (!preferences.consumeTrailerPipelineMigration()) return@launch
+            val cleared = libraryRepository.clearNullTrailerResolutions()
+            Log.i(TAG, "Trailer pipeline v2: reopened $cleared null trailer lookups")
+        }
+    }
+
+    private suspend fun ensureTrailerUrl(gameId: String): String? {
+        val game = libraryRepository.findById(gameId) ?: return null
+        if (!game.trailerUrl.isNullOrBlank()) {
+            Log.i(TAG, "Using stored trailer for ${game.fileName}: ${game.trailerUrl}")
+            return game.trailerUrl
+        }
+        val settings = preferences.settings.first()
+        if (!settings.trailerScrapeEnabled) {
+            Log.i(TAG, "Trailer scrape disabled; no URL for ${game.fileName}")
+            return null
+        }
+        if (game.trailerResolved) {
+            Log.i(TAG, "Trailer already resolved empty for ${game.fileName}")
+            return null
+        }
+        val credentials = preferences.credentials.first()
+        val resolved = runCatching {
+            trailerResolver.resolve(
+                game = game,
+                credentials = credentials,
+                scrapeEnabled = true,
+                source = settings.trailerSourcePreference,
+            )
+        }
+            .onFailure { Log.e(TAG, "Trailer resolve failed for ${game.fileName}", it) }
+            .getOrNull()
+        libraryRepository.setTrailer(gameId, resolved)
+        Log.i(TAG, "Trailer resolve result for ${game.fileName}: $resolved")
+        return resolved
+    }
+
+    private fun onNavAction(action: NavAction) {
+        val state = uiState.value
+
+        // Welcome-back wake screen: B / Cancel skips early; other nav is swallowed.
+        if (state.welcomeBackOpen) {
+            if (action == NavAction.Cancel || action == NavAction.Confirm) {
+                dismissWelcomeBack()
+            }
+            return
+        }
+
+        // An open bottom sheet takes every action: it scrolls / moves itself, and the library
+        // underneath must not move behind it. Overlays are not allowed to stack on top either.
+        if (bottomSheetNavOpen.value) {
+            noteUserActivity()
+            sheetNavActions.tryEmit(action)
+            return
+        }
+
+        if (action == NavAction.ToggleGuide) {
+            if (startSettingsOpen.value) closeStartSettings()
+            toggleGuide()
+            return
+        }
+
+        // Start on XMB home focuses Settings; elsewhere toggles the quick-settings popup.
+        if (action == NavAction.Menu) {
+            if (state.guideOpen) closeGuide()
+            if (state.homePage == HomePage.Home && !state.startSettingsOpen) {
+                selectXoraCategory(XoraXmbCategory.Settings.ordinal)
+                return
+            }
+            toggleStartSettings()
+            return
+        }
+
+        // Start settings captures nav while open so the library underneath does not move.
+        if (state.startSettingsOpen) {
+            onStartSettingsNavAction(action)
+            return
+        }
+
+        // Guide captures all nav while open so the library underneath does not move.
+        if (state.guideOpen) {
+            onGuideNavAction(action)
+            return
+        }
+
+        // Expanded account panel captures U/D/A/B (LT still toggles via ToggleAccountPanel).
+        if (state.accountPanelExpanded) {
+            onAccountPanelNavAction(action)
+            return
+        }
+
+        // Expanded system panel captures U/D/A/B (RT still toggles via ToggleSystemPanel).
+        if (state.systemPanelExpanded) {
+            onSystemPanelNavAction(action)
+            return
+        }
+
+        // Add-shortcut overlay (type chooser or game/app target list) captures nav.
+        if (state.homeHub.addShortcutOpen) {
+            onAddShortcutNavAction(action, state)
+            return
+        }
+
+        // Themes overlay: B dismisses; other hub nav stays blocked while open.
+        if (state.homeHub.themesOpen) {
+            if (action == NavAction.Cancel) dismissThemesSheet()
+            return
+        }
+
+        // On XOrA XMB home, LB/RB cycle categories. Elsewhere they retain page jumps.
+        when (action) {
+            NavAction.PreviousPlatform -> {
+                if (state.homePage == HomePage.Home) {
+                    cycleXoraCategory(-1)
+                } else {
+                    setHomePage(HomePage.Home)
+                }
+                return
+            }
+            NavAction.NextPlatform -> {
+                if (state.homePage == HomePage.Home) {
+                    cycleXoraCategory(1)
+                } else {
+                    setHomePage(HomePage.Home)
+                }
+                return
+            }
+            else -> Unit
+        }
+
+        when (state.homePage) {
+            HomePage.Home -> onXoraXmbNavAction(action, state)
+            HomePage.GameSelector -> onGameSelectorNavAction(action, state)
+            HomePage.RssFeed -> onRssNavAction(action, state)
+            HomePage.RaLibrary -> onRaLibraryNavAction(action)
+        }
+    }
+
+    private fun onXoraXmbNavAction(action: NavAction, state: HomeUiState) {
+        val xmb = state.xoraXmb
+        when (action) {
+            NavAction.Left -> {
+                if (xmb.depth == XoraXmbDepth.Category) cycleXoraCategory(-1)
+            }
+            NavAction.Right -> {
+                if (xmb.depth == XoraXmbDepth.Category) cycleXoraCategory(1)
+            }
+            NavAction.Up -> moveXoraItem(-1)
+            NavAction.Down -> moveXoraItem(1)
+            NavAction.Confirm -> activateXoraSelection()
+            NavAction.Cancel -> drillOutXora()
+            NavAction.Options -> {
+                if (xmb.depth == XoraXmbDepth.Roms) {
+                    xmb.focusGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
+                        ?: state.selectedGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
+                }
+            }
+            NavAction.ScrapeMenu -> {
+                if (xmb.depth == XoraXmbDepth.Roms) {
+                    xmb.focusGame?.let { emit(HomeEvent.OpenScrapeMenu(it.id)) }
+                        ?: state.selectedGame?.let { emit(HomeEvent.OpenScrapeMenu(it.id)) }
+                }
+            }
+            NavAction.ToggleFavorite -> {
+                if (xmb.depth == XoraXmbDepth.Roms && xmb.focusGame != null) {
+                    focusGameInLibrary(xmb.focusGame)
+                    toggleFavorite()
+                }
+            }
+            NavAction.SwapScreens -> swapScreenRoles()
+            NavAction.ToggleAccountPanel -> toggleAccountPanel()
+            NavAction.ToggleSystemPanel -> toggleSystemPanel()
+            NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+            else -> Unit
+        }
+    }
+
+    fun selectXoraCategory(index: Int) {
+        noteUserActivity()
+        val coerced = index.coerceIn(0, XoraXmbCategory.entries.lastIndex)
+        if (xoraCategoryIndex.value == coerced &&
+            xoraDepth.value == XoraXmbDepth.Category
+        ) {
+            return
+        }
+        xoraCategoryIndex.value = coerced
+        xoraItemIndex.value = 0
+        xoraDepth.value = XoraXmbDepth.Category
+        xoraDrilledPlatformId.value = null
+    }
+
+    fun selectXoraItem(index: Int) {
+        noteUserActivity()
+        val items = uiState.value.xoraXmb.items
+        val last = (items.size - 1).coerceAtLeast(0)
+        val coerced = index.coerceIn(0, last)
+        xoraItemIndex.value = coerced
+        syncLibraryFromXoraItem(items.getOrNull(coerced))
+    }
+
+    fun activateXoraSelection() {
+        noteUserActivity()
+        val item = uiState.value.xoraXmb.selectedItem ?: return
+        when (val action = item.action) {
+            XoraXmbAction.OpenProfile -> {
+                if (!systemPanelExpanded.value) toggleSystemPanel()
+                profileEditRequest.update { it + 1 }
+            }
+            XoraXmbAction.GuestModeStub ->
+                emit(HomeEvent.ShowMessage("Guest Mode — coming soon."))
+            is XoraXmbAction.OpenSettingsCategory -> openStartSettings(action.category)
+            XoraXmbAction.OpenRaLibrary -> openRaLibrary()
+            XoraXmbAction.LaunchContinueOrFavorite -> launchContinueOrFavorite()
+            XoraXmbAction.DrillAllGames -> {
+                xoraDepth.value = XoraXmbDepth.Systems
+                xoraItemIndex.value = 0
+                xoraDrilledPlatformId.value = null
+            }
+            XoraXmbAction.PhotosStub ->
+                emit(HomeEvent.ShowMessage("Photos — coming soon."))
+            XoraXmbAction.VideosStub ->
+                emit(HomeEvent.ShowMessage("Videos — coming soon."))
+            XoraXmbAction.MusicNowPlayingStub ->
+                emit(HomeEvent.ShowMessage("Now Playing — coming soon."))
+            XoraXmbAction.MusicPlaylistStub ->
+                emit(HomeEvent.ShowMessage("Playlist — coming soon."))
+            XoraXmbAction.MusicAllStub ->
+                emit(HomeEvent.ShowMessage("Music library — coming soon."))
+            XoraXmbAction.MusicDspStub ->
+                emit(HomeEvent.ShowMessage("DSP Integration (Spotify & Apple Music) — coming soon."))
+            XoraXmbAction.OpenFriends -> {
+                if (!accountPanelExpanded.value) toggleAccountPanel()
+            }
+            XoraXmbAction.StoreStub ->
+                emit(HomeEvent.ShowMessage("XOrA Store — coming soon."))
+            XoraXmbAction.OpenNews -> setHomePage(HomePage.RssFeed)
+            is XoraXmbAction.DrillSystem -> {
+                xoraDrilledPlatformId.value = action.platformId
+                xoraDepth.value = XoraXmbDepth.Roms
+                xoraItemIndex.value = 0
+                viewModelScope.launch {
+                    libraryRepository.observeGames().first()
+                        .firstOrNull { !it.isAndroidApp && it.platformId == action.platformId }
+                        ?.let { focusGameInLibrary(it) }
+                }
+            }
+            is XoraXmbAction.LaunchGame -> {
+                val game = uiState.value.xoraXmb.focusGame ?: return
+                focusGameInLibrary(game)
+                launchGame(game)
+            }
+        }
+    }
+
+    private fun launchContinueOrFavorite() {
+        val state = uiState.value
+        val target = state.xoraXmb.focusGame
+        if (target == null) {
+            emit(
+                HomeEvent.ShowMessage(
+                    when (state.xoraXmb.gamesSecondarySlot) {
+                        GamesSecondarySlot.Continue ->
+                            "Browse your library to start playing."
+                        GamesSecondarySlot.Favorite ->
+                            "Pin a favourite game first."
+                    },
+                ),
+            )
+            return
+        }
+        focusGameInLibrary(target)
+        launchGame(target)
+    }
+
+    private fun drillOutXora() {
+        noteUserActivity()
+        when (xoraDepth.value) {
+            XoraXmbDepth.Roms -> {
+                xoraDepth.value = XoraXmbDepth.Systems
+                xoraItemIndex.value = 0
+                xoraDrilledPlatformId.value = null
+            }
+            XoraXmbDepth.Systems -> {
+                xoraDepth.value = XoraXmbDepth.Category
+                xoraItemIndex.value = 0
+                xoraDrilledPlatformId.value = null
+            }
+            XoraXmbDepth.Category -> {
+                if (uiState.value.anyHeroPanelExpanded) collapseHeroPanels()
+            }
+        }
+    }
+
+    private fun cycleXoraCategory(delta: Int) {
+        noteUserActivity()
+        val size = XoraXmbCategory.entries.size
+        val next = (xoraCategoryIndex.value + delta).mod(size)
+        xoraCategoryIndex.value = next
+        xoraItemIndex.value = 0
+        xoraDepth.value = XoraXmbDepth.Category
+        xoraDrilledPlatformId.value = null
+    }
+
+    private fun moveXoraItem(delta: Int) {
+        noteUserActivity()
+        val items = uiState.value.xoraXmb.items
+        if (items.isEmpty()) return
+        val next = (xoraItemIndex.value + delta).coerceIn(0, items.lastIndex)
+        xoraItemIndex.value = next
+        // Resolve from the item list — uiState.focusGame is still stale until combine emits.
+        syncLibraryFromXoraItem(items.getOrNull(next))
+    }
+
+    /** Keep library selection / trailers in sync with the XMB-focused game row. */
+    private fun syncLibraryFromXoraItem(item: XoraXmbItem?) {
+        when (val action = item?.action) {
+            is XoraXmbAction.LaunchGame -> viewModelScope.launch {
+                libraryRepository.observeGames().first()
+                    .find { it.id == action.gameId }
+                    ?.let { focusGameInLibrary(it) }
+            }
+            XoraXmbAction.LaunchContinueOrFavorite -> {
+                when (uiState.value.xoraXmb.gamesSecondarySlot) {
+                    GamesSecondarySlot.Continue ->
+                        uiState.value.homeHub.continueGame?.let { focusGameInLibrary(it) }
+                    GamesSecondarySlot.Favorite -> viewModelScope.launch {
+                        libraryRepository.observeGames().first()
+                            .filter { !it.isAndroidApp && it.favorite }
+                            .maxByOrNull { it.lastPlayedAt ?: 0L }
+                            ?.let { focusGameInLibrary(it) }
+                    }
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    private fun focusGameInLibrary(game: Game) {
+        viewModelScope.launch {
+            val all = libraryRepository.observeGames().first()
+            val summaries = libraryRepository.observePlatformSummaries().first()
+            val tabs = buildTabs(all, summaries)
+            val tabIndex = tabs.indexOfFirst { it.platformId == game.platformId }
+                .takeIf { it >= 0 }
+                ?: tabs.indexOfFirst { it.kind == TabKind.All }.coerceAtLeast(0)
+            val tabGames = gamesForTab(all, tabs.getOrNull(tabIndex))
+            val gameIndex = tabGames.indexOfFirst { it.id == game.id }.coerceAtLeast(0)
+            selection.value = Selection(tabIndex = tabIndex, gameIndex = gameIndex)
+        }
+    }
+
+    /** Legacy Smash hub nav — retained for shortcut customize overlays opened from Themes. */
+    private fun onHomeHubNavAction(action: NavAction, state: HomeUiState) {
+        val hub = state.homeHub
+        when (hub.section) {
+            HomeHubSection.ShardMenu -> when (action) {
+                NavAction.Left -> selectHomeShard(
+                    when (hub.shard) {
+                        HomeShard.RetroAchievements, HomeShard.Shop -> HomeShard.Continue
+                        HomeShard.Continue -> HomeShard.Continue
+                    },
+                )
+                NavAction.Right -> selectHomeShard(
+                    when (hub.shard) {
+                        HomeShard.Continue -> HomeShard.RetroAchievements
+                        else -> hub.shard
+                    },
+                )
+                NavAction.Up -> selectHomeShard(
+                    when (hub.shard) {
+                        HomeShard.Shop -> HomeShard.RetroAchievements
+                        else -> hub.shard
+                    },
+                )
+                NavAction.Down -> when (hub.shard) {
+                    HomeShard.RetroAchievements -> selectHomeShard(HomeShard.Shop)
+                    HomeShard.Continue, HomeShard.Shop -> {
+                        homeHubSection.value = HomeHubSection.Shortcuts
+                        homeShortcutIndex.value = 0
+                    }
+                }
+                NavAction.Confirm -> activateHomeShard(hub.shard)
+                NavAction.Cancel -> Unit
+                NavAction.Options -> openStartSettings(StartSettingsCategory.Themes)
+                NavAction.SwapScreens -> swapScreenRoles()
+                NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+                else -> Unit
+            }
+
+            HomeHubSection.Shortcuts -> onHomeShortcutsNavAction(action, hub)
+        }
+    }
+
+    private fun onHomeShortcutsNavAction(action: NavAction, hub: HomeHubUiState) {
+        if (hub.shortcutsEditMode) {
+            when (hub.customizeChrome) {
+                ShortcutCustomizeChrome.Columns, ShortcutCustomizeChrome.Rows -> when (action) {
+                    NavAction.Left -> adjustShortcutGridDimension(
+                        columnsDelta = if (hub.customizeChrome == ShortcutCustomizeChrome.Columns) -1 else 0,
+                        rowsDelta = if (hub.customizeChrome == ShortcutCustomizeChrome.Rows) -1 else 0,
+                    )
+                    NavAction.Right -> adjustShortcutGridDimension(
+                        columnsDelta = if (hub.customizeChrome == ShortcutCustomizeChrome.Columns) 1 else 0,
+                        rowsDelta = if (hub.customizeChrome == ShortcutCustomizeChrome.Rows) 1 else 0,
+                    )
+                    NavAction.Up -> {
+                        if (hub.customizeChrome == ShortcutCustomizeChrome.Rows) {
+                            shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Columns
+                        }
+                    }
+                    NavAction.Down -> {
+                        if (hub.customizeChrome == ShortcutCustomizeChrome.Columns) {
+                            shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Rows
+                        } else {
+                            shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
+                        }
+                    }
+                    NavAction.Confirm -> Unit
+                    NavAction.Cancel -> closeHomeShortcutsCustomize()
+                    NavAction.Options -> closeHomeShortcutsCustomize()
+                    NavAction.ScrapeMenu -> {
+                        // Stay on density chrome; Select already opened customize.
+                    }
+                    NavAction.SwapScreens -> swapScreenRoles()
+                    NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                    NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                    NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+                    else -> Unit
+                }
+                ShortcutCustomizeChrome.Tiles -> when (action) {
+                    NavAction.Left -> moveHomeShortcutSpatial(ShortcutNavDirection.Left)
+                    NavAction.Right -> moveHomeShortcutSpatial(ShortcutNavDirection.Right)
+                    NavAction.Up -> {
+                        val includeAdd = hub.shortcutsEditMode || hub.shortcuts.isEmpty()
+                        val placements = packShortcutPlacements(
+                            hub.shortcuts,
+                            includeAdd,
+                            columns = hub.shortcutGridColumns,
+                        )
+                        val current = placements.firstOrNull { it.index == hub.shortcutIndex }
+                        if (current != null && current.row == 0) {
+                            shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Rows
+                        } else {
+                            moveHomeShortcutSpatial(ShortcutNavDirection.Up)
+                        }
+                    }
+                    NavAction.Down -> moveHomeShortcutSpatial(ShortcutNavDirection.Down)
+                    NavAction.Confirm -> activateHomeShortcut()
+                    NavAction.Cancel -> closeHomeShortcutsCustomize()
+                    NavAction.Options -> closeHomeShortcutsCustomize()
+                    NavAction.ScrapeMenu -> cycleFocusedShortcutSpan()
+                    NavAction.SwapScreens -> swapScreenRoles()
+                    NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                    NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                    NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+                    else -> Unit
+                }
+            }
+            return
+        }
+
+        when (action) {
+            NavAction.Left -> moveHomeShortcutSpatial(ShortcutNavDirection.Left)
+            NavAction.Right -> moveHomeShortcutSpatial(ShortcutNavDirection.Right)
+            NavAction.Up -> {
+                val includeAdd = hub.shortcuts.isEmpty()
+                val placements = packShortcutPlacements(
+                    hub.shortcuts,
+                    includeAdd,
+                    columns = hub.shortcutGridColumns,
+                )
+                val current = placements.firstOrNull { it.index == hub.shortcutIndex }
+                if (current != null && current.row == 0) {
+                    homeHubSection.value = HomeHubSection.ShardMenu
+                } else {
+                    moveHomeShortcutSpatial(ShortcutNavDirection.Up)
+                }
+            }
+            NavAction.Down -> moveHomeShortcutSpatial(ShortcutNavDirection.Down)
+            NavAction.Confirm -> activateHomeShortcut()
+            NavAction.Cancel -> homeHubSection.value = HomeHubSection.ShardMenu
+            NavAction.Options -> openHomeShortcutsCustomize()
+            NavAction.ScrapeMenu -> openHomeShortcutsCustomize()
+            NavAction.SwapScreens -> swapScreenRoles()
+            NavAction.ToggleAccountPanel -> toggleAccountPanel()
+            NavAction.ToggleSystemPanel -> toggleSystemPanel()
+            NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+            else -> Unit
+        }
+    }
+
+    fun selectHomeShard(shard: HomeShard) {
+        noteUserActivity()
+        homeHubSection.value = HomeHubSection.ShardMenu
+        homeShard.value = shard
+    }
+
+    fun activateHomeShard(shard: HomeShard = homeShard.value) {
+        noteUserActivity()
+        homeShard.value = shard
+        when (shard) {
+            HomeShard.Continue -> {
+                val game = uiState.value.homeHub.continueGame
+                if (game != null) {
+                    launchGame(game)
+                } else {
+                    setHomePage(HomePage.GameSelector)
+                    emit(HomeEvent.ShowMessage("Browse your library to start playing."))
+                }
+            }
+            HomeShard.RetroAchievements -> openRaLibrary()
+            HomeShard.Shop -> emit(HomeEvent.ShowMessage("XOrA Store — coming soon."))
+        }
+    }
+
+    fun selectHomeShortcut(index: Int) {
+        noteUserActivity()
+        homeHubSection.value = HomeHubSection.Shortcuts
+        val hub = uiState.value.homeHub
+        val count = hub.shortcuts.size + if (hub.shortcutsEditMode || hub.shortcuts.isEmpty()) 1 else 0
+        homeShortcutIndex.value = index.coerceIn(0, (count - 1).coerceAtLeast(0))
+    }
+
+    fun activateHomeShortcut(index: Int? = null) {
+        noteUserActivity()
+        val hub = uiState.value.homeHub
+        if (index != null) selectHomeShortcut(index)
+        val i = homeShortcutIndex.value
+        val shortcuts = hub.shortcuts
+        val addSlot = hub.shortcutsEditMode || shortcuts.isEmpty()
+        if (addSlot && i >= shortcuts.size) {
+            openAddShortcutChooser()
+            return
+        }
+        val shortcut = shortcuts.getOrNull(i) ?: return
+        if (hub.shortcutsEditMode) {
+            removeHomeShortcut(shortcut.id)
+            return
+        }
+        openHomeShortcut(shortcut)
+    }
+
+    fun openAddShortcutChooser() {
+        noteUserActivity()
+        shortcutTargetPicker.value = null
+        pendingShortcutKind.value = null
+        pendingShortcutSpan.value = ShortcutSpan.Default
+        addShortcutOpen.value = true
+    }
+
+    fun dismissAddShortcutChooser() {
+        shortcutTargetPicker.value = null
+        pendingShortcutKind.value = null
+        pendingShortcutSpan.value = ShortcutSpan.Default
+        addShortcutOpen.value = false
+    }
+
+    fun beginShortcutSizeStep(kind: PendingShortcutKind) {
+        noteUserActivity()
+        pendingShortcutKind.value = kind
+        pendingShortcutSpan.value = ShortcutSpan.Default
+        shortcutTargetPicker.value = null
+        addShortcutOpen.value = true
+    }
+
+    fun selectPendingShortcutSpan(span: ShortcutSpan) {
+        noteUserActivity()
+        pendingShortcutSpan.value = span
+    }
+
+    fun cyclePendingShortcutSpan(delta: Int = 1) {
+        noteUserActivity()
+        val columns = shortcutGridColumns.value
+        val rows = shortcutGridRows.value
+        val allowed = ShortcutSpan.allowedFor(columns, rows)
+        if (allowed.isEmpty()) return
+        val current = pendingShortcutSpan.value.clampTo(columns, rows)
+        val idx = allowed.indexOf(current).coerceAtLeast(0)
+        val next = allowed[(idx + delta).mod(allowed.size)]
+        pendingShortcutSpan.value = next
+    }
+
+    fun confirmPendingShortcutSpan() {
+        val kind = pendingShortcutKind.value ?: return
+        noteUserActivity()
+        when (kind) {
+            PendingShortcutKind.LibraryGame -> openLibraryGameTargetPicker()
+            PendingShortcutKind.AndroidApp -> openAndroidAppTargetPicker()
+            PendingShortcutKind.Picture -> requestShortcutPicturePicker()
+            PendingShortcutKind.Gif -> requestShortcutGifPicker()
+        }
+    }
+
+    fun cancelPendingShortcutSpan() {
+        noteUserActivity()
+        pendingShortcutKind.value = null
+        pendingShortcutSpan.value = ShortcutSpan.Default
+    }
+
+    fun openThemesSheet(tab: ThemesSheetTab = ThemesSheetTab.Customize) {
+        noteUserActivity()
+        themesSheetTab.value = tab
+        // Always land on Home so dual-screen Grid/Hero roles and page content stay coherent while
+        // the Activity-hosted customize overlay is up.
+        homePage.value = HomePage.Home
+        themesOpen.value = true
+    }
+
+    fun dismissThemesSheet() {
+        themesOpen.value = false
+    }
+
+    fun selectShellTheme(themeId: String) {
+        noteUserActivity()
+        performStartSettingsAction(StartSettingsAction.SelectShellTheme(themeId))
+    }
+
+    fun notifyShopThemesComingSoon() {
+        noteUserActivity()
+        performStartSettingsAction(StartSettingsAction.ShopThemesComingSoon)
+    }
+
+    fun notifyThemeUploadComingSoon() {
+        noteUserActivity()
+        performStartSettingsAction(StartSettingsAction.UploadThemeToShopComingSoon)
+    }
+
+    fun requestShortcutPicturePicker() {
+        noteUserActivity()
+        shortcutTargetPicker.value = null
+        // Keep pending span; clear kind step UI by closing the sheet into the picker.
+        pendingShortcutKind.value = null
+        addShortcutOpen.value = false
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.ShortcutPicture) }
+        }
+    }
+
+    fun requestShortcutGifPicker() {
+        noteUserActivity()
+        shortcutTargetPicker.value = null
+        pendingShortcutKind.value = null
+        addShortcutOpen.value = false
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.ShortcutGif) }
+        }
+    }
+
+    fun requestWallpaperPicker() {
+        noteUserActivity()
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.Wallpaper) }
+        }
+    }
+
+    fun requestBgmPicker() {
+        noteUserActivity()
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.Bgm) }
+        }
+    }
+
+    fun requestProfileAvatarPicker() {
+        noteUserActivity()
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.ProfileAvatar) }
+        }
+    }
+
+    fun requestSteamOpenId() {
+        noteUserActivity()
+        viewModelScope.launch {
+            runCatching { externalAuthRequests.send(HomeExternalAuthRequest.SteamOpenId) }
+        }
+    }
+
+    fun applySteamOpenIdReturn(uri: android.net.Uri) {
+        if (!SteamOpenId.isReturnUri(uri)) return
+        val steamId = SteamOpenId.steamId64FromReturnUri(uri)
+        if (steamId.isNullOrBlank()) {
+            emit(HomeEvent.ShowError("Steam sign-in did not return a SteamID64."))
+            return
+        }
+        viewModelScope.launch {
+            preferences.setSteamId64(steamId)
+            emit(HomeEvent.ShowMessage("Steam ID saved. Paste a Web API key if needed."))
+        }
+    }
+
+    fun openShortcutEditorFromThemes() {
+        noteUserActivity()
+        themesOpen.value = false
+        openHomeShortcutsCustomize()
+    }
+
+    fun openHomeShortcutsCustomize() {
+        noteUserActivity()
+        homeHubSection.value = HomeHubSection.Shortcuts
+        homeShortcutsEditMode.value = true
+        shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Columns
+        homeShortcutIndex.value = homeShortcutIndex.value.coerceAtLeast(0)
+    }
+
+    fun closeHomeShortcutsCustomize() {
+        noteUserActivity()
+        homeShortcutsEditMode.value = false
+        shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
+    }
+
+    fun toggleHomeShortcutsEditMode() {
+        if (homeShortcutsEditMode.value) {
+            closeHomeShortcutsCustomize()
+        } else {
+            openHomeShortcutsCustomize()
+        }
+    }
+
+    fun focusShortcutCustomizeChrome(chrome: ShortcutCustomizeChrome) {
+        noteUserActivity()
+        if (!homeShortcutsEditMode.value) return
+        shortcutCustomizeChrome.value = chrome
+        if (chrome == ShortcutCustomizeChrome.Tiles) {
+            homeHubSection.value = HomeHubSection.Shortcuts
+        }
+    }
+
+    fun adjustShortcutGridColumns(delta: Int) {
+        adjustShortcutGridDimension(columnsDelta = delta, rowsDelta = 0)
+    }
+
+    fun adjustShortcutGridRows(delta: Int) {
+        adjustShortcutGridDimension(columnsDelta = 0, rowsDelta = delta)
+    }
+
+    private fun adjustShortcutGridDimension(columnsDelta: Int, rowsDelta: Int) {
+        noteUserActivity()
+        val nextColumns = (shortcutGridColumns.value + columnsDelta)
+            .coerceIn(MIN_HOME_SHORTCUT_GRID_COLUMNS, MAX_HOME_SHORTCUT_GRID_COLUMNS)
+        val nextRows = (shortcutGridRows.value + rowsDelta)
+            .coerceIn(MIN_HOME_SHORTCUT_GRID_ROWS, MAX_HOME_SHORTCUT_GRID_ROWS)
+        if (nextColumns == shortcutGridColumns.value && nextRows == shortcutGridRows.value) return
+        shortcutGridColumns.value = nextColumns
+        shortcutGridRows.value = nextRows
+        viewModelScope.launch {
+            preferences.setHomeShortcutGridLayout(nextColumns, nextRows)
+            clampHomeShortcutSpansToGrid(nextColumns, nextRows)
+        }
+    }
+
+    private suspend fun clampHomeShortcutSpansToGrid(columns: Int, rows: Int) {
+        val current = homeShortcuts.value
+        val next = current.map { item ->
+            val clamped = item.span.clampTo(columns, rows)
+            if (clamped == item.span) item else item.copy(span = clamped)
+        }
+        if (next == current) return
+        homeShortcuts.value = next
+        preferences.setHomeShortcuts(next)
+    }
+
+    private fun moveHomeShortcutSpatial(direction: ShortcutNavDirection) {
+        val hub = uiState.value.homeHub
+        val includeAdd = hub.shortcutsEditMode || hub.shortcuts.isEmpty()
+        val placements = packShortcutPlacements(
+            hub.shortcuts,
+            includeAdd,
+            columns = hub.shortcutGridColumns,
+        )
+        if (placements.isEmpty()) return
+        val next = findNeighborShortcutIndex(placements, hub.shortcutIndex, direction)
+        homeShortcutIndex.value = next
+        shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
+    }
+
+    fun cycleFocusedShortcutSpan(index: Int? = null) {
+        noteUserActivity()
+        val hub = uiState.value.homeHub
+        if (!hub.shortcutsEditMode) return
+        val i = index ?: homeShortcutIndex.value
+        val shortcut = hub.shortcuts.getOrNull(i) ?: return
+        val nextSpan = shortcut.span.nextFitting(hub.shortcutGridColumns, hub.shortcutGridRows)
+        viewModelScope.launch {
+            val next = homeShortcuts.value.map { item ->
+                if (item.id == shortcut.id) item.copy(span = nextSpan) else item
+            }
+            homeShortcuts.value = next
+            preferences.setHomeShortcuts(next)
+            emit(HomeEvent.ShowMessage("Size ${nextSpan.label}"))
+        }
+    }
+
+    private fun openHomeShortcut(shortcut: HomeShortcut) {
+        when (shortcut.kind) {
+            HomeShortcutKind.Game -> {
+                viewModelScope.launch {
+                    val match = libraryRepository.observeGames().first()
+                        .firstOrNull { it.id == shortcut.target }
+                    if (match != null) launchGame(match)
+                    else emit(HomeEvent.ShowError("That game is no longer in your library."))
+                }
+            }
+            HomeShortcutKind.AndroidApp -> {
+                viewModelScope.launch {
+                    val match = libraryRepository.observeGames().first()
+                        .firstOrNull { it.isAndroidApp && it.fileName == shortcut.target }
+                        ?: libraryRepository.observeGames().first()
+                            .firstOrNull { it.isAndroidApp && it.id.contains(shortcut.target) }
+                    if (match != null) {
+                        launchGame(match)
+                    } else {
+                        val launch = appContext.packageManager.getLaunchIntentForPackage(shortcut.target)
+                        if (launch != null) {
+                            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            runCatching { appContext.startActivity(launch) }
+                                .onFailure {
+                                    emit(HomeEvent.ShowError("Could not open ${shortcut.title}."))
+                                }
+                        } else {
+                            emit(HomeEvent.ShowError("App not installed: ${shortcut.title}"))
+                        }
+                    }
+                }
+            }
+            HomeShortcutKind.Picture, HomeShortcutKind.Gif -> {
+                val file = themeMediaStore.resolveShortcutArt(shortcut.target)
+                    ?: File(shortcut.target).takeIf { it.isFile && it.length() > 0L }
+                if (file == null) {
+                    emit(HomeEvent.ShowError("Media file missing."))
+                    return
+                }
+                val mime = if (shortcut.kind == HomeShortcutKind.Gif) "image/gif" else "image/*"
+                val contentUri = runCatching {
+                    FileProvider.getUriForFile(
+                        appContext,
+                        "${appContext.packageName}.files",
+                        file,
+                    )
+                }.getOrNull()
+                if (contentUri == null) {
+                    emit(HomeEvent.ShowMessage("Pinned: ${shortcut.title}"))
+                    return
+                }
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(contentUri, mime)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                runCatching { appContext.startActivity(intent) }
+                    .onFailure {
+                        emit(HomeEvent.ShowMessage("Pinned: ${shortcut.title}"))
+                    }
+            }
+        }
+    }
+
+    fun setHomeWallpaper(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = themeMediaStore.importWallpaper(uri)
+                preferences.setHomeWallpaperPath(path)
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import wallpaper."))
+            }
+        }
+    }
+
+    fun clearHomeWallpaper() {
+        viewModelScope.launch {
+            themeMediaStore.clearWallpaper()
+            preferences.setHomeWallpaperPath(null)
+        }
+    }
+
+    fun setCustomBgm(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = themeMediaStore.importBgm(uri)
+                preferences.setCustomBgmPath(path)
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import BGM."))
+            }
+        }
+    }
+
+    fun clearCustomBgm() {
+        viewModelScope.launch {
+            themeMediaStore.clearBgm()
+            preferences.setCustomBgmPath(null)
+        }
+    }
+
+    fun addShortcutPinRecentGame() {
+        beginShortcutSizeStep(PendingShortcutKind.LibraryGame)
+    }
+
+    fun addShortcutPinAndroidApp() {
+        beginShortcutSizeStep(PendingShortcutKind.AndroidApp)
+    }
+
+    fun addShortcutPinPicture() {
+        beginShortcutSizeStep(PendingShortcutKind.Picture)
+    }
+
+    fun addShortcutPinGif() {
+        beginShortcutSizeStep(PendingShortcutKind.Gif)
+    }
+
+    private fun openLibraryGameTargetPicker() {
+        viewModelScope.launch {
+            val games = libraryRepository.observeGames().first()
+                .filter { !it.isAndroidApp }
+                .sortedBy { it.title.lowercase() }
+            if (games.isEmpty()) {
+                emit(HomeEvent.ShowMessage("No library games to pin yet."))
+                pendingShortcutKind.value = null
+                return@launch
+            }
+            noteUserActivity()
+            pendingShortcutKind.value = null
+            shortcutTargetPicker.value = ShortcutTargetPickerUiState(
+                kind = ShortcutPinTargetKind.LibraryGame,
+                candidates = games,
+                selectedIndex = 0,
+            )
+            addShortcutOpen.value = true
+        }
+    }
+
+    private fun openAndroidAppTargetPicker() {
+        viewModelScope.launch {
+            val apps = libraryRepository.observeGames().first()
+                .filter { it.isAndroidApp }
+                .sortedBy { it.title.lowercase() }
+            if (apps.isEmpty()) {
+                emit(HomeEvent.ShowMessage("No Android apps synced yet. Open Settings to refresh."))
+                pendingShortcutKind.value = null
+                return@launch
+            }
+            noteUserActivity()
+            pendingShortcutKind.value = null
+            shortcutTargetPicker.value = ShortcutTargetPickerUiState(
+                kind = ShortcutPinTargetKind.AndroidApp,
+                candidates = apps,
+                selectedIndex = 0,
+            )
+            addShortcutOpen.value = true
+        }
+    }
+
+    fun selectShortcutTarget(index: Int) {
+        noteUserActivity()
+        shortcutTargetPicker.update { current ->
+            if (current == null || current.candidates.isEmpty()) return@update current
+            current.copy(
+                selectedIndex = index.coerceIn(0, current.candidates.lastIndex),
+            )
+        }
+    }
+
+    fun confirmShortcutTarget() {
+        val picker = shortcutTargetPicker.value ?: return
+        val game = picker.selected ?: return
+        val span = pendingShortcutSpan.value
+        noteUserActivity()
+        viewModelScope.launch {
+            when (picker.kind) {
+                ShortcutPinTargetKind.LibraryGame -> {
+                    appendShortcut(
+                        HomeShortcut(
+                            id = UUID.randomUUID().toString(),
+                            kind = HomeShortcutKind.Game,
+                            title = game.title,
+                            target = game.id,
+                            artPath = game.gridArt,
+                            span = span,
+                        ),
+                    )
+                }
+                ShortcutPinTargetKind.AndroidApp -> {
+                    appendShortcut(
+                        HomeShortcut(
+                            id = UUID.randomUUID().toString(),
+                            kind = HomeShortcutKind.AndroidApp,
+                            title = game.title,
+                            target = game.fileName,
+                            artPath = InstalledAppSync.iconPathFor(game.fileName),
+                            span = span,
+                        ),
+                    )
+                }
+            }
+            shortcutTargetPicker.value = null
+            pendingShortcutSpan.value = ShortcutSpan.Default
+            addShortcutOpen.value = false
+        }
+    }
+
+    /** B from the target list returns to the type chooser without pinning. */
+    fun cancelShortcutTargetPicker() {
+        noteUserActivity()
+        shortcutTargetPicker.value = null
+        pendingShortcutKind.value = null
+    }
+
+    private fun onAddShortcutNavAction(action: NavAction, state: HomeUiState) {
+        val picker = state.homeHub.shortcutTargetPicker
+        if (picker != null) {
+            when (action) {
+                NavAction.Up -> selectShortcutTarget(picker.selectedIndex - 1)
+                NavAction.Down -> selectShortcutTarget(picker.selectedIndex + 1)
+                NavAction.Confirm -> confirmShortcutTarget()
+                NavAction.Cancel -> cancelShortcutTargetPicker()
+                else -> Unit
+            }
+            return
+        }
+        if (state.homeHub.pendingShortcutKind != null) {
+            when (action) {
+                NavAction.Left -> cyclePendingShortcutSpan(-1)
+                NavAction.Right -> cyclePendingShortcutSpan(1)
+                NavAction.Confirm -> confirmPendingShortcutSpan()
+                NavAction.Cancel -> cancelPendingShortcutSpan()
+                else -> Unit
+            }
+            return
+        }
+        when (action) {
+            NavAction.Cancel -> dismissAddShortcutChooser()
+            else -> Unit
+        }
+    }
+
+    fun addShortcutFromMedia(uri: Uri, gif: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                val id = UUID.randomUUID().toString()
+                val path = themeMediaStore.importShortcutArt(uri, id)
+                val span = pendingShortcutSpan.value
+                appendShortcut(
+                    HomeShortcut(
+                        id = id,
+                        kind = if (gif) HomeShortcutKind.Gif else HomeShortcutKind.Picture,
+                        title = if (gif) "GIF" else "Picture",
+                        target = path,
+                        artPath = path,
+                        span = span,
+                    ),
+                )
+                shortcutTargetPicker.value = null
+                pendingShortcutSpan.value = ShortcutSpan.Default
+                pendingShortcutKind.value = null
+                addShortcutOpen.value = false
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import media."))
+            }
+        }
+    }
+
+    private suspend fun appendShortcut(shortcut: HomeShortcut) {
+        val columns = shortcutGridColumns.value
+        val rows = shortcutGridRows.value
+        val clamped = shortcut.copy(span = shortcut.span.clampTo(columns, rows))
+        val next = homeShortcuts.value + clamped
+        homeShortcuts.value = next
+        preferences.setHomeShortcuts(next)
+        homeShortcutsEditMode.value = true
+        shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
+        homeHubSection.value = HomeHubSection.Shortcuts
+        homeShortcutIndex.value = next.lastIndex
+    }
+
+    fun removeHomeShortcut(id: String) {
+        viewModelScope.launch {
+            val next = homeShortcuts.value.filterNot { it.id == id }
+            homeShortcuts.value = next
+            preferences.setHomeShortcuts(next)
+            homeShortcutIndex.update { it.coerceIn(0, (next.size).coerceAtLeast(0)) }
+        }
+    }
+
+    private fun onAccountPanelNavAction(action: NavAction) {
+        // Social menu owns the gamepad while open — absorb L/R and LB/RB (tabs); no page hops.
+        when (action) {
+            NavAction.Left, NavAction.PreviousPlatform -> {
+                clearConversationReply()
+                cycleSocialMenuTab(-1)
+            }
+            NavAction.Right, NavAction.NextPlatform -> {
+                clearConversationReply()
+                cycleSocialMenuTab(1)
+            }
+            NavAction.Up -> moveAccountPanelSelection(-1)
+            NavAction.Down -> moveAccountPanelSelection(1)
+            NavAction.Confirm -> activateAccountPanelSelection()
+            NavAction.Cancel -> {
+                if (conversationReply.value.conversationKey != null) {
+                    clearConversationReply()
+                } else {
+                    collapseHeroPanels()
+                }
+            }
+            NavAction.ToggleAccountPanel -> toggleAccountPanel()
+            NavAction.ToggleSystemPanel -> toggleSystemPanel()
+            else -> Unit
+        }
+    }
+
+    private fun onSystemPanelNavAction(action: NavAction) {
+        when (action) {
+            NavAction.Up -> moveSystemPanelSelection(-1)
+            NavAction.Down -> moveSystemPanelSelection(1)
+            NavAction.Confirm -> activateSystemPanelSelection()
+            NavAction.Cancel -> collapseHeroPanels()
+            NavAction.ToggleSystemPanel -> toggleSystemPanel()
+            NavAction.ToggleAccountPanel -> toggleAccountPanel()
+            else -> Unit
+        }
+    }
+
+    private fun moveSystemPanelSelection(delta: Int) {
+        val rows = currentSystemPanelRows()
+        val size = rows.size
+        if (size == 0) return
+        systemPanelSelectedIndex.update { current ->
+            (current + delta).coerceIn(0, size - 1)
+        }
+    }
+
+    fun selectSystemPanelRow(index: Int) {
+        noteUserActivity()
+        val last = (currentSystemPanelRows().size - 1).coerceAtLeast(0)
+        systemPanelSelectedIndex.value = index.coerceIn(0, last)
+    }
+
+    fun activateSystemPanelSelection(index: Int? = null) {
+        noteUserActivity()
+        val rows = currentSystemPanelRows()
+        if (rows.isEmpty()) return
+        val rowIndex = index ?: uiState.value.systemPanelSelectedIndex
+        if (index != null) {
+            systemPanelSelectedIndex.value = index.coerceIn(0, rows.lastIndex)
+        }
+        when (val row = rows.getOrNull(rowIndex)) {
+            SystemPanelRow.EditProfile -> profileEditRequest.update { it + 1 }
+            is SystemPanelRow.JumpBack -> {
+                val game = uiState.value.quickLaunchGames.firstOrNull { it.id == row.gameId } ?: return
+                collapseHeroPanels()
+                launchGame(game)
+            }
+            SystemPanelRow.Brightness -> openSystemSettings(Settings.ACTION_DISPLAY_SETTINGS)
+            SystemPanelRow.Wifi -> openSystemSettings(Settings.ACTION_WIFI_SETTINGS)
+            SystemPanelRow.Bluetooth -> openSystemSettings(Settings.ACTION_BLUETOOTH_SETTINGS)
+            SystemPanelRow.AllSettings -> openSystemSettings(Settings.ACTION_SETTINGS)
+            null -> Unit
+        }
+    }
+
+    private fun currentSystemPanelRows(): List<SystemPanelRow> {
+        val jumpIds = uiState.value.quickLaunchGames.take(3).map { it.id }
+        return buildSystemPanelRows(jumpIds)
+    }
+
+    private fun openSystemSettings(action: String) {
+        val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { appContext.startActivity(intent) }
+            .onFailure { emit(HomeEvent.ShowError("Could not open system settings.")) }
+    }
+
+    fun selectSocialMenuTab(tab: SocialMenuTab) {
+        noteUserActivity()
+        if (socialMenuTab.value == tab) return
+        clearConversationReply()
+        socialMenuTab.value = tab
+        accountPanelSelectedIndex.value = 0
+        conversationRepository.refreshListenerEnabled()
+        // Reuse the shared Steam friends cache; only refetch when empty or last load failed.
+        if (tab == SocialMenuTab.Steam) {
+            val steam = steamFriendsUi.value
+            if (steam.isConfigured && !steam.isLoading && (steam.friends.isEmpty() || steam.error != null)) {
+                refreshSteamFriends()
+            }
+        }
+    }
+
+    private fun cycleSocialMenuTab(delta: Int) {
+        val tabs = SocialMenuTab.entries
+        val current = tabs.indexOf(socialMenuTab.value).coerceAtLeast(0)
+        val next = ((current + delta) % tabs.size + tabs.size) % tabs.size
+        selectSocialMenuTab(tabs[next])
+    }
+
+    private fun moveAccountPanelSelection(delta: Int) {
+        val size = uiState.value.accountPanelRows.size
+        if (size == 0) return
+        accountPanelSelectedIndex.update { current ->
+            (current + delta).coerceIn(0, size - 1)
+        }
+    }
+
+    fun selectAccountPanelRow(index: Int) {
+        noteUserActivity()
+        val size = uiState.value.accountPanelRows.size
+        if (size == 0) return
+        accountPanelSelectedIndex.value = index.coerceIn(0, size - 1)
+    }
+
+    fun activateAccountPanelSelection(index: Int? = null) {
+        val state = uiState.value
+        val rowIndex = index ?: state.accountPanelSelectedIndex
+        if (index != null) {
+            accountPanelSelectedIndex.value =
+                index.coerceIn(0, (state.accountPanelRows.size - 1).coerceAtLeast(0))
+        }
+        val row = state.accountPanelRows.getOrNull(rowIndex) ?: return
+        when (row) {
+            AccountPanelRow.ManageCircle -> {
+                managingCircle.update { !it }
+                accountPanelSelectedIndex.value = 0
+            }
+            is AccountPanelRow.CircleEmptySlot -> {
+                managingCircle.value = true
+                emit(HomeEvent.ShowMessage("Pick a friend to add to Your Circle."))
+            }
+            is AccountPanelRow.CircleMember -> {
+                if (managingCircle.value) {
+                    viewModelScope.launch { preferences.removeCirclePin(row.pin) }
+                } else {
+                    openCircleMemberConversation(row.pin, state.socialMenu)
+                }
+            }
+            is AccountPanelRow.AddToCircle -> {
+                viewModelScope.launch {
+                    if (circlePins.value.size >= CIRCLE_FRIEND_LIMIT) {
+                        emit(
+                            HomeEvent.ShowMessage(
+                                "Circle is full ($CIRCLE_FRIEND_LIMIT/$CIRCLE_FRIEND_LIMIT). Remove someone first.",
+                            ),
+                        )
+                    } else {
+                        preferences.addCirclePin(row.pin)
+                    }
+                }
+            }
+            is AccountPanelRow.RemoveFromCircle -> {
+                viewModelScope.launch { preferences.removeCirclePin(row.pin) }
+            }
+            AccountPanelRow.SteamConfigure -> {
+                collapseHeroPanels()
+                emit(HomeEvent.OpenSettings)
+            }
+            AccountPanelRow.EnableNotificationAccess -> openNotificationListenerSettings()
+            is AccountPanelRow.Conversation -> activateConversation(row.key)
+            is AccountPanelRow.ConversationReplySend -> sendConversationReply(row.conversationKey)
+            is AccountPanelRow.SteamFriend -> {
+                if (managingCircle.value) {
+                    viewModelScope.launch {
+                        preferences.addCirclePin(CirclePin(CirclePinSource.Steam, row.steamId))
+                    }
+                } else {
+                    openSteamFriendConversation(row.steamId, state.socialMenu)
+                }
+            }
+            is AccountPanelRow.DiscordFriend -> {
+                if (managingCircle.value) {
+                    viewModelScope.launch {
+                        preferences.addCirclePin(CirclePin(CirclePinSource.Discord, row.userId))
+                    }
+                } else {
+                    openDiscordFriendConversation(row.userId, state.socialMenu)
+                }
+            }
+            AccountPanelRow.DiscordConnect -> {
+                collapseHeroPanels()
+                val capability = discordRichPresence.state.value.capability
+                when (capability) {
+                    DiscordPresenceCapability.NeedsAccountLink,
+                    DiscordPresenceCapability.NeedsDiscordApp,
+                    DiscordPresenceCapability.Connected,
+                    DiscordPresenceCapability.Failed,
+                    -> emit(HomeEvent.LinkDiscordAccount)
+                    DiscordPresenceCapability.SdkMissing,
+                    DiscordPresenceCapability.NotConfigured,
+                    -> emit(HomeEvent.OpenSettings)
+                }
+            }
+            AccountPanelRow.DiscordOpenApp -> openDiscord()
+        }
+    }
+
+    fun updateFriendSearchQuery(query: String) {
+        noteUserActivity()
+        friendSearchQuery.value = query
+    }
+
+    fun updateConversationReplyDraft(draft: String) {
+        noteUserActivity()
+        conversationReply.update { current ->
+            if (current.conversationKey == null) current else current.copy(draft = draft)
+        }
+    }
+
+    private fun clearConversationReply() {
+        conversationReply.value = ConversationReplyUiState()
+    }
+
+    private fun activateConversation(key: String) {
+        val state = uiState.value
+        val convo = state.socialMenu.conversation(key) ?: return
+        val canReply = convo.canReply && conversationRepository.canReplyNow(key)
+        if (canReply) {
+            val replyState = ConversationReplyUiState(conversationKey = key, draft = "")
+            conversationReply.value = replyState
+            val rows = buildAccountPanelRows(
+                tab = socialMenuTab.value,
+                steam = steamFriendsUi.value,
+                discord = discordSocialUi.value,
+                conversations = conversationsUi.value,
+                reply = replyState,
+                circlePins = circlePins.value,
+                managingCircle = managingCircle.value,
+                friendSearchQuery = friendSearchQuery.value,
+            )
+            val sendIndex = rows.indexOfFirst {
+                it is AccountPanelRow.ConversationReplySend && it.conversationKey == key
+            }
+            if (sendIndex >= 0) {
+                accountPanelSelectedIndex.value = sendIndex
+            }
+            emit(HomeEvent.ShowMessage("Type a reply, then press A on Send."))
+            return
+        }
+        openConversationTarget(convo, state.socialMenu.steam)
+    }
+
+    private fun sendConversationReply(key: String) {
+        val draft = conversationReply.value.draft
+        if (draft.isBlank()) {
+            emit(HomeEvent.ShowMessage("Enter a reply first."))
+            return
+        }
+        if (conversationRepository.reply(key, draft)) {
+            clearConversationReply()
+            emit(HomeEvent.ShowMessage("Reply sent."))
+            return
+        }
+        val convo = uiState.value.socialMenu.conversation(key)
+        clearConversationReply()
+        if (convo != null) {
+            openConversationTarget(convo, uiState.value.socialMenu.steam)
+            emit(HomeEvent.ShowMessage("Reply unavailable — opened ${convo.appLabel}."))
+        } else {
+            emit(HomeEvent.ShowError("Could not send reply."))
+        }
+    }
+
+    private fun openConversationTarget(
+        convo: NotificationConversation,
+        steam: SteamFriendsUiState,
+    ) {
+        if (convo.source == ConversationSource.Steam) {
+            val steamId = convo.steamIdHint
+                ?: steam.friends.firstOrNull {
+                    it.displayName.equals(convo.title, ignoreCase = true)
+                }?.steamId
+            if (!steamId.isNullOrBlank()) {
+                if (openExternalUrl("steam://friends/message/$steamId")) return
+                if (openExternalUrl("https://steamcommunity.com/profiles/$steamId")) return
+            }
+        }
+        if (convo.source == ConversationSource.Discord) {
+            if (conversationRepository.openApp(convo.packageName)) return
+            if (openExternalUrl("discord://")) return
+            if (openExternalUrl("https://discord.com/channels/@me")) return
+        }
+        if (conversationRepository.openApp(convo.packageName)) return
+        emit(HomeEvent.ShowError("Could not open ${convo.appLabel}."))
+    }
+
+    private fun openCircleMemberConversation(pin: CirclePin, social: SocialMenuUiState) {
+        when (pin.source) {
+            CirclePinSource.Steam -> openSteamFriendConversation(pin.id, social)
+            CirclePinSource.Discord -> openDiscordFriendConversation(pin.id, social)
+        }
+    }
+
+    private fun openSteamFriendConversation(steamId: String, social: SocialMenuUiState) {
+        val friend = social.steam.friends.firstOrNull { it.steamId == steamId }
+        val matchingConvo = social.conversations.steamConversations.firstOrNull { convo ->
+            convo.steamIdHint == steamId ||
+                (friend != null && convo.title.equals(friend.displayName, ignoreCase = true))
+        }
+        if (matchingConvo != null) {
+            activateConversation(matchingConvo.key)
+            return
+        }
+        if (openExternalUrl("steam://friends/message/$steamId")) return
+        val profile = friend?.profileUrl ?: "https://steamcommunity.com/profiles/$steamId"
+        if (openExternalUrl(profile)) return
+        emit(HomeEvent.ShowError("Could not open Steam chat."))
+    }
+
+    private fun openDiscordFriendConversation(userId: String, social: SocialMenuUiState) {
+        val friend = social.discord.friends.firstOrNull { it.userId == userId }
+        val matchingConvo = social.conversations.discordConversations.firstOrNull { convo ->
+            friend != null && convo.title.equals(friend.displayName, ignoreCase = true)
+        }
+        if (matchingConvo != null) {
+            activateConversation(matchingConvo.key)
+            return
+        }
+        // No Social SDK DM API exposed — open Discord user profile / app as best effort.
+        if (openExternalUrl("discord://discord.com/users/$userId")) return
+        if (openExternalUrl("https://discord.com/users/$userId")) return
+        if (openExternalUrl("discord://")) return
+        emit(HomeEvent.ShowError("Could not open Discord conversation."))
+    }
+
+    private fun openNotificationListenerSettings() {
+        conversationRepository.refreshListenerEnabled()
+        val intent = conversationRepository.notificationListenerSettingsIntent()
+        runCatching { appContext.startActivity(intent) }
+            .onFailure {
+                emit(HomeEvent.ShowError("Could not open notification access settings."))
+            }
+    }
+
+    private fun enrichSteamHints(
+        state: ConversationsUiState,
+        steam: SteamFriendsUiState,
+    ): ConversationsUiState {
+        if (steam.friends.isEmpty()) return state
+        val enriched = state.conversations.map { convo ->
+            if (convo.source != ConversationSource.Steam || !convo.steamIdHint.isNullOrBlank()) {
+                convo
+            } else {
+                val match = steam.friends.firstOrNull {
+                    it.displayName.equals(convo.title, ignoreCase = true)
+                }
+                if (match != null) convo.copy(steamIdHint = match.steamId) else convo
+            }
+        }
+        return if (enriched == state.conversations) state else state.copy(conversations = enriched)
+    }
+
+    private fun openDiscord() {
+        val configured = discordSocialUi.value.settings.openUrl.trim()
+        val candidates = buildList {
+            if (configured.isNotBlank()) add(configured)
+            add("discord://")
+            add("https://discord.com/app")
+        }
+        for (url in candidates) {
+            if (openExternalUrl(url)) return
+        }
+        emit(HomeEvent.ShowError("Could not open Discord."))
+    }
+
+    /** Called from the Activity when [HomeEvent.LinkDiscordAccount] is handled. */
+    fun linkDiscordAccount(activity: android.app.Activity) {
+        noteUserActivity()
+        discordRichPresence.startAccountLinking(activity)
+        emit(HomeEvent.ShowMessage("Opening Discord account linking…"))
+    }
+
+    private fun openExternalUrl(url: String): Boolean {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return runCatching {
+            appContext.startActivity(intent)
+            true
+        }.getOrDefault(false)
+    }
+
+    fun refreshSteamFriends() {
+        val credentials = steamFriendsUi.value.credentials
+        if (!credentials.isConfigured) {
+            steamFriendsUi.update {
+                it.copy(isLoading = false, friends = emptyList(), error = null)
+            }
+            return
+        }
+        viewModelScope.launch {
+            steamFriendsUi.update { it.copy(isLoading = true, error = null) }
+            val result = steamWebApiClient.fetchFriends(credentials.apiKey, credentials.steamId64)
+            steamFriendsUi.update { current ->
+                result.fold(
+                    onSuccess = { summaries ->
+                        current.copy(
+                            isLoading = false,
+                            error = null,
+                            friends = summaries
+                                .take(MAX_STEAM_FRIENDS)
+                                .map { summary ->
+                                SteamFriendEntry(
+                                    steamId = summary.steamId,
+                                    displayName = summary.displayName,
+                                    avatarUrl = summary.avatarUrl,
+                                    presence = steamPersonaToPresence(
+                                        summary.personaState,
+                                        inGame = !summary.currentGame.isNullOrBlank(),
+                                    ),
+                                    currentGame = summary.currentGame,
+                                    profileUrl = summary.profileUrl,
+                                )
+                            },
+                        )
+                    },
+                    onFailure = { error ->
+                        current.copy(
+                            isLoading = false,
+                            friends = emptyList(),
+                            error = error.message ?: "Could not load Steam friends.",
+                        )
+                    },
+                )
+            }
+            conversationsUi.update { enrichSteamHints(it, steamFriendsUi.value) }
+            if (result.isSuccess) {
+                emitSteamFriendOnlineBanners(steamFriendsUi.value.friends)
+            }
+        }
+    }
+
+    private fun onRaLibraryNavAction(action: NavAction) {
+        when (action) {
+            NavAction.Up -> moveRaLibrarySelection(-1)
+            NavAction.Down -> moveRaLibrarySelection(1)
+            NavAction.Left -> cycleRaLibraryTab(-1)
+            NavAction.Right -> cycleRaLibraryTab(1)
+            NavAction.Confirm -> activateRaLibrarySelection()
+            NavAction.Cancel -> closeRaLibrary()
+            NavAction.ToggleAccountPanel -> toggleAccountPanel()
+            NavAction.ToggleSystemPanel -> toggleSystemPanel()
+            NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+            NavAction.SwapScreens -> swapScreenRoles()
+            else -> Unit
+        }
+    }
+
+    private fun onGuideNavAction(action: NavAction) {
+        when (action) {
+            NavAction.Up -> moveGuideSelection(-1)
+            NavAction.Down -> moveGuideSelection(1)
+            NavAction.Confirm -> activateGuideSelection()
+            NavAction.Cancel -> closeGuide()
+            // Absorb everything else so LB/RB, Start, Select, etc. do not leak through.
+            else -> Unit
+        }
+    }
+
+    private fun onGameSelectorNavAction(action: NavAction, state: HomeUiState) {
+        // Dual / horizontal XMB: Left/Right = games, Up/Down = systems.
+        // Single / vertical XMB: Up/Down = games, Left/Right = systems.
+        // LB/RB still switch Home pages (RSS / Games) via onNavAction.
+        val vertical = state.displayMode == DisplayMode.Single
+        when (action) {
+            NavAction.Left -> if (vertical) cycleTab(-1) else moveSelection(-1)
+            NavAction.Right -> if (vertical) cycleTab(1) else moveSelection(1)
+            NavAction.Up -> if (vertical) moveSelection(-1) else cycleTab(-1)
+            NavAction.Down -> if (vertical) moveSelection(1) else cycleTab(1)
+            NavAction.Confirm -> launchSelected()
+            NavAction.Cancel -> {
+                if (state.anyHeroPanelExpanded) collapseHeroPanels()
+                else setHomePage(HomePage.Home)
+            }
+            NavAction.ToggleAccountPanel -> toggleAccountPanel()
+            NavAction.ToggleSystemPanel -> toggleSystemPanel()
+            NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+            NavAction.Options -> state.selectedGame?.let {
+                emit(HomeEvent.OpenGameOptions(it.id))
+            }
+            NavAction.ScrapeMenu -> state.selectedGame?.let {
+                emit(HomeEvent.OpenScrapeMenu(it.id))
+            }
+            NavAction.ToggleFavorite -> toggleFavorite()
+            NavAction.SwapScreens -> swapScreenRoles()
+            NavAction.PreviousPlatform, NavAction.NextPlatform, NavAction.ToggleGuide, NavAction.Menu -> Unit
+        }
+    }
+
+    private fun onRssNavAction(action: NavAction, state: HomeUiState) {
+        val columns = state.gridColumns.coerceIn(2, 6)
+        when (action) {
+            NavAction.Left -> moveRssSelection(-1)
+            NavAction.Right -> moveRssSelection(1)
+            NavAction.Up -> moveRssSelection(-columns)
+            NavAction.Down -> moveRssSelection(columns)
+            NavAction.Confirm -> openSelectedRssItem()
+            NavAction.Cancel -> {
+                if (state.anyHeroPanelExpanded) collapseHeroPanels()
+                else setHomePage(HomePage.Home)
+            }
+            NavAction.ToggleAccountPanel -> toggleAccountPanel()
+            NavAction.ToggleSystemPanel -> toggleSystemPanel()
+            NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+            NavAction.Options -> Unit
+            NavAction.ScrapeMenu -> Unit
+            NavAction.ToggleFavorite -> Unit
+            NavAction.SwapScreens -> swapScreenRoles()
+            NavAction.PreviousPlatform, NavAction.NextPlatform, NavAction.ToggleGuide, NavAction.Menu -> Unit
+        }
+    }
+
+    fun toggleGuide() {
+        if (guideOpen.value) closeGuide() else openGuide()
+    }
+
+    fun openGuide() {
+        noteUserActivity()
+        collapseHeroPanels()
+        guideSelectedIndex.value = 0
+        guideOpen.value = true
+        gamepadDispatcher.guideOpen = true
+        if (steamFriendsUi.value.isConfigured) refreshSteamFriends()
+        emit(HomeEvent.BringShellToFront)
+    }
+
+    fun closeGuide() {
+        if (!guideOpen.value) return
+        noteUserActivity()
+        guideOpen.value = false
+        gamepadDispatcher.guideOpen = false
+    }
+
+    fun toggleStartSettings() {
+        if (startSettingsOpen.value) closeStartSettings() else openStartSettings()
+    }
+
+    fun openStartSettings(category: StartSettingsCategory = StartSettingsCategory.Display) {
+        noteUserActivity()
+        collapseHeroPanels()
+        if (guideOpen.value) closeGuide()
+        startSettingsCategory.value = category
+        startSettingsRowIndex.value = 0
+        startSettingsOpen.value = true
+        gamepadDispatcher.startSettingsOpen = true
+    }
+
+    fun closeStartSettings() {
+        if (!startSettingsOpen.value) return
+        noteUserActivity()
+        startSettingsOpen.value = false
+        gamepadDispatcher.startSettingsOpen = false
+    }
+
+    fun selectStartSettingsCategory(category: StartSettingsCategory) {
+        noteUserActivity()
+        if (startSettingsCategory.value == category) return
+        startSettingsCategory.value = category
+        startSettingsRowIndex.value = 0
+    }
+
+    fun selectStartSettingsRow(index: Int) {
+        noteUserActivity()
+        val last = (uiState.value.startSettings.rows.size - 1).coerceAtLeast(0)
+        startSettingsRowIndex.value = index.coerceIn(0, last)
+    }
+
+    fun activateStartSettingsSelection(index: Int? = null) {
+        noteUserActivity()
+        if (index != null) selectStartSettingsRow(index)
+        val row = uiState.value.startSettings.selectedRow ?: return
+        val action = when (row) {
+            is StartSettingsRow.Action -> row.action
+            is StartSettingsRow.Toggle -> row.action
+            is StartSettingsRow.Header -> return
+        }
+        performStartSettingsAction(action)
+    }
+
+    private fun onStartSettingsNavAction(action: NavAction) {
+        when (action) {
+            NavAction.Up -> moveStartSettingsRow(-1)
+            NavAction.Down -> moveStartSettingsRow(1)
+            NavAction.Left, NavAction.PreviousPlatform ->
+                selectStartSettingsCategory(startSettingsCategory.value.previous())
+            NavAction.Right, NavAction.NextPlatform ->
+                selectStartSettingsCategory(startSettingsCategory.value.next())
+            NavAction.Confirm -> activateStartSettingsSelection()
+            NavAction.Cancel, NavAction.Menu -> closeStartSettings()
+            // Absorb everything else so Select, face buttons, etc. do not leak through.
+            else -> Unit
+        }
+    }
+
+    private fun moveStartSettingsRow(delta: Int) {
+        val size = uiState.value.startSettings.rows.size
+        if (size == 0) return
+        startSettingsRowIndex.update { current ->
+            (current + delta).coerceIn(0, size - 1)
+        }
+    }
+
+    private fun performStartSettingsAction(action: StartSettingsAction) {
+        when (action) {
+            StartSettingsAction.SwitchDisplayMode -> viewModelScope.launch {
+                val next = when (preferences.settings.first().displayMode) {
+                    DisplayMode.Single -> DisplayMode.Dual
+                    DisplayMode.Dual -> DisplayMode.Single
+                }
+                preferences.setDisplayMode(next)
+            }
+            StartSettingsAction.CycleSecondaryRole -> viewModelScope.launch {
+                val current = preferences.settings.first().secondaryDisplayRole
+                preferences.setSecondaryDisplayRole(current.swapped())
+            }
+            StartSettingsAction.CycleTrailerDisplay -> viewModelScope.launch {
+                val next = when (preferences.settings.first().trailerDisplayMode) {
+                    TrailerDisplayMode.FullBackground -> TrailerDisplayMode.CornerPip
+                    TrailerDisplayMode.CornerPip -> TrailerDisplayMode.FullBackground
+                }
+                preferences.setTrailerDisplayMode(next)
+            }
+            StartSettingsAction.CycleThemeMode -> viewModelScope.launch {
+                val values = ThemeMode.entries
+                val current = preferences.settings.first().themeMode
+                val next = values[(current.ordinal + 1) % values.size]
+                preferences.setThemeMode(next)
+            }
+            StartSettingsAction.CycleFeedColumns -> viewModelScope.launch {
+                val options = listOf(2, 3, 4, 5, 6)
+                val current = preferences.settings.first().gridColumns.coerceIn(2, 6)
+                val idx = options.indexOf(current).coerceAtLeast(0)
+                preferences.setGridColumns(options[(idx + 1) % options.size])
+            }
+            StartSettingsAction.CycleUiTextScale -> viewModelScope.launch {
+                val options = UI_TEXT_SCALE_PRESETS
+                val current = preferences.settings.first().uiTextScale
+                val idx = options.indexOfFirst { kotlin.math.abs(it - current) < 0.01f }
+                    .takeIf { it >= 0 } ?: 0
+                preferences.setUiTextScale(options[(idx + 1) % options.size])
+            }
+            StartSettingsAction.ToggleUiFitMode -> viewModelScope.launch {
+                val next = when (preferences.settings.first().uiFitMode) {
+                    UiFitMode.Auto -> UiFitMode.System
+                    UiFitMode.System -> UiFitMode.Auto
+                }
+                preferences.setUiFitMode(next)
+            }
+            StartSettingsAction.OpenSystemDisplay -> {
+                closeStartSettings()
+                openSystemSettings(Settings.ACTION_DISPLAY_SETTINGS)
+            }
+            is StartSettingsAction.SelectShellTheme -> viewModelScope.launch {
+                preferences.setShellThemeId(action.themeId)
+                val name = ShellThemeCatalog.resolve(action.themeId).id.displayName
+                emit(HomeEvent.ShowMessage("Theme: $name"))
+            }
+            StartSettingsAction.OpenThemeCustomize -> {
+                closeStartSettings()
+                openThemesSheet(ThemesSheetTab.Customize)
+            }
+            StartSettingsAction.ShopThemesComingSoon -> {
+                emit(HomeEvent.ShowMessage("XOrA Store themes are coming soon"))
+            }
+            StartSettingsAction.UploadThemeToShopComingSoon -> {
+                emit(HomeEvent.ShowMessage("Theme uploads arrive with XOrA Store"))
+            }
+            StartSettingsAction.CycleGamesSecondarySlot -> viewModelScope.launch {
+                val next = when (preferences.settings.first().gamesSecondarySlot) {
+                    "Favorite" -> "Continue"
+                    else -> "Favorite"
+                }
+                preferences.setGamesSecondarySlot(next)
+            }
+            StartSettingsAction.CycleBgmVolume -> viewModelScope.launch {
+                preferences.setBgmVolume(nextVolumeStep(preferences.settings.first().bgmVolume))
+            }
+            StartSettingsAction.CycleUiSfxVolume -> viewModelScope.launch {
+                preferences.setUiSfxVolume(nextVolumeStep(preferences.settings.first().uiSfxVolume))
+            }
+            StartSettingsAction.ChooseBgm -> {
+                closeStartSettings()
+                requestBgmPicker()
+            }
+            StartSettingsAction.ClearBgm -> clearCustomBgm()
+            StartSettingsAction.RefreshMetadata -> refreshMetadataFromStartSettings()
+            StartSettingsAction.ToggleScrapeAfterScan -> viewModelScope.launch {
+                preferences.setScrapeAfterScan(!preferences.settings.first().scrapeAfterScan)
+            }
+            StartSettingsAction.ToggleTrailerScrape -> viewModelScope.launch {
+                preferences.setTrailerScrapeEnabled(!preferences.settings.first().trailerScrapeEnabled)
+            }
+            StartSettingsAction.ToggleManualScrape -> viewModelScope.launch {
+                val enabled = !preferences.settings.first().manualScrapeEnabled
+                preferences.setManualScrapeEnabled(enabled)
+                if (enabled) {
+                    emit(
+                        HomeEvent.ShowMessage(
+                            "Manuals will download on the next scrape (ScreenScraper account required)",
+                        ),
+                    )
+                }
+            }
+            StartSettingsAction.ToggleIdleTrailers -> viewModelScope.launch {
+                preferences.setTrailerEnabled(!preferences.settings.first().trailerEnabled)
+            }
+            StartSettingsAction.CycleTrailerSource -> viewModelScope.launch {
+                val values = TrailerSourcePreference.entries
+                val current = preferences.settings.first().trailerSourcePreference
+                val next = values[(current.ordinal + 1) % values.size]
+                preferences.setTrailerSourcePreference(next)
+            }
+            StartSettingsAction.OpenScraperCredentials,
+            StartSettingsAction.SignInRetroAchievements,
+            StartSettingsAction.OpenSocialSetup,
+            StartSettingsAction.OpenAllSettings,
+            -> {
+                closeStartSettings()
+                emit(HomeEvent.OpenSettings)
+            }
+            StartSettingsAction.ToggleRaEnabled -> viewModelScope.launch {
+                preferences.setRaEnabled(!preferences.retroAchievementsSettings.first().enabled)
+            }
+            StartSettingsAction.ToggleRaHardcore -> viewModelScope.launch {
+                preferences.setRaHardcore(!preferences.retroAchievementsSettings.first().hardcore)
+            }
+            StartSettingsAction.ToggleRaShowInLauncher -> viewModelScope.launch {
+                preferences.setRaShowInLauncher(
+                    !preferences.retroAchievementsSettings.first().showInLauncher,
+                )
+            }
+            StartSettingsAction.SignInWithSteam -> {
+                closeStartSettings()
+                requestSteamOpenId()
+            }
+            StartSettingsAction.OpenSocialMenu -> {
+                closeStartSettings()
+                if (!accountPanelExpanded.value) toggleAccountPanel()
+            }
+            StartSettingsAction.OpenWifiBt -> {
+                closeStartSettings()
+                openSystemSettings(Settings.ACTION_WIFI_SETTINGS)
+            }
+            StartSettingsAction.OpenNotificationAccess -> {
+                closeStartSettings()
+                openNotificationListenerSettings()
+            }
+            StartSettingsAction.LinkDiscord -> {
+                closeStartSettings()
+                emit(HomeEvent.LinkDiscordAccount)
+            }
+            StartSettingsAction.ToggleNotifications -> viewModelScope.launch {
+                val enabling = !preferences.settings.first().notificationsEnabled
+                preferences.setNotificationsEnabled(enabling)
+                if (enabling) {
+                    shellSystemNotifier.requestPostNotificationsPermission()
+                }
+            }
+            StartSettingsAction.ToggleNotificationSound -> viewModelScope.launch {
+                preferences.setNotificationSoundEnabled(
+                    !preferences.settings.first().notificationSoundEnabled,
+                )
+            }
+            StartSettingsAction.TestNotification -> {
+                // Unique id each press so dedupe does not swallow repeats.
+                // force=true so Test still previews when "Show banners" is off.
+                shellNotifications.emit(
+                    ShellNotification.InstallComplete(
+                        id = "test-notification:${SystemClock.elapsedRealtime()}",
+                        title = "Test notification",
+                        subtitle = "XOrA banner preview",
+                    ),
+                    force = true,
+                )
+            }
+            StartSettingsAction.EditHome -> {
+                closeStartSettings()
+                openThemesSheet(ThemesSheetTab.Customize)
+            }
+            StartSettingsAction.EditProfile -> {
+                closeStartSettings()
+                profileEditRequest.update { it + 1 }
+            }
+            StartSettingsAction.ScanEmulators -> viewModelScope.launch {
+                val result = runCatching { playerSeeder.scanInstalled() }.getOrElse {
+                    emit(HomeEvent.ShowError(it.message ?: "Emulator scan failed."))
+                    return@launch
+                }
+                emit(
+                    HomeEvent.ShowMessage(
+                        buildString {
+                            append("Found ${result.installedStandalone} emulator")
+                            if (result.installedStandalone != 1) append('s')
+                            append(" · ${result.installedXoraCores} XOrA core")
+                            if (result.installedXoraCores != 1) append('s')
+                            if (result.retroArchInstalled) {
+                                append(" · RetroArch · ${result.installedCores} core")
+                                if (result.installedCores != 1) append('s')
+                            }
+                        },
+                    ),
+                )
+            }
+            StartSettingsAction.Reboot -> requestDevicePower(reboot = true)
+            StartSettingsAction.PowerDown -> requestDevicePower(reboot = false)
+        }
+    }
+
+    private fun nextVolumeStep(current: Float): Float {
+        val steps = listOf(0f, 0.25f, 0.5f, 0.75f, 1f)
+        val nearest = steps.minByOrNull { kotlin.math.abs(it - current) } ?: current
+        val idx = steps.indexOf(nearest).coerceAtLeast(0)
+        return steps[(idx + 1) % steps.size]
+    }
+
+    private fun refreshMetadataFromStartSettings() {
+        viewModelScope.launch {
+            val progress = scanner.scan()
+            if (progress.error != null) {
+                emit(HomeEvent.ShowError(progress.error ?: "Scan failed."))
+                return@launch
+            }
+            scraperScheduler.enqueue(replace = true)
+            emit(
+                HomeEvent.ShowMessage(
+                    "Scanned ${progress.gamesFound} games — fetching artwork…",
+                ),
+            )
+        }
+    }
+
+    private fun requestDevicePower(reboot: Boolean) {
+        closeStartSettings()
+        val label = if (reboot) "reboot" else "power off"
+        // Best-effort: handheld / system builds may allow these; otherwise guide the user.
+        val attempted = runCatching {
+            if (reboot) {
+                val pm = appContext.getSystemService(android.os.PowerManager::class.java)
+                pm?.reboot(null)
+                true
+            } else {
+                val intent = Intent("android.intent.action.ACTION_REQUEST_SHUTDOWN").apply {
+                    putExtra("android.intent.extra.KEY_CONFIRM", false)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                appContext.startActivity(intent)
+                true
+            }
+        }.getOrDefault(false)
+        if (!attempted) {
+            emit(
+                HomeEvent.ShowMessage(
+                    "Could not $label from XOrA. Use the device power menu.",
+                ),
+            )
+        }
+    }
+
+    fun selectGuideIndex(index: Int) {
+        noteUserActivity()
+        val size = uiState.value.guide.rows.size
+        if (size == 0) return
+        guideSelectedIndex.value = index.coerceIn(0, size - 1)
+    }
+
+    fun activateGuideSelection() {
+        val row = uiState.value.guide.selectedRow ?: return
+        when (row) {
+            GuideRow.Profile -> {
+                closeGuide()
+                if (!accountPanelExpanded.value) toggleAccountPanel()
+            }
+            is GuideRow.QuickLaunch -> {
+                closeGuide()
+                launchGame(row.game)
+            }
+            is GuideRow.Friend -> {
+                val url = row.profileUrl
+                    ?: "https://steamcommunity.com/profiles/${row.id}"
+                openExternalUrl(url)
+            }
+            GuideRow.Settings -> {
+                closeGuide()
+                openStartSettings()
+            }
+            GuideRow.Achievements -> {
+                closeGuide()
+                openRaLibrary()
+            }
+            GuideRow.SwapScreens -> swapScreenRoles()
+            GuideRow.SignInRa -> {
+                closeGuide()
+                if (!achievementsPanelExpanded.value) toggleAchievementsPanel()
+            }
+        }
+    }
+
+    private fun moveGuideSelection(delta: Int) {
+        val size = uiState.value.guide.rows.size
+        if (size == 0) return
+        guideSelectedIndex.update { current ->
+            (current + delta).coerceIn(0, size - 1)
+        }
+    }
+
+    fun setHomePage(page: HomePage) {
+        noteUserActivity()
+        if (page != HomePage.RaLibrary && homePage.value == HomePage.RaLibrary) {
+            // Leaving via shoulders — keep prior bookmark for a later RA open.
+            homePageBeforeRaLibrary = page
+        }
+        if (homePage.value == page) {
+            if (page == HomePage.RssFeed && rssUi.value.items.isEmpty() && !rssUi.value.isLoading) {
+                refreshRssFeed()
+            }
+            return
+        }
+        homePage.value = page
+        if (page == HomePage.RssFeed && rssUi.value.items.isEmpty()) {
+            refreshRssFeed()
+        }
+    }
+
+    fun openRaLibrary() {
+        noteUserActivity()
+        val raPrefs = raSettingsState.value
+        if (!raPrefs.enabled || !raPrefs.showInLauncher) {
+            viewModelScope.launch {
+                emit(
+                    HomeEvent.ShowError(
+                        if (!raPrefs.enabled) {
+                            "RetroAchievements is disabled in Settings."
+                        } else {
+                            "Show RA in launcher is off — enable it in Start → Scrape or Setup."
+                        },
+                    ),
+                )
+            }
+            return
+        }
+        collapseHeroPanels()
+        if (homePage.value != HomePage.RaLibrary) {
+            homePageBeforeRaLibrary = homePage.value
+        }
+        homePage.value = HomePage.RaLibrary
+        refreshRaLibrary()
+    }
+
+    fun closeRaLibrary() {
+        noteUserActivity()
+        if (homePage.value != HomePage.RaLibrary) return
+        homePage.value = homePageBeforeRaLibrary.takeUnless { it == HomePage.RaLibrary }
+            ?: HomePage.Home
+    }
+
+    fun selectRaLibraryIndex(index: Int) {
+        noteUserActivity()
+        raLibraryUi.update { current ->
+            val size = current.visibleGames.size
+            if (size == 0) current
+            else current.copy(selectedIndex = index.coerceIn(0, size - 1))
+        }
+    }
+
+    fun selectRaLibraryTab(tab: RaLibraryTab) {
+        noteUserActivity()
+        raLibraryUi.update { it.copy(tab = tab, selectedIndex = 0) }
+    }
+
+    fun selectRaPlatformFilter(platform: String?) {
+        noteUserActivity()
+        raLibraryUi.update { it.copy(platformFilter = platform, selectedIndex = 0) }
+    }
+
+    fun activateRaLibrarySelection() {
+        val row = uiState.value.raLibrary.selectedGame ?: return
+        focusLocalGameForRa(row.game.title, row.game.consoleId)
+    }
+
+    fun refreshRaLibrary() {
+        viewModelScope.launch {
+            if (!retroAchievements.currentCredentials().isConfigured) {
+                raLibraryUi.update {
+                    it.copy(
+                        isLoading = false,
+                        games = emptyList(),
+                        error = "Sign in to RetroAchievements to see your library.",
+                    )
+                }
+                return@launch
+            }
+            raLibraryUi.update { it.copy(isLoading = true, error = null) }
+            val progress = retroAchievements.fetchCompletionProgress()
+            val recent = retroAchievements.fetchRecentUnlocks().getOrElse { emptyList() }
+            if (recent.isNotEmpty()) emitNewRaUnlockBanners(recent)
+            val badgesByTitle = recent.groupBy { it.gameTitle.lowercase() }
+            raLibraryUi.update { current ->
+                progress.fold(
+                    onSuccess = { games ->
+                        current.copy(
+                            isLoading = false,
+                            error = null,
+                            games = games.map { game ->
+                                val badges = badgesByTitle[game.title.lowercase()]
+                                    .orEmpty()
+                                    .map { it.badgeUrl }
+                                    .distinct()
+                                    .take(8)
+                                RaLibraryGameRow(game = game, recentBadgeUrls = badges)
+                            },
+                            selectedIndex = current.selectedIndex.coerceIn(
+                                0,
+                                (games.size - 1).coerceAtLeast(0),
+                            ),
+                        )
+                    },
+                    onFailure = { error ->
+                        current.copy(
+                            isLoading = false,
+                            error = error.message ?: "Could not load RetroAchievements library.",
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    private fun moveRaLibrarySelection(delta: Int) {
+        val size = uiState.value.raLibrary.visibleGames.size
+        if (size == 0) return
+        raLibraryUi.update { current ->
+            current.copy(
+                selectedIndex = (current.selectedIndex + delta).coerceIn(0, size - 1),
+            )
+        }
+    }
+
+    private fun cycleRaLibraryTab(delta: Int) {
+        val tabs = RaLibraryTab.entries
+        val current = raLibraryUi.value.tab.ordinal
+        val next = ((current + delta) % tabs.size + tabs.size) % tabs.size
+        selectRaLibraryTab(tabs[next])
+    }
+
+    private fun focusLocalGameForRa(raTitle: String, consoleId: Int) {
+        val platformId = RaConsoleIds.platformIdFor(consoleId)
+        val normalized = normalizeTitle(raTitle)
+        viewModelScope.launch {
+            val all = libraryRepository.observeGames().first()
+            val match = all.firstOrNull { game ->
+                !game.isAndroidApp &&
+                    (platformId == null || game.platformId == platformId) &&
+                    normalizeTitle(game.title) == normalized
+            } ?: all.firstOrNull { game ->
+                !game.isAndroidApp && normalizeTitle(game.title) == normalized
+            } ?: all.firstOrNull { game ->
+                !game.isAndroidApp &&
+                    (platformId == null || game.platformId == platformId) &&
+                    normalizeTitle(game.title).contains(normalized.take(12))
+            }
+
+            if (match == null) {
+                emit(HomeEvent.ShowMessage("No matching game in your XOrA library."))
+                return@launch
+            }
+
+            homePage.value = HomePage.GameSelector
+            val tabs = buildTabs(all, libraryRepository.observePlatformSummaries().first())
+            val platformTab = tabs.indexOfFirst { it.platformId == match.platformId }
+                .takeIf { it >= 0 }
+                ?: tabs.indexOfFirst { it.kind == TabKind.All }.coerceAtLeast(0)
+            val tabGames = gamesForTab(all, tabs.getOrNull(platformTab))
+            val gameIndex = tabGames.indexOfFirst { it.id == match.id }.coerceAtLeast(0)
+            selection.value = Selection(tabIndex = platformTab, gameIndex = gameIndex)
+            if (!achievementsPanelExpanded.value) {
+                toggleAchievementsPanel()
+            }
+        }
+    }
+
+    private fun normalizeTitle(title: String): String =
+        title.lowercase()
+            .removePrefix("~hack~ ")
+            .removePrefix("~homebrew~ ")
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+
+    fun selectRssItem(index: Int) {
+        noteUserActivity()
+        rssUi.update { current ->
+            if (current.items.isEmpty()) current
+            else current.copy(selectedIndex = index.coerceIn(0, current.items.lastIndex))
+        }
+    }
+
+    fun openSelectedRssItem() {
+        val item = uiState.value.rss.selectedItem ?: return
+        val link = item.link.takeIf { it.isNotBlank() } ?: return
+        noteUserActivity()
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { appContext.startActivity(intent) }
+            .onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not open that article."))
+            }
+    }
+
+    fun refreshRssFeed() {
+        viewModelScope.launch {
+            rssUi.update { it.copy(isLoading = true, error = null) }
+            val result = rssFeedClient.fetch()
+            rssUi.update { current ->
+                result.fold(
+                    onSuccess = { feed ->
+                        current.copy(
+                            isLoading = false,
+                            items = feed.items,
+                            selectedIndex = current.selectedIndex.coerceIn(
+                                0,
+                                (feed.items.size - 1).coerceAtLeast(0),
+                            ),
+                            error = null,
+                            feedTitle = feed.title,
+                        )
+                    },
+                    onFailure = { error ->
+                        current.copy(
+                            isLoading = false,
+                            error = error.message ?: "Could not load the feed.",
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    private fun moveRssSelection(delta: Int) {
+        val size = rssUi.value.items.size
+        if (size == 0) return
+        rssUi.update { current ->
+            current.copy(selectedIndex = (current.selectedIndex + delta).coerceIn(0, size - 1))
+        }
+    }
+
+    fun toggleAccountPanel() {
+        noteUserActivity()
+        val opening = !accountPanelExpanded.value
+        accountPanelExpanded.value = opening
+        if (opening) {
+            systemPanelExpanded.value = false
+            achievementsPanelExpanded.value = false
+            socialMenuTab.value = SocialMenuTab.Discord
+            managingCircle.value = false
+            friendSearchQuery.value = ""
+            accountPanelSelectedIndex.value = 0
+            if (steamFriendsUi.value.isConfigured) refreshSteamFriends()
+            conversationRepository.refreshListenerEnabled()
+        } else {
+            managingCircle.value = false
+        }
+    }
+
+    fun launchQuickGame(game: Game) {
+        noteUserActivity()
+        collapseHeroPanels()
+        launchGame(game)
+    }
+
+    fun toggleSystemPanel() {
+        noteUserActivity()
+        val opening = !systemPanelExpanded.value
+        systemPanelExpanded.value = opening
+        if (opening) {
+            accountPanelExpanded.value = false
+            achievementsPanelExpanded.value = false
+            systemPanelSelectedIndex.value = 0
+            refreshSystemPanelRaChrome()
+        }
+    }
+
+    fun toggleAchievementsPanel() {
+        noteUserActivity()
+        val opening = !achievementsPanelExpanded.value
+        achievementsPanelExpanded.value = opening
+        if (opening) {
+            accountPanelExpanded.value = false
+            systemPanelExpanded.value = false
+        }
+    }
+
+    fun collapseHeroPanels() {
+        noteUserActivity()
+        accountPanelExpanded.value = false
+        systemPanelExpanded.value = false
+        achievementsPanelExpanded.value = false
+    }
+
+    fun saveProfile(displayName: String, avatarPresetId: String) {
+        viewModelScope.launch {
+            preferences.setProfile(displayName, avatarPresetId)
+        }
+    }
+
+    fun selectAvatarPreset(presetId: String) {
+        viewModelScope.launch {
+            preferences.setProfileAvatar(AvatarSource.Default, presetId = presetId)
+            avatarStore.clear()
+        }
+    }
+
+    fun setLocalAvatar(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val fileName = avatarStore.importFromUri(uri)
+                preferences.setProfileAvatar(AvatarSource.Local, localFileName = fileName)
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import that image."))
+            }
+        }
+    }
+
+    fun useRaAvatar() {
+        viewModelScope.launch {
+            val creds = retroAchievements.currentCredentials()
+            if (!creds.isConfigured) {
+                emit(HomeEvent.ShowError("Sign in to RetroAchievements first."))
+                return@launch
+            }
+            preferences.setProfileAvatar(AvatarSource.RetroAchievements)
+            avatarStore.clear()
+        }
+    }
+
+    fun clearAvatar() {
+        viewModelScope.launch {
+            preferences.setProfileAvatar(AvatarSource.Default)
+            avatarStore.clear()
+        }
+    }
+
+    private fun resolveAvatarModel(profile: LocalProfile, raUsername: String?): String? =
+        when (profile.avatarSource) {
+            AvatarSource.Default -> null
+            AvatarSource.Local ->
+                avatarStore.resolveFile(profile.localAvatarFileName)?.absolutePath
+            AvatarSource.RetroAchievements ->
+                raUsername?.takeIf { it.isNotBlank() }?.let(RaProfile::userPicUrlFor)
+        }
+
+    fun selectAchievementsTab(tab: AchievementsPaneTab) {
+        achievementsUi.update { it.copy(tab = tab, error = null) }
+    }
+
+    fun loginRetroAchievements(username: String, password: String) {
+        viewModelScope.launch {
+            achievementsUi.update {
+                it.copy(
+                    isLoggingIn = true,
+                    error = null,
+                    needsLogin = false,
+                    pendingWebApiUsername = null,
+                )
+            }
+            val result = retroAchievements.loginWithPassword(username, password)
+            achievementsUi.update {
+                result.fold(
+                    onSuccess = { outcome ->
+                        when (outcome) {
+                            is RaPasswordLoginResult.SignedIn ->
+                                it.copy(
+                                    isLoggingIn = false,
+                                    needsLogin = false,
+                                    pendingWebApiUsername = null,
+                                    profile = outcome.profile,
+                                    error = null,
+                                )
+                            is RaPasswordLoginResult.NeedsWebApiKey ->
+                                it.copy(
+                                    isLoggingIn = false,
+                                    // Connect token is already stored — emulator can run.
+                                    // Still prompt for Web API key for launcher library.
+                                    needsLogin = false,
+                                    pendingWebApiUsername = outcome.username,
+                                    error = null,
+                                )
+                        }
+                    },
+                    onFailure = { error ->
+                        it.copy(
+                            isLoggingIn = false,
+                            needsLogin = true,
+                            pendingWebApiUsername = null,
+                            error = RetroAchievementsClient.sanitizeErrorMessage(
+                                error.message ?: "Invalid RetroAchievements credentials.",
+                            ),
+                        )
+                    },
+                )
+            }
+            if (result.getOrNull() is RaPasswordLoginResult.SignedIn) {
+                val creds = retroAchievements.currentCredentials()
+                achievementsUi.update {
+                    it.copy(credentials = creds, needsLogin = !creds.isConfigured)
+                }
+            }
+        }
+    }
+
+    fun loginRetroAchievementsWithApiKey(username: String, apiKey: String) {
+        viewModelScope.launch {
+            achievementsUi.update {
+                it.copy(isLoggingIn = true, error = null, needsLogin = false)
+            }
+            val result = retroAchievements.saveCredentials(username, apiKey)
+            achievementsUi.update {
+                result.fold(
+                    onSuccess = { profile ->
+                        it.copy(
+                            isLoggingIn = false,
+                            needsLogin = false,
+                            pendingWebApiUsername = null,
+                            profile = profile,
+                            credentials = it.credentials.copy(
+                                username = profile.username,
+                                apiKey = apiKey.trim(),
+                            ),
+                            error = null,
+                        )
+                    },
+                    onFailure = { error ->
+                        it.copy(
+                            isLoggingIn = false,
+                            needsLogin = true,
+                            error = RetroAchievementsClient.sanitizeErrorMessage(
+                                error.message ?: "Invalid RetroAchievements credentials.",
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    fun signOutRetroAchievements() {
+        viewModelScope.launch {
+            retroAchievements.clearCredentials()
+            achievementsUi.value = AchievementsUiState(needsLogin = true)
+        }
+    }
+
+    /**
+     * Loads RA profile points + recent unlocks for the RT profile menu without opening the X pill.
+     */
+    private fun refreshSystemPanelRaChrome() {
+        viewModelScope.launch {
+            if (!retroAchievements.currentCredentials().isConfigured) return@launch
+            runCatching {
+                withTimeout(ACHIEVEMENTS_LOAD_TIMEOUT_MS) {
+                    val profile = retroAchievements.fetchProfile().getOrNull()
+                    val recent = retroAchievements.fetchRecentUnlocks().getOrElse { emptyList() }
+                    achievementsUi.update { current ->
+                        current.copy(
+                            profile = profile ?: current.profile,
+                            recent = recent.ifEmpty { current.recent },
+                            needsLogin = false,
+                            error = null,
+                        )
+                    }
+                    if (recent.isNotEmpty()) emitNewRaUnlockBanners(recent)
+                }
+            }
+        }
+    }
+
+    private suspend fun refreshAchievements(
+        gameId: String?,
+        tab: AchievementsPaneTab,
+        signedIn: Boolean,
+    ) {
+        if (!signedIn) {
+            achievementsUi.update {
+                it.copy(
+                    isLoading = false,
+                    needsLogin = true,
+                    profile = null,
+                    gameLookup = null,
+                    recent = emptyList(),
+                    error = null,
+                )
+            }
+            return
+        }
+
+        achievementsUi.update { it.copy(isLoading = true, error = null, needsLogin = false) }
+
+        try {
+            withTimeout(ACHIEVEMENTS_LOAD_TIMEOUT_MS) {
+                val profile = retroAchievements.fetchProfile().getOrElse { error ->
+                    achievementsUi.update {
+                        it.copy(
+                            isLoading = false,
+                            needsLogin = true,
+                            error = error.message ?: "Could not reach RetroAchievements.",
+                        )
+                    }
+                    return@withTimeout
+                }
+
+                val game = gameId?.let { libraryRepository.findById(it) }
+                val gameLookup = retroAchievements.lookupSelectedGame(game)
+                val recent = if (tab == AchievementsPaneTab.Recent) {
+                    retroAchievements.fetchRecentUnlocks().getOrElse { emptyList() }
+                } else {
+                    achievementsUi.value.recent
+                }
+
+                achievementsUi.update {
+                    it.copy(
+                        isLoading = false,
+                        profile = profile,
+                        gameLookup = gameLookup,
+                        recent = recent,
+                        error = null,
+                        needsLogin = false,
+                    )
+                }
+                if (tab == AchievementsPaneTab.Recent && recent.isNotEmpty()) {
+                    emitNewRaUnlockBanners(recent)
+                }
+            }
+        } catch (_: TimeoutCancellationException) {
+            achievementsUi.update {
+                it.copy(
+                    isLoading = false,
+                    error = "Timed out talking to RetroAchievements.",
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            achievementsUi.update {
+                it.copy(
+                    isLoading = false,
+                    error = error.message ?: "Could not load achievements.",
+                )
+            }
+        }
+    }
+
+    /** Clamps rather than wraps, so holding a direction settles at an edge instead of jumping. */
+    private fun moveSelection(delta: Int) {
+        val size = uiState.value.games.size
+        if (size == 0) return
+
+        selection.update { current ->
+            current.copy(gameIndex = (current.gameIndex + delta).coerceIn(0, size - 1))
+        }
+    }
+
+    /** Platforms wrap, because the rail is a short cycle the user is stepping through. */
+    private fun cycleTab(delta: Int) {
+        val count = uiState.value.tabs.size
+        if (count == 0) return
+
+        selection.update { current ->
+            val next = ((current.tabIndex + delta) % count + count) % count
+            Selection(tabIndex = next, gameIndex = 0)
+        }
+    }
+
+    fun selectTab(index: Int) {
+        noteUserActivity()
+        selection.update { Selection(tabIndex = index, gameIndex = 0) }
+    }
+
+    fun selectGame(index: Int) {
+        noteUserActivity()
+        selection.update { it.copy(gameIndex = index) }
+    }
+
+    /** Called by the shell whenever display topology or the pane arrangement changes. */
+    fun setDisplayContext(gridDisplayId: Int?, otherDisplayId: Int?) {
+        this.gridDisplayId = gridDisplayId
+        this.otherDisplayId = otherDisplayId
+    }
+
+    private fun detectedResolutionLabel(): String {
+        val metrics = appContext.resources.displayMetrics
+        val w = maxOf(metrics.widthPixels, metrics.heightPixels)
+        val h = minOf(metrics.widthPixels, metrics.heightPixels)
+        return if (w > 0 && h > 0) "${w}×${h}" else "Unknown"
+    }
+
+    /**
+     * Resolves which screen a game should boot on, most specific setting first. A null result means
+     * "no opinion", which lets Android use the default display and avoids the targeting guards
+     * entirely.
+     */
+    private suspend fun resolveTargetDisplay(game: Game): Int? {
+        val preference = game.launchDisplayPreference
+            .takeIf { it != LaunchDisplayPreference.Inherit }
+            ?: playerRepository.settingsFor(game.platformId)?.launchDisplayPreference
+            ?: LaunchDisplayPreference.Inherit
+
+        return when (preference) {
+            LaunchDisplayPreference.Inherit -> null
+            LaunchDisplayPreference.GridScreen -> gridDisplayId
+            LaunchDisplayPreference.OtherScreen -> otherDisplayId
+        }
+    }
+
+    fun launchSelected(targetDisplayId: Int? = null) {
+        val game = uiState.value.selectedGame ?: return
+        launchGame(game, targetDisplayId)
+    }
+
+    fun launchGame(game: Game, targetDisplayId: Int? = null) {
+        if (isLaunching.value) return
+        noteUserActivity()
+        collapseHeroPanels()
+        closeGuide()
+
+        viewModelScope.launch {
+            isLaunching.value = true
+            try {
+                // Chrome slides out on [ArcadiaMotion.Launch]; hero artwork holds as the
+                // transition plate for ~3s, then the emulator starts. On failure, clearing
+                // isLaunching reverses the chrome so the shell never feels stuck.
+                val waitMs = if (appContext.isReduceMotionPreferred()) {
+                    0L
+                } else {
+                    ArcadiaMotion.LaunchHold.toLong()
+                }
+                if (waitMs > 0L) delay(waitMs)
+
+                val target = targetDisplayId ?: resolveTargetDisplay(game)
+                when (val result = launcher.launch(game, target)) {
+                    is LaunchResult.Launched -> {
+                        // Bottom screen takes over as a companion panel for this session; the
+                        // controller decides whether the game and display setup qualify.
+                        gameCompanionController.onGameLaunched(
+                            game = game,
+                            launchDisplayId = target,
+                            // The RA lookup tracks the XMB selection, so it only describes this
+                            // game when the launch came from the grid rather than a shortcut.
+                            raLookup = uiState.value.achievements.gameLookup
+                                ?.takeIf { uiState.value.selectedGame?.id == game.id },
+                        )
+                        discordRichPresence.setActivity(
+                            DiscordPresenceActivity.Playing(
+                                gameTitle = game.title,
+                                platformName = game.platform.displayName,
+                            ),
+                        )
+                        result.displayFallbackReason?.let { emit(HomeEvent.ShowMessage(it)) }
+                    }
+                    is LaunchResult.NoPlayerConfigured -> emit(
+                        HomeEvent.ShowError(
+                            "No emulator is set up for ${result.platformName}. " +
+                                "Choose one in Settings.",
+                        ),
+                    )
+                    is LaunchResult.PlayerNotInstalled -> emit(
+                        HomeEvent.ShowError(
+                            if (result.player.uniqueId.startsWith("retroarch.")) {
+                                val core = RetroArchCoreCatalog.byPlayerId(result.player.uniqueId)
+                                    ?.label
+                                    ?: "the required"
+                                "RetroArch is not installed (${result.packageName}). " +
+                                    "Install RetroArch and the $core core."
+                            } else {
+                                "${result.player.name} is not installed (${result.packageName})."
+                            },
+                        ),
+                    )
+                    is LaunchResult.UnsupportedSource -> emit(HomeEvent.ShowError(result.reason))
+                    is LaunchResult.InvalidTemplate -> emit(
+                        HomeEvent.ShowError("${result.player.name}: ${result.reason}"),
+                    )
+                    is LaunchResult.Failed -> emit(
+                        HomeEvent.ShowError(
+                            "Could not start ${result.player?.name ?: "the emulator"}: " +
+                                result.reason,
+                        ),
+                    )
+                }
+            } finally {
+                isLaunching.value = false
+            }
+        }
+    }
+
+    fun selectCompanionAction(action: GameCompanionAction) {
+        gameCompanionController.selectAction(action)
+    }
+
+    fun activateCompanionAction() {
+        gameCompanionController.openFocusedAction()
+    }
+
+    fun dismissCompanionOverlay() {
+        gameCompanionController.dismissOverlay()
+    }
+
+    fun toggleFavorite() {
+        val game = uiState.value.selectedGame ?: return
+        viewModelScope.launch {
+            libraryRepository.setFavorite(game.id, !game.favorite)
+        }
+    }
+
+    fun setFavorite(gameId: String, favorite: Boolean) {
+        viewModelScope.launch { libraryRepository.setFavorite(gameId, favorite) }
+    }
+
+    suspend fun scraperPreferenceForGame(gameId: String): ScraperPreference {
+        val raw = preferences.gameScraperPreference(gameId) ?: return ScraperPreference.Auto
+        return runCatching { ScraperPreference.valueOf(raw) }.getOrDefault(ScraperPreference.Auto)
+    }
+
+    suspend fun scraperPreferenceForPlatform(platformId: String): ScraperPreference {
+        val raw = preferences.platformScraperPreference(platformId) ?: return ScraperPreference.Auto
+        return runCatching { ScraperPreference.valueOf(raw) }.getOrDefault(ScraperPreference.Auto)
+    }
+
+    fun setGameScraperPreference(gameId: String, preference: ScraperPreference) {
+        viewModelScope.launch {
+            preferences.setGameScraperPreference(
+                gameId,
+                preference.name.takeUnless { preference == ScraperPreference.Auto },
+            )
+        }
+    }
+
+    fun setPlatformScraperPreference(platformId: String, preference: ScraperPreference) {
+        viewModelScope.launch {
+            preferences.setPlatformScraperPreference(
+                platformId,
+                preference.name.takeUnless { preference == ScraperPreference.Auto },
+            )
+        }
+    }
+
+    fun rescrapeGame(gameId: String) {
+        viewModelScope.launch {
+            libraryRepository.resetScrape(gameId)
+            scraperScheduler.enqueue(replace = true)
+            emit(HomeEvent.ShowMessage("Re-scrape queued for this game."))
+        }
+    }
+
+    fun rescrapePlatform(platformId: String) {
+        viewModelScope.launch {
+            libraryRepository.resetScrapeForPlatform(platformId)
+            scraperScheduler.enqueue(replace = true)
+            emit(HomeEvent.ShowMessage("Re-scrape queued for this system."))
+        }
+    }
+
+    fun setLaunchDisplayPreference(gameId: String, preference: LaunchDisplayPreference) {
+        viewModelScope.launch {
+            libraryRepository.setLaunchDisplayPreference(gameId, preference)
+        }
+    }
+
+    fun setPlayerOverride(gameId: String, playerId: String?) {
+        viewModelScope.launch { libraryRepository.setPlayerOverride(gameId, playerId) }
+    }
+
+    /** Launch profiles that claim a platform, for the per-game override picker. */
+    suspend fun playersFor(platformId: String): List<Player> =
+        playerRepository.getPlayers().filter { platformId in it.platformIds }
+
+    suspend fun detectEmulatorsForPlatform(platformId: String): List<DetectedEmulator> =
+        platformEmulatorDetector.detectForPlatform(platformId)
+
+    suspend fun selectedPlatformEmulatorId(platformId: String): String? =
+        platformEmulatorDetector.selectedPlayerId(platformId)
+
+    suspend fun platformEmulatorLabel(platformId: String): String? {
+        val selectedId = platformEmulatorDetector.selectedPlayerId(platformId) ?: return null
+        val detected = platformEmulatorDetector.detectForPlatform(platformId)
+            .firstOrNull { it.playerId == selectedId }
+        if (detected != null) return detected.displayName
+        return RetroArchCoreCatalog.byPlayerId(selectedId)?.let { "RetroArch · ${it.label}" }
+            ?: playerRepository.findById(selectedId)?.name
+    }
+
+    fun emulatorEmptyMessage(platformId: String): String =
+        platformEmulatorDetector.emptyMessage(platformId)
+
+    fun selectPlatformEmulator(platformId: String, emulator: DetectedEmulator) {
+        viewModelScope.launch {
+            preferences.setPlatformEmulatorChoice(
+                platformId,
+                PlatformEmulatorChoice(
+                    playerId = emulator.playerId,
+                    packageName = emulator.packageName,
+                    coreName = emulator.coreName,
+                ),
+            )
+            playerRepository.selectPlayerForPlatform(platformId, emulator.playerId)
+            emit(HomeEvent.ShowMessage("${emulator.displayName} set for this system"))
+        }
+    }
+
+    fun clearPlatformEmulator(platformId: String) {
+        viewModelScope.launch {
+            preferences.setPlatformEmulatorChoice(platformId, null)
+            playerRepository.selectPlayerForPlatform(platformId, null)
+            if (platformId == "n64") {
+                preferences.setN64UseMupen64PlusNext(false)
+            }
+        }
+    }
+
+    private fun swapScreenRoles() {
+        viewModelScope.launch {
+            val current = preferences.settings.first().secondaryDisplayRole
+            val next = if (current == ScreenRole.Hero) ScreenRole.Grid else ScreenRole.Hero
+            preferences.setSecondaryDisplayRole(next)
+        }
+    }
+
+    /**
+     * Called when the Activity pauses. [screenInteractive] should reflect
+     * [android.os.PowerManager.isInteractive] so a screen-off wake can greet even if the
+     * background duration was short.
+     */
+    fun onPaused(screenInteractive: Boolean) {
+        backgroundedAtElapsed = SystemClock.elapsedRealtime()
+        pausedWhileScreenOff = !screenInteractive
+        gameCompanionController.onShellBackgrounded()
+    }
+
+    /** Called when the shell regains focus, to record playtime and re-read permission state. */
+    fun onResumed() {
+        // Coming back from the emulator ends the play session, and with it the companion panel.
+        gameCompanionController.onShellForegrounded()
+        viewModelScope.launch { sessionTracker.settlePendingSession() }
+        refreshInstalledApps()
+        gamepadDispatcher.reset()
+        refreshTrigger.update { it + 1 }
+        viewModelScope.launch { pollRetroAchievementUnlocks() }
+        if (steamFriendsUi.value.isConfigured) refreshSteamFriends()
+        viewModelScope.launch { maybeShowWelcomeBack() }
+    }
+
+    fun dismissWelcomeBack() {
+        if (!welcomeBackOpen.value) return
+        noteUserActivity()
+        welcomeBackOpen.value = false
+    }
+
+    private suspend fun maybeShowWelcomeBack() {
+        val onboardingDone = preferences.onboardingComplete.first()
+        val now = SystemClock.elapsedRealtime()
+        val backgroundedAt = backgroundedAtElapsed
+        val screenWasOff = pausedWhileScreenOff
+        backgroundedAtElapsed = null
+        pausedWhileScreenOff = false
+
+        if (welcomeBackOpen.value) return
+
+        val coldStart = pendingColdStartWelcome
+        if (pendingColdStartWelcome) pendingColdStartWelcome = false
+
+        if (!onboardingDone) return
+
+        val awayLongEnough = backgroundedAt != null &&
+            (now - backgroundedAt) >= WELCOME_BACK_THRESHOLD_MS
+        val shouldShow = coldStart || screenWasOff || awayLongEnough
+        if (shouldShow) {
+            welcomeBackOpen.value = true
+        }
+    }
+
+    private companion object {
+        const val TAG = "HomeViewModel"
+        /** Covers profile + hash + gameid + progress; longer than OkHttp call timeout would strand the spinner. */
+        const val ACHIEVEMENTS_LOAD_TIMEOUT_MS = 60_000L
+        const val GUIDE_QUICK_LAUNCH_RECENT = 5
+        const val GUIDE_QUICK_LAUNCH_FAVORITES = 3
+        const val INSIGHT_DEBOUNCE_MS = 380L
+        /** Cap Steam friend rows/avatars so huge friend lists cannot balloon Social UI + Coil. */
+        const val MAX_STEAM_FRIENDS = 200
+        /** RA has no push channel — poll recent unlocks while the shell lives. */
+        const val RA_UNLOCK_POLL_MS = 90_000L
+        /** Ignore brief pauses (permission sheets, quick app switches). */
+        const val WELCOME_BACK_THRESHOLD_MS = 45_000L
+    }
+
+    private fun refreshInstalledApps() {
+        viewModelScope.launch {
+            runCatching { installedAppSync.refresh() }
+        }
+    }
+
+    private fun emit(event: HomeEvent) {
+        events.trySend(event)
+    }
+
+}

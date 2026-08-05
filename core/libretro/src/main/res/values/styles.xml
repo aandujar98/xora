@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Animation.Xora.Emulator" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/xora_fade_in</item>
+        <item name="android:activityOpenExitAnimation">@anim/xora_hold</item>
+        <item name="android:activityCloseEnterAnimation">@anim/xora_hold</item>
+        <item name="android:activityCloseExitAnimation">@anim/xora_fade_out</item>
+    </style>
+</resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Grantable content URIs for {file.uri} / {file.documenturi} when a ROM was indexed by path.
+  Synthesized com.android.externalstorage.documents URIs look right to DocumentsContract but
+  cannot be granted (SecurityException in the emulator). FileProvider URIs this app owns can.
+  root-path is required because a ROM can live on internal storage, a card, or a nested folder.
+-->
+<paths>
+    <root-path
+        name="rom_library"
+        path="/" />
+</paths>

@@ -1,0 +1,13 @@
+# Emulator packages are resolved reflectively from user-editable launch profiles,
+# so component names must survive shrinking even with no static reference.
+-keep class com.arcadia.shell.launcher.** { *; }
+
+# Notification listener is bound by the system via the manifest component name.
+-keep class com.arcadia.shell.conversations.ShellNotificationListenerService { *; }
+
+# Discord Social SDK (optional partner AAR) + JNI status callback.
+-keep class com.discord.socialsdk.** { *; }
+-keepclassmembers class com.arcadia.shell.launcher.discord.DiscordSocialSdkBridge {
+    native <methods>;
+    public static void onNativeStatusChanged(int, boolean, boolean);
+}

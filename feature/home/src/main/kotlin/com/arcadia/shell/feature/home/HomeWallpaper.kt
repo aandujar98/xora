@@ -1,0 +1,245 @@
+package com.arcadia.shell.feature.home
+
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import coil3.request.maxBitmapSize
+import coil3.size.Size
+import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.LocalShellTheme
+import com.arcadia.shell.designsystem.ShellThemeBackdrop
+import com.arcadia.shell.designsystem.ShellWallpaperStyle
+import com.arcadia.shell.designsystem.arcadiaTween
+import java.io.File
+
+/**
+ * Full-bleed Home hub wallpaper. Uses a user-picked still / GIF / MP4 when [customPath] resolves,
+ * otherwise the active launcher theme asset wallpaper (if any), else the authored theme backdrop.
+ *
+ * Theme / custom media changes crossfade (~[ArcadiaMotion.ThemeCrossfade] ms).
+ */
+@Composable
+fun HomeWallpaper(
+    customPath: String?,
+    modifier: Modifier = Modifier,
+    dim: Boolean = false,
+) {
+    val shellTheme = LocalShellTheme.current
+    val layer = remember(customPath, shellTheme.id, shellTheme.wallpaperAssetPath, shellTheme.wallpaperStyle) {
+        WallpaperLayer(
+            customPath = customPath,
+            themeId = shellTheme.id.id,
+            assetPath = shellTheme.wallpaperAssetPath,
+            style = shellTheme.wallpaperStyle,
+        )
+    }
+    val fade = arcadiaTween<Float>(ArcadiaMotion.ThemeCrossfade)
+
+    Box(modifier = modifier.fillMaxSize()) {
+        AnimatedContent(
+            targetState = layer,
+            transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) },
+            contentKey = { "${it.themeId}|${it.customPath.orEmpty()}|${it.assetPath.orEmpty()}|${it.style}" },
+            label = "homeWallpaperCrossfade",
+            modifier = Modifier.fillMaxSize(),
+        ) { target ->
+            WallpaperLayerContent(
+                layer = target,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        if (dim) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.15f),
+                                Color.Black.copy(alpha = 0.45f),
+                            ),
+                        ),
+                    ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun WallpaperLayerContent(
+    layer: WallpaperLayer,
+    modifier: Modifier = Modifier,
+) {
+    val platformContext = LocalPlatformContext.current
+    val androidContext = LocalContext.current
+    val customFile = remember(layer.customPath) {
+        layer.customPath?.takeIf { it.isNotBlank() }?.let { File(it) }
+            ?.takeIf { it.isFile && it.length() > 0L }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        when {
+            customFile != null && customFile.isVideoWallpaper() -> {
+                LoopingWallpaperVideo(
+                    uri = "file://${customFile.absolutePath}",
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            customFile != null -> {
+                val edge = WALLPAPER_DECODE_EDGE
+                val request = remember(customFile.absolutePath) {
+                    ImageRequest.Builder(platformContext)
+                        .data(customFile)
+                        .crossfade(false)
+                        .size(edge, edge)
+                        .maxBitmapSize(Size(edge, edge))
+                        .memoryCachePolicy(CachePolicy.DISABLED)
+                        .build()
+                }
+                AsyncImage(
+                    model = request,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            !layer.assetPath.isNullOrBlank() &&
+                layer.assetPath.isVideoWallpaperPath() &&
+                assetExists(androidContext, layer.assetPath) -> {
+                LoopingWallpaperVideo(
+                    uri = "asset:///${layer.assetPath}",
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            !layer.assetPath.isNullOrBlank() && assetExists(androidContext, layer.assetPath) -> {
+                val edge = WALLPAPER_DECODE_EDGE
+                val request = remember(layer.assetPath) {
+                    ImageRequest.Builder(platformContext)
+                        .data("file:///android_asset/${layer.assetPath}")
+                        .crossfade(false)
+                        .size(edge, edge)
+                        .maxBitmapSize(Size(edge, edge))
+                        .build()
+                }
+                AsyncImage(
+                    model = request,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            else -> {
+                ShellThemeBackdrop(
+                    style = layer.style,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
+/** [uri] is already fully qualified (`file://…` for picked media, `asset:///…` for theme packs). */
+@Composable
+private fun LoopingWallpaperVideo(
+    uri: String,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val player = remember(uri) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(uri))
+            repeatMode = Player.REPEAT_MODE_ONE
+            volume = 0f
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(player, lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
+                androidx.lifecycle.Lifecycle.Event.ON_STOP,
+                -> {
+                    player.playWhenReady = false
+                    player.pause()
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                    player.playWhenReady = true
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            player.release()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                this.player = player
+                useController = false
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                )
+            }
+        },
+        update = { it.player = player },
+        onRelease = { view -> view.player = null },
+        modifier = modifier,
+    )
+}
+
+private data class WallpaperLayer(
+    val customPath: String?,
+    val themeId: String,
+    val assetPath: String?,
+    val style: ShellWallpaperStyle,
+)
+
+private fun File.isVideoWallpaper(): Boolean =
+    extension.lowercase() in VIDEO_WALLPAPER_EXTS
+
+private fun String.isVideoWallpaperPath(): Boolean =
+    substringAfterLast('.', "").lowercase() in VIDEO_WALLPAPER_EXTS
+
+private fun assetExists(context: android.content.Context, path: String): Boolean =
+    runCatching {
+        context.assets.open(path).use { true }
+    }.getOrDefault(false)
+
+/** Cap wallpaper decode for handheld RAM; crop still fills the viewport. */
+private const val WALLPAPER_DECODE_EDGE = 1280
+private val VIDEO_WALLPAPER_EXTS = setOf("mp4", "webm", "mkv", "mov")

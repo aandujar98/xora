@@ -1,0 +1,275 @@
+package com.arcadia.shell.retroachievements
+
+import android.util.Log
+import com.arcadia.shell.datastore.RetroAchievementsCredentials
+import com.arcadia.shell.datastore.ShellPreferences
+import com.arcadia.shell.model.Game
+import com.arcadia.shell.scraper.RaHashRules
+import com.arcadia.shell.scraper.RomHasher
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.ConcurrentHashMap
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class RetroAchievementsRepository @Inject constructor(
+    private val preferences: ShellPreferences,
+    private val client: RetroAchievementsClient,
+    private val hasher: RomHasher,
+) {
+    private val gameIdByMd5 = ConcurrentHashMap<String, Int>()
+
+    val credentials: Flow<RetroAchievementsCredentials> = preferences.retroAchievements
+
+    suspend fun currentCredentials(): RetroAchievementsCredentials = credentials.first()
+
+    suspend fun saveCredentials(
+        username: String,
+        apiKey: String,
+        connectToken: String? = null,
+    ): Result<RaProfile> {
+        val existing = currentCredentials()
+        val tokenToKeep = connectToken?.trim().orEmpty().ifBlank { existing.connectToken }
+        preferences.setRetroAchievementsCredentials(
+            username = username,
+            apiKey = apiKey,
+            connectToken = tokenToKeep,
+        )
+        val creds = RetroAchievementsCredentials(
+            username = username.trim(),
+            apiKey = apiKey.trim(),
+            connectToken = tokenToKeep,
+        )
+        val profile = client.fetchProfile(creds)
+        if (profile.isFailure) {
+            // Keep Connect token so XOrA Emulator stays signed in; revert Web API key.
+            preferences.setRetroAchievementsCredentials(
+                username = existing.username.ifBlank { username.trim() },
+                apiKey = existing.apiKey,
+                connectToken = tokenToKeep,
+            )
+        }
+        return profile
+    }
+
+    /**
+     * Sign in with RetroAchievements username + password via Connect `login2`.
+     *
+     * Always stores the Connect token for XOrA Emulator (rcheevos). On success the Connect
+     * token is also tried as the Web API key (legacy accounts where they matched). If the Web
+     * API rejects it, returns [RaPasswordLoginResult.NeedsWebApiKey] so the UI can collect the
+     * control-panel key once — password is never persisted.
+     */
+    suspend fun loginWithPassword(username: String, password: String): Result<RaPasswordLoginResult> {
+        val session = client.login(username, password).getOrElse {
+            return Result.failure(it)
+        }
+        // Emulator needs this even when the Web API still wants a separate key.
+        preferences.setRaConnectToken(session.username, session.token)
+
+        val tokenCreds = RetroAchievementsCredentials(
+            username = session.username,
+            apiKey = session.token,
+            connectToken = session.token,
+        )
+        val profile = client.fetchProfile(tokenCreds)
+        if (profile.isSuccess) {
+            preferences.setRetroAchievementsCredentials(
+                username = session.username,
+                apiKey = session.token,
+                connectToken = session.token,
+            )
+            return Result.success(RaPasswordLoginResult.SignedIn(profile.getOrThrow()))
+        }
+        return Result.success(
+            RaPasswordLoginResult.NeedsWebApiKey(
+                username = session.username,
+                connectToken = session.token,
+            ),
+        )
+    }
+
+    /**
+     * Refresh the Connect token via the launcher HTTP stack (Cloudflare-safe UA) and persist it.
+     * Returns session + raw login2 JSON so the emulator can seed rcheevos without a second request.
+     */
+    suspend fun refreshEmulatorSession(): Result<RaEmulatorLogin> {
+        val creds = currentCredentials()
+        if (creds.username.isBlank()) {
+            return Result.failure(IllegalStateException("Not signed in."))
+        }
+        val token = creds.emulatorToken
+        if (token.isBlank()) {
+            return Result.failure(
+                IllegalStateException(
+                    "Sign in with username + password in Settings (Connect token required).",
+                ),
+            )
+        }
+        val body = client.loginWithTokenBody(creds.username, token).getOrElse { error ->
+            val msg = RetroAchievementsClient.sanitizeErrorMessage(
+                error.message ?: "Invalid RetroAchievements credentials.",
+            )
+            if (creds.connectToken.isBlank() && creds.apiKey.isNotBlank()) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Re-sign in with username + password in Settings " +
+                            "(Web API key alone does not work in XOrA Emulator).",
+                    ),
+                )
+            }
+            return Result.failure(IllegalStateException(msg))
+        }
+        val parsed = runCatching { client.parseLoginResponse(body) }.getOrElse { error ->
+            return Result.failure(
+                IllegalStateException(
+                    RetroAchievementsClient.sanitizeErrorMessage(
+                        error.message ?: "Could not parse RetroAchievements login response.",
+                    ),
+                ),
+            )
+        }
+
+        preferences.setRaConnectToken(parsed.username, parsed.token)
+        preferences.setRetroAchievementsCredentials(
+            username = parsed.username,
+            apiKey = creds.apiKey.ifBlank { parsed.token },
+            connectToken = parsed.token,
+        )
+        return Result.success(RaEmulatorLogin(session = parsed, loginJson = body))
+    }
+
+    suspend fun clearCredentials() {
+        preferences.clearRetroAchievementsCredentials()
+        gameIdByMd5.clear()
+    }
+
+    suspend fun fetchProfile(): Result<RaProfile> =
+        client.fetchProfile(currentCredentials())
+
+    suspend fun fetchRecentUnlocks(): Result<List<RaRecentUnlock>> =
+        client.fetchRecentUnlocks(currentCredentials())
+
+    suspend fun fetchCompletionProgress(
+        count: Int = RetroAchievementsClient.COMPLETION_PAGE_SIZE,
+        offset: Int = 0,
+    ): Result<List<RaCompletionGame>> =
+        client.fetchCompletionProgress(currentCredentials(), count = count, offset = offset)
+
+    suspend fun lookupSelectedGame(game: Game?): RaGameLookup {
+        if (game == null || game.isAndroidApp) return RaGameLookup.NoHash
+
+        val extension = game.fileName.substringAfterLast('.', missingDelimiterValue = "")
+            .lowercase()
+        if (extension == "7z") {
+            return RaGameLookup.Failed(
+                "7z archives cannot be hashed for RetroAchievements yet. " +
+                    "Use a zip or the extracted ROM.",
+            )
+        }
+        if (game.platformId in RaHashRules.UNSUPPORTED_CUSTOM_HASH_PLATFORMS) {
+            return RaGameLookup.Failed(
+                "RetroAchievements uses a disc/encrypted hash for " +
+                    "${game.platform.displayName} that XOrA does not compute yet.",
+            )
+        }
+
+        if (game.platformId in RaHashRules.DISC_HASH_PLATFORMS &&
+            extension in com.arcadia.shell.scraper.RaDiscHash.UNSUPPORTED_DISC_EXTENSIONS
+        ) {
+            return RaGameLookup.Failed(
+                ".$extension discs cannot be hashed on-device yet for " +
+                    "${game.platform.displayName}. Use .cue/.bin, .iso, or .gdi when available.",
+            )
+        }
+
+        val hashes = try {
+            withTimeout(HASH_TIMEOUT_MS) { hasher.hash(game) }
+        } catch (_: TimeoutCancellationException) {
+            Log.w(TAG, "Hash timeout for ${game.fileName}")
+            return RaGameLookup.Failed("Timed out hashing this ROM for RetroAchievements.")
+        } ?: return RaGameLookup.Failed(
+            when {
+                game.filePath == null && game.documentUri == null ->
+                    "Could not hash this ROM for RetroAchievements (missing file access)."
+                game.platformId in RaHashRules.DISC_HASH_PLATFORMS ->
+                    "Could not compute the RetroAchievements disc hash for this " +
+                        "${game.platform.displayName} image. Try .cue/.bin, .iso, or .gdi."
+                else ->
+                    "Could not hash this ROM for RetroAchievements " +
+                        "(missing file access, or a format that needs a custom hash)."
+            },
+        )
+
+        val md5 = hashes.md5.lowercase()
+        Log.i(
+            TAG,
+            "Hash ok for ${game.fileName} platform=${game.platformId} " +
+                "bytes=${hashes.hashedBytes} md5=$md5 — resolving game id",
+        )
+
+        val creds = currentCredentials()
+        val consoleId = RaConsoleIds.forPlatform(game.platformId)
+
+        val resolvedId = gameIdByMd5[md5] ?: run {
+            val apiResult = try {
+                withTimeout(API_TIMEOUT_MS) {
+                    client.resolveGameId(md5, credentials = creds, consoleId = consoleId)
+                }
+            } catch (_: TimeoutCancellationException) {
+                return RaGameLookup.Failed("Timed out resolving this game on RetroAchievements.")
+            }
+
+            apiResult.fold(
+                onSuccess = { id ->
+                    if (id == null) {
+                        Log.i(TAG, "API no-match for md5=$md5 (${game.fileName})")
+                    } else {
+                        Log.i(TAG, "API matched md5=$md5 → gameId=$id")
+                        gameIdByMd5[md5] = id
+                    }
+                    id
+                },
+                onFailure = { error ->
+                    val safe = RetroAchievementsClient.sanitizeErrorMessage(
+                        error.message ?: "network error",
+                    )
+                    Log.w(TAG, "API resolve failed for md5=$md5: $safe")
+                    return RaGameLookup.Failed(
+                        "Could not look up this ROM on RetroAchievements: $safe",
+                    )
+                },
+            )
+        } ?: return RaGameLookup.NoGame(md5 = md5, hashedBytes = hashes.hashedBytes)
+
+        if (!creds.isConfigured) {
+            return RaGameLookup.Failed("Not signed in.")
+        }
+
+        return try {
+            withTimeout(API_TIMEOUT_MS) {
+                client.fetchGameProgress(creds, resolvedId).fold(
+                    onSuccess = { RaGameLookup.Matched(it) },
+                    onFailure = {
+                        RaGameLookup.Failed(
+                            RetroAchievementsClient.sanitizeErrorMessage(
+                                it.message ?: "Could not load achievements.",
+                            ),
+                        )
+                    },
+                )
+            }
+        } catch (_: TimeoutCancellationException) {
+            RaGameLookup.Failed("Timed out loading achievements for this game.")
+        }
+    }
+
+    private companion object {
+        const val TAG = "RetroAchievements"
+        const val HASH_TIMEOUT_MS = 45_000L
+        const val API_TIMEOUT_MS = 30_000L
+    }
+}
