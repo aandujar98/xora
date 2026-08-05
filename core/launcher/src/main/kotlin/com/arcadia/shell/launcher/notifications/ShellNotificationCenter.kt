@@ -9,10 +9,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * One history entry for the RT notification center (newest first).
+ */
+data class ShellNotificationHistoryItem(
+    val notification: ShellNotification,
+    val receivedAtMs: Long,
+    val read: Boolean = false,
+)
 
 /**
  * App-wide notification router.
@@ -20,6 +30,7 @@ import javax.inject.Singleton
  * - **Foreground** ([AppForegroundTracker.isForeground]): PS-style banner queue via [active].
  * - **Background** (paused / another app on top / process not resumed): Android status-bar
  *   notifications via [ShellSystemNotifier].
+ * - **History** ([history] / [unreadCount]): retained for the RT bell notification center.
  *
  * [notificationsEnabled] is the master toggle (Start → Notifications). When false, [emit] drops
  * inbound events unless [force] is true (test preview).
@@ -35,6 +46,12 @@ class ShellNotificationCenter @Inject constructor(
 
     private val _active = MutableStateFlow<ShellNotification?>(null)
     val active: StateFlow<ShellNotification?> = _active.asStateFlow()
+
+    private val _history = MutableStateFlow<List<ShellNotificationHistoryItem>>(emptyList())
+    val history: StateFlow<List<ShellNotificationHistoryItem>> = _history.asStateFlow()
+
+    private val _unreadCount = MutableStateFlow(0)
+    val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
 
     private val recentIds = ConcurrentHashMap.newKeySet<String>()
     private var holdJob: Job? = null
@@ -79,6 +96,8 @@ class ShellNotificationCenter @Inject constructor(
             recentIds.add(notification.id)
         }
 
+        recordHistory(notification)
+
         if (foregroundTracker.isForeground) {
             inbound.trySend(notification)
         } else if (force && !systemNotifier.notificationsEnabled) {
@@ -102,6 +121,30 @@ class ShellNotificationCenter @Inject constructor(
         clearIfCurrent(current.id)
     }
 
+    /** Mark every history item read (clears the profile red-dot badge). */
+    fun markAllRead() {
+        _history.update { list -> list.map { it.copy(read = true) } }
+        _unreadCount.value = 0
+    }
+
+    fun clearHistory() {
+        _history.value = emptyList()
+        _unreadCount.value = 0
+    }
+
+    private fun recordHistory(notification: ShellNotification) {
+        val item = ShellNotificationHistoryItem(
+            notification = notification,
+            receivedAtMs = System.currentTimeMillis(),
+            read = false,
+        )
+        _history.update { current ->
+            (listOf(item) + current.filterNot { it.notification.id == notification.id })
+                .take(MAX_HISTORY)
+        }
+        _unreadCount.update { (it + 1).coerceAtMost(MAX_HISTORY) }
+    }
+
     private fun clearIfCurrent(id: String) {
         if (_active.value?.id == id) {
             _active.value = null
@@ -114,5 +157,6 @@ class ShellNotificationCenter @Inject constructor(
         /** Brief gap so exit/enter animations do not collide. */
         const val GAP_MS = 220L
         private const val MAX_RECENT_IDS = 120
+        private const val MAX_HISTORY = 80
     }
 }

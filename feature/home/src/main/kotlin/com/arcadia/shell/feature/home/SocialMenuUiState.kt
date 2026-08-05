@@ -217,6 +217,7 @@ fun discordFriendActivity(friend: DiscordFriendEntry?): String? = when (friend?.
  * Focusable rows inside the expanded RT profile / quick-settings menu.
  */
 sealed interface SystemPanelRow {
+    data object Notifications : SystemPanelRow
     data object EditProfile : SystemPanelRow
     data class JumpBack(val gameId: String) : SystemPanelRow
     data object Brightness : SystemPanelRow
@@ -226,6 +227,7 @@ sealed interface SystemPanelRow {
 }
 
 fun buildSystemPanelRows(jumpBackGames: List<String>): List<SystemPanelRow> = buildList {
+    add(SystemPanelRow.Notifications)
     add(SystemPanelRow.EditProfile)
     jumpBackGames.take(3).forEach { add(SystemPanelRow.JumpBack(it)) }
     add(SystemPanelRow.Brightness)

@@ -89,6 +89,8 @@ fun HeroPane(
     homeWallpaperPath: String? = null,
     onToggleAccountPanel: () -> Unit,
     onToggleSystemPanel: () -> Unit,
+    onOpenNotifications: () -> Unit = {},
+    notificationUnreadCount: Int = 0,
     onToggleAchievementsPanel: () -> Unit,
     onSelectSocialTab: (SocialMenuTab) -> Unit = {},
     onSelectAccountRow: (Int) -> Unit = {},
@@ -233,9 +235,11 @@ fun HeroPane(
                 jumpBackGames = quickLaunchGames.take(3),
                 expanded = systemPanelExpanded && !isLaunching,
                 selectedRowIndex = systemPanelSelectedIndex,
+                notificationUnreadCount = notificationUnreadCount,
                 onToggle = onToggleSystemPanel,
                 onSelectRow = onSelectSystemRow,
                 onActivateRow = onActivateSystemRow,
+                onOpenNotifications = onOpenNotifications,
             )
         }
 

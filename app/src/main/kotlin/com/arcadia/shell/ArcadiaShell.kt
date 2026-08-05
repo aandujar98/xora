@@ -63,6 +63,8 @@ import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.feature.home.XoraXmbHeroDetail
 import com.arcadia.shell.feature.home.component.GuidePanel
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
+import com.arcadia.shell.feature.home.component.NotificationHistoryPanel
+import com.arcadia.shell.feature.home.component.DiscordConversationWindow
 import com.arcadia.shell.feature.home.component.StartSettingsPanel
 import com.arcadia.shell.feature.home.component.WelcomeBackOverlay
 import com.arcadia.shell.designsystem.LocalShellTheme
@@ -342,6 +344,7 @@ fun ArcadiaShell(
                     onOpenSettings = { route = ShellRoute.Settings },
                     onToggleAccountPanel = homeViewModel::toggleAccountPanel,
                     onToggleSystemPanel = homeViewModel::toggleSystemPanel,
+                    onOpenNotifications = homeViewModel::openNotificationHistory,
                     onToggleAchievementsPanel = homeViewModel::toggleAchievementsPanel,
                     onSelectSocialTab = homeViewModel::selectSocialMenuTab,
                     onSelectAccountRow = homeViewModel::selectAccountPanelRow,
@@ -444,6 +447,24 @@ fun ArcadiaShell(
                     modifier = Modifier.fillMaxSize(),
                 )
                 NotificationBannerHost(center = homeViewModel.shellNotifications)
+                NotificationHistoryPanel(
+                    open = state.notificationHistoryOpen,
+                    items = state.notificationHistory,
+                    selectedIndex = state.notificationHistorySelectedIndex,
+                    onSelectIndex = homeViewModel::selectNotificationHistoryIndex,
+                    onActivate = {},
+                    onClear = homeViewModel::clearNotificationHistory,
+                    onDismiss = homeViewModel::closeNotificationHistory,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                DiscordConversationWindow(
+                    open = state.socialMenu.isDiscordDmOpen,
+                    thread = state.socialMenu.discordDm,
+                    onDraftChange = homeViewModel::updateConversationReplyDraft,
+                    onSend = homeViewModel::sendOpenDiscordDm,
+                    onDismiss = homeViewModel::closeOpenDiscordDm,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
@@ -731,6 +752,7 @@ private fun PaneForRole(
                         state = state,
                         onToggleAccountPanel = homeViewModel::toggleAccountPanel,
                         onToggleSystemPanel = homeViewModel::toggleSystemPanel,
+                    onOpenNotifications = homeViewModel::openNotificationHistory,
                         onToggleAchievementsPanel = homeViewModel::toggleAchievementsPanel,
                         onSelectSocialTab = homeViewModel::selectSocialMenuTab,
                         onSelectAccountRow = homeViewModel::selectAccountPanelRow,
@@ -776,6 +798,7 @@ private fun PaneForRole(
                         homeWallpaperPath = state.homeHub.wallpaperPath,
                         onToggleAccountPanel = homeViewModel::toggleAccountPanel,
                         onToggleSystemPanel = homeViewModel::toggleSystemPanel,
+                    onOpenNotifications = homeViewModel::openNotificationHistory,
                         onToggleAchievementsPanel = homeViewModel::toggleAchievementsPanel,
                         onSelectSocialTab = homeViewModel::selectSocialMenuTab,
                         onSelectAccountRow = homeViewModel::selectAccountPanelRow,
@@ -835,6 +858,7 @@ private fun PaneForRole(
                     onActivateXoraItem = homeViewModel::activateXoraSelection,
                     onToggleAccountPanel = homeViewModel::toggleAccountPanel,
                     onToggleSystemPanel = homeViewModel::toggleSystemPanel,
+                    onOpenNotifications = homeViewModel::openNotificationHistory,
                     onToggleAchievementsPanel = homeViewModel::toggleAchievementsPanel,
                     onSelectSocialTab = homeViewModel::selectSocialMenuTab,
                     onSelectAccountRow = homeViewModel::selectAccountPanelRow,
