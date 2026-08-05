@@ -662,7 +662,6 @@ private fun XmbCross(
                         width = boxWidth,
                         height = boxHeight,
                         boxArt = browsingBoxes,
-                        reflection = focus,
                     )
                 }
             }
@@ -882,146 +881,95 @@ private fun XmbItemGlyph(
     width: Dp,
     height: Dp,
     boxArt: Boolean,
-    reflection: Float = if (selected) 1f else 0f,
     modifier: Modifier = Modifier,
 ) {
     val shape = if (boxArt) RoundedCornerShape(16.dp) else CircleShape
     val cornerPx = 16.dp
     val glow = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
     val rim = Color.White.copy(alpha = 0.95f)
-    val reflectionAmount = reflection.coerceIn(0f, 1f)
-    val density = LocalDensity.current
-    val heightPx = with(density) { height.toPx() }
-    Box(modifier = modifier, contentAlignment = Alignment.TopCenter) {
-        Box(
-            modifier = Modifier
-                .width(width)
-                .height(height)
-                .then(
-                    if (boxArt) {
-                        Modifier
-                            .graphicsLayer {
-                                shadowElevation = if (selected) 22f else 12f
-                                this.shape = shape
-                                clip = false
-                                ambientShadowColor = Color.Black.copy(alpha = 0.55f)
-                                spotShadowColor = Color.Black.copy(alpha = 0.72f)
-                            }
-                            .drawWithContent {
-                                drawContent()
-                                if (selected) {
-                                    val stroke = 3.5.dp.toPx()
-                                    val inset = stroke / 2f
-                                    drawRoundRect(
-                                        brush = Brush.linearGradient(
-                                            colors = listOf(
-                                                glow.copy(alpha = 0.55f),
-                                                rim.copy(alpha = 0.75f),
-                                                glow.copy(alpha = 0.45f),
-                                            ),
-                                            start = Offset.Zero,
-                                            end = Offset(size.width, size.height),
+    val isVectorIcon = artPath.isNullOrBlank() && !boxArt
+    Box(
+        modifier = modifier
+            .width(width)
+            .height(height)
+            .then(
+                when {
+                    boxArt -> Modifier
+                        .graphicsLayer {
+                            // Soft drop only — no mirror / oval reflection under the tile.
+                            shadowElevation = if (selected) 14f else 8f
+                            this.shape = shape
+                            clip = false
+                            ambientShadowColor = Color.Black.copy(alpha = 0.45f)
+                            spotShadowColor = Color.Black.copy(alpha = 0.55f)
+                        }
+                        .drawWithContent {
+                            drawContent()
+                            if (selected) {
+                                val stroke = 3.5.dp.toPx()
+                                val inset = stroke / 2f
+                                drawRoundRect(
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            glow.copy(alpha = 0.55f),
+                                            rim.copy(alpha = 0.75f),
+                                            glow.copy(alpha = 0.45f),
                                         ),
-                                        topLeft = Offset(inset, inset),
-                                        size = Size(size.width - stroke, size.height - stroke),
-                                        cornerRadius = CornerRadius(cornerPx.toPx(), cornerPx.toPx()),
-                                        style = Stroke(width = stroke),
-                                    )
-                                }
+                                        start = Offset.Zero,
+                                        end = Offset(size.width, size.height),
+                                    ),
+                                    topLeft = Offset(inset, inset),
+                                    size = Size(size.width - stroke, size.height - stroke),
+                                    cornerRadius = CornerRadius(cornerPx.toPx(), cornerPx.toPx()),
+                                    style = Stroke(width = stroke),
+                                )
                             }
-                            .clip(shape)
-                            .border(
-                                width = if (selected) 2.5.dp else 0.dp,
-                                color = if (selected) rim else Color.Transparent,
-                                shape = shape,
-                            )
-                    } else {
-                        Modifier.clip(shape)
-                    },
-                )
-                .background(
-                    when {
-                        !artPath.isNullOrBlank() -> Color.Black.copy(alpha = 0.35f)
-                        selected -> Color.White.copy(alpha = 0.16f)
-                        else -> Color.White.copy(alpha = 0.08f)
-                    },
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            XmbGlyphFace(
-                title = title,
-                artPath = artPath,
+                        }
+                        .clip(shape)
+                        .border(
+                            width = if (selected) 2.5.dp else 0.dp,
+                            color = if (selected) rim else Color.Transparent,
+                            shape = shape,
+                        )
+                    isVectorIcon -> Modifier
+                        .clip(shape)
+                        .border(
+                            width = if (selected) 2.dp else 1.5.dp,
+                            color = Color.Black,
+                            shape = shape,
+                        )
+                    else -> Modifier.clip(shape)
+                },
+            )
+            .background(
+                when {
+                    !artPath.isNullOrBlank() -> Color.Black.copy(alpha = 0.35f)
+                    // Solid plate — no frosted / translucent circle behind vector glyphs.
+                    isVectorIcon -> if (selected) Color(0xFF1A1D24) else Color(0xFF101218)
+                    selected -> Color.White.copy(alpha = 0.16f)
+                    else -> Color.White.copy(alpha = 0.08f)
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!artPath.isNullOrBlank()) {
+            ArtworkImage(
+                path = artPath,
+                contentDescription = title,
+                fallbackText = title.take(1),
+                contentScale = ContentScale.Crop,
+                cacheInMemory = true,
+                decodeMaxEdgePx = if (boxArt) 512 else 256,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            XmbVectorIcon(
                 icon = icon,
-                selected = selected,
-                width = width,
-                height = height,
-                boxArt = boxArt,
+                tint = Color.White,
+                size = minOf(width, height) * 0.5f,
+                outlined = true,
             )
         }
-        if (reflectionAmount > 0.05f) {
-            Box(
-                modifier = Modifier
-                    .width(width)
-                    .height(height * 0.42f)
-                    .graphicsLayer {
-                        translationY = heightPx * 0.98f
-                        scaleY = -1f
-                        alpha = 0.42f * reflectionAmount
-                        transformOrigin = TransformOrigin(0.5f, 0f)
-                    }
-                    .clip(shape)
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.05f),
-                                0.35f to Color.Black.copy(alpha = 0.45f),
-                                1f to Color.Black.copy(alpha = 0.92f),
-                            ),
-                        )
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                XmbGlyphFace(
-                    title = title,
-                    artPath = artPath,
-                    icon = icon,
-                    selected = selected,
-                    width = width,
-                    height = height,
-                    boxArt = boxArt,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun XmbGlyphFace(
-    title: String,
-    artPath: String?,
-    icon: XmbIcon,
-    selected: Boolean,
-    width: Dp,
-    height: Dp,
-    boxArt: Boolean,
-) {
-    if (!artPath.isNullOrBlank()) {
-        ArtworkImage(
-            path = artPath,
-            contentDescription = title,
-            fallbackText = title.take(1),
-            contentScale = ContentScale.Crop,
-            cacheInMemory = true,
-            decodeMaxEdgePx = if (boxArt) 512 else 256,
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else {
-        XmbVectorIcon(
-            icon = icon,
-            tint = Color.White.copy(alpha = if (selected) 1f else 0.85f),
-            size = minOf(width, height) * 0.5f,
-        )
     }
 }
 
