@@ -10,6 +10,10 @@ val discordSocialSdkEnabled = discordPartnerAar.exists()
 android {
     namespace = "com.arcadia.shell.launcher"
     compileSdk = 37
+    // Match Discord Social SDK AAR prefab (built with NDK 27).
+    if (discordSocialSdkEnabled) {
+        ndkVersion = "27.0.12077973"
+    }
 
     defaultConfig {
         minSdk = 29

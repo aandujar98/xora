@@ -26,9 +26,10 @@ data class StorageVolumeRoot(
  * Gatekeeper for the two very different ways this app can read a ROM library.
  *
  * All-files access is the preferred mode and not merely a convenience: several popular emulators
- * (Dolphin, DuckStation) accept only a real filesystem path in their launch intent, which the
- * Storage Access Framework fundamentally cannot produce. SAF remains as a reduced-capability
- * fallback that can still drive the document-uri emulators such as PPSSPP and AetherSX2.
+ * (Dolphin, DuckStation) and the in-process XOrA Emulator (Libretro) accept only a real
+ * filesystem path in their launch path, which the Storage Access Framework fundamentally cannot
+ * produce. SAF remains as a reduced-capability fallback that can still drive the document-uri
+ * emulators such as PPSSPP and AetherSX2.
  */
 @Singleton
 class StorageAccess @Inject constructor(

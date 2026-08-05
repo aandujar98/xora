@@ -1019,6 +1019,32 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                SettingsFieldLabel("Filesystem ROM access")
+                Text(
+                    text = if (state.hasStorageAccess) {
+                        "All-files access granted. XOrA Emulator can open ROMs by real " +
+                            "filesystem path (required for Libretro load)."
+                    } else {
+                        "XOrA Emulator needs all-files access so it can pass a real filesystem " +
+                            "ROM path to Libretro. Document-picker library folders alone are not enough."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!state.hasStorageAccess) {
+                    Button(onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) }) {
+                        Text(text = "Allow access to system files")
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) },
+                    ) {
+                        Text(text = "System files access settings")
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
                 val statusLine = when {
                     state.xoraDownloadRunning ->
                         state.xoraDownloadMessage ?: "Downloading cores…"
