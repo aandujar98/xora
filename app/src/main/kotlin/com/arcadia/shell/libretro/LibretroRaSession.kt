@@ -22,7 +22,8 @@ import java.io.File
 
 /**
  * Starts a RetroAchievements session for an in-process Libretro game:
- * hash ROM → resolve game id (Connect + Web API fallback) → login → load into rcheevos.
+ * hash ROM → resolve game id → prefetch Connect payloads on the launcher HTTP stack →
+ * inject into rcheevos (login / gameid / patch / startsession).
  *
  * Softcore vs hardcore follows [RetroAchievementsSettings.hardcore].
  */
@@ -126,11 +127,6 @@ class LibretroRaSession(
                 Log.i(TAG, "No RA set for md5=$md5 platform=$platformId")
                 return@launch
             }
-            // Feed rcheevos the same Connect gameid payload the launcher resolved (avoids a
-            // second Cloudflare-blocked dorequest from native).
-            LibretroNative.nativeRaQueueGameIdResponse(
-                """{"Success":true,"GameID":$resolvedId}""",
-            )
             Log.i(TAG, "RA identified md5=$md5 → gameId=$resolvedId")
 
             val consoleId = RaConsoleIds.forPlatform(platformId) ?: 0
@@ -146,12 +142,27 @@ class LibretroRaSession(
             }
             LibretroNative.nativeRaSetHardcore(raSettings.hardcore)
 
-            // Refresh Connect token on the launcher HTTP stack, then inject that JSON into
-            // rcheevos so native login does not make a second (often Cloudflare-blocked) request.
+            // Refresh Connect token + prefetch patch/startsession on the launcher HTTP stack
+            // (Cloudflare-safe UA). Inject those JSON bodies into rcheevos so native never needs
+            // a second live dorequest for login / gameid / patch / startsession.
             val login = withContext(Dispatchers.IO) {
                 retroAchievements.refreshEmulatorSession()
             }.getOrElse { error ->
                 _status.value = "RA: ${error.message ?: "login failed"}"
+                return@launch
+            }
+
+            _status.value = "RA: loading achievements…"
+            val gameSession = withContext(Dispatchers.IO) {
+                retroAchievements.prefetchEmulatorGameSession(
+                    username = login.session.username,
+                    connectToken = login.session.token,
+                    gameId = resolvedId,
+                    md5 = md5,
+                    hardcore = raSettings.hardcore,
+                )
+            }.getOrElse { error ->
+                _status.value = "RA: ${error.message ?: "could not load achievements"}"
                 return@launch
             }
 
@@ -166,9 +177,19 @@ class LibretroRaSession(
             )
             _status.value = "RA: logged in as ${login.session.username}"
 
-            LibretroNative.nativeRaQueueLoginResponse(login.loginJson)
-            LibretroNative.nativeRaLoadGame(md5)
-            LibretroNative.nativeRaLogin(login.session.username, login.session.token)
+            // Seed rcheevos on the IO dispatcher so nested sync callbacks do not block the UI
+            // thread (and so frame-loop mutex waits stay off Main).
+            withContext(Dispatchers.IO) {
+                LibretroNative.nativeRaAddGameHash(md5, resolvedId)
+                LibretroNative.nativeRaQueueGameIdResponse(
+                    """{"Success":true,"GameID":$resolvedId}""",
+                )
+                LibretroNative.nativeRaQueueLoginResponse(login.loginJson)
+                LibretroNative.nativeRaQueuePatchResponse(gameSession.patchJson)
+                LibretroNative.nativeRaQueueStartSessionResponse(gameSession.startSessionJson)
+                LibretroNative.nativeRaLoadGame(md5)
+                LibretroNative.nativeRaLogin(login.session.username, login.session.token)
+            }
         }
     }
 

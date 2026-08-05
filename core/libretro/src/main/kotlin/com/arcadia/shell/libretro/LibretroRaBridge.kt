@@ -55,13 +55,27 @@ class LibretroRaBridge(
             http.newCall(builder.build()).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    Log.w(TAG, "RA HTTP ${response.code} for $url (${body.take(120)})")
+                    Log.w(TAG, "RA HTTP ${response.code} for $url post=${postData?.take(80)} (${body.take(120)})")
+                }
+                // HTML/WAF pages are not valid Connect JSON — surface as client error.
+                if (looksLikeHtml(body)) {
+                    return@use arrayOf<Any>(
+                        Integer.valueOf(-1),
+                        "HTTP ${response.code} blocked (Cloudflare/WAF)",
+                    )
+                }
+                if (body.isBlank() && !response.isSuccessful) {
+                    return@use arrayOf<Any>(
+                        Integer.valueOf(-1),
+                        "HTTP ${response.code} with empty body",
+                    )
                 }
                 arrayOf<Any>(Integer.valueOf(response.code), body)
             }
         }.getOrElse { error ->
-            Log.w(TAG, "RA HTTP failed: ${error.message}")
-            arrayOf<Any>(Integer.valueOf(-1), error.message.orEmpty())
+            val message = error.message?.takeIf { it.isNotBlank() } ?: "HTTP request failed"
+            Log.w(TAG, "RA HTTP failed: $message")
+            arrayOf<Any>(Integer.valueOf(-1), message)
         }
     }
 
@@ -93,5 +107,13 @@ class LibretroRaBridge(
         const val TAG = "LibretroRA"
         /** Same UA as [com.arcadia.shell.retroachievements.RetroAchievementsClient]. */
         const val USER_AGENT = "XOrA/1.0.0"
+
+        fun looksLikeHtml(body: String): Boolean {
+            val trimmed = body.trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+            if (trimmed.isEmpty()) return false
+            return trimmed.startsWith("<") ||
+                trimmed.contains("<html", ignoreCase = true) ||
+                trimmed.contains("<!DOCTYPE", ignoreCase = true)
+        }
     }
 }
