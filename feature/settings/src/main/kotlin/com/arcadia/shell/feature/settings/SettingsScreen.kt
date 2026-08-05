@@ -1035,7 +1035,8 @@ fun SettingsScreen(
 
         item(key = "emulators_choose_hint") {
             Text(
-                text = "Tip: on the game list, press Select → Choose Emulator to pick " +
+                text = "Tip: on a ROM, press Select → ROM options to customize art, " +
+                    "sound bite, and saves, or Choose Emulator to pick " +
                     "an installed app or RetroArch core for the current system.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

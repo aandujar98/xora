@@ -105,5 +105,17 @@ class LibraryRepository @Inject constructor(
     suspend fun setHashes(gameId: String, crc32: String?, md5: String?, sha1: String?) =
         gameDao.setHashes(gameId, crc32, md5, sha1)
 
+    suspend fun setBoxArtPath(gameId: String, path: String?) =
+        gameDao.setBoxArtPath(gameId, path)
+
+    suspend fun setHeroImagePath(gameId: String, path: String?) =
+        gameDao.setHeroImagePath(gameId, path)
+
+    suspend fun setLogoImagePath(gameId: String, path: String?) =
+        gameDao.setLogoImagePath(gameId, path)
+
+    suspend fun setSoundBitePath(gameId: String, path: String?) =
+        gameDao.setSoundBitePath(gameId, path)
+
     suspend fun clear() = gameDao.deleteAll()
 }
