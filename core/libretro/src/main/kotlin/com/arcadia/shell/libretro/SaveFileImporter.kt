@@ -2,6 +2,7 @@ package com.arcadia.shell.libretro
 
 import android.os.Environment
 import android.util.Log
+import com.arcadia.shell.model.Game
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -65,6 +66,38 @@ class SaveFileImporter @Inject constructor(
         return ImportResult(imported = imported, alreadyPresent = already, message = message)
     }
 
+    /** Base names used for battery-save matching (ROM stem + extracted archive stems). */
+    fun candidateBaseNamesFor(game: Game): List<String> {
+        val names = linkedSetOf<String>()
+        val fromPath = game.filePath?.let { File(it) }
+        if (fromPath != null) {
+            names += candidateBaseNames(fromPath)
+        }
+        val fromFileName = game.fileName
+            .substringBeforeLast('.', missingDelimiterValue = game.fileName)
+            .takeIf { it.isNotBlank() }
+        if (fromFileName != null) names += fromFileName
+        return names.toList()
+    }
+
+    /** External battery saves that match [game] but are not yet copied into XOrA's save dir. */
+    fun findExternalSaves(game: Game): List<File> {
+        val romFile = game.filePath?.let(::File)
+        val bases = candidateBaseNamesFor(game)
+        if (bases.isEmpty()) return emptyList()
+        val found = linkedMapOf<String, File>()
+        for (base in bases) {
+            for (ext in SAVE_EXTENSIONS) {
+                val source = when {
+                    romFile != null -> findSourceSave(romFile, base, ext)
+                    else -> findSourceSaveWithoutRomParent(base, ext)
+                } ?: continue
+                found.putIfAbsent(source.absolutePath, source)
+            }
+        }
+        return found.values.toList()
+    }
+
     private fun candidateBaseNames(romFile: File): List<String> {
         val names = linkedSetOf<String>()
         val primary = romFile.nameWithoutExtension
@@ -92,23 +125,33 @@ class SaveFileImporter @Inject constructor(
             candidates += File(parent, "saves/$fileName")
             candidates += File(parent, "save/$fileName")
         }
+        candidates += commonExternalCandidates(base, fileName)
 
-        // Common RetroArch Android locations.
+        return candidates.firstOrNull { it.isFile && it.length() > 0L }
+    }
+
+    private fun findSourceSaveWithoutRomParent(base: String, ext: String): File? {
+        val fileName = "$base$ext"
+        return commonExternalCandidates(base, fileName)
+            .firstOrNull { it.isFile && it.length() > 0L }
+    }
+
+    private fun commonExternalCandidates(base: String, fileName: String): List<File> {
+        val candidates = ArrayList<File>()
         val external = Environment.getExternalStorageDirectory()
         if (external != null) {
             candidates += File(external, "RetroArch/saves/$fileName")
             candidates += File(external, "RetroArch/saves/$base/$fileName")
             candidates += File(external, "Android/data/com.retroarch/files/saves/$fileName")
             candidates += File(external, "Android/data/com.retroarch.aarch64/files/saves/$fileName")
+            // RetroArch often nests by core / content folder name.
+            candidates += File(external, "RetroArch/states/$fileName")
         }
-
-        // App-shared external RetroArch-style folder if present under XOrA files.
         candidates += File(coreStore.savesRoot.parentFile, "RetroArch/saves/$fileName")
-
-        return candidates.firstOrNull { it.isFile && it.length() > 0L }
+        return candidates
     }
 
-    private companion object {
+    companion object {
         const val TAG = "SaveFileImporter"
         val SAVE_EXTENSIONS = listOf(
             ".srm",

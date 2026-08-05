@@ -107,7 +107,7 @@ val XoraXmbHints: List<Pair<String, String>> = listOf(
     "Y" to "Swap screens",
     "LT" to "Circle",
     "RT" to "Profile",
-    "Select" to "Emulator / Scrape",
+    "Select" to "ROM options",
     "Start" to "Settings",
     "Start+Select" to "Guide",
 )

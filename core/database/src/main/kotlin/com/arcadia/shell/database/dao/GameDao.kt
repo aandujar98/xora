@@ -178,6 +178,18 @@ interface GameDao {
     @Query("UPDATE games SET launchDisplayPreference = :preference WHERE id = :id")
     suspend fun setLaunchDisplayPreference(id: String, preference: LaunchDisplayPreference)
 
+    @Query("UPDATE games SET boxArtPath = :path WHERE id = :id")
+    suspend fun setBoxArtPath(id: String, path: String?)
+
+    @Query("UPDATE games SET heroImagePath = :path WHERE id = :id")
+    suspend fun setHeroImagePath(id: String, path: String?)
+
+    @Query("UPDATE games SET logoImagePath = :path WHERE id = :id")
+    suspend fun setLogoImagePath(id: String, path: String?)
+
+    @Query("UPDATE games SET soundBitePath = :path WHERE id = :id")
+    suspend fun setSoundBitePath(id: String, path: String?)
+
     @Query("DELETE FROM games")
     suspend fun deleteAll()
 }

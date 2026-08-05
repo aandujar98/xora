@@ -19,8 +19,11 @@ import com.arcadia.shell.datastore.CirclePinSource
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.GameCustomMediaStore
 import com.arcadia.shell.datastore.HomeThemeMediaStore
 import com.arcadia.shell.datastore.LocalProfile
+import com.arcadia.shell.libretro.GameSaveCatalog
+import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_COLUMNS
@@ -152,6 +155,9 @@ class HomeViewModel @Inject constructor(
     private val retroAchievements: RetroAchievementsRepository,
     private val avatarStore: ProfileAvatarStore,
     private val themeMediaStore: HomeThemeMediaStore,
+    private val gameCustomMediaStore: GameCustomMediaStore,
+    private val gameSaveCatalog: GameSaveCatalog,
+    private val gameSoundBitePlayer: GameSoundBitePlayer,
     private val trailerResolver: TrailerResolver,
     private val scraperScheduler: ScraperScheduler,
     private val libraryHashScheduler: LibraryHashScheduler,
@@ -199,6 +205,9 @@ class HomeViewModel @Inject constructor(
     private val mediaPickerRequests = Channel<HomeMediaPickerRequest>(Channel.BUFFERED)
     /** Observed from the primary Activity composition only — never under a Presentation. */
     val mediaPickerRequestFlow: Flow<HomeMediaPickerRequest> = mediaPickerRequests.receiveAsFlow()
+
+    /** Bumps when ROM options should re-scan on-disk saves. */
+    private val romSaveRefresh = MutableStateFlow(0)
 
     private val externalAuthRequests = Channel<HomeExternalAuthRequest>(Channel.BUFFERED)
     /** Custom Tab / OAuth launches — Activity-rooted only (same hoist as media pickers). */
@@ -771,6 +780,21 @@ class HomeViewModel @Inject constructor(
         discordRichPresence.state
             .onEach { presence ->
                 discordSocialUi.update { it.copy(presence = presence) }
+            }
+            .launchIn(viewModelScope)
+
+        // Focused ROM sound bite (customized via Select → ROM options).
+        uiState
+            .map { state ->
+                val game = state.xoraXmb.focusGame
+                    ?.takeIf { state.xoraXmb.depth == XoraXmbDepth.Roms }
+                    ?: state.selectedGame?.takeIf { state.homePage == HomePage.GameSelector }
+                game?.id to game?.soundBitePath
+            }
+            .distinctUntilChanged()
+            .onEach { (_, path) ->
+                if (!path.isNullOrBlank()) gameSoundBitePlayer.play(path)
+                else gameSoundBitePlayer.stop()
             }
             .launchIn(viewModelScope)
 
@@ -1769,9 +1793,17 @@ class HomeViewModel @Inject constructor(
                 }
             }
             NavAction.ScrapeMenu -> {
-                if (xmb.depth == XoraXmbDepth.Roms) {
-                    xmb.focusGame?.let { emit(HomeEvent.OpenScrapeMenu(it.id)) }
-                        ?: state.selectedGame?.let { emit(HomeEvent.OpenScrapeMenu(it.id)) }
+                val game = when {
+                    xmb.depth == XoraXmbDepth.Roms -> xmb.focusGame ?: state.selectedGame
+                    xmb.focusGame != null &&
+                        (xmb.selectedItem?.action is XoraXmbAction.LaunchGame ||
+                            xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite) ->
+                        xmb.focusGame
+                    else -> null
+                }
+                game?.let {
+                    romSaveRefresh.update { tick -> tick + 1 }
+                    emit(HomeEvent.OpenScrapeMenu(it.id))
                 }
             }
             NavAction.ToggleFavorite -> {
@@ -3239,6 +3271,7 @@ class HomeViewModel @Inject constructor(
                 emit(HomeEvent.OpenGameOptions(it.id))
             }
             NavAction.ScrapeMenu -> state.selectedGame?.let {
+                romSaveRefresh.update { tick -> tick + 1 }
                 emit(HomeEvent.OpenScrapeMenu(it.id))
             }
             NavAction.ToggleFavorite -> toggleFavorite()
@@ -4378,6 +4411,129 @@ class HomeViewModel @Inject constructor(
 
     fun setFavorite(gameId: String, favorite: Boolean) {
         viewModelScope.launch { libraryRepository.setFavorite(gameId, favorite) }
+    }
+
+    fun listSavesForGame(game: Game): List<GameSaveEntry> = gameSaveCatalog.listForGame(game)
+
+    fun romSaveRefreshTick(): StateFlow<Int> = romSaveRefresh
+
+    fun refreshRomSaves() {
+        romSaveRefresh.update { it + 1 }
+    }
+
+    fun importSavesForGame(gameId: String) {
+        viewModelScope.launch {
+            val game = libraryRepository.findById(gameId) ?: return@launch
+            val result = gameSaveCatalog.importExternal(game)
+            refreshRomSaves()
+            emit(
+                HomeEvent.ShowMessage(
+                    result.message ?: "No matching RetroArch / beside-ROM saves found.",
+                ),
+            )
+        }
+    }
+
+    fun deleteSaveForGame(entry: GameSaveEntry) {
+        viewModelScope.launch {
+            val ok = gameSaveCatalog.delete(entry)
+            refreshRomSaves()
+            emit(
+                if (ok) HomeEvent.ShowMessage("Deleted ${entry.fileName}")
+                else HomeEvent.ShowError("Could not delete that save file."),
+            )
+        }
+    }
+
+    fun pickGameBoxArt(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameBoxArt(gameId)) }
+        }
+    }
+
+    fun pickGameBackground(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameBackground(gameId)) }
+        }
+    }
+
+    fun pickGameSoundBite(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameSoundBite(gameId)) }
+        }
+    }
+
+    fun setGameBoxArt(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = gameCustomMediaStore.importBoxArt(gameId, uri)
+                libraryRepository.setBoxArtPath(gameId, path)
+                emit(HomeEvent.ShowMessage("Box art updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import box art."))
+            }
+        }
+    }
+
+    fun setGameBackground(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = gameCustomMediaStore.importBackground(gameId, uri)
+                libraryRepository.setHeroImagePath(gameId, path)
+                emit(HomeEvent.ShowMessage("Background updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import background."))
+            }
+        }
+    }
+
+    fun setGameSoundBite(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = gameCustomMediaStore.importSoundBite(gameId, uri)
+                libraryRepository.setSoundBitePath(gameId, path)
+                gameSoundBitePlayer.play(path)
+                emit(HomeEvent.ShowMessage("Sound bite updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import sound bite."))
+            }
+        }
+    }
+
+    fun clearGameBoxArt(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearBoxArt(gameId)
+            libraryRepository.setBoxArtPath(gameId, null)
+            emit(HomeEvent.ShowMessage("Box art cleared."))
+        }
+    }
+
+    fun clearGameBackground(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearBackground(gameId)
+            libraryRepository.setHeroImagePath(gameId, null)
+            emit(HomeEvent.ShowMessage("Background cleared."))
+        }
+    }
+
+    fun clearGameSoundBite(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearSoundBite(gameId)
+            libraryRepository.setSoundBitePath(gameId, null)
+            gameSoundBitePlayer.stop()
+            emit(HomeEvent.ShowMessage("Sound bite cleared."))
+        }
+    }
+
+    fun previewGameSoundBite(gameId: String) {
+        viewModelScope.launch {
+            val path = libraryRepository.findById(gameId)?.soundBitePath
+            if (path.isNullOrBlank()) {
+                emit(HomeEvent.ShowMessage("No sound bite set."))
+            } else {
+                gameSoundBitePlayer.play(path)
+            }
+        }
     }
 
     suspend fun scraperPreferenceForGame(gameId: String): ScraperPreference {
