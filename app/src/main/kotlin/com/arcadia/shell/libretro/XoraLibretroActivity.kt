@@ -434,7 +434,8 @@ class XoraLibretroActivity : ComponentActivity() {
                     }
 
                     if (menuOpen) {
-                        val dimSubmenu = settingsOpen || achievementsOpen || controllersOpen || mappingOpen
+                        // One shared dim for pause + submenus. Stronger submenu scrims made
+                        // RetroAchievements look washed, then left a brightness jump on Resume.
                         CompositionLocalProvider(LocalArcadiaHaze provides null) {
                             Box(
                                 modifier = Modifier
@@ -442,12 +443,8 @@ class XoraLibretroActivity : ComponentActivity() {
                                     .background(
                                         Brush.verticalGradient(
                                             listOf(
-                                                androidx.compose.ui.graphics.Color.Black.copy(
-                                                    alpha = if (dimSubmenu) 0.55f else 0.42f,
-                                                ),
-                                                androidx.compose.ui.graphics.Color.Black.copy(
-                                                    alpha = if (dimSubmenu) 0.72f else 0.58f,
-                                                ),
+                                                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.42f),
+                                                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.58f),
                                             ),
                                         ),
                                     ),
