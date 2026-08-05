@@ -124,6 +124,15 @@ class UiSoundController @Inject constructor(
         play(if (notificationId != 0) notificationId else okId)
     }
 
+    /** Select / confirm one-shot — launcher Confirm and XOrA Emulator overlay activate. */
+    fun playConfirm() = play(okId)
+
+    /** Cancel / back one-shot. */
+    fun playCancel() = play(ngId)
+
+    /** Cursor / focus-move one-shot. */
+    fun playCursor() = play(cursorId)
+
     private fun playFor(action: NavAction) {
         val soundId = when (action) {
             NavAction.Left,
