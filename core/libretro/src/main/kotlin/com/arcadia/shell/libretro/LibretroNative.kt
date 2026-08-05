@@ -56,4 +56,38 @@ object LibretroNative {
     external fun nativeRaIdle()
     external fun nativeRaReset()
     external fun nativeRaSummary(): String?
+    /**
+     * Live achievement rows for the loaded game.
+     * Each row: `[id, title, description, points, badgeUrl, unlocked ("0"/"1"), hardcore ("0"/"1"), progress]`.
+     */
+    external fun nativeRaListAchievements(): Array<Array<String>>?
+}
+
+/** One RetroAchievements row from [LibretroNative.nativeRaListAchievements]. */
+data class RaLiveAchievement(
+    val id: Int,
+    val title: String,
+    val description: String,
+    val points: Int,
+    val badgeUrl: String,
+    val unlocked: Boolean,
+    val hardcore: Boolean,
+    val progress: String,
+) {
+    companion object {
+        fun fromNativeRow(row: Array<String>): RaLiveAchievement? {
+            if (row.size < 8) return null
+            val id = row[0].toIntOrNull() ?: return null
+            return RaLiveAchievement(
+                id = id,
+                title = row[1],
+                description = row[2],
+                points = row[3].toIntOrNull() ?: 0,
+                badgeUrl = row[4],
+                unlocked = row[5] == "1",
+                hardcore = row[6] == "1",
+                progress = row[7],
+            )
+        }
+    }
 }
