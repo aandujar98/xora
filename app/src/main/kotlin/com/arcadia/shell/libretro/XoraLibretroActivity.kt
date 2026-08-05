@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.arcadia.shell.audio.UiSoundController
+import com.arcadia.shell.database.repository.LibraryRepository
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
@@ -104,6 +105,7 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var okHttpClient: OkHttpClient
     @Inject lateinit var retroAchievements: RetroAchievementsRepository
     @Inject lateinit var romHasher: RomHasher
+    @Inject lateinit var libraryRepository: LibraryRepository
 
     private var menuOpen by mutableStateOf(false)
     private var settingsOpen by mutableStateOf(false)
@@ -113,6 +115,9 @@ class XoraLibretroActivity : ComponentActivity() {
     private var raStatusText by mutableStateOf<String?>(null)
     private var controllerStatus by mutableStateOf<String?>(null)
     private var paused by mutableStateOf(false)
+    /** True while the activity is backgrounded (home/recents) — pauses the frame loop. */
+    @Volatile private var activityInBackground = false
+    private var gameLoaded = false
     private var freezeFrame by mutableStateOf<Bitmap?>(null)
     private var focusedMenuIndex by mutableIntStateOf(0)
     private var raSession: LibretroRaSession? = null
@@ -520,11 +525,21 @@ class XoraLibretroActivity : ComponentActivity() {
                 bootOverlayVisible = false
                 return@launch
             }
-            refreshExpandTopology()
-            statusText = if (expandActive) {
-                "Expanded · top primary / bottom secondary"
+            gameLoaded = true
+            val raPrefs = preferences.retroAchievementsSettings.first()
+            raSettings = raPrefs
+            // Resume after an accidental home/recents swipe (softcore only — hardcore forbids it).
+            val hardcore = raPrefs.hardcore && raPrefs.enabled
+            val restored = if (!hardcore) {
+                withContext(Dispatchers.IO) { loadAutosave() }
             } else {
-                ""
+                false
+            }
+            refreshExpandTopology()
+            statusText = when {
+                restored -> "Resumed previous session"
+                expandActive -> "Expanded · top primary / bottom secondary"
+                else -> ""
             }
             startRaSession(romPath)
             startAudio()
@@ -544,6 +559,7 @@ class XoraLibretroActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        activityInBackground = false
         ImmersiveMode.apply(window)
         uiSounds.onForeground()
         window.decorView.requestFocus()
@@ -556,8 +572,21 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        // Persist progress before Android may kill the process after a home / recents swipe.
+        if (!isChangingConfigurations) {
+            activityInBackground = true
+            persistSessionForBackground()
+        }
         uiSounds.onBackground()
         super.onPause()
+    }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) {
+            activityInBackground = true
+            persistSessionForBackground()
+        }
+        super.onStop()
     }
 
     /** Intercept at dispatch so Compose focus cannot swallow gamepad KeyEvents. */
@@ -761,6 +790,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 okHttpClient = okHttpClient,
                 retroAchievements = retroAchievements,
                 romHasher = romHasher,
+                libraryRepository = libraryRepository,
                 notifications = shellNotifications,
                 gameTitle = gameTitle,
                 raSettings = prefs,
@@ -769,6 +799,24 @@ class XoraLibretroActivity : ComponentActivity() {
             launch { session.status.collect { raStatusText = it } }
             session.start(romPath = romPath, platformId = platformId, gameId = gameId)
         }
+    }
+
+    private fun persistSessionForBackground() {
+        if (!gameLoaded) return
+        val hardcore = raSettings.hardcore && raSettings.enabled
+        if (hardcore) return
+        runCatching { saveAutosave() }
+    }
+
+    private fun saveAutosave() {
+        val data = LibretroNative.nativeSerialize() ?: return
+        coreStore.autosaveFile(platformId, gameId).writeBytes(data)
+    }
+
+    private fun loadAutosave(): Boolean {
+        val file = coreStore.autosaveFile(platformId, gameId)
+        if (!file.isFile || file.length() == 0L) return false
+        return LibretroNative.nativeUnserialize(file.readBytes())
     }
 
     private fun openMenu() {
@@ -824,7 +872,7 @@ class XoraLibretroActivity : ComponentActivity() {
             val frameNs = (1_000_000_000.0 / fps).toLong()
             while (coroutineContext.isActive) {
                 val start = System.nanoTime()
-                if (!paused && !menuOpen) {
+                if (!paused && !menuOpen && !activityInBackground) {
                     LibretroNative.nativeSetPadState(
                         keyPadButtons.get() or axisPadButtons.get(),
                         axisLx,
@@ -897,6 +945,9 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     override fun finish() {
+        // Explicit quit — drop the autosave so the next launch is a fresh boot.
+        runCatching { coreStore.autosaveFile(platformId, gameId).delete() }
+        gameLoaded = false
         super.finish()
         @Suppress("DEPRECATION")
         overridePendingTransition(

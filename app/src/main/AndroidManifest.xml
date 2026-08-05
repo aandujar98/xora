@@ -89,10 +89,11 @@
         <activity
             android:name="com.arcadia.shell.libretro.XoraLibretroActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.Arcadia.Emulator"
-            android:launchMode="singleTask" />
+            android:launchMode="singleTask"
+            android:alwaysRetainTaskState="true" />
 
         <activity
             android:name=".MainActivity"
