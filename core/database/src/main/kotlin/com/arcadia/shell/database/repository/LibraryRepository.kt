@@ -61,6 +61,14 @@ class LibraryRepository @Inject constructor(
     suspend fun pendingScrapes(limit: Int): List<Game> =
         gameDao.findByScrapeState(ScrapeState.Pending, limit).map(GameEntity::toDomain)
 
+    suspend fun pendingHashes(limit: Int): List<Game> =
+        gameDao.findMissingHashes(limit).map(GameEntity::toDomain)
+
+    suspend fun allRomsForHashing(limit: Int, offset: Int = 0): List<Game> =
+        gameDao.findAllRoms(limit, offset).map(GameEntity::toDomain)
+
+    suspend fun countMissingHashes(): Int = gameDao.countMissingHashes()
+
     suspend fun applyScrapeResult(
         gameId: String,
         title: String,

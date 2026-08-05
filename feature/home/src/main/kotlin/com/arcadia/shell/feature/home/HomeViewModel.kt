@@ -84,6 +84,7 @@ import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scanner.StorageAccess
 import com.arcadia.shell.scraper.PlatformArtRepository
 import com.arcadia.shell.scraper.ScraperPreference
+import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.ScraperScheduler
 import com.arcadia.shell.scraper.SteamOpenId
 import com.arcadia.shell.scraper.SteamWebApiClient
@@ -151,6 +152,7 @@ class HomeViewModel @Inject constructor(
     private val themeMediaStore: HomeThemeMediaStore,
     private val trailerResolver: TrailerResolver,
     private val scraperScheduler: ScraperScheduler,
+    private val libraryHashScheduler: LibraryHashScheduler,
     private val platformArtRepository: PlatformArtRepository,
     private val rssFeedClient: RssFeedClient,
     private val gameInsightRepository: GameInsightRepository,
@@ -3502,10 +3504,11 @@ class HomeViewModel @Inject constructor(
                 emit(HomeEvent.ShowError(progress.error ?: "Scan failed."))
                 return@launch
             }
+            libraryHashScheduler.enqueue(rehashAll = false, replace = false)
             scraperScheduler.enqueue(replace = true)
             emit(
                 HomeEvent.ShowMessage(
-                    "Scanned ${progress.gamesFound} games — fetching artwork…",
+                    "Scanned ${progress.gamesFound} games — hashing ROMs & fetching artwork…",
                 ),
             )
         }

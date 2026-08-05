@@ -78,6 +78,9 @@ fun GameEntity.toDomain(): Game = Game(
     playerIdOverride = playerIdOverride,
     launchDisplayPreference = launchDisplayPreference,
     scrapeState = scrapeState,
+    crc32 = crc32,
+    md5 = md5,
+    sha1 = sha1,
 )
 
 fun Game.toEntity(
@@ -108,5 +111,8 @@ fun Game.toEntity(
     playerIdOverride = playerIdOverride,
     launchDisplayPreference = launchDisplayPreference,
     scrapeState = scrapeState,
+    crc32 = crc32,
+    md5 = md5,
+    sha1 = sha1,
     lastSeenAt = lastSeenAt,
 )

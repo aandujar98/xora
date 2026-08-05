@@ -22,6 +22,7 @@ android {
 dependencies {
     api(project(":core:model"))
     api(project(":core:datastore"))
+    implementation(project(":core:database"))
     implementation(project(":core:scraper"))
 
     implementation(libs.androidx.core.ktx)

@@ -46,6 +46,37 @@ interface GameDao {
     )
     suspend fun findByScrapeState(state: ScrapeState, limit: Int): List<GameEntity>
 
+    /** ROMs that still need a RetroAchievements / ScreenScraper hash pass. */
+    @Query(
+        """
+        SELECT * FROM games
+        WHERE platformId != 'android'
+          AND (md5 IS NULL OR md5 = '')
+        ORDER BY sortKey ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun findMissingHashes(limit: Int): List<GameEntity>
+
+    @Query(
+        """
+        SELECT * FROM games
+        WHERE platformId != 'android'
+        ORDER BY sortKey ASC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun findAllRoms(limit: Int, offset: Int): List<GameEntity>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM games
+        WHERE platformId != 'android'
+          AND (md5 IS NULL OR md5 = '')
+        """,
+    )
+    suspend fun countMissingHashes(): Int
+
     @Query("SELECT COUNT(*) FROM games")
     suspend fun count(): Int
 

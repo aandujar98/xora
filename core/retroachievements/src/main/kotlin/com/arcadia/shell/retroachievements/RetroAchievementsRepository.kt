@@ -1,6 +1,7 @@
 package com.arcadia.shell.retroachievements
 
 import android.util.Log
+import com.arcadia.shell.database.repository.LibraryRepository
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.model.Game
@@ -19,6 +20,7 @@ class RetroAchievementsRepository @Inject constructor(
     private val preferences: ShellPreferences,
     private val client: RetroAchievementsClient,
     private val hasher: RomHasher,
+    private val libraryRepository: LibraryRepository,
 ) {
     private val gameIdByMd5 = ConcurrentHashMap<String, Int>()
 
@@ -186,29 +188,44 @@ class RetroAchievementsRepository @Inject constructor(
             )
         }
 
-        val hashes = try {
-            withTimeout(HASH_TIMEOUT_MS) { hasher.hash(game) }
-        } catch (_: TimeoutCancellationException) {
-            Log.w(TAG, "Hash timeout for ${game.fileName}")
-            return RaGameLookup.Failed("Timed out hashing this ROM for RetroAchievements.")
-        } ?: return RaGameLookup.Failed(
-            when {
-                game.filePath == null && game.documentUri == null ->
-                    "Could not hash this ROM for RetroAchievements (missing file access)."
-                game.platformId in RaHashRules.DISC_HASH_PLATFORMS ->
-                    "Could not compute the RetroAchievements disc hash for this " +
-                        "${game.platform.displayName} image. Try .cue/.bin, .iso, or .gdi."
-                else ->
-                    "Could not hash this ROM for RetroAchievements " +
-                        "(missing file access, or a format that needs a custom hash)."
-            },
-        )
+        // Prefer a previously stored library hash (from "Hash all ROMs" / scrape). Live-hash when
+        // missing so selection still works before the background pass finishes.
+        val storedMd5 = game.md5?.trim()?.lowercase()?.takeIf { it.length == 32 }
+        val hashes = if (storedMd5 != null) {
+            null
+        } else {
+            try {
+                withTimeout(HASH_TIMEOUT_MS) { hasher.hash(game) }
+            } catch (_: TimeoutCancellationException) {
+                Log.w(TAG, "Hash timeout for ${game.fileName}")
+                return RaGameLookup.Failed("Timed out hashing this ROM for RetroAchievements.")
+            } ?: return RaGameLookup.Failed(
+                when {
+                    game.filePath == null && game.documentUri == null ->
+                        "Could not hash this ROM for RetroAchievements (missing file access)."
+                    game.platformId in RaHashRules.DISC_HASH_PLATFORMS ->
+                        "Could not compute the RetroAchievements disc hash for this " +
+                            "${game.platform.displayName} image. Try .cue/.bin, .iso, or .gdi."
+                    else ->
+                        "Could not hash this ROM for RetroAchievements " +
+                            "(missing file access, or a format that needs a custom hash). " +
+                            "Run Setup → RetroAchievements → Hash all ROMs."
+                },
+            )
+        }
 
-        val md5 = hashes.md5.lowercase()
+        val md5 = storedMd5 ?: hashes!!.md5.lowercase()
+        val hashedBytes = hashes?.hashedBytes ?: game.sizeBytes
+        if (storedMd5 == null && hashes != null) {
+            runCatching {
+                libraryRepository.setHashes(game.id, hashes.crc32, hashes.md5, hashes.sha1)
+            }
+        }
         Log.i(
             TAG,
             "Hash ok for ${game.fileName} platform=${game.platformId} " +
-                "bytes=${hashes.hashedBytes} md5=$md5 — resolving game id",
+                "bytes=$hashedBytes md5=$md5 " +
+                "(${if (storedMd5 != null) "stored" else "live"}) — resolving game id",
         )
 
         val creds = currentCredentials()
@@ -243,7 +260,7 @@ class RetroAchievementsRepository @Inject constructor(
                     )
                 },
             )
-        } ?: return RaGameLookup.NoGame(md5 = md5, hashedBytes = hashes.hashedBytes)
+        } ?: return RaGameLookup.NoGame(md5 = md5, hashedBytes = hashedBytes)
 
         if (!creds.isConfigured) {
             return RaGameLookup.Failed("Not signed in.")
