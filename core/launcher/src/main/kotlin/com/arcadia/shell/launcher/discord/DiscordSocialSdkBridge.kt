@@ -56,6 +56,21 @@ internal class DiscordSocialSdkBridge {
     @Volatile
     private var authErrorListener: ((message: String) -> Unit)? = null
 
+    @Volatile
+    private var messagesListener: ((recipientId: String, messages: List<DiscordDmMessage>) -> Unit)? =
+        null
+
+    @Volatile
+    private var messageSendResultListener:
+        ((ok: Boolean, error: String, recipientId: String, messageId: String) -> Unit)? = null
+
+    @Volatile
+    private var currentUserListener: ((userId: String) -> Unit)? = null
+
+    @Volatile
+    var currentUserId: String? = null
+        private set
+
     fun setStatusListener(listener: ((ready: Boolean, authorized: Boolean) -> Unit)?) {
         statusListener = listener
     }
@@ -74,6 +89,22 @@ internal class DiscordSocialSdkBridge {
 
     fun setAuthErrorListener(listener: ((message: String) -> Unit)?) {
         authErrorListener = listener
+    }
+
+    fun setMessagesListener(
+        listener: ((recipientId: String, messages: List<DiscordDmMessage>) -> Unit)?,
+    ) {
+        messagesListener = listener
+    }
+
+    fun setMessageSendResultListener(
+        listener: ((ok: Boolean, error: String, recipientId: String, messageId: String) -> Unit)?,
+    ) {
+        messageSendResultListener = listener
+    }
+
+    fun setCurrentUserListener(listener: ((userId: String) -> Unit)?) {
+        currentUserListener = listener
     }
 
     fun detectClasspath() {
@@ -250,11 +281,58 @@ internal class DiscordSocialSdkBridge {
             .onFailure { Log.w(TAG, "nativeRefreshFriends failed", it) }
     }
 
+    fun sendUserMessage(recipientId: String, content: String) {
+        if (!isNativeLoaded || !initialized.get() || !isReady) {
+            hopMain {
+                messageSendResultListener?.invoke(
+                    false,
+                    "Discord not ready",
+                    recipientId,
+                    "0",
+                )
+            }
+            return
+        }
+        val id = recipientId.trim().toLongOrNull()
+        if (id == null) {
+            hopMain {
+                messageSendResultListener?.invoke(false, "Invalid recipient", recipientId, "0")
+            }
+            return
+        }
+        runCatching { nativeSendUserMessage(id, content) }
+            .onFailure {
+                Log.w(TAG, "nativeSendUserMessage failed", it)
+                hopMain {
+                    messageSendResultListener?.invoke(
+                        false,
+                        it.message ?: "Send failed",
+                        recipientId,
+                        "0",
+                    )
+                }
+            }
+    }
+
+    fun loadUserMessages(recipientId: String, limit: Int = 50) {
+        if (!isNativeLoaded || !initialized.get() || !isReady) return
+        val id = recipientId.trim().toLongOrNull() ?: return
+        runCatching { nativeLoadUserMessages(id, limit) }
+            .onFailure { Log.w(TAG, "nativeLoadUserMessages failed", it) }
+    }
+
+    fun setShowingChat(showing: Boolean) {
+        if (!isNativeLoaded || !initialized.get()) return
+        runCatching { nativeSetShowingChat(showing) }
+            .onFailure { Log.w(TAG, "nativeSetShowingChat failed", it) }
+    }
+
     fun destroy() {
         if (!initialized.getAndSet(false)) return
         runCatching { nativeDestroy() }
         isReady = false
         isAuthorized = false
+        currentUserId = null
     }
 
     internal fun applyNativeStatus(statusCode: Int, ready: Boolean, authorized: Boolean) {
@@ -288,6 +366,28 @@ internal class DiscordSocialSdkBridge {
         hopMain { authErrorListener?.invoke(message) }
     }
 
+    internal fun applyNativeMessages(recipientId: String, payload: String) {
+        val messages = parseMessagesPayload(payload, currentUserId)
+        hopMain { messagesListener?.invoke(recipientId, messages) }
+    }
+
+    internal fun applyNativeMessageSendResult(
+        ok: Boolean,
+        error: String,
+        recipientId: String,
+        messageId: String,
+    ) {
+        hopMain { messageSendResultListener?.invoke(ok, error, recipientId, messageId) }
+    }
+
+    internal fun applyNativeCurrentUser(userId: String) {
+        val id = userId.trim()
+        if (id.isEmpty()) return
+        currentUserId = id
+        Log.i(TAG, "currentUserId=$id")
+        hopMain { currentUserListener?.invoke(id) }
+    }
+
     private fun hopMain(block: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             runCatching(block).onFailure { Log.e(TAG, "main callback failed", it) }
@@ -318,6 +418,9 @@ internal class DiscordSocialSdkBridge {
     private external fun nativeConnect()
     private external fun nativeRefreshToken(refreshToken: String)
     private external fun nativeRefreshFriends()
+    private external fun nativeSendUserMessage(recipientId: Long, content: String)
+    private external fun nativeLoadUserMessages(recipientId: Long, limit: Int)
+    private external fun nativeSetShowingChat(showing: Boolean)
     private external fun nativeSetActivity(
         activityType: Int,
         name: String?,
@@ -364,6 +467,36 @@ internal class DiscordSocialSdkBridge {
                         displayName = parts[1].ifBlank { userId },
                         group = parts[2],
                         avatarUrl = avatarFromSdk ?: discordAvatarUrl(userId, avatarHash = null),
+                    )
+                }
+                .toList()
+        }
+
+        /**
+         * Payload lines (TSV):
+         * `messageId\\tauthorId\\trecipientId\\tsentTimestampMs\\tsentFromGame\\tcontent`
+         */
+        fun parseMessagesPayload(
+            payload: String,
+            currentUserId: String?,
+        ): List<DiscordDmMessage> {
+            if (payload.isBlank()) return emptyList()
+            val self = currentUserId?.trim().orEmpty()
+            return payload.lineSequence()
+                .map { it.trimEnd('\r') }
+                .filter { it.isNotEmpty() }
+                .mapNotNull { line ->
+                    val parts = line.split('\t', limit = 6)
+                    if (parts.size < 6) return@mapNotNull null
+                    val authorId = parts[1]
+                    DiscordDmMessage(
+                        messageId = parts[0],
+                        authorId = authorId,
+                        recipientId = parts[2],
+                        sentAtMs = parts[3].toLongOrNull() ?: 0L,
+                        sentFromGame = parts[4] == "1" || parts[4].equals("true", ignoreCase = true),
+                        content = parts[5],
+                        isMine = self.isNotEmpty() && authorId == self,
                     )
                 }
                 .toList()
@@ -421,6 +554,34 @@ internal class DiscordSocialSdkBridge {
         @JvmStatic
         fun onNativeAuthError(message: String?) {
             DiscordSocialSdkBridgeHolder.bridge?.applyNativeAuthError(message.orEmpty())
+        }
+
+        @JvmStatic
+        fun onNativeMessagesUpdated(recipientId: String?, payload: String?) {
+            DiscordSocialSdkBridgeHolder.bridge?.applyNativeMessages(
+                recipientId.orEmpty(),
+                payload.orEmpty(),
+            )
+        }
+
+        @JvmStatic
+        fun onNativeMessageSendResult(
+            ok: Boolean,
+            error: String?,
+            recipientId: String?,
+            messageId: String?,
+        ) {
+            DiscordSocialSdkBridgeHolder.bridge?.applyNativeMessageSendResult(
+                ok,
+                error.orEmpty(),
+                recipientId.orEmpty(),
+                messageId.orEmpty(),
+            )
+        }
+
+        @JvmStatic
+        fun onNativeCurrentUser(userId: String?) {
+            DiscordSocialSdkBridgeHolder.bridge?.applyNativeCurrentUser(userId.orEmpty())
         }
     }
 }

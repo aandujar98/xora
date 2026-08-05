@@ -273,17 +273,18 @@ data class SteamWebApiCredentials(
 }
 
 /**
- * Discord social-menu hooks. Full OAuth2 + privileged DM intents are out of scope;
- * this stores an optional invite / profile deep link for “Open Discord”, plus a
- * Discord Application ID for Rich Presence (Social SDK / status bridge).
+ * Discord social-menu hooks. Stores an optional invite / profile deep link for
+ * “Open Discord”, plus a Discord Application ID for Social SDK Rich Presence and
+ * in-launcher friend DMs (communication scopes). Re-link after scope upgrades.
  */
 data class DiscordSocialSettings(
     /** Invite URL, profile URL, or discord:// deep link. */
     val openUrl: String = "",
     /**
-     * Discord Developer Portal Application (client) ID used for Rich Presence.
-     * Defaults to [DEFAULT_DISCORD_APPLICATION_ID] until the user clears or overrides it.
-     * Live mobile presence still requires Discord’s proprietary Social SDK AAR.
+     * Discord Developer Portal Application (client) ID used for Rich Presence and
+     * in-launcher Discord chat. Defaults to [DEFAULT_DISCORD_APPLICATION_ID] until
+     * the user clears or overrides it. Live mobile presence / DMs still require
+     * Discord’s proprietary Social SDK AAR.
      */
     val applicationId: String = DEFAULT_DISCORD_APPLICATION_ID,
 ) {

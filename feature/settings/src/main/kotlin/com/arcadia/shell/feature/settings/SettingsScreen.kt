@@ -677,10 +677,10 @@ fun SettingsScreen(
                         "Web API key is still required once (Steam has no password→API key for " +
                         "third parties). Conversations show message previews from Steam, Discord, " +
                         "and other messaging apps when Notification Access is on — reply works when " +
-                        "the notification exposes RemoteInput. Discord DMs via bot OAuth stay out of " +
-                        "scope; save an invite or profile link for Open Discord. Live Rich Presence on " +
-                        "Android uses Discord’s Social SDK (account linking required — unauthenticated " +
-                        "RPC is desktop-only).",
+                        "the notification exposes RemoteInput. In-launcher Discord friend chat uses " +
+                        "the Social SDK communication scopes (Link Discord in Social; re-link if you " +
+                        "connected before messaging was enabled). Live Rich Presence on Android also " +
+                        "needs that account link — unauthenticated RPC is desktop-only.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

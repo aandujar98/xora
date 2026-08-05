@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
@@ -58,6 +62,8 @@ import com.arcadia.shell.feature.home.discordFriendActivity
 import com.arcadia.shell.feature.home.discordFriendPresence
 import com.arcadia.shell.launcher.conversations.ConversationSource
 import com.arcadia.shell.launcher.conversations.NotificationConversation
+import com.arcadia.shell.launcher.discord.DiscordDmMessage
+import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordFriendEntry
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import kotlinx.coroutines.delay
@@ -133,6 +139,7 @@ fun SocialMenuPanel(
                 glassMuted = glass.contentMuted,
                 onActivateRow = onActivateRow,
                 onFriendSearchChange = onFriendSearchChange,
+                onDmDraftChange = onReplyDraftChange,
             )
             SocialMenuTab.Steam -> SteamTabContent(
                 social = social,
@@ -153,12 +160,11 @@ fun SocialMenuPanel(
         }
 
         Text(
-            text = if (social.isReplying) {
-                "A send · B cancel reply · type on keyboard"
-            } else if (social.managingCircle) {
-                "A pin/unpin · Manage to finish · L/R tabs"
-            } else {
-                "LT close · L/R tabs · U/D · A chat · Manage to pin"
+            text = when {
+                social.isDiscordDmOpen -> "A send · B back · type to message"
+                social.isReplying -> "A send · B cancel reply · type on keyboard"
+                social.managingCircle -> "A pin/unpin · Manage to finish · L/R tabs"
+                else -> "LT close · L/R tabs · U/D · A chat · Manage to pin"
             },
             style = MaterialTheme.typography.labelSmall,
             color = glass.contentMuted.copy(alpha = 0.7f),
@@ -490,7 +496,20 @@ private fun DiscordTabContent(
     glassMuted: Color,
     onActivateRow: (Int?) -> Unit,
     onFriendSearchChange: (String) -> Unit,
+    onDmDraftChange: (String) -> Unit,
 ) {
+    if (social.discordDm.peerUserId != null) {
+        DiscordDmPane(
+            thread = social.discordDm,
+            accountRows = accountRows,
+            selectedRowIndex = selectedRowIndex,
+            glassMuted = glassMuted,
+            onActivateRow = onActivateRow,
+            onDraftChange = onDmDraftChange,
+        )
+        return
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         DiscordPresenceCta(
             social = social,
@@ -583,6 +602,191 @@ private fun DiscordTabContent(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DiscordDmPane(
+    thread: DiscordDmThreadUiState,
+    accountRows: List<AccountPanelRow>,
+    selectedRowIndex: Int,
+    glassMuted: Color,
+    onActivateRow: (Int?) -> Unit,
+    onDraftChange: (String) -> Unit,
+) {
+    val closeIndex = accountRows.indexOfFirst { it is AccountPanelRow.DiscordDmClose }
+    val sendIndex = accountRows.indexOfFirst { it is AccountPanelRow.DiscordDmSend }
+    val sendSelected = sendIndex >= 0 && sendIndex == selectedRowIndex
+    val closeSelected = closeIndex >= 0 && closeIndex == selectedRowIndex
+    val listState = rememberLazyListState()
+    LaunchedEffect(thread.messages.size) {
+        if (thread.messages.isNotEmpty()) {
+            listState.animateScrollToItem(thread.messages.lastIndex)
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    if (closeSelected) DiscordAccent.copy(alpha = 0.22f)
+                    else Color.White.copy(alpha = 0.06f),
+                )
+                .then(
+                    if (closeSelected) {
+                        Modifier.border(1.5.dp, DiscordAccent.copy(alpha = 0.75f), RoundedCornerShape(14.dp))
+                    } else {
+                        Modifier
+                    },
+                )
+                .clickable {
+                    if (closeIndex >= 0) onActivateRow(closeIndex)
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            PresenceAvatar(
+                displayName = thread.peerDisplayName,
+                presetId = "preset_0",
+                size = 36.dp,
+                imageModel = thread.peerAvatarUrl,
+                presence = SocialPresence.Online,
+                selected = false,
+                sourceTint = DiscordAccent,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = thread.peerDisplayName.ifBlank { "Discord" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "B · Back to friends",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = glassMuted,
+                )
+            }
+        }
+
+        when {
+            thread.loading && thread.messages.isEmpty() -> {
+                Text(
+                    text = "Loading messages…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = glassMuted,
+                )
+            }
+            thread.messages.isEmpty() -> {
+                Text(
+                    text = "No messages yet — say hello",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = glassMuted,
+                )
+            }
+            else -> {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 80.dp, max = 180.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(thread.messages, key = { it.messageId }) { message ->
+                        DiscordDmBubble(message = message)
+                    }
+                }
+            }
+        }
+
+        val threadError = thread.error
+        if (!threadError.isNullOrBlank()) {
+            Text(
+                text = threadError,
+                style = MaterialTheme.typography.labelSmall,
+                color = BusyRose,
+            )
+        }
+
+        val shape = RoundedCornerShape(14.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(Color.White.copy(alpha = if (sendSelected) 0.18f else 0.08f))
+                .then(
+                    if (sendSelected) {
+                        Modifier.border(1.5.dp, DiscordAccent.copy(alpha = 0.9f), shape)
+                    } else {
+                        Modifier
+                    },
+                )
+                .clickable {
+                    if (sendIndex >= 0) onActivateRow(sendIndex)
+                }
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BasicTextField(
+                value = thread.draft,
+                onValueChange = onDraftChange,
+                singleLine = true,
+                enabled = !thread.sending,
+                textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+                cursorBrush = SolidColor(DiscordAccent),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                decorationBox = { inner ->
+                    Box(modifier = Modifier.heightIn(min = 20.dp)) {
+                        if (thread.draft.isEmpty()) {
+                            Text(
+                                text = "Message ${thread.peerDisplayName.ifBlank { "friend" }}…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.45f),
+                            )
+                        }
+                        inner()
+                    }
+                },
+            )
+            Text(
+                text = if (thread.sending) "Sending…" else "A · Send",
+                style = MaterialTheme.typography.labelSmall,
+                color = DiscordAccent,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiscordDmBubble(message: DiscordDmMessage) {
+    val mine = message.isMine
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+    ) {
+        Text(
+            text = message.content.ifBlank { " " },
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White,
+            modifier = Modifier
+                .widthIn(max = 260.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    if (mine) DiscordAccent.copy(alpha = 0.55f)
+                    else Color.White.copy(alpha = 0.12f),
+                )
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+        )
     }
 }
 
