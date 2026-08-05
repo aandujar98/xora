@@ -854,8 +854,10 @@ class HomeViewModel @Inject constructor(
                 if (open) {
                     conversationRepository.refreshListenerEnabled()
                 } else {
+                    // Android notification-listener reply draft lives in the Social pill.
+                    // Discord DMs use DiscordConversationWindow — do NOT closeDm() here or
+                    // collapsing Social on open immediately kills the conversation.
                     conversationReply.value = ConversationReplyUiState()
-                    discordRichPresence.closeDm()
                 }
             }
             .launchIn(viewModelScope)
@@ -2766,12 +2768,10 @@ class HomeViewModel @Inject constructor(
         when (action) {
             NavAction.Left, NavAction.PreviousPlatform -> {
                 clearConversationReply()
-                discordRichPresence.closeDm()
                 cycleSocialMenuTab(-1)
             }
             NavAction.Right, NavAction.NextPlatform -> {
                 clearConversationReply()
-                discordRichPresence.closeDm()
                 cycleSocialMenuTab(1)
             }
             NavAction.Up -> moveAccountPanelSelection(-1)
@@ -2910,7 +2910,6 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         if (socialMenuTab.value == tab) return
         clearConversationReply()
-        discordRichPresence.closeDm()
         socialMenuTab.value = tab
         accountPanelSelectedIndex.value = 0
         conversationRepository.refreshListenerEnabled()
@@ -3180,13 +3179,14 @@ class HomeViewModel @Inject constructor(
         if (sdkReady) {
             socialMenuTab.value = SocialMenuTab.Discord
             managingCircle.value = false
-            // Dedicated conversation window — leave the Social pill so the chat is readable.
-            accountPanelExpanded.value = false
+            // Open the DM first, then collapse Social. Chat lives in DiscordConversationWindow
+            // (not inside the pill), so collapsing must never call closeDm().
             discordRichPresence.openDm(
                 userId = userId,
                 displayName = friend?.displayName ?: userId,
                 avatarUrl = friend?.avatarUrl,
             )
+            accountPanelExpanded.value = false
             emit(HomeEvent.ShowMessage("Conversation open · A send · B close"))
             return
         }

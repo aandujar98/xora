@@ -410,8 +410,9 @@ bool read_frame(unsigned width, unsigned height, std::vector<uint32_t>& dst) {
             const uint8_t r = row[x * 4 + 0];
             const uint8_t g = row[x * 4 + 1];
             const uint8_t b = row[x * 4 + 2];
-            const uint8_t a = row[x * 4 + 3];
-            out[x] = (static_cast<uint32_t>(a) << 24) |
+            // Force opaque — partial GL alpha + Compose SrcOver over pause layers left a
+            // milky wash on the game quad after Resume (software path already forces 0xFF).
+            out[x] = 0xFF000000u |
                 (static_cast<uint32_t>(r) << 16) |
                 (static_cast<uint32_t>(g) << 8) |
                 static_cast<uint32_t>(b);

@@ -5,6 +5,7 @@ import android.hardware.input.InputManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Build
 import android.os.Bundle
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -14,6 +15,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -55,10 +57,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -158,6 +158,8 @@ class XoraLibretroActivity : ComponentActivity() {
     private var gameBitmap by mutableStateOf<Bitmap?>(null)
     private var bottomBitmap by mutableStateOf<Bitmap?>(null)
     private var frameTick by mutableIntStateOf(0)
+    /** Bumped on Resume so Compose drops any layer promoted under the pause stack. */
+    private var displayGeneration by mutableIntStateOf(0)
     private val bitmapLock = Any()
 
     /**
@@ -343,6 +345,11 @@ class XoraLibretroActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.isStatusBarContrastEnforced = false
+        }
         ImmersiveMode.apply(window)
 
         val romPath = intent.getStringExtra(XoraLibretroPlayers.EXTRA_ROM_PATH)
@@ -402,28 +409,31 @@ class XoraLibretroActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(androidx.compose.ui.graphics.Color.Black),
                     ) {
-                    // Keep the same gameplay composition under the pause overlay so closing the
-                    // menu does not swap to a differently-scaled freeze plate (which looked like
-                    // a sudden brightness jump).
-                    val bmp = gameBitmap
-                    if (bmp != null) {
-                        XoraPrimaryGameFrame(
-                            bitmap = bmp,
-                            frameTick = frameTick,
-                            platformId = platformId,
-                            aspectMode = xora.aspectMode,
-                            integerScale = xora.integerScale,
-                            bezelsEnabled = xora.bezelsEnabled && !expandActive,
-                            bezelOpacity = xora.bezelOpacity,
-                        )
-                    } else if (xora.bezelsEnabled && !expandActive) {
-                        XoraBezelBackdrop(
-                            platformId = platformId,
-                            opacity = xora.bezelOpacity * 0.7f,
-                        )
+                    // Hide the live framebuffer while the pause menu is up. Translucent dims
+                    // over a mutable Compose Image were leaving a milky wash after Resume.
+                    if (!menuOpen) {
+                        val bmp = gameBitmap
+                        key(displayGeneration) {
+                            if (bmp != null) {
+                                XoraPrimaryGameFrame(
+                                    bitmap = bmp,
+                                    frameTick = frameTick,
+                                    platformId = platformId,
+                                    aspectMode = xora.aspectMode,
+                                    integerScale = xora.integerScale,
+                                    bezelsEnabled = xora.bezelsEnabled && !expandActive,
+                                    bezelOpacity = xora.bezelOpacity,
+                                )
+                            } else if (xora.bezelsEnabled && !expandActive) {
+                                XoraBezelBackdrop(
+                                    platformId = platformId,
+                                    opacity = xora.bezelOpacity * 0.7f,
+                                )
+                            }
+                        }
                     }
 
-                    if (expandActive) {
+                    if (expandActive && !menuOpen) {
                         SecondaryDisplayPane(displayId = secondaryDisplayId) {
                             Box(
                                 modifier = Modifier
@@ -433,34 +443,28 @@ class XoraLibretroActivity : ComponentActivity() {
                             ) {
                                 val bottom = bottomBitmap
                                 if (bottom != null) {
-                                    XoraPrimaryGameFrame(
-                                        bitmap = bottom,
-                                        frameTick = frameTick,
-                                        platformId = platformId,
-                                        aspectMode = xora.aspectMode,
-                                        integerScale = xora.integerScale,
-                                        bezelsEnabled = false,
-                                        bezelOpacity = xora.bezelOpacity,
-                                    )
+                                    key(displayGeneration) {
+                                        XoraPrimaryGameFrame(
+                                            bitmap = bottom,
+                                            frameTick = frameTick,
+                                            platformId = platformId,
+                                            aspectMode = xora.aspectMode,
+                                            integerScale = xora.integerScale,
+                                            bezelsEnabled = false,
+                                            bezelOpacity = xora.bezelOpacity,
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
 
                     if (menuOpen) {
-                        // One shared black dim for pause + submenus. No liquidGlass / Haze —
-                        // white frost plates were leaving a milky wash after Resume.
+                        // Fully opaque pause plate — never blend over the live game Image.
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.42f),
-                                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.58f),
-                                        ),
-                                    ),
-                                ),
+                                .background(Color(0xFF0B0D12)),
                         ) {
                             when {
                                     mappingOpen -> {
@@ -1242,7 +1246,37 @@ class XoraLibretroActivity : ComponentActivity() {
         waitingForMapButton = null
         paused = false
         statusText = ""
+        invalidateGameDisplay()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.isStatusBarContrastEnforced = false
+        }
+        ImmersiveMode.apply(window)
         window.decorView.requestFocus()
+    }
+
+    /** Drop any Compose-promoted texture from the pause stack and force a fresh Image layer. */
+    private fun invalidateGameDisplay() {
+        synchronized(bitmapLock) {
+            val src = gameBitmap
+            if (src != null && !src.isRecycled) {
+                val copy = runCatching { src.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+                if (copy != null) {
+                    src.recycle()
+                    gameBitmap = copy
+                }
+            }
+            val bottom = bottomBitmap
+            if (bottom != null && !bottom.isRecycled) {
+                val copy = runCatching { bottom.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+                if (copy != null) {
+                    bottom.recycle()
+                    bottomBitmap = copy
+                }
+            }
+        }
+        displayGeneration++
+        frameTick++
     }
 
     private fun activateMenuAction(index: Int) {
@@ -1463,9 +1497,7 @@ private fun XoraPrimaryGameFrame(
             contentHeightPx = bitmap.height,
             mode = aspectMode,
             integerScaleCap = integerScale,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
+            modifier = Modifier.fillMaxSize(),
         ) { scale ->
             key(frameTick) {
                 Image(

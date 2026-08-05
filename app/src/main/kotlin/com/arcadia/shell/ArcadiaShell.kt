@@ -511,6 +511,16 @@ fun ArcadiaShell(
                                 homeViewModel = homeViewModel,
                                 modifier = Modifier.fillMaxSize(),
                             )
+                            // Social often lives on the Hero/secondary pane — host the DM window
+                            // here too so opening a friend chat is visible on that screen.
+                            DiscordConversationWindow(
+                                open = state.socialMenu.isDiscordDmOpen,
+                                thread = state.socialMenu.discordDm,
+                                onDraftChange = homeViewModel::updateConversationReplyDraft,
+                                onSend = homeViewModel::sendOpenDiscordDm,
+                                onDismiss = homeViewModel::closeOpenDiscordDm,
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
                     }
                 }
