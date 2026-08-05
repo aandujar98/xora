@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      All-files access is load-bearing rather than a convenience: Dolphin and DuckStation accept
+      only a real filesystem path in their launch intents, which the Storage Access Framework
+      cannot produce. The app is distributed by sideloading, as its peers are, so the Play Store
+      policy on this permission does not apply.
+    -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
+    <!-- Some emulators refuse to boot a second title while a previous session is still resident. -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Android 13+: status-bar delivery when SORA is not in the foreground. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      The companion bottom screen keeps drawing after an emulator takes the foreground. A
+      Presentation cannot survive that (it dies with MainActivity), so the panel is re-hosted in a
+      TYPE_APPLICATION_OVERLAY window owned by a foreground service. Both of these are optional:
+      without the user-granted overlay toggle the panel simply never appears during gameplay.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!--
+      Emulator support is user-editable data, so the set of packages this app needs to see is not
+      knowable at build time and cannot be expressed as a <queries> allowlist.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <!-- Package visibility filtering hides other apps on API 30+, including whichever app is
+         currently acting as the home screen, so resolving it has to be declared up front.
+         Explicit package entries cover OEMs that strip QUERY_ALL_PACKAGES from sideloaded builds. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <package android:name="org.azahar_emu.azahar" />
+        <package android:name="io.github.lime3ds.android" />
+        <package android:name="org.citra.citra_emu" />
+        <package android:name="org.citra.emu" />
+        <package android:name="com.flycast.emulator" />
+        <package android:name="xyz.aethersx2.android" />
+        <package android:name="com.retroarch.aarch64" />
+        <package android:name="com.retroarch" />
+        <package android:name="org.mupen64plusae.v3.fzurita" />
+        <package android:name="org.ppsspp.ppsspp" />
+        <package android:name="com.github.stenzek.duckstation" />
+        <package android:name="org.dolphinemu.dolphinemu" />
+        <package android:name="info.cemu.cemu" />
+        <package android:name="info.cemu.cemu.odin" />
+        <package android:name="info.cemu.Cemu" />
+        <package android:name="dev.eden.eden_emulator" />
+        <package android:name="dev.legacy.eden_emulator" />
+        <package android:name="dev.eden.eden_emulator.nightly" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <package android:name="com.discord" />
+        <package android:name="com.discord.android" />
+    </queries>
+
+    <application
+        android:name=".ArcadiaApplication"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:preserveLegacyExternalStorage="true"
+        android:requestLegacyExternalStorage="true"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.Arcadia">
+
+        <!-- In-process Libretro host; package kept as com.arcadia.shell.libretro for Player recipes. -->
+        <activity
+            android:name="com.arcadia.shell.libretro.XoraLibretroActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.Arcadia.Emulator"
+            android:launchMode="singleTask" />
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.Arcadia">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Steam OpenID 2.0 return (Custom Tab → sora://steam-auth). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="steam-auth"
+                    android:scheme="sora" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          The HOME filter lives on a disabled alias rather than on MainActivity itself. Declaring
+          CATEGORY_HOME directly would make this app a home-screen candidate from first install,
+          which is a hostile default and makes a crash-looping debug build very hard to escape.
+          HomeRoleController flips this on only once the user opts in.
+        -->
+        <!--
+          Alias name expands against the Gradle namespace (com.arcadia.shell.HomeAlias), not
+          applicationId (com.sora.shell). HomeRoleController resolves the ComponentName at runtime
+          so enable/disable stays aligned after package renames.
+        -->
+        <activity-alias
+            android:name=".HomeAlias"
+            android:clearTaskOnLaunch="true"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+
+        <!--
+          Emulators that take a uri instead of a path are handed one from here. A file:// uri would
+          be simpler but throws FileUriExposedException when passed to another app on API 24+, so
+          every uri the shell shares is a content uri backed by this provider.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!--
+          Cocoon-style conversations: reads messaging notification previews when the user grants
+          Notification Access. Reply uses RemoteInput on the original notification action.
+        -->
+        <service
+            android:name=".conversations.ShellNotificationListenerService"
+            android:exported="true"
+            android:label="@string/notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!--
+          Hosts the companion bottom screen in an overlay window while an emulator owns the
+          foreground. No existing foreground-service type describes "keep a window on another
+          display", so specialUse it is.
+        -->
+        <service
+            android:name=".companion.CompanionOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the game companion panel visible on the secondary display while a game is running." />
+        </service>
+
+        <!--
+          Discord Social SDK OAuth callback. Real implementation comes from discord_partner_sdk.aar;
+          without the AAR, app/src/noDiscordSdk supplies a no-op stub so the class still resolves.
+        -->
+        <activity
+            android:name="com.discord.socialsdk.AuthenticationActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="discord-${discordApplicationId}" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

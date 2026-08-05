@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ink_900">#FF070C16</color>
+    <!-- Deep azure matching the XOrA launcher artwork water half. -->
+    <color name="launcher_background">#FF0B5CAD</color>
+    <color name="xora_blue">#FF0B5CAD</color>
+    <color name="xora_blue_deep">#FF063A72</color>
+    <color name="xora_white">#FFF7FBFF</color>
+</resources>

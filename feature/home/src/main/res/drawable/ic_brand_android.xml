@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple Android robot-head mark. Tintable for UI chrome. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M17.6,11.48L19.44,8.3c0.2,-0.34 0.12,-0.76 -0.16,-0.98c-0.32,-0.24 -0.76,-0.16 -1,-0.44L16.38,10.66C14.94,10.04 13.32,9.7 11.6,9.7c-1.72,0 -3.34,0.34 -4.78,0.96L4.92,7.44C4.68,7.16 4.24,7.08 3.92,7.32C3.64,7.54 3.56,7.96 3.76,8.3l1.84,3.18C3.58,12.74 2.24,15.02 2.2,17.72h19.6C21.76,15.02 20.42,12.74 17.6,11.48zM7,15.25c-0.69,0 -1.25,-0.56 -1.25,-1.25S6.31,12.75 7,12.75s1.25,0.56 1.25,1.25S7.69,15.25 7,15.25zM17,15.25c-0.69,0 -1.25,-0.56 -1.25,-1.25s0.56,-1.25 1.25,-1.25s1.25,0.56 1.25,1.25S17.69,15.25 17,15.25z" />
+</vector>
