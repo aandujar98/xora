@@ -12,11 +12,13 @@ import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -53,7 +55,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -73,16 +78,12 @@ import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.label
-import com.arcadia.shell.datastore.resolveDarkTheme
-import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ArcadiaTheme
-import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LocalArcadiaHaze
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
-import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.display.DisplayTopologyMonitor
 import com.arcadia.shell.display.ImmersiveMode
@@ -336,7 +337,12 @@ class XoraLibretroActivity : ComponentActivity() {
             com.arcadia.shell.libretro.R.anim.xora_fade_in,
             com.arcadia.shell.libretro.R.anim.xora_hold,
         )
-        enableEdgeToEdge()
+        // Force dark system-bar scrims. The default light nav scrim (near-white) can wash the
+        // letterboxed game surface after edge-to-edge overlays are shown/dismissed.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         ImmersiveMode.apply(window)
 
         val romPath = intent.getStringExtra(XoraLibretroPlayers.EXTRA_ROM_PATH)
@@ -369,7 +375,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 refreshExpandTopology()
             }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
-            val darkTheme = settings.themeMode.resolveDarkTheme(systemDark = true)
             val textScale = settings.uiTextScale
             val shellThemeId = settings.shellThemeId
             val menuActions = remember(
@@ -382,12 +387,21 @@ class XoraLibretroActivity : ComponentActivity() {
                 buildMenuActions()
             }
 
+            // Always dark emulator chrome — light theme glass tokens use white frost that
+            // reads as a lasting bright wash over the framebuffer after Resume.
             ArcadiaTheme(
-                darkTheme = darkTheme,
+                darkTheme = true,
                 shellThemeId = shellThemeId,
                 uiTextScale = textScale,
             ) {
-                Box(modifier = Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+                // Kill Haze for the whole session. liquidGlass white sheen / frost over the
+                // live bitmap was the white tint left after pause submenus and Resume.
+                CompositionLocalProvider(LocalArcadiaHaze provides null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(androidx.compose.ui.graphics.Color.Black),
+                    ) {
                     // Keep the same gameplay composition under the pause overlay so closing the
                     // menu does not swap to a differently-scaled freeze plate (which looked like
                     // a sudden brightness jump).
@@ -434,22 +448,21 @@ class XoraLibretroActivity : ComponentActivity() {
                     }
 
                     if (menuOpen) {
-                        // One shared dim for pause + submenus. Stronger submenu scrims made
-                        // RetroAchievements look washed, then left a brightness jump on Resume.
-                        CompositionLocalProvider(LocalArcadiaHaze provides null) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.42f),
-                                                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.58f),
-                                            ),
+                        // One shared black dim for pause + submenus. No liquidGlass / Haze —
+                        // white frost plates were leaving a milky wash after Resume.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.42f),
+                                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.58f),
                                         ),
                                     ),
-                            ) {
-                                when {
+                                ),
+                        ) {
+                            when {
                                     mappingOpen -> {
                                         XoraEmulatorMappingPanel(
                                             mappings = xora.buttonMappings,
@@ -649,7 +662,6 @@ class XoraLibretroActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                        }
                     } else if (statusText.isNotBlank() && runJob == null) {
                         Box(
                             modifier = Modifier
@@ -661,11 +673,7 @@ class XoraLibretroActivity : ComponentActivity() {
                                 text = statusText,
                                 color = androidx.compose.ui.graphics.Color.White,
                                 modifier = Modifier
-                                    .liquidGlass(
-                                        shape = ArcadiaGlass.PanelShape,
-                                        tone = GlassTone.OverMedia,
-                                        intensity = GlassIntensity.Standard,
-                                    )
+                                    .xoraEmulatorPanel()
                                     .padding(horizontal = 20.dp, vertical = 14.dp),
                             )
                         }
@@ -678,6 +686,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     )
 
                     NotificationBannerHost(center = shellNotifications)
+                    }
                 }
             }
         }
@@ -1426,6 +1435,17 @@ private data class MenuAction(
     val onClick: () -> Unit,
 )
 
+/** Opaque dark chrome for in-emulator menus — never use [liquidGlass] here (white sheen wash). */
+private val XoraEmulatorPanelShape = RoundedCornerShape(18.dp)
+private val XoraEmulatorPanelColor = Color(0xFF14161C)
+private val XoraEmulatorPanelBorder = Color.White.copy(alpha = 0.14f)
+
+private fun Modifier.xoraEmulatorPanel(shape: Shape = XoraEmulatorPanelShape): Modifier =
+    this
+        .clip(shape)
+        .background(XoraEmulatorPanelColor, shape)
+        .border(width = 1.dp, color = XoraEmulatorPanelBorder, shape = shape)
+
 @Composable
 private fun XoraPrimaryGameFrame(
     bitmap: Bitmap,
@@ -1443,7 +1463,9 @@ private fun XoraPrimaryGameFrame(
             contentHeightPx = bitmap.height,
             mode = aspectMode,
             integerScaleCap = integerScale,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
         ) { scale ->
             key(frameTick) {
                 Image(
@@ -1508,11 +1530,7 @@ private fun XoraBootOverlay(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
                 .padding(32.dp)
-                .liquidGlass(
-                    shape = ArcadiaGlass.PanelShape,
-                    tone = GlassTone.OverMedia,
-                    intensity = GlassIntensity.Subtle,
-                )
+                .xoraEmulatorPanel()
                 .padding(horizontal = 28.dp, vertical = 22.dp),
         ) {
             Text(
@@ -1571,11 +1589,7 @@ private fun XoraEmulatorPauseMenu(
                 modifier = Modifier
                     .heightIn(max = panelMax)
                     .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                    )
+                    .xoraEmulatorPanel()
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -1729,11 +1743,7 @@ private fun XoraEmulatorSettingsPanel(
                 modifier = Modifier
                     .heightIn(max = panelMax)
                     .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                    )
+                    .xoraEmulatorPanel()
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -1849,11 +1859,7 @@ private fun XoraEmulatorControllersPanel(
                 modifier = Modifier
                     .heightIn(max = panelMax)
                     .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                    )
+                    .xoraEmulatorPanel()
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -1955,11 +1961,7 @@ private fun XoraEmulatorMappingPanel(
                 modifier = Modifier
                     .heightIn(max = panelMax)
                     .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                    )
+                    .xoraEmulatorPanel()
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -2081,9 +2083,7 @@ private fun XoraEmulatorAchievementsPanel(
         listState.animateScrollToItem(listIndex)
     }
 
-    // Match settings/controllers: glass only on a constrained panel over the shared pause
-    // dim. A full-bleed Color(0xCC0A0C10) + fillMaxSize liquidGlass plate was unique to RA
-    // and read as a lasting light/bright wash after the menu closed.
+    // Opaque constrained panel over the shared pause dim — never a full-bleed frost plate.
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -2100,16 +2100,12 @@ private fun XoraEmulatorAchievementsPanel(
                 .widthIn(max = 720.dp)
                 .fillMaxWidth(0.78f),
         ) {
-            val panelHeight = maxHeight * 0.92f
+            val panelHeight = maxHeight * 0.88f
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(panelHeight)
-                    .liquidGlass(
-                        shape = RoundedCornerShape(22.dp),
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                    )
+                    .xoraEmulatorPanel(RoundedCornerShape(22.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
