@@ -639,6 +639,33 @@ fun SettingsScreen(
                         Text(text = "Sign out")
                     }
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                SettingsFieldLabel("ROM hashes")
+                Text(
+                    text = if (state.isHashingRoms) {
+                        "Hashing ROMs in the background…"
+                    } else if (state.missingRomHashes == 0) {
+                        "All library ROMs have RetroAchievements hashes."
+                    } else {
+                        "${state.missingRomHashes} ROMs still need a hash. " +
+                            "XOrA Emulator hashes on launch; the launcher needs this pass."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = viewModel::hashAllRoms,
+                    enabled = !state.isHashingRoms,
+                ) {
+                    Text(
+                        text = if (state.isHashingRoms) {
+                            "Hashing…"
+                        } else {
+                            "Hash all ROMs"
+                        },
+                    )
+                }
             }
         }
 
@@ -1151,6 +1178,21 @@ fun SettingsScreen(
                     OutlinedButton(onClick = viewModel::clearRetroAchievementsCredentials) {
                         Text(text = "Sign out")
                     }
+                }
+                Text(
+                    text = if (state.missingRomHashes == 0) {
+                        "Library hashes ready for launcher RetroAchievements."
+                    } else {
+                        "${state.missingRomHashes} ROMs still need hashing for launcher RA."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = viewModel::hashAllRoms,
+                    enabled = !state.isHashingRoms,
+                ) {
+                    Text(text = if (state.isHashingRoms) "Hashing…" else "Hash all ROMs")
                 }
             }
         }

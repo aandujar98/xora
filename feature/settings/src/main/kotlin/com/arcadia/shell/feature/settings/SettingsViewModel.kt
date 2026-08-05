@@ -31,6 +31,7 @@ import com.arcadia.shell.model.ScreenRole
 import com.arcadia.shell.scanner.LibraryRootManager
 import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scanner.StorageAccess
+import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.ScraperScheduler
 import com.arcadia.shell.scraper.SteamOpenId
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
@@ -58,6 +59,7 @@ class SettingsViewModel @Inject constructor(
     private val playerSeeder: PlayerSeeder,
     private val preferences: ShellPreferences,
     private val scraperScheduler: ScraperScheduler,
+    private val libraryHashScheduler: LibraryHashScheduler,
     private val conversationRepository: ConversationRepository,
     private val discordRichPresence: com.arcadia.shell.launcher.discord.DiscordRichPresence,
     private val retroAchievements: RetroAchievementsRepository,
@@ -121,6 +123,7 @@ class SettingsViewModel @Inject constructor(
         val discordPresence: com.arcadia.shell.launcher.discord.DiscordPresenceUiState,
         val message: String?,
         val isScraping: Boolean,
+        val isHashingRoms: Boolean,
     )
 
     private val credentialsFlow = combine(
@@ -139,13 +142,18 @@ class SettingsViewModel @Inject constructor(
         val discord: com.arcadia.shell.datastore.DiscordSocialSettings,
     )
 
+    private val backgroundJobsFlow = combine(
+        scraperScheduler.isRunning(),
+        libraryHashScheduler.isRunning(),
+    ) { scraping, hashing -> scraping to hashing }
+
     private val configFlow = combine(
         preferences.settings,
         credentialsFlow,
         discordRichPresence.state,
         transientMessage,
-        scraperScheduler.isRunning(),
-    ) { settings, creds, discordPresence, message, isScraping ->
+        backgroundJobsFlow,
+    ) { settings, creds, discordPresence, message, jobs ->
         ConfigState(
             settings = settings,
             credentials = creds.scraper,
@@ -154,7 +162,8 @@ class SettingsViewModel @Inject constructor(
             discordSocial = creds.discord,
             discordPresence = discordPresence,
             message = message,
-            isScraping = isScraping,
+            isScraping = jobs.first,
+            isHashingRoms = jobs.second,
         )
     }
 
@@ -180,6 +189,8 @@ class SettingsViewModel @Inject constructor(
             discordPresence = config.discordPresence,
             notificationListenerEnabled = conversationRepository.isNotificationListenerEnabled(),
             isScraping = config.isScraping,
+            isHashingRoms = config.isHashingRoms,
+            missingRomHashes = games.count { !it.isAndroidApp && it.md5.isNullOrBlank() },
             message = config.message,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
@@ -318,10 +329,14 @@ class SettingsViewModel @Inject constructor(
             transientMessage.value = progress.error
                 ?: "Scanned ${progress.filesSeen} files and found ${progress.gamesFound} games."
 
-            // Newly indexed games start out with no artwork, so a scan is the natural moment to
-            // queue a scrape rather than making the user ask for it separately.
-            if (progress.error == null && preferences.settings.first().scrapeAfterScan) {
-                scraperScheduler.enqueue()
+            if (progress.error == null) {
+                // Always hash new ROMs so launcher RetroAchievements can identify them.
+                libraryHashScheduler.enqueue(rehashAll = false, replace = false)
+                // Newly indexed games start out with no artwork, so a scan is the natural moment to
+                // queue a scrape rather than making the user ask for it separately.
+                if (preferences.settings.first().scrapeAfterScan) {
+                    scraperScheduler.enqueue()
+                }
             }
         }
     }
@@ -333,6 +348,16 @@ class SettingsViewModel @Inject constructor(
         }
         scraperScheduler.enqueue()
         transientMessage.value = "Fetching artwork in the background."
+    }
+
+    /**
+     * Recomputes RetroAchievements MD5s for every ROM on every hashable platform so the launcher
+     * matches XOrA Emulator identification.
+     */
+    fun hashAllRoms() {
+        libraryHashScheduler.enqueue(rehashAll = true, replace = true)
+        transientMessage.value =
+            "Hashing all ROMs for RetroAchievements in the background…"
     }
 
     fun cancelScrape() {

@@ -18,7 +18,7 @@ object RaConsoleIds {
         "sega32x" -> 10
         "mastersystem" -> 11
         "ps1" -> 12
-        "lynx" -> 13
+        "lynx", "atarilynx" -> 13
         "ngp", "ngpc" -> 14
         "gamegear" -> 15
         "gamecube" -> 16
@@ -28,8 +28,12 @@ object RaConsoleIds {
         "wiiu" -> 20
         "ps2" -> 21
         "atari2600" -> 25
+        "dos" -> 26
         "arcade" -> 27
         "virtualboy" -> 28
+        "msx" -> 29
+        "c64" -> 30
+        "amiga" -> 35
         "saturn" -> 39
         "dreamcast" -> 40
         "psp" -> 41
@@ -58,7 +62,7 @@ object RaConsoleIds {
         10 -> "sega32x"
         11 -> "mastersystem"
         12 -> "ps1"
-        13 -> "lynx"
+        13 -> "atarilynx"
         14 -> "ngp"
         15 -> "gamegear"
         16 -> "gamecube"
@@ -67,8 +71,12 @@ object RaConsoleIds {
         20 -> "wiiu"
         21 -> "ps2"
         25 -> "atari2600"
+        26 -> "dos"
         27 -> "arcade"
         28 -> "virtualboy"
+        29 -> "msx"
+        30 -> "c64"
+        35 -> "amiga"
         39 -> "saturn"
         40 -> "dreamcast"
         41 -> "psp"

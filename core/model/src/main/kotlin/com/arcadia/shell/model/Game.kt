@@ -46,6 +46,10 @@ data class Game(
     val playerIdOverride: String? = null,
     val launchDisplayPreference: LaunchDisplayPreference = LaunchDisplayPreference.Inherit,
     val scrapeState: ScrapeState = ScrapeState.Pending,
+    /** RetroAchievements / ScreenScraper hashes; null until a hash pass has run. */
+    val crc32: String? = null,
+    val md5: String? = null,
+    val sha1: String? = null,
 ) {
     val platform: GamePlatform get() = PlatformCatalog.requireById(platformId)
 
