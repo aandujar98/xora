@@ -613,3 +613,107 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRaSummary(JNIEnv* env, jcla
     }
     return env->NewStringUTF(buf);
 }
+
+/**
+ * Returns Object[][] rows:
+ * [id, title, description, points, badgeUrl, unlocked ("0"/"1"), hardcore ("0"/"1"), progress]
+ */
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeRaListAchievements(JNIEnv* env, jclass) {
+    std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
+    if (!g_client || !g_game_loaded) return nullptr;
+
+    rc_client_achievement_list_t* list = rc_client_create_achievement_list(
+        g_client,
+        RC_CLIENT_ACHIEVEMENT_CATEGORY_CORE,
+        RC_CLIENT_ACHIEVEMENT_LIST_GROUPING_PROGRESS
+    );
+    if (!list) return nullptr;
+
+    uint32_t total = 0;
+    for (uint32_t b = 0; b < list->num_buckets; ++b) {
+        total += list->buckets[b].num_achievements;
+    }
+
+    jclass string_cls = env->FindClass("java/lang/String");
+    jclass string_array_cls = env->FindClass("[Ljava/lang/String;");
+    if (!string_cls || !string_array_cls) {
+        rc_client_destroy_achievement_list(list);
+        return nullptr;
+    }
+
+    jobjectArray rows = env->NewObjectArray(static_cast<jsize>(total), string_array_cls, nullptr);
+    if (!rows) {
+        rc_client_destroy_achievement_list(list);
+        env->DeleteLocalRef(string_cls);
+        env->DeleteLocalRef(string_array_cls);
+        return nullptr;
+    }
+
+    jsize row_index = 0;
+    for (uint32_t b = 0; b < list->num_buckets; ++b) {
+        const rc_client_achievement_bucket_t& bucket = list->buckets[b];
+        for (uint32_t i = 0; i < bucket.num_achievements; ++i) {
+            const rc_client_achievement_t* ach = bucket.achievements[i];
+            if (!ach) continue;
+
+            const bool unlocked = ach->state == RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED ||
+                (ach->unlocked & RC_CLIENT_ACHIEVEMENT_UNLOCKED_BOTH) != 0;
+            const bool hardcore =
+                (ach->unlocked & RC_CLIENT_ACHIEVEMENT_UNLOCKED_HARDCORE) != 0;
+
+            char badge_url[256]{};
+            rc_client_achievement_get_image_url(
+                ach,
+                unlocked ? RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED : RC_CLIENT_ACHIEVEMENT_STATE_ACTIVE,
+                badge_url,
+                sizeof(badge_url)
+            );
+
+            char id_buf[16];
+            char points_buf[16];
+            std::snprintf(id_buf, sizeof(id_buf), "%u", ach->id);
+            std::snprintf(points_buf, sizeof(points_buf), "%u", ach->points);
+
+            jobjectArray row = env->NewObjectArray(8, string_cls, nullptr);
+            if (!row) continue;
+            auto put = [&](jsize idx, const char* value) {
+                jstring js = env->NewStringUTF(value ? value : "");
+                if (js) {
+                    env->SetObjectArrayElement(row, idx, js);
+                    env->DeleteLocalRef(js);
+                }
+            };
+            put(0, id_buf);
+            put(1, ach->title);
+            put(2, ach->description);
+            put(3, points_buf);
+            put(4, badge_url);
+            put(5, unlocked ? "1" : "0");
+            put(6, hardcore ? "1" : "0");
+            put(7, ach->measured_progress);
+
+            env->SetObjectArrayElement(rows, row_index++, row);
+            env->DeleteLocalRef(row);
+        }
+    }
+
+    // Shrink if some null achievements were skipped.
+    if (row_index < static_cast<jsize>(total)) {
+        jobjectArray trimmed = env->NewObjectArray(row_index, string_array_cls, nullptr);
+        if (trimmed) {
+            for (jsize i = 0; i < row_index; ++i) {
+                auto elem = env->GetObjectArrayElement(rows, i);
+                env->SetObjectArrayElement(trimmed, i, elem);
+                if (elem) env->DeleteLocalRef(elem);
+            }
+            env->DeleteLocalRef(rows);
+            rows = trimmed;
+        }
+    }
+
+    rc_client_destroy_achievement_list(list);
+    env->DeleteLocalRef(string_cls);
+    env->DeleteLocalRef(string_array_cls);
+    return rows;
+}
