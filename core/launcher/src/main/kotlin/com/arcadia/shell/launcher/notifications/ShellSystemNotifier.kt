@@ -178,7 +178,9 @@ class ShellSystemNotifier @Inject constructor(
         is ShellNotification.SteamMessage,
         -> NotificationCompat.CATEGORY_MESSAGE
         is ShellNotification.FriendOnline -> NotificationCompat.CATEGORY_SOCIAL
-        is ShellNotification.AchievementUnlocked -> NotificationCompat.CATEGORY_STATUS
+        is ShellNotification.AchievementUnlocked,
+        is ShellNotification.RetroAchievementsSignedIn,
+        -> NotificationCompat.CATEGORY_STATUS
         is ShellNotification.GameDownloading,
         is ShellNotification.InstallComplete,
         -> NotificationCompat.CATEGORY_PROGRESS

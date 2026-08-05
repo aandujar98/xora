@@ -155,6 +155,17 @@ class LibretroRaSession(
                 return@launch
             }
 
+            notifications.emit(
+                ShellNotification.RetroAchievementsSignedIn(
+                    id = "ra-signin:${login.session.username}:${System.currentTimeMillis()}",
+                    username = login.session.username,
+                    hardcore = raSettings.hardcore,
+                    gameTitle = gameTitle,
+                ),
+                force = true,
+            )
+            _status.value = "RA: logged in as ${login.session.username}"
+
             LibretroNative.nativeRaQueueLoginResponse(login.loginJson)
             LibretroNative.nativeRaLoadGame(md5)
             LibretroNative.nativeRaLogin(login.session.username, login.session.token)
