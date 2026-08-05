@@ -874,11 +874,11 @@ fun SettingsScreen(
                 SettingsFieldLabel("Storage access")
                 Text(
                     text = if (state.hasStorageAccess) {
-                        "All-files access granted. Every emulator can be driven, including the " +
-                            "ones that need a real file path."
+                        "All-files access granted. XOrA Launcher and XOrA Emulator share one " +
+                            "library — folders open by real path (no duplicate ROM entries)."
                     } else {
                         "Without all-files access, XOrA can still read folders you pick through " +
-                            "the document picker, but emulators such as Dolphin and DuckStation " +
+                            "the document picker, but XOrA Emulator, Dolphin, and DuckStation " +
                             "will not be able to open those games."
                     },
                     style = MaterialTheme.typography.bodyMedium,
