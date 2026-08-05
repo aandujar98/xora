@@ -3,6 +3,7 @@
 #include <android/log.h>
 #include <cstring>
 #include <optional>
+#include <vector>
 
 #define LOG_TAG "SoraDiscord"
 #define LOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG, __VA_ARGS__)
@@ -27,9 +28,17 @@ jmethodID DiscordBridge::onNativeTokensReceivedMethod_ = nullptr;
 jmethodID DiscordBridge::onNativeFriendsUpdatedMethod_ = nullptr;
 jmethodID DiscordBridge::onNativePresenceResultMethod_ = nullptr;
 jmethodID DiscordBridge::onNativeAuthErrorMethod_ = nullptr;
+jmethodID DiscordBridge::onNativeMessagesUpdatedMethod_ = nullptr;
+jmethodID DiscordBridge::onNativeMessageSendResultMethod_ = nullptr;
+jmethodID DiscordBridge::onNativeCurrentUserMethod_ = nullptr;
 
 DiscordBridge::DiscordBridge()
-    : client_(nullptr), ready_(false), authorized_(false), appId_(0), javaVm_(nullptr) {
+    : client_(nullptr),
+      ready_(false),
+      authorized_(false),
+      appId_(0),
+      javaVm_(nullptr),
+      currentUserId_(0) {
     LOGI("DiscordBridge constructed");
 }
 
@@ -62,6 +71,7 @@ bool DiscordBridge::Init(int64_t appId) {
                 bool readyCopy = false;
                 bool authorizedCopy = false;
                 std::string friendsPayload;
+                std::string currentUserIdStr;
                 {
                     std::lock_guard<std::mutex> lock(mutex_);
                     const char* statusStr = "Unknown";
@@ -90,8 +100,13 @@ bool DiscordBridge::Init(int64_t appId) {
                     if (status == discordpp::Client::Status::Ready) {
                         ready_ = true;
                         LOGI("STATUS: Ready! Connection established");
+                        CaptureCurrentUserUnlocked();
+                        RegisterMessageCallbacksUnlocked();
                         fireReadyFriends = true;
                         friendsPayload = BuildFriendsPayloadUnlocked();
+                        if (currentUserId_ != 0) {
+                            currentUserIdStr = std::to_string(currentUserId_);
+                        }
                     } else if (status == discordpp::Client::Status::Disconnected) {
                         if (ready_) {
                             LOGW("STATUS: Disconnected while previously ready (err=%s)", errorStr);
@@ -120,8 +135,13 @@ bool DiscordBridge::Init(int64_t appId) {
                 if (fireAuthError) {
                     FireNativeAuthError(authErrorMsg);
                 }
-                if (fireReadyFriends && !friendsPayload.empty()) {
-                    FireNativeFriendsCallback(friendsPayload);
+                if (fireReadyFriends) {
+                    if (!currentUserIdStr.empty()) {
+                        FireNativeCurrentUser(currentUserIdStr);
+                    }
+                    if (!friendsPayload.empty()) {
+                        FireNativeFriendsCallback(friendsPayload);
+                    }
                 }
                 FireNativeStatusCallback(static_cast<int>(status), readyCopy, authorizedCopy);
             });
@@ -137,6 +157,7 @@ bool DiscordBridge::Init(int64_t appId) {
                     FireNativeFriendsCallback(payload);
                 }
             });
+        RegisterMessageCallbacksUnlocked();
         LOGI("Init: success");
         return true;
     } catch (const std::exception& e) {
@@ -189,8 +210,9 @@ void DiscordBridge::Authorize() {
 
         discordpp::AuthorizationArgs args;
         args.SetClientId(static_cast<uint64_t>(appId_));
-        auto scopes = client_->GetDefaultPresenceScopes();
-        LOGI("Authorize: scopes=%s", scopes.c_str());
+        // Communication scopes include presence + DM messaging for in-launcher chat.
+        auto scopes = discordpp::Client::GetDefaultCommunicationScopes();
+        LOGI("Authorize: communication scopes=%s", scopes.c_str());
         args.SetScopes(scopes);
 
         discordpp::AuthorizationCodeChallenge challenge;
@@ -743,6 +765,292 @@ void DiscordBridge::RefreshFriends() {
     FireNativeFriendsCallback(BuildFriendsPayloadUnlocked());
 }
 
+std::string DiscordBridge::EscapeTsvField(std::string value) {
+    for (char& c : value) {
+        if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+    }
+    return value;
+}
+
+std::string DiscordBridge::FormatMessageLine(const discordpp::MessageHandle& msg) {
+    std::string line;
+    line += std::to_string(msg.Id());
+    line += '\t';
+    line += std::to_string(msg.AuthorId());
+    line += '\t';
+    line += std::to_string(msg.RecipientId());
+    line += '\t';
+    line += std::to_string(msg.SentTimestamp());
+    line += '\t';
+    line += msg.SentFromGame() ? "1" : "0";
+    line += '\t';
+    line += EscapeTsvField(msg.Content());
+    return line;
+}
+
+void DiscordBridge::CaptureCurrentUserUnlocked() {
+    if (!client_) return;
+    try {
+        auto user = client_->GetCurrentUserV2();
+        if (user) {
+            currentUserId_ = user->Id();
+            LOGI("CaptureCurrentUser: id=%llu", (unsigned long long)currentUserId_);
+        }
+    } catch (const std::exception& e) {
+        LOGW("CaptureCurrentUser threw: %s", e.what());
+    } catch (...) {
+        LOGW("CaptureCurrentUser threw unknown");
+    }
+}
+
+void DiscordBridge::RegisterMessageCallbacksUnlocked() {
+    if (!client_) return;
+    try {
+        client_->SetMessageCreatedCallback(
+            [this](uint64_t messageId) {
+                uint64_t peerId = 0;
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    if (!client_ || !ready_) return;
+                    CaptureCurrentUserUnlocked();
+                    auto handle = client_->GetMessageHandle(messageId);
+                    if (!handle) {
+                        LOGW("MessageCreated: no handle for %llu", (unsigned long long)messageId);
+                        return;
+                    }
+                    const uint64_t authorId = handle->AuthorId();
+                    const uint64_t recipientId = handle->RecipientId();
+                    if (currentUserId_ != 0 && authorId == currentUserId_) {
+                        peerId = recipientId;
+                    } else {
+                        peerId = authorId;
+                    }
+                    LOGI("MessageCreated: id=%llu peer=%llu author=%llu",
+                         (unsigned long long)messageId,
+                         (unsigned long long)peerId,
+                         (unsigned long long)authorId);
+                }
+                if (peerId != 0) {
+                    LoadUserMessages(peerId, 50);
+                }
+            });
+        LOGI("RegisterMessageCallbacks: SetMessageCreatedCallback ok");
+    } catch (const std::exception& e) {
+        LOGE("RegisterMessageCallbacks threw: %s", e.what());
+    } catch (...) {
+        LOGE("RegisterMessageCallbacks threw unknown");
+    }
+}
+
+void DiscordBridge::LoadUserMessagesUnlocked(uint64_t recipientId, int32_t limit) {
+    if (!client_ || !ready_) {
+        LOGW("LoadUserMessages: not ready");
+        return;
+    }
+    const int32_t effectiveLimit = limit > 0 ? limit : 50;
+    LOGI("LoadUserMessages: recipient=%llu limit=%d",
+         (unsigned long long)recipientId, effectiveLimit);
+    try {
+        client_->GetUserMessagesWithLimit(
+            recipientId,
+            effectiveLimit,
+            [this, recipientId](discordpp::ClientResult result,
+                                std::vector<discordpp::MessageHandle> messages) {
+                if (!result.Successful()) {
+                    LOGE("LoadUserMessages FAILED: err=%s errCode=%d",
+                         result.Error().c_str(), result.ErrorCode());
+                    FireNativeMessagesUpdated(std::to_string(recipientId), "");
+                    return;
+                }
+                // SDK returns newest-first; reverse to chronological (oldest first).
+                std::string payload;
+                for (auto it = messages.rbegin(); it != messages.rend(); ++it) {
+                    payload += FormatMessageLine(*it);
+                    payload += '\n';
+                }
+                LOGI("LoadUserMessages: peer=%llu count=%zu",
+                     (unsigned long long)recipientId, messages.size());
+                FireNativeMessagesUpdated(std::to_string(recipientId), payload);
+            });
+    } catch (const std::exception& e) {
+        LOGE("LoadUserMessages threw: %s", e.what());
+        FireNativeMessagesUpdated(std::to_string(recipientId), "");
+    } catch (...) {
+        LOGE("LoadUserMessages threw unknown");
+        FireNativeMessagesUpdated(std::to_string(recipientId), "");
+    }
+}
+
+void DiscordBridge::SendUserMessage(uint64_t recipientId, const char* content) {
+    if (!content) {
+        FireNativeMessageSendResult(false, "Empty message", std::to_string(recipientId), "0");
+        return;
+    }
+    std::string body(content);
+    std::string syncError;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!client_ || !ready_) {
+            LOGW("SendUserMessage: not ready");
+            syncError = "Discord not ready";
+        } else {
+            LOGI("SendUserMessage: recipient=%llu len=%zu",
+                 (unsigned long long)recipientId, body.size());
+            try {
+                client_->SendUserMessage(
+                    recipientId,
+                    body,
+                    [this, recipientId](discordpp::ClientResult result, uint64_t messageId) {
+                        if (!result.Successful()) {
+                            LOGE("SendUserMessage FAILED: err=%s errCode=%d",
+                                 result.Error().c_str(), result.ErrorCode());
+                            FireNativeMessageSendResult(
+                                false,
+                                result.Error(),
+                                std::to_string(recipientId),
+                                "0");
+                            return;
+                        }
+                        LOGI("SendUserMessage ok messageId=%llu", (unsigned long long)messageId);
+                        FireNativeMessageSendResult(
+                            true,
+                            "",
+                            std::to_string(recipientId),
+                            std::to_string(messageId));
+                    });
+            } catch (const std::exception& e) {
+                LOGE("SendUserMessage threw: %s", e.what());
+                syncError = e.what();
+            } catch (...) {
+                LOGE("SendUserMessage threw unknown");
+                syncError = "Send failed";
+            }
+        }
+    }
+    if (!syncError.empty()) {
+        FireNativeMessageSendResult(false, syncError, std::to_string(recipientId), "0");
+    }
+}
+
+void DiscordBridge::LoadUserMessages(uint64_t recipientId, int32_t limit) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    LoadUserMessagesUnlocked(recipientId, limit);
+}
+
+void DiscordBridge::SetShowingChat(bool showing) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!client_) {
+        LOGW("SetShowingChat: no client");
+        return;
+    }
+    LOGI("SetShowingChat: %s", showing ? "true" : "false");
+    try {
+        client_->SetShowingChat(showing);
+    } catch (const std::exception& e) {
+        LOGE("SetShowingChat threw: %s", e.what());
+    } catch (...) {
+        LOGE("SetShowingChat threw unknown");
+    }
+}
+
+void DiscordBridge::FireNativeMessagesUpdated(
+    const std::string& recipientId, const std::string& payload
+) {
+    if (!javaVm_ || !DiscordSocialSdkBridgeClass_ || !onNativeMessagesUpdatedMethod_) return;
+    JNIEnv* env = nullptr;
+    int getEnvStat = javaVm_->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    bool needsDetach = false;
+    if (getEnvStat == JNI_EDETACHED) {
+        JavaVMAttachArgs args = {JNI_VERSION_1_6, "DiscordMessages", nullptr};
+        if (javaVm_->AttachCurrentThread(&env, &args) != JNI_OK) return;
+        needsDetach = true;
+    } else if (getEnvStat != JNI_OK) {
+        return;
+    }
+
+    jstring jRecipient = env->NewStringUTF(recipientId.c_str());
+    jstring jPayload = env->NewStringUTF(payload.c_str());
+    env->CallStaticVoidMethod(
+        DiscordSocialSdkBridgeClass_,
+        onNativeMessagesUpdatedMethod_,
+        jRecipient,
+        jPayload
+    );
+    ClearPendingJniException(env);
+    if (jRecipient) env->DeleteLocalRef(jRecipient);
+    if (jPayload) env->DeleteLocalRef(jPayload);
+
+    if (needsDetach) {
+        javaVm_->DetachCurrentThread();
+    }
+}
+
+void DiscordBridge::FireNativeMessageSendResult(
+    bool ok,
+    const std::string& errorMessage,
+    const std::string& recipientId,
+    const std::string& messageId
+) {
+    if (!javaVm_ || !DiscordSocialSdkBridgeClass_ || !onNativeMessageSendResultMethod_) return;
+    JNIEnv* env = nullptr;
+    int getEnvStat = javaVm_->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    bool needsDetach = false;
+    if (getEnvStat == JNI_EDETACHED) {
+        JavaVMAttachArgs args = {JNI_VERSION_1_6, "DiscordSendResult", nullptr};
+        if (javaVm_->AttachCurrentThread(&env, &args) != JNI_OK) return;
+        needsDetach = true;
+    } else if (getEnvStat != JNI_OK) {
+        return;
+    }
+
+    jstring jError = env->NewStringUTF(errorMessage.c_str());
+    jstring jRecipient = env->NewStringUTF(recipientId.c_str());
+    jstring jMessageId = env->NewStringUTF(messageId.c_str());
+    env->CallStaticVoidMethod(
+        DiscordSocialSdkBridgeClass_,
+        onNativeMessageSendResultMethod_,
+        ok ? JNI_TRUE : JNI_FALSE,
+        jError,
+        jRecipient,
+        jMessageId
+    );
+    ClearPendingJniException(env);
+    if (jError) env->DeleteLocalRef(jError);
+    if (jRecipient) env->DeleteLocalRef(jRecipient);
+    if (jMessageId) env->DeleteLocalRef(jMessageId);
+
+    if (needsDetach) {
+        javaVm_->DetachCurrentThread();
+    }
+}
+
+void DiscordBridge::FireNativeCurrentUser(const std::string& userId) {
+    if (!javaVm_ || !DiscordSocialSdkBridgeClass_ || !onNativeCurrentUserMethod_) return;
+    JNIEnv* env = nullptr;
+    int getEnvStat = javaVm_->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    bool needsDetach = false;
+    if (getEnvStat == JNI_EDETACHED) {
+        JavaVMAttachArgs args = {JNI_VERSION_1_6, "DiscordCurrentUser", nullptr};
+        if (javaVm_->AttachCurrentThread(&env, &args) != JNI_OK) return;
+        needsDetach = true;
+    } else if (getEnvStat != JNI_OK) {
+        return;
+    }
+
+    jstring jUserId = env->NewStringUTF(userId.c_str());
+    env->CallStaticVoidMethod(
+        DiscordSocialSdkBridgeClass_,
+        onNativeCurrentUserMethod_,
+        jUserId
+    );
+    ClearPendingJniException(env);
+    if (jUserId) env->DeleteLocalRef(jUserId);
+
+    if (needsDetach) {
+        javaVm_->DetachCurrentThread();
+    }
+}
+
 void DiscordBridge::Connect() {
     LOGI("Connect called (ready_=%s, authorized_=%s)",
          ready_ ? "true" : "false", authorized_ ? "true" : "false");
@@ -780,6 +1088,7 @@ void DiscordBridge::SetJavaVM(JavaVM* vm) {
 void DiscordBridge::DestroyUnlocked() {
     ready_ = false;
     authorized_ = false;
+    currentUserId_ = 0;
     if (client_) {
         try {
             LOGI("DestroyUnlocked: disconnecting client...");
@@ -846,6 +1155,23 @@ Java_com_arcadia_shell_launcher_discord_DiscordSocialSdkBridge_nativeInit(
             localClass, "onNativeAuthError", "(Ljava/lang/String;)V");
         if (authErrorMethod) {
             DiscordBridge::SetOnNativeAuthErrorMethod(authErrorMethod);
+        }
+        jmethodID messagesMethod = env->GetStaticMethodID(
+            localClass, "onNativeMessagesUpdated", "(Ljava/lang/String;Ljava/lang/String;)V");
+        if (messagesMethod) {
+            DiscordBridge::SetOnNativeMessagesUpdatedMethod(messagesMethod);
+        }
+        jmethodID sendResultMethod = env->GetStaticMethodID(
+            localClass,
+            "onNativeMessageSendResult",
+            "(ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+        if (sendResultMethod) {
+            DiscordBridge::SetOnNativeMessageSendResultMethod(sendResultMethod);
+        }
+        jmethodID currentUserMethod = env->GetStaticMethodID(
+            localClass, "onNativeCurrentUser", "(Ljava/lang/String;)V");
+        if (currentUserMethod) {
+            DiscordBridge::SetOnNativeCurrentUserMethod(currentUserMethod);
         }
         env->DeleteLocalRef(localClass);
     }
@@ -988,6 +1314,32 @@ Java_com_arcadia_shell_launcher_discord_DiscordSocialSdkBridge_nativeRefreshFrie
     JNIEnv* env, jobject thiz
 ) {
     g_discordBridge.RefreshFriends();
+}
+
+JNIEXPORT void JNICALL
+Java_com_arcadia_shell_launcher_discord_DiscordSocialSdkBridge_nativeSendUserMessage(
+    JNIEnv* env, jobject thiz, jlong recipientId, jstring content
+) {
+    const char* contentStr = content ? env->GetStringUTFChars(content, nullptr) : nullptr;
+    g_discordBridge.SendUserMessage(static_cast<uint64_t>(recipientId), contentStr);
+    if (contentStr) env->ReleaseStringUTFChars(content, contentStr);
+}
+
+JNIEXPORT void JNICALL
+Java_com_arcadia_shell_launcher_discord_DiscordSocialSdkBridge_nativeLoadUserMessages(
+    JNIEnv* env, jobject thiz, jlong recipientId, jint limit
+) {
+    g_discordBridge.LoadUserMessages(
+        static_cast<uint64_t>(recipientId),
+        static_cast<int32_t>(limit)
+    );
+}
+
+JNIEXPORT void JNICALL
+Java_com_arcadia_shell_launcher_discord_DiscordSocialSdkBridge_nativeSetShowingChat(
+    JNIEnv* env, jobject thiz, jboolean showing
+) {
+    g_discordBridge.SetShowingChat(showing == JNI_TRUE);
 }
 
 } // extern "C"

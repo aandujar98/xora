@@ -54,6 +54,7 @@ import com.arcadia.shell.launcher.conversations.ConversationRepository
 import com.arcadia.shell.launcher.conversations.ConversationSource
 import com.arcadia.shell.launcher.conversations.ConversationsUiState
 import com.arcadia.shell.launcher.conversations.NotificationConversation
+import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
@@ -390,15 +391,18 @@ class HomeViewModel @Inject constructor(
         discordSocialUi,
         conversationsUi,
         conversationReply,
-        combine(circlePins, managingCircle, friendSearchQuery) { pins, managing, query ->
-            Triple(pins, managing, query)
-        },
-    ) { steam, discord, conversations, reply, circle ->
+        combine(
+            combine(circlePins, managingCircle, friendSearchQuery, ::Triple),
+            discordRichPresence.dmThread,
+        ) { circle, dm -> circle to dm },
+    ) { steam, discord, conversations, reply, circleAndDm ->
+        val (circle, dm) = circleAndDm
         SocialPartners(
             steam = steam,
             discord = discord,
             conversations = conversations,
             reply = reply,
+            discordDm = dm,
             circlePins = circle.first,
             managingCircle = circle.second,
             friendSearchQuery = circle.third,
@@ -410,6 +414,7 @@ class HomeViewModel @Inject constructor(
         val discord: DiscordSocialUiState,
         val conversations: ConversationsUiState,
         val reply: ConversationReplyUiState,
+        val discordDm: DiscordDmThreadUiState,
         val circlePins: List<CirclePin>,
         val managingCircle: Boolean,
         val friendSearchQuery: String,
@@ -427,6 +432,7 @@ class HomeViewModel @Inject constructor(
             discord = partners.discord,
             conversations = partners.conversations,
             reply = partners.reply,
+            discordDm = partners.discordDm,
             circlePins = partners.circlePins,
             managingCircle = partners.managingCircle,
             friendSearchQuery = partners.friendSearchQuery,
@@ -441,6 +447,7 @@ class HomeViewModel @Inject constructor(
         val discord: DiscordSocialUiState,
         val conversations: ConversationsUiState,
         val reply: ConversationReplyUiState,
+        val discordDm: DiscordDmThreadUiState,
         val circlePins: List<CirclePin>,
         val managingCircle: Boolean,
         val friendSearchQuery: String,
@@ -795,8 +802,12 @@ class HomeViewModel @Inject constructor(
         // Re-check notification access when the social panel opens (permission changes off-process).
         accountPanelExpanded
             .onEach { open ->
-                if (open) conversationRepository.refreshListenerEnabled()
-                else conversationReply.value = ConversationReplyUiState()
+                if (open) {
+                    conversationRepository.refreshListenerEnabled()
+                } else {
+                    conversationReply.value = ConversationReplyUiState()
+                    discordRichPresence.closeDm()
+                }
             }
             .launchIn(viewModelScope)
 
@@ -1159,6 +1170,7 @@ class HomeViewModel @Inject constructor(
             discord = social.discord,
             conversations = social.conversations,
             reply = social.reply,
+            discordDm = social.discordDm,
             circlePins = social.circlePins,
             managingCircle = social.managingCircle,
             friendSearchQuery = social.friendSearchQuery,
@@ -1169,6 +1181,7 @@ class HomeViewModel @Inject constructor(
             discord = socialMenu.discord,
             conversations = socialMenu.conversations,
             reply = socialMenu.reply,
+            discordDm = socialMenu.discordDm,
             circlePins = socialMenu.circlePins,
             managingCircle = socialMenu.managingCircle,
             friendSearchQuery = socialMenu.friendSearchQuery,
@@ -1278,6 +1291,7 @@ class HomeViewModel @Inject constructor(
         circlePins: List<CirclePin>,
         managingCircle: Boolean,
         friendSearchQuery: String,
+        discordDm: DiscordDmThreadUiState = DiscordDmThreadUiState(),
     ): List<AccountPanelRow> {
         val circleKeys = circlePins.mapTo(mutableSetOf()) { it.key }
         val q = friendSearchQuery.trim()
@@ -1296,6 +1310,11 @@ class HomeViewModel @Inject constructor(
 
             when (tab) {
                 SocialMenuTab.Discord -> {
+                    if (discordDm.peerUserId != null) {
+                        add(AccountPanelRow.DiscordDmClose)
+                        add(AccountPanelRow.DiscordDmSend)
+                        return@buildList
+                    }
                     val needsLink = discord.presence.capability != DiscordPresenceCapability.Connected
                     if (needsLink) {
                         add(AccountPanelRow.DiscordConnect)
@@ -2676,20 +2695,22 @@ class HomeViewModel @Inject constructor(
         when (action) {
             NavAction.Left, NavAction.PreviousPlatform -> {
                 clearConversationReply()
+                discordRichPresence.closeDm()
                 cycleSocialMenuTab(-1)
             }
             NavAction.Right, NavAction.NextPlatform -> {
                 clearConversationReply()
+                discordRichPresence.closeDm()
                 cycleSocialMenuTab(1)
             }
             NavAction.Up -> moveAccountPanelSelection(-1)
             NavAction.Down -> moveAccountPanelSelection(1)
             NavAction.Confirm -> activateAccountPanelSelection()
             NavAction.Cancel -> {
-                if (conversationReply.value.conversationKey != null) {
-                    clearConversationReply()
-                } else {
-                    collapseHeroPanels()
+                when {
+                    conversationReply.value.conversationKey != null -> clearConversationReply()
+                    discordRichPresence.dmThread.value.peerUserId != null -> handleDiscordDmBack()
+                    else -> collapseHeroPanels()
                 }
             }
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
@@ -2763,6 +2784,7 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         if (socialMenuTab.value == tab) return
         clearConversationReply()
+        discordRichPresence.closeDm()
         socialMenuTab.value = tab
         accountPanelSelectedIndex.value = 0
         conversationRepository.refreshListenerEnabled()
@@ -2877,6 +2899,13 @@ class HomeViewModel @Inject constructor(
                 }
             }
             AccountPanelRow.DiscordOpenApp -> openDiscord()
+            AccountPanelRow.DiscordDmSend -> {
+                discordRichPresence.sendDm()
+            }
+            AccountPanelRow.DiscordDmClose -> {
+                discordRichPresence.closeDm()
+                accountPanelSelectedIndex.value = 0
+            }
         }
     }
 
@@ -2887,8 +2916,22 @@ class HomeViewModel @Inject constructor(
 
     fun updateConversationReplyDraft(draft: String) {
         noteUserActivity()
+        if (discordRichPresence.dmThread.value.peerUserId != null) {
+            discordRichPresence.updateDmDraft(draft)
+            return
+        }
         conversationReply.update { current ->
             if (current.conversationKey == null) current else current.copy(draft = draft)
+        }
+    }
+
+    private fun handleDiscordDmBack() {
+        val thread = discordRichPresence.dmThread.value
+        if (thread.draft.isNotBlank()) {
+            discordRichPresence.updateDmDraft("")
+        } else {
+            discordRichPresence.closeDm()
+            accountPanelSelectedIndex.value = 0
         }
     }
 
@@ -2909,6 +2952,7 @@ class HomeViewModel @Inject constructor(
                 discord = discordSocialUi.value,
                 conversations = conversationsUi.value,
                 reply = replyState,
+                discordDm = discordRichPresence.dmThread.value,
                 circlePins = circlePins.value,
                 managingCircle = managingCircle.value,
                 friendSearchQuery = friendSearchQuery.value,
@@ -2994,6 +3038,35 @@ class HomeViewModel @Inject constructor(
 
     private fun openDiscordFriendConversation(userId: String, social: SocialMenuUiState) {
         val friend = social.discord.friends.firstOrNull { it.userId == userId }
+        val presence = discordRichPresence.state.value
+        val sdkReady = presence.capability == DiscordPresenceCapability.Connected &&
+            presence.nativeBridgeLoaded
+        if (sdkReady) {
+            socialMenuTab.value = SocialMenuTab.Discord
+            managingCircle.value = false
+            discordRichPresence.openDm(
+                userId = userId,
+                displayName = friend?.displayName ?: userId,
+                avatarUrl = friend?.avatarUrl,
+            )
+            val rows = buildAccountPanelRows(
+                tab = SocialMenuTab.Discord,
+                steam = social.steam,
+                discord = social.discord,
+                conversations = social.conversations,
+                reply = social.reply,
+                discordDm = DiscordDmThreadUiState(peerUserId = userId),
+                circlePins = social.circlePins,
+                managingCircle = false,
+                friendSearchQuery = social.friendSearchQuery,
+            )
+            val sendIndex = rows.indexOfFirst { it is AccountPanelRow.DiscordDmSend }
+            if (sendIndex >= 0) {
+                accountPanelSelectedIndex.value = sendIndex
+            }
+            emit(HomeEvent.ShowMessage("Type a message, then press A on Send."))
+            return
+        }
         val matchingConvo = social.conversations.discordConversations.firstOrNull { convo ->
             friend != null && convo.title.equals(friend.displayName, ignoreCase = true)
         }
@@ -3001,7 +3074,7 @@ class HomeViewModel @Inject constructor(
             activateConversation(matchingConvo.key)
             return
         }
-        // No Social SDK DM API exposed — open Discord user profile / app as best effort.
+        // SDK missing / not Connected — deep-link into the Discord app.
         if (openExternalUrl("discord://discord.com/users/$userId")) return
         if (openExternalUrl("https://discord.com/users/$userId")) return
         if (openExternalUrl("discord://")) return
