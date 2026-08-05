@@ -26,6 +26,7 @@ import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.model.PlatformCatalog
 import com.arcadia.shell.model.PlatformSummary
 import com.arcadia.shell.model.Player
+import com.arcadia.shell.model.RootKind
 import com.arcadia.shell.model.ScreenRole
 import com.arcadia.shell.scanner.LibraryRootManager
 import com.arcadia.shell.scanner.LibraryScanner
@@ -277,7 +278,10 @@ class SettingsViewModel @Inject constructor(
     fun addFilesystemRoot(path: String) {
         viewModelScope.launch {
             rootManager.addFilesystemRoot(path)
-                .onSuccess { transientMessage.value = "Added ${it.label}" }
+                .onSuccess {
+                    transientMessage.value = "Added ${it.label}"
+                    scanNow()
+                }
                 .onFailure { transientMessage.value = it.message }
             refresh()
         }
@@ -286,9 +290,14 @@ class SettingsViewModel @Inject constructor(
     fun addSafRoot(treeUri: Uri) {
         viewModelScope.launch {
             rootManager.addSafRoot(treeUri)
-                .onSuccess {
-                    transientMessage.value =
-                        "Added ${it.label}. Emulators needing a real file path cannot use this root."
+                .onSuccess { root ->
+                    transientMessage.value = when (root.kind) {
+                        RootKind.Filesystem ->
+                            "Added ${root.label} as a filesystem folder (shared with XOrA Emulator)."
+                        RootKind.SafTree ->
+                            "Added ${root.label}. Grant all-files access so XOrA Emulator can open these games."
+                    }
+                    scanNow()
                 }
                 .onFailure { transientMessage.value = it.message }
             refresh()
@@ -299,6 +308,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             rootManager.remove(root)
             transientMessage.value = "Removed ${root.label}"
+            refresh()
         }
     }
 

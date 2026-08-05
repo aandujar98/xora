@@ -34,6 +34,9 @@ interface GameDao {
     @Query("SELECT * FROM games WHERE rootId = :rootId")
     suspend fun findByRootId(rootId: String): List<GameEntity>
 
+    @Query("SELECT * FROM games")
+    suspend fun getAll(): List<GameEntity>
+
     @Query(
         """
         SELECT * FROM games
@@ -56,6 +59,12 @@ interface GameDao {
      */
     @Query("DELETE FROM games WHERE rootId = :rootId AND lastSeenAt < :scanStartedAt")
     suspend fun pruneMissing(rootId: String, scanStartedAt: Long): Int
+
+    @Query("DELETE FROM games WHERE rootId = :rootId")
+    suspend fun deleteByRootId(rootId: String): Int
+
+    @Query("DELETE FROM games WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>): Int
 
     @Query("UPDATE games SET favorite = :favorite WHERE id = :id")
     suspend fun setFavorite(id: String, favorite: Boolean)
