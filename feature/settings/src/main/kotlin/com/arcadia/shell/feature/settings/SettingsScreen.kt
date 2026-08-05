@@ -60,6 +60,7 @@ import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
+import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.datastore.label
@@ -225,6 +226,27 @@ fun SettingsScreen(
                             },
                         )
                     }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("XMB game titles")
+                Text(
+                    text = "Clear logos beside box art, or plain text titles.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = state.settings.xmbTitleStyle == XmbTitleStyle.TitleIcons,
+                        onClick = { viewModel.setXmbTitleStyle(XmbTitleStyle.TitleIcons) },
+                        label = { Text(text = "Title icons") },
+                    )
+                    FilterChip(
+                        selected = state.settings.xmbTitleStyle == XmbTitleStyle.Text,
+                        onClick = { viewModel.setXmbTitleStyle(XmbTitleStyle.Text) },
+                        label = { Text(text = "Text") },
+                    )
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))

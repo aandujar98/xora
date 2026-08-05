@@ -106,6 +106,14 @@ enum class AvatarSource {
     RetroAchievements,
 }
 
+/** How XMB ROM rows show the game title next to box art. */
+enum class XmbTitleStyle {
+    /** Prefer clear-logo / wheel art when available. */
+    TitleIcons,
+    /** Always show the game title as text. */
+    Text,
+}
+
 data class ShellSettings(
     /**
      * Which pane the secondary physical display shows. The library always owns input focus, so this
@@ -136,6 +144,10 @@ data class ShellSettings(
      * Stored as the enum name string.
      */
     val gamesSecondarySlot: String = "Continue",
+    /**
+     * XMB ROM browse: clear-logo title icons vs plain text titles.
+     */
+    val xmbTitleStyle: XmbTitleStyle = XmbTitleStyle.TitleIcons,
     /**
      * Download each game's scanned manual during a metadata scrape, for the companion screen to
      * page through. Off by default: manuals are the largest media ScreenScraper serves, and a big
@@ -322,6 +334,9 @@ class ShellPreferences @Inject constructor(
                 .coerceIn(MIN_UI_TEXT_SCALE, MAX_UI_TEXT_SCALE),
             scrapeAfterScan = prefs[Keys.SCRAPE_AFTER_SCAN] ?: true,
             gamesSecondarySlot = prefs[Keys.GAMES_SECONDARY_SLOT] ?: "Continue",
+            xmbTitleStyle = prefs[Keys.XMB_TITLE_STYLE]
+                ?.let { name -> runCatching { XmbTitleStyle.valueOf(name) }.getOrNull() }
+                ?: XmbTitleStyle.TitleIcons,
             manualScrapeEnabled = prefs[Keys.MANUAL_SCRAPE_ENABLED] ?: false,
             lastScanAt = prefs[Keys.LAST_SCAN_AT] ?: 0,
             bgmVolume = prefs[Keys.BGM_VOLUME] ?: DEFAULT_BGM_VOLUME,
@@ -527,6 +542,10 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setGamesSecondarySlot(slot: String) = edit {
         it[Keys.GAMES_SECONDARY_SLOT] = slot
+    }
+
+    suspend fun setXmbTitleStyle(style: XmbTitleStyle) = edit {
+        it[Keys.XMB_TITLE_STYLE] = style.name
     }
 
     suspend fun setManualScrapeEnabled(enabled: Boolean) = edit {
@@ -942,6 +961,7 @@ class ShellPreferences @Inject constructor(
         val UI_TEXT_SCALE = floatPreferencesKey("ui_text_scale")
         val SCRAPE_AFTER_SCAN = booleanPreferencesKey("scrape_after_scan")
         val GAMES_SECONDARY_SLOT = stringPreferencesKey("games_secondary_slot")
+        val XMB_TITLE_STYLE = stringPreferencesKey("xmb_title_style")
         val MANUAL_SCRAPE_ENABLED = booleanPreferencesKey("manual_scrape_enabled")
         val LAST_SCAN_AT = longPreferencesKey("last_scan_at")
         val BGM_VOLUME = floatPreferencesKey("bgm_volume")
