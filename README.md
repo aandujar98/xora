@@ -1,4 +1,4 @@
-# SORA
+# XOrA
 
 A landscape, controller-first Android emulation frontend (branded **XOrA**). It organizes a ROM
 library, scrapes artwork, and launches games — either through an embedded **Libretro host**
