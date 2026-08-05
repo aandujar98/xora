@@ -383,14 +383,19 @@ class XoraLibretroActivity : ComponentActivity() {
                                     dualDisplayAvailable = secondaryDisplayId != null,
                                     focusedIndex = focusedMenuIndex,
                                     onFocus = { focusedMenuIndex = it },
-                                    onBack = { closeInGameSettings() },
+                                    onBack = {
+                                        uiSounds.playCancel()
+                                        closeInGameSettings()
+                                    },
                                     onToggleExpand = {
+                                        uiSounds.playConfirm()
                                         lifecycleScope.launch {
                                             preferences.setXoraExpandDualDisplay(!xora.expandDualDisplay)
                                             refreshExpandTopology()
                                         }
                                     },
                                     onCycleAspect = {
+                                        uiSounds.playConfirm()
                                         lifecycleScope.launch {
                                             val next = when (xora.aspectMode) {
                                                 XoraAspectMode.Core -> XoraAspectMode.Integer
@@ -401,11 +406,13 @@ class XoraLibretroActivity : ComponentActivity() {
                                         }
                                     },
                                     onToggleBezels = {
+                                        uiSounds.playConfirm()
                                         lifecycleScope.launch {
                                             preferences.setXoraBezelsEnabled(!xora.bezelsEnabled)
                                         }
                                     },
                                     onCycleInternalRes = {
+                                        uiSounds.playConfirm()
                                         lifecycleScope.launch {
                                             val values = com.arcadia.shell.datastore.XoraInternalResolution.entries
                                             val i = values.indexOf(xora.internalResolution)
@@ -415,6 +422,7 @@ class XoraLibretroActivity : ComponentActivity() {
                                         }
                                     },
                                     onCycleNdsLayout = {
+                                        uiSounds.playConfirm()
                                         lifecycleScope.launch {
                                             val values = com.arcadia.shell.datastore.DualScreenLayout.entries
                                             val i = values.indexOf(xora.ndsScreenLayout)
@@ -424,6 +432,7 @@ class XoraLibretroActivity : ComponentActivity() {
                                         }
                                     },
                                     onCycle3dsLayout = {
+                                        uiSounds.playConfirm()
                                         lifecycleScope.launch {
                                             val values = com.arcadia.shell.datastore.ThreeDsScreenLayout.entries
                                             val i = values.indexOf(xora.threeDsScreenLayout)
@@ -433,11 +442,13 @@ class XoraLibretroActivity : ComponentActivity() {
                                         }
                                     },
                                     onToggleRa = {
+                                        uiSounds.playConfirm()
                                         lifecycleScope.launch {
                                             preferences.setRaEnabled(!raPrefs.enabled)
                                         }
                                     },
                                     onToggleHardcore = {
+                                        uiSounds.playConfirm()
                                         lifecycleScope.launch {
                                             val next = !raPrefs.hardcore
                                             preferences.setRaHardcore(next)
@@ -445,12 +456,16 @@ class XoraLibretroActivity : ComponentActivity() {
                                         }
                                     },
                                     onToggleNetplay = {
+                                        uiSounds.playConfirm()
                                         lifecycleScope.launch {
                                             preferences.setXoraNetplayEnabled(!xora.netplayEnabled)
                                         }
                                     },
                                 )
-                                BackHandler { closeInGameSettings() }
+                                BackHandler {
+                                    uiSounds.playCancel()
+                                    closeInGameSettings()
+                                }
                             }
                             achievementsOpen -> {
                                 XoraEmulatorAchievementsPanel(
@@ -459,10 +474,19 @@ class XoraLibretroActivity : ComponentActivity() {
                                     achievements = raAchievements,
                                     focusedIndex = focusedMenuIndex,
                                     onFocus = { focusedMenuIndex = it },
-                                    onBack = { closeAchievements() },
-                                    onRefresh = { refreshAchievementList() },
+                                    onBack = {
+                                        uiSounds.playCancel()
+                                        closeAchievements()
+                                    },
+                                    onRefresh = {
+                                        uiSounds.playConfirm()
+                                        refreshAchievementList()
+                                    },
                                 )
-                                BackHandler { closeAchievements() }
+                                BackHandler {
+                                    uiSounds.playCancel()
+                                    closeAchievements()
+                                }
                             }
                             else -> {
                                 XoraEmulatorPauseMenu(
@@ -476,10 +500,16 @@ class XoraLibretroActivity : ComponentActivity() {
                                     actions = menuActions.map { it.label },
                                     focusedIndex = focusedMenuIndex,
                                     onFocus = { focusedMenuIndex = it },
-                                    onActivate = { index -> menuActions.getOrNull(index)?.onClick?.invoke() },
-                                    onDismiss = { closeMenu() },
+                                    onActivate = { index -> activateMenuAction(index) },
+                                    onDismiss = {
+                                        uiSounds.playCancel()
+                                        closeMenu()
+                                    },
                                 )
-                                BackHandler { closeMenu() }
+                                BackHandler {
+                                    uiSounds.playCancel()
+                                    closeMenu()
+                                }
                             }
                         }
                     } else if (statusText.isNotBlank() && runJob == null) {
@@ -670,10 +700,12 @@ class XoraLibretroActivity : ComponentActivity() {
                             KeyEvent.KEYCODE_DPAD_UP -> {
                                 focusedMenuIndex =
                                     (focusedMenuIndex - 1 + settingsCount) % settingsCount
+                                uiSounds.playCursor()
                                 return true
                             }
                             KeyEvent.KEYCODE_DPAD_DOWN -> {
                                 focusedMenuIndex = (focusedMenuIndex + 1) % settingsCount
+                                uiSounds.playCursor()
                                 return true
                             }
                             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER,
@@ -683,6 +715,7 @@ class XoraLibretroActivity : ComponentActivity() {
                                 return true
                             }
                             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
+                                uiSounds.playCancel()
                                 closeInGameSettings()
                                 return true
                             }
@@ -697,23 +730,32 @@ class XoraLibretroActivity : ComponentActivity() {
                                 focusedMenuIndex =
                                     (focusedMenuIndex - 1 + count.coerceAtLeast(1)) %
                                         count.coerceAtLeast(1)
+                                uiSounds.playCursor()
                                 return true
                             }
                             KeyEvent.KEYCODE_DPAD_DOWN -> {
                                 focusedMenuIndex =
                                     (focusedMenuIndex + 1) % count.coerceAtLeast(1)
+                                uiSounds.playCursor()
                                 return true
                             }
                             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER,
                             KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER,
                             -> {
                                 when (focusedMenuIndex) {
-                                    0 -> closeAchievements()
-                                    1 -> refreshAchievementList()
+                                    0 -> {
+                                        uiSounds.playCancel()
+                                        closeAchievements()
+                                    }
+                                    1 -> {
+                                        uiSounds.playConfirm()
+                                        refreshAchievementList()
+                                    }
                                 }
                                 return true
                             }
                             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
+                                uiSounds.playCancel()
                                 closeAchievements()
                                 return true
                             }
@@ -725,19 +767,22 @@ class XoraLibretroActivity : ComponentActivity() {
                         KeyEvent.KEYCODE_DPAD_UP -> {
                             focusedMenuIndex =
                                 (focusedMenuIndex - 1 + actions.size) % actions.size
+                            uiSounds.playCursor()
                             return true
                         }
                         KeyEvent.KEYCODE_DPAD_DOWN -> {
                             focusedMenuIndex = (focusedMenuIndex + 1) % actions.size
+                            uiSounds.playCursor()
                             return true
                         }
                         KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER,
                         KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER,
                         -> {
-                            actions.getOrNull(focusedMenuIndex)?.onClick?.invoke()
+                            activateMenuAction(focusedMenuIndex)
                             return true
                         }
                         KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
+                            uiSounds.playCancel()
                             closeMenu()
                             return true
                         }
@@ -798,6 +843,11 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun activateInGameSetting(index: Int) {
+        if (index == 0) {
+            uiSounds.playCancel()
+        } else {
+            uiSounds.playConfirm()
+        }
         val xora = xoraSettings
         val ra = raSettings
         when (index) {
@@ -897,6 +947,7 @@ class XoraLibretroActivity : ComponentActivity() {
         achievementsOpen = false
         menuOpen = true
         paused = true
+        uiSounds.playConfirm()
     }
 
     private fun closeMenu() {
@@ -906,6 +957,11 @@ class XoraLibretroActivity : ComponentActivity() {
         paused = false
         statusText = ""
         window.decorView.requestFocus()
+    }
+
+    private fun activateMenuAction(index: Int) {
+        uiSounds.playConfirm()
+        buildMenuActions().getOrNull(index)?.onClick?.invoke()
     }
 
     private fun startAudio() {
