@@ -25,7 +25,9 @@ replay_pid*.log
 build-*.txt
 build-*.log
 
-# Discord Social SDK partner binary (download from Developer Portal; see core/launcher/libs/README.md)
+# Discord Social SDK partner binary (see core/launcher/libs/README.md).
+# Vendored release AAR is tracked; other AAR variants / extracted trees stay local.
 core/launcher/libs/*.aar
+!core/launcher/libs/discord_partner_sdk.aar
 core/launcher/libs/discord_partner_sdk/
 !core/launcher/libs/README.md
