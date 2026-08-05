@@ -131,7 +131,6 @@ class XoraLibretroActivity : ComponentActivity() {
     /** True while the activity is backgrounded (home/recents) — pauses the frame loop. */
     @Volatile private var activityInBackground = false
     private var gameLoaded = false
-    private var freezeFrame by mutableStateOf<Bitmap?>(null)
     private var focusedMenuIndex by mutableIntStateOf(0)
     private var raAchievements by mutableStateOf<List<RaLiveAchievement>>(emptyList())
     private var raSession: LibretroRaSession? = null
@@ -317,25 +316,25 @@ class XoraLibretroActivity : ComponentActivity() {
                 uiTextScale = textScale,
             ) {
                 Box(modifier = Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
-                    // Live frames (hidden while pause menu shows a freeze-frame plate).
-                    if (!menuOpen) {
-                        val bmp = gameBitmap
-                        if (bmp != null) {
-                            XoraPrimaryGameFrame(
-                                bitmap = bmp,
-                                frameTick = frameTick,
-                                platformId = platformId,
-                                aspectMode = xora.aspectMode,
-                                integerScale = xora.integerScale,
-                                bezelsEnabled = xora.bezelsEnabled && !expandActive,
-                                bezelOpacity = xora.bezelOpacity,
-                            )
-                        } else if (xora.bezelsEnabled && !expandActive) {
-                            XoraBezelBackdrop(
-                                platformId = platformId,
-                                opacity = xora.bezelOpacity * 0.7f,
-                            )
-                        }
+                    // Keep the same gameplay composition under the pause overlay so closing the
+                    // menu does not swap to a differently-scaled freeze plate (which looked like
+                    // a sudden brightness jump).
+                    val bmp = gameBitmap
+                    if (bmp != null) {
+                        XoraPrimaryGameFrame(
+                            bitmap = bmp,
+                            frameTick = frameTick,
+                            platformId = platformId,
+                            aspectMode = xora.aspectMode,
+                            integerScale = xora.integerScale,
+                            bezelsEnabled = xora.bezelsEnabled && !expandActive,
+                            bezelOpacity = xora.bezelOpacity,
+                        )
+                    } else if (xora.bezelsEnabled && !expandActive) {
+                        XoraBezelBackdrop(
+                            platformId = platformId,
+                            opacity = xora.bezelOpacity * 0.7f,
+                        )
                     }
 
                     if (expandActive) {
@@ -363,24 +362,14 @@ class XoraLibretroActivity : ComponentActivity() {
                     }
 
                     if (menuOpen) {
-                        freezeFrame?.let { bmp ->
-                            Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = null,
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(androidx.compose.ui.graphics.Color.Black),
-                            )
-                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .background(
                                     Brush.verticalGradient(
                                         listOf(
-                                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f),
-                                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.78f),
+                                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.42f),
+                                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.58f),
                                         ),
                                     ),
                                 ),
@@ -903,9 +892,6 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun openMenu() {
-        freezeFrame = synchronized(bitmapLock) {
-            gameBitmap?.let { src -> src.copy(Bitmap.Config.ARGB_8888, false) }
-        }
         focusedMenuIndex = 0
         settingsOpen = false
         achievementsOpen = false
@@ -918,7 +904,6 @@ class XoraLibretroActivity : ComponentActivity() {
         settingsOpen = false
         achievementsOpen = false
         paused = false
-        freezeFrame = null
         statusText = ""
         window.decorView.requestFocus()
     }
@@ -1071,8 +1056,6 @@ class XoraLibretroActivity : ComponentActivity() {
         audioTrack?.stop()
         audioTrack?.release()
         audioTrack = null
-        freezeFrame?.recycle()
-        freezeFrame = null
         synchronized(bitmapLock) {
             gameBitmap?.recycle()
             gameBitmap = null
@@ -1492,7 +1475,7 @@ private fun XoraEmulatorAchievementsPanel(
     LaunchedEffect(focusedIndex, achievements.size) {
         val listIndex = when {
             focusedIndex <= 1 -> 0
-            else -> (focusedIndex - 1).coerceIn(0, achievements.size)
+            else -> (focusedIndex - 1).coerceIn(0, achievements.size.coerceAtLeast(1))
         }
         listState.animateScrollToItem(listIndex)
     }
@@ -1500,149 +1483,125 @@ private fun XoraEmulatorAchievementsPanel(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onBack,
-            ),
-        contentAlignment = Alignment.CenterStart,
+            .padding(20.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        BoxWithConstraints(
+        Column(
             modifier = Modifier
-                .padding(start = 48.dp, end = 48.dp)
-                .widthIn(max = 480.dp)
-                .fillMaxWidth(0.5f),
+                .fillMaxSize()
+                .liquidGlass(
+                    shape = RoundedCornerShape(22.dp),
+                    tone = GlassTone.OverMedia,
+                    intensity = GlassIntensity.Strong,
+                )
+                .padding(horizontal = 22.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            val panelMax = maxHeight * 0.9f
-            Column(
-                modifier = Modifier
-                    .heightIn(max = panelMax)
-                    .fillMaxWidth()
-                    .liquidGlass(
-                        shape = RoundedCornerShape(18.dp),
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                    )
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {},
-                    )
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                XoraTitleText(
-                    text = "RetroAchievements",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 20.sp,
-                    maxLines = 1,
-                )
-                XoraSecondaryText(
-                    text = title,
-                    fontSize = 13.sp,
-                    fillColor = glass.contentMuted,
-                    maxLines = 1,
-                )
-                XoraSecondaryText(
-                    text = progressLabel,
-                    fontSize = 12.sp,
-                    fillColor = glass.contentMuted,
-                    maxLines = 2,
-                )
-
-                AchievementsChromeRow(
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    XoraTitleText(
+                        text = "RetroAchievements",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 24.sp,
+                        maxLines = 1,
+                    )
+                    XoraSecondaryText(
+                        text = "$title · $progressLabel",
+                        fontSize = 13.sp,
+                        fillColor = glass.contentMuted,
+                        maxLines = 1,
+                    )
+                }
+                AchievementsToolbarChip(
                     label = "Back",
-                    subtitle = "Return to pause menu",
                     focused = focusedIndex == 0,
                     onClick = {
                         onFocus(0)
                         onBack()
                     },
-                    glassContent = glass.content,
-                    glassMuted = glass.contentMuted,
+                    content = glass.content,
+                    muted = glass.contentMuted,
                 )
-                AchievementsChromeRow(
+                AchievementsToolbarChip(
                     label = "Refresh",
-                    subtitle = "Reload live unlocks",
                     focused = focusedIndex == 1,
                     onClick = {
                         onFocus(1)
                         onRefresh()
                     },
-                    glassContent = glass.content,
-                    glassMuted = glass.contentMuted,
-                )
-
-                if (achievements.isEmpty()) {
-                    XoraSecondaryText(
-                        text = "Achievements appear here after RetroAchievements finishes loading this ROM.",
-                        fontSize = 12.sp,
-                        fillColor = glass.contentMuted,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
-                    )
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = panelMax * 0.62f),
-                    ) {
-                        itemsIndexed(achievements, key = { _, item -> item.id }) { index, achievement ->
-                            val rowFocus = index + 2
-                            EmulatorAchievementRow(
-                                achievement = achievement,
-                                focused = focusedIndex == rowFocus,
-                                onClick = { onFocus(rowFocus) },
-                                content = glass.content,
-                                muted = glass.contentMuted,
-                            )
-                        }
-                    }
-                }
-
-                XoraSecondaryText(
-                    text = "B / Back returns · A selects",
-                    fontSize = 11.sp,
-                    fillColor = glass.contentMuted,
-                    modifier = Modifier.padding(top = 4.dp),
+                    content = glass.content,
+                    muted = glass.contentMuted,
                 )
             }
+
+            if (achievements.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    XoraSecondaryText(
+                        text = "Achievements appear here after RetroAchievements finishes loading this ROM.",
+                        fontSize = 14.sp,
+                        fillColor = glass.contentMuted,
+                    )
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                ) {
+                    itemsIndexed(achievements, key = { _, item -> item.id }) { index, achievement ->
+                        val rowFocus = index + 2
+                        EmulatorAchievementRow(
+                            achievement = achievement,
+                            focused = focusedIndex == rowFocus,
+                            onClick = { onFocus(rowFocus) },
+                            content = glass.content,
+                            muted = glass.contentMuted,
+                        )
+                    }
+                }
+            }
+
+            XoraSecondaryText(
+                text = "B / Back returns · A selects · D-pad scrolls",
+                fontSize = 11.sp,
+                fillColor = glass.contentMuted,
+            )
         }
     }
 }
 
 @Composable
-private fun AchievementsChromeRow(
+private fun AchievementsToolbarChip(
     label: String,
-    subtitle: String,
     focused: Boolean,
     onClick: () -> Unit,
-    glassContent: Color,
-    glassMuted: Color,
+    content: Color,
+    muted: Color,
 ) {
-    Column(
+    Text(
+        text = label,
+        color = if (focused) content else muted,
+        fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
+        fontSize = 14.sp,
         modifier = Modifier
-            .fillMaxWidth()
             .background(
-                if (focused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                if (focused) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f),
                 RoundedCornerShape(10.dp),
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        Text(
-            text = label,
-            color = if (focused) glassContent else glassMuted,
-            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
-            fontSize = if (focused) 17.sp else 14.sp,
-        )
-        Text(
-            text = subtitle,
-            color = glassMuted,
-            fontSize = 11.sp,
-        )
-    }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    )
 }
 
 @Composable
@@ -1658,12 +1617,12 @@ private fun EmulatorAchievementRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                if (focused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
-                RoundedCornerShape(10.dp),
+                if (focused) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.04f),
+                RoundedCornerShape(14.dp),
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AsyncImage(
@@ -1674,20 +1633,20 @@ private fun EmulatorAchievementRow(
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .size(56.dp)
+                .clip(RoundedCornerShape(12.dp))
                 .background(Color.White.copy(alpha = if (achievement.unlocked) 0.12f else 0.08f)),
             alpha = if (achievement.unlocked) 1f else 0.45f,
         )
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Text(
                 text = achievement.title,
                 color = if (achievement.unlocked) content else muted,
-                fontWeight = FontWeight.Medium,
-                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1701,16 +1660,16 @@ private fun EmulatorAchievementRow(
                     if (achievement.hardcore) append(" · Hardcore")
                 },
                 color = muted,
-                fontSize = 11.sp,
-                maxLines = 2,
+                fontSize = 13.sp,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         Text(
             text = "${achievement.points}",
-            color = if (focused) content else muted,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
+            color = if (focused || achievement.unlocked) content else muted,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
         )
     }
 }
