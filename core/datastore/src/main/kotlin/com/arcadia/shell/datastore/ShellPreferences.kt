@@ -385,6 +385,8 @@ class ShellPreferences @Inject constructor(
             netplaySpectator = prefs[Keys.XORA_NETPLAY_SPECTATOR] ?: false,
             netplayUseRelay = prefs[Keys.XORA_NETPLAY_RELAY] ?: false,
             netplayHostAddress = prefs[Keys.XORA_NETPLAY_HOST].orEmpty(),
+            preferredControllerName = prefs[Keys.XORA_CONTROLLER_NAME].orEmpty(),
+            buttonMappings = decodeButtonMappings(prefs[Keys.XORA_BUTTON_MAPPINGS].orEmpty()),
         )
     }
 
@@ -649,6 +651,18 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setXoraNetplayHostAddress(address: String) = edit {
         it[Keys.XORA_NETPLAY_HOST] = address.trim().take(128)
+    }
+
+    suspend fun setXoraPreferredControllerName(name: String) = edit {
+        it[Keys.XORA_CONTROLLER_NAME] = name.trim().take(128)
+    }
+
+    suspend fun setXoraButtonMappings(mappings: Map<Int, Int>) = edit {
+        it[Keys.XORA_BUTTON_MAPPINGS] = encodeButtonMappings(mappings)
+    }
+
+    suspend fun clearXoraButtonMappings() = edit {
+        it[Keys.XORA_BUTTON_MAPPINGS] = ""
     }
 
     suspend fun setRaEnabled(enabled: Boolean) = edit {
@@ -980,6 +994,8 @@ class ShellPreferences @Inject constructor(
         val XORA_NETPLAY_SPECTATOR = booleanPreferencesKey("xora_netplay_spectator")
         val XORA_NETPLAY_RELAY = booleanPreferencesKey("xora_netplay_relay")
         val XORA_NETPLAY_HOST = stringPreferencesKey("xora_netplay_host")
+        val XORA_CONTROLLER_NAME = stringPreferencesKey("xora_preferred_controller")
+        val XORA_BUTTON_MAPPINGS = stringPreferencesKey("xora_button_mappings")
         val RA_ENABLED = booleanPreferencesKey("ra_enabled")
         val RA_HARDCORE = booleanPreferencesKey("ra_hardcore")
         val RA_UNLOCK_NOTIFICATIONS = booleanPreferencesKey("ra_unlock_notifications")
