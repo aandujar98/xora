@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -2083,104 +2084,127 @@ private fun XoraEmulatorAchievementsPanel(
         listState.animateScrollToItem(listIndex)
     }
 
+    // Match settings/controllers: glass only on a constrained panel over the shared pause
+    // dim. A full-bleed Color(0xCC0A0C10) + fillMaxSize liquidGlass plate was unique to RA
+    // and read as a lasting light/bright wash after the menu closed.
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xCC0A0C10))
-            .padding(20.dp),
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onBack,
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
-                .fillMaxSize()
-                .liquidGlass(
-                    shape = RoundedCornerShape(22.dp),
-                    tone = GlassTone.OverMedia,
-                    intensity = GlassIntensity.Strong,
-                )
-                .padding(horizontal = 22.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 28.dp, vertical = 20.dp)
+                .widthIn(max = 720.dp)
+                .fillMaxWidth(0.78f),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            val panelHeight = maxHeight * 0.92f
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(panelHeight)
+                    .liquidGlass(
+                        shape = RoundedCornerShape(22.dp),
+                        tone = GlassTone.OverMedia,
+                        intensity = GlassIntensity.Strong,
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    )
+                    .padding(horizontal = 22.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    XoraTitleText(
-                        text = "RetroAchievements",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 24.sp,
-                        maxLines = 1,
-                    )
-                    XoraSecondaryText(
-                        text = "$title · $progressLabel",
-                        fontSize = 13.sp,
-                        fillColor = glass.contentMuted,
-                        maxLines = 1,
-                    )
-                }
-                AchievementsToolbarChip(
-                    label = "Back",
-                    focused = focusedIndex == 0,
-                    onClick = {
-                        onFocus(0)
-                        onBack()
-                    },
-                    content = glass.content,
-                    muted = glass.contentMuted,
-                )
-                AchievementsToolbarChip(
-                    label = "Refresh",
-                    focused = focusedIndex == 1,
-                    onClick = {
-                        onFocus(1)
-                        onRefresh()
-                    },
-                    content = glass.content,
-                    muted = glass.contentMuted,
-                )
-            }
-
-            if (achievements.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    XoraSecondaryText(
-                        text = "Achievements appear here after RetroAchievements finishes loading this ROM.",
-                        fontSize = 14.sp,
-                        fillColor = glass.contentMuted,
-                    )
-                }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                ) {
-                    itemsIndexed(achievements, key = { _, item -> item.id }) { index, achievement ->
-                        val rowFocus = index + 2
-                        EmulatorAchievementRow(
-                            achievement = achievement,
-                            focused = focusedIndex == rowFocus,
-                            onClick = { onFocus(rowFocus) },
-                            content = glass.content,
-                            muted = glass.contentMuted,
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        XoraTitleText(
+                            text = "RetroAchievements",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 24.sp,
+                            maxLines = 1,
+                        )
+                        XoraSecondaryText(
+                            text = "$title · $progressLabel",
+                            fontSize = 13.sp,
+                            fillColor = glass.contentMuted,
+                            maxLines = 1,
                         )
                     }
+                    AchievementsToolbarChip(
+                        label = "Back",
+                        focused = focusedIndex == 0,
+                        onClick = {
+                            onFocus(0)
+                            onBack()
+                        },
+                        content = glass.content,
+                        muted = glass.contentMuted,
+                    )
+                    AchievementsToolbarChip(
+                        label = "Refresh",
+                        focused = focusedIndex == 1,
+                        onClick = {
+                            onFocus(1)
+                            onRefresh()
+                        },
+                        content = glass.content,
+                        muted = glass.contentMuted,
+                    )
                 }
-            }
 
-            XoraSecondaryText(
-                text = "B / Back returns · A selects · D-pad scrolls",
-                fontSize = 11.sp,
-                fillColor = glass.contentMuted,
-            )
+                if (achievements.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        XoraSecondaryText(
+                            text = "Achievements appear here after RetroAchievements finishes loading this ROM.",
+                            fontSize = 14.sp,
+                            fillColor = glass.contentMuted,
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    ) {
+                        itemsIndexed(achievements, key = { _, item -> item.id }) { index, achievement ->
+                            val rowFocus = index + 2
+                            EmulatorAchievementRow(
+                                achievement = achievement,
+                                focused = focusedIndex == rowFocus,
+                                onClick = { onFocus(rowFocus) },
+                                content = glass.content,
+                                muted = glass.contentMuted,
+                            )
+                        }
+                    }
+                }
+
+                XoraSecondaryText(
+                    text = "B / Back returns · A selects · D-pad scrolls",
+                    fontSize = 11.sp,
+                    fillColor = glass.contentMuted,
+                )
+            }
         }
     }
 }
