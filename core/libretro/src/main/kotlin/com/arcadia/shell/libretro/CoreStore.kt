@@ -55,6 +55,10 @@ class CoreStore @Inject constructor(
     fun stateFile(platformId: String, gameKey: String, slot: Int): File =
         File(saveDirFor(platformId), "${sanitize(gameKey)}.state$slot")
 
+    /** Silent resume file written when the emulator is backgrounded (not a user slot). */
+    fun autosaveFile(platformId: String, gameKey: String): File =
+        File(saveDirFor(platformId), "${sanitize(gameKey)}.autosave")
+
     fun refreshInstalled() {
         installed.value = root.listFiles()
             ?.filter { it.isFile && it.name.endsWith("_libretro_android.so") }

@@ -37,6 +37,8 @@ bool g_hardcore_wanted = false;
 std::string g_pending_hash;
 /** One-shot Connect login2 JSON from Kotlin — consumed by the next login server_call. */
 std::string g_queued_login_json;
+/** One-shot Connect gameid JSON from Kotlin (Connect + Web API fallback). */
+std::string g_queued_gameid_json;
 
 JNIEnv* env_for_current_thread() {
     if (!g_jvm) return nullptr;
@@ -91,15 +93,31 @@ void server_call(
     jstring jpost = request->post_data ? env->NewStringUTF(request->post_data) : nullptr;
     jstring jct = request->content_type ? env->NewStringUTF(request->content_type) : nullptr;
 
-    // Prefer a Kotlin-validated login2 body so rcheevos never re-hits Cloudflare for sign-in.
+    // Prefer Kotlin-validated bodies so rcheevos never re-hits Cloudflare for sign-in / gameid.
     const bool is_login =
         request->post_data && std::strstr(request->post_data, "r=login2") != nullptr;
+    const bool is_gameid =
+        (request->post_data && std::strstr(request->post_data, "r=gameid") != nullptr) ||
+        (request->url && std::strstr(request->url, "r=gameid") != nullptr);
     std::string body_storage;
     if (is_login && !g_queued_login_json.empty()) {
         body_storage = g_queued_login_json;
         g_queued_login_json.clear();
         response.http_status_code = 200;
         ALOGI("RA login: using queued Connect login2 JSON (%zu bytes)", body_storage.size());
+        if (jurl) env->DeleteLocalRef(jurl);
+        if (jpost) env->DeleteLocalRef(jpost);
+        if (jct) env->DeleteLocalRef(jct);
+        response.body = body_storage.c_str();
+        response.body_length = body_storage.size();
+        if (callback) callback(&response, callback_data);
+        return;
+    }
+    if (is_gameid && !g_queued_gameid_json.empty()) {
+        body_storage = g_queued_gameid_json;
+        g_queued_gameid_json.clear();
+        response.http_status_code = 200;
+        ALOGI("RA gameid: using queued Connect gameid JSON (%zu bytes)", body_storage.size());
         if (jurl) env->DeleteLocalRef(jurl);
         if (jpost) env->DeleteLocalRef(jpost);
         if (jct) env->DeleteLocalRef(jct);
@@ -258,11 +276,20 @@ void load_game_callback(int result, const char* error_message, rc_client_t* clie
         notify_status(buf);
     } else {
         g_game_loaded = false;
-        ALOGE("RA load game failed: %s", error_message ? error_message : rc_error_str(result));
-        std::string msg = "RA: no achievements for this ROM";
-        if (error_message && error_message[0]) {
-            msg = "RA: ";
-            msg += error_message;
+        const char* detail = (error_message && error_message[0])
+            ? error_message
+            : rc_error_str(result);
+        ALOGE("RA load game failed (%d): %s", result, detail ? detail : "?");
+        std::string msg = "RA: ";
+        if (detail && detail[0]) {
+            // rcheevos uses "Unknown game" when the hash has no linked set.
+            if (std::strcmp(detail, "Unknown game") == 0) {
+                msg += "no RetroAchievements set for this ROM";
+            } else {
+                msg += detail;
+            }
+        } else {
+            msg += "could not load achievements for this ROM";
         }
         notify_status(msg.c_str());
     }
@@ -339,6 +366,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRaDetach(JNIEnv* env, jclas
     std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
     destroy_client_unlocked();
     g_queued_login_json.clear();
+    g_queued_gameid_json.clear();
     if (g_bridge) {
         env->DeleteGlobalRef(g_bridge);
         g_bridge = nullptr;
@@ -362,6 +390,23 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRaQueueLoginResponse(
         g_queued_login_json.assign(json);
         env->ReleaseStringUTFChars(login_json, json);
         ALOGI("RA queued login JSON (%zu bytes)", g_queued_login_json.size());
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeRaQueueGameIdResponse(
+    JNIEnv* env,
+    jclass,
+    jstring game_id_json
+) {
+    std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
+    g_queued_gameid_json.clear();
+    if (!game_id_json) return;
+    const char* json = env->GetStringUTFChars(game_id_json, nullptr);
+    if (json) {
+        g_queued_gameid_json.assign(json);
+        env->ReleaseStringUTFChars(game_id_json, json);
+        ALOGI("RA queued gameid JSON (%zu bytes)", g_queued_gameid_json.size());
     }
 }
 

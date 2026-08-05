@@ -161,6 +161,17 @@ class RetroAchievementsRepository @Inject constructor(
     ): Result<List<RaCompletionGame>> =
         client.fetchCompletionProgress(currentCredentials(), count = count, offset = offset)
 
+    /**
+     * Resolve a ROM MD5 to a RetroAchievements game id using the same Connect + Web API hash
+     * library fallback as the launcher. Used by XOrA Emulator so Cloudflare-blocked Connect
+     * `gameid` calls still succeed.
+     */
+    suspend fun resolveRomGameId(md5: String, platformId: String): Result<Int?> {
+        val creds = currentCredentials()
+        val consoleId = RaConsoleIds.forPlatform(platformId)
+        return client.resolveGameId(md5.lowercase(), credentials = creds, consoleId = consoleId)
+    }
+
     suspend fun lookupSelectedGame(game: Game?): RaGameLookup {
         if (game == null || game.isAndroidApp) return RaGameLookup.NoHash
 

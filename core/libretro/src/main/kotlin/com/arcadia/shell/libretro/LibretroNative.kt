@@ -38,6 +38,8 @@ object LibretroNative {
      * server_call (avoids a second Cloudflare-facing HTTP request).
      */
     external fun nativeRaQueueLoginResponse(loginJson: String)
+    /** Queued Connect `r=gameid` JSON so rcheevos can skip a Cloudflare-blocked lookup. */
+    external fun nativeRaQueueGameIdResponse(gameIdJson: String)
     external fun nativeRaLogin(username: String, token: String)
     /** Softcore (false) allows save states; hardcore (true) matches RA leaderboards. */
     external fun nativeRaSetHardcore(enabled: Boolean)
