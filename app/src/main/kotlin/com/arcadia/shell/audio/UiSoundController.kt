@@ -3,7 +3,11 @@ package com.arcadia.shell.audio
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
+import android.os.Build
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import com.arcadia.shell.R
 import com.arcadia.shell.datastore.DEFAULT_UI_SFX_VOLUME
 import com.arcadia.shell.datastore.ShellPreferences
@@ -28,7 +32,7 @@ import javax.inject.Singleton
  * Hooks [GamepadDispatcher.actions] once so every screen that consumes NavActions gets the same
  * feedback without each ViewModel knowing about audio. D-pad keys, hat switches, and the left
  * analog stick all emit the same directional [NavAction]s — each step (including hold-repeat)
- * plays the cursor click.
+ * plays the cursor click and a light haptic tick (XMB-style navigate feel).
  *
  * Also plays a confirm chime when a shell notification banner becomes active, if the
  * notification-sound preference is on.
@@ -57,6 +61,18 @@ class UiSoundController @Inject constructor(
     /** Light debounce when hat + DPAD key both emit the same direction for one physical press. */
     private var lastCursorAction: NavAction? = null
     private var lastCursorAtMs: Long = 0L
+
+    private val vibrator: Vibrator? by lazy {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager = context.getSystemService(VibratorManager::class.java)
+                manager?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+        }.getOrNull()?.takeIf { it.hasVibrator() }
+    }
 
     init {
         ensurePool()
@@ -146,6 +162,7 @@ class UiSoundController @Inject constructor(
             NavAction.ToggleAchievementsPanel,
             -> {
                 if (shouldSuppressDuplicateCursor(action)) return
+                vibrateCursor()
                 cursorId
             }
 
@@ -184,6 +201,14 @@ class UiSoundController @Inject constructor(
         // SoundPool.play returns 0 until the sample finishes loading; retries on later NavActions.
         runCatching {
             soundPool?.play(soundId, v, v, /* priority */ 1, /* loop */ 0, /* rate */ 1f)
+        }
+    }
+
+    /** Short XMB-style tick on each launcher cursor step (independent of UI SFX volume). */
+    private fun vibrateCursor() {
+        val vibrator = vibrator ?: return
+        runCatching {
+            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
         }
     }
 

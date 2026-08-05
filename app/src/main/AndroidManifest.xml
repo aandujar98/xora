@@ -17,6 +17,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Short tick when moving the XMB / launcher cursor (UiSoundController). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- Android 13+: status-bar delivery when SORA is not in the foreground. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
