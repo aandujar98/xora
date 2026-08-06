@@ -36,6 +36,9 @@ import com.arcadia.shell.feature.home.component.hintsForPage
 import com.arcadia.shell.feature.home.component.hintsForSocialMenu
 import com.arcadia.shell.feature.home.component.hintsForStartSettings
 import com.arcadia.shell.feature.home.component.hintsForSystemMenu
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewHomeUi
 import com.arcadia.shell.model.ShortcutSpan
 
 /**
@@ -688,3 +691,19 @@ private fun SetupNotice(
 
 private const val HERO_WEIGHT = 0.56f
 private const val GRID_WEIGHT = 0.44f
+
+@XoraPreview
+@Composable
+private fun HomePageContentPreview() {
+    XoraPreviewTheme {
+        HomePageContent(
+            state = previewHomeUi(),
+            onSelectTab = {},
+            onSelectGame = {},
+            onLaunchGame = {},
+            onSelectRssItem = {},
+            onOpenRssItem = {},
+            onRetryRss = {},
+        )
+    }
+}

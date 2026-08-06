@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -56,6 +57,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.DualScreenLayout
+import com.arcadia.shell.datastore.RetroAchievementsCredentials
 import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.TrailerDisplayMode
@@ -73,6 +75,7 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LiquidGlassSurface
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.feature.settings.preview.SettingsPreviewTheme
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.model.RootKind
 import com.arcadia.shell.model.ScreenRole
@@ -1474,6 +1477,38 @@ fun SettingsScreen(
         }
     }
     }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun RetroAchievementsSignInFieldsPreview() {
+    SettingsPreviewTheme {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SettingsSectionHeader(title = "RetroAchievements")
+            RetroAchievementsSignInFields(
+                configured = RetroAchievementsCredentials(username = "AshRA", apiKey = ""),
+                isBusy = false,
+                error = "Invalid password",
+                pendingWebApiUsername = null,
+                onPasswordSignIn = { _, _ -> },
+                onApiKeySignIn = { _, _ -> },
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun SettingsSectionHeaderPreview() {
+    SettingsPreviewTheme {
+        SettingsSectionHeader(
+            title = "System / Launcher",
+            modifier = Modifier.padding(24.dp),
+        )
     }
 }
 

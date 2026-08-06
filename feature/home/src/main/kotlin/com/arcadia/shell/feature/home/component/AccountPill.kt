@@ -50,6 +50,9 @@ import com.arcadia.shell.feature.home.CircleMemberUi
 import com.arcadia.shell.feature.home.SocialMenuTab
 import com.arcadia.shell.feature.home.SocialMenuUiState
 import com.arcadia.shell.feature.home.SocialPresence
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewProfile
 
 @Composable
 fun AccountPill(
@@ -246,6 +249,25 @@ internal fun TriggerGlyph(letter: String, modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
             color = Color.White,
+        )
+    }
+}
+
+@XoraPreview
+@Composable
+private fun AccountPillCollapsedPreview() {
+    XoraPreviewTheme {
+        AccountPill(
+            expanded = false,
+            socialMenu = SocialMenuUiState(),
+            profile = previewProfile(),
+            profileAvatarModel = null,
+            accountRows = emptyList(),
+            selectedRowIndex = 0,
+            onToggle = {},
+            onSelectTab = {},
+            onSelectRow = {},
+            onActivateRow = {},
         )
     }
 }

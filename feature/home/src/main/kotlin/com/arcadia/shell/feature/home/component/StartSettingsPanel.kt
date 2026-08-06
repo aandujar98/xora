@@ -63,6 +63,9 @@ import com.arcadia.shell.feature.home.StartSettingsCategory
 import com.arcadia.shell.feature.home.StartSettingsRow
 import com.arcadia.shell.feature.home.StartSettingsTrailingIcon
 import com.arcadia.shell.feature.home.StartSettingsUiState
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewStartSettings
 
 private val ListShape = RoundedCornerShape(22.dp)
 private val RailShape = RoundedCornerShape(percent = 50)
@@ -634,4 +637,18 @@ private fun categoryTitle(category: StartSettingsCategory): String = when (categ
     StartSettingsCategory.Social -> "Social"
     StartSettingsCategory.Notifications -> "Notifications"
     StartSettingsCategory.General -> "General"
+}
+
+@XoraPreview
+@Composable
+private fun StartSettingsPanelPreview() {
+    XoraPreviewTheme {
+        StartSettingsPanel(
+            state = previewStartSettings(),
+            onSelectCategory = {},
+            onSelectRow = {},
+            onActivate = {},
+            onDismiss = {},
+        )
+    }
 }

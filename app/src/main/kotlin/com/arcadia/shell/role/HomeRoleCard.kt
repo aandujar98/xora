@@ -13,7 +13,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.designsystem.ArcadiaTheme
 
 /**
  * Opt-in for replacing the device home screen, in two deliberate steps.
@@ -71,5 +73,21 @@ fun HomeRoleCard(
                 }
             }
         }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun HomeRoleCardPreview() {
+    ArcadiaTheme(darkTheme = true) {
+        HomeRoleCard(
+            state = HomeRoleState(
+                isHomeCandidate = true,
+                isDefaultHome = false,
+            ),
+            onSetHomeCandidate = {},
+            onOpenHomeSettings = {},
+            modifier = Modifier.padding(24.dp),
+        )
     }
 }

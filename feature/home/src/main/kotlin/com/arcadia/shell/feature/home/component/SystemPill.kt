@@ -82,6 +82,11 @@ import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.SystemPanelRow
 import com.arcadia.shell.feature.home.buildSystemPanelRows
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewGames
+import com.arcadia.shell.feature.home.preview.previewProfile
+import com.arcadia.shell.feature.home.preview.previewRecentUnlock
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.retroachievements.RaRecentUnlock
 import kotlinx.coroutines.delay
@@ -831,6 +836,25 @@ private fun writeBrightness(context: Context, value: Float) {
             context.contentResolver,
             Settings.System.SCREEN_BRIGHTNESS,
             level,
+        )
+    }
+}
+
+@XoraPreview
+@Composable
+private fun SystemPillCollapsedPreview() {
+    XoraPreviewTheme {
+        SystemPill(
+            profile = previewProfile(),
+            avatarImageModel = null,
+            raScore = 12_480,
+            recentAchievements = listOf(previewRecentUnlock()),
+            jumpBackGames = previewGames().take(2),
+            expanded = false,
+            selectedRowIndex = 0,
+            onToggle = {},
+            onSelectRow = {},
+            onActivateRow = {},
         )
     }
 }

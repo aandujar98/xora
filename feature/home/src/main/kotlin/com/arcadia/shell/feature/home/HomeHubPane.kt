@@ -18,6 +18,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewHomeUi
 
 /**
  * Bottom / grid role for the Home hub: Smash shard menu (page 1) and shortcut grid (page 2).
@@ -104,5 +107,21 @@ fun HomeHubPane(
                     .padding(end = 16.dp, bottom = 6.dp),
             )
         }
+    }
+}
+
+@XoraPreview
+@Composable
+private fun HomeHubPanePreview() {
+    XoraPreviewTheme {
+        HomeHubPane(
+            hub = previewHomeUi().homeHub,
+            raAvatarUrl = null,
+            onSelectShard = {},
+            onActivateShard = {},
+            onSelectShortcut = {},
+            onActivateShortcut = {},
+            onAddShortcut = {},
+        )
     }
 }

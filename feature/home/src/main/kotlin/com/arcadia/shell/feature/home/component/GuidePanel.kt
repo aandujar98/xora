@@ -49,6 +49,11 @@ import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.AchievementsUiState
 import com.arcadia.shell.feature.home.GuideRow
 import com.arcadia.shell.feature.home.GuideUiState
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewAchievementsSignedIn
+import com.arcadia.shell.feature.home.preview.previewGuide
+import com.arcadia.shell.feature.home.preview.previewProfile
 import com.arcadia.shell.model.Game
 
 /**
@@ -438,3 +443,19 @@ private fun isFirstShortcut(rows: List<GuideRow>, index: Int): Boolean =
             it == GuideRow.SwapScreens ||
             it == GuideRow.SignInRa
     }
+
+@XoraPreview
+@Composable
+private fun GuidePanelPreview() {
+    XoraPreviewTheme {
+        GuidePanel(
+            guide = previewGuide(),
+            profile = previewProfile(),
+            profileAvatarModel = null,
+            achievements = previewAchievementsSignedIn(),
+            onSelectIndex = {},
+            onActivate = {},
+            onDismiss = {},
+        )
+    }
+}

@@ -50,6 +50,8 @@ import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.feature.home.HeroTrailerState
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
 import com.arcadia.shell.model.TrailerRef
 import com.arcadia.shell.model.TrailerRefs
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
@@ -364,3 +366,11 @@ private fun YouTubeUnavailableFallback(
 }
 
 private const val TAG = "HeroTrailer"
+
+@XoraPreview
+@Composable
+private fun HeroTrailerLayerPreview() {
+    XoraPreviewTheme {
+        HeroTrailerLayer(state = HeroTrailerState())
+    }
+}

@@ -46,6 +46,9 @@ import com.arcadia.shell.designsystem.currentShellTheme
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.ManualViewer
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewCompanion
 
 /**
  * Bottom-screen companion while a single-screen game runs in dual-screen mode: the game's scraped
@@ -528,3 +531,16 @@ private fun CompanionSectionTitle(text: String, color: Color) {
 private const val BACKDROP_DECODE_MAX_EDGE_PX = 1600
 private const val MAX_TRIVIA = 4
 private const val TOUCH_TARGET_DP = 48
+
+@XoraPreview
+@Composable
+private fun GameCompanionPanePreview() {
+    XoraPreviewTheme {
+        GameCompanionPane(
+            companion = previewCompanion(),
+            onSelectAction = {},
+            onActivateAction = {},
+            onDismissOverlay = {},
+        )
+    }
+}

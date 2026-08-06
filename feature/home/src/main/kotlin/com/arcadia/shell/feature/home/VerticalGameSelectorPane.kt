@@ -66,6 +66,9 @@ import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.feature.home.component.xmb.PlatformIcon
 import com.arcadia.shell.feature.home.component.xmb.XmbGameTile
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewHomeUi
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -656,3 +659,35 @@ private const val MEDIA_ASPECT = 10f / 16f
 private const val MEDIA_SIZE_SCALE = 1.2f
 private val SYSTEM_ICON_SLOT = 48.dp
 private val CASE_GAP = 10.dp
+
+@XoraPreview
+@Composable
+private fun VerticalGameSelectorPanePreview() {
+    XoraPreviewTheme {
+        VerticalGameSelectorPane(
+            state = previewHomeUi(homePage = HomePage.GameSelector),
+            onSelectTab = {},
+            onSelectGame = {},
+            onLaunchGame = {},
+            onToggleAccountPanel = {},
+            onToggleSystemPanel = {},
+            onToggleAchievementsPanel = {},
+            onSelectSocialTab = {},
+            onSelectAccountRow = {},
+            onActivateAccountRow = {},
+            onSelectSystemRow = {},
+            onActivateSystemRow = {},
+            onSaveProfile = { _, _ -> },
+            onSelectAvatarPreset = {},
+            onRequestLocalAvatar = {},
+            onUseRaAvatar = {},
+            onClearAvatar = {},
+            onFriendSearchChange = {},
+            onReplyDraftChange = {},
+            onSelectAchievementsTab = {},
+            onLoginRetroAchievements = { _, _ -> },
+            onLoginRetroAchievementsWithApiKey = { _, _ -> },
+            onSignOutRetroAchievements = {},
+        )
+    }
+}

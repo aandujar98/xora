@@ -28,6 +28,9 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.feature.home.component.GameCard
 import com.arcadia.shell.feature.home.component.PlatformRail
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewHomeUi
 
 /**
  * The scrolling library grid plus the platform rail above it. This pane always owns input focus,
@@ -113,6 +116,19 @@ fun GridPane(
                 }
             }
         }
+    }
+}
+
+@XoraPreview
+@Composable
+private fun GridPanePreview() {
+    XoraPreviewTheme {
+        GridPane(
+            state = previewHomeUi(homePage = HomePage.GameSelector),
+            onSelectTab = {},
+            onSelectGame = {},
+            onLaunchGame = {},
+        )
     }
 }
 

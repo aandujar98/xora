@@ -65,6 +65,10 @@ import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.AchievementsPaneTab
 import com.arcadia.shell.feature.home.AchievementsUiState
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewAchievementsNeedsLogin
+import com.arcadia.shell.feature.home.preview.previewAchievementsSignedIn
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaRecentUnlock
@@ -563,6 +567,38 @@ private fun TrophyGlyph(modifier: Modifier = Modifier) {
             topLeft = Offset(w * 0.30f, h * 0.78f),
             size = Size(w * 0.40f, h * 0.14f),
             cornerRadius = CornerRadius(w * 0.04f),
+        )
+    }
+}
+
+@XoraPreview
+@Composable
+private fun AchievementsPillCollapsedPreview() {
+    XoraPreviewTheme {
+        AchievementsPill(
+            expanded = false,
+            state = previewAchievementsNeedsLogin(),
+            onToggle = {},
+            onSelectTab = {},
+            onLogin = { _, _ -> },
+            onLoginWithApiKey = { _, _ -> },
+            onSignOut = {},
+        )
+    }
+}
+
+@XoraPreview
+@Composable
+private fun AchievementsPillExpandedPreview() {
+    XoraPreviewTheme {
+        AchievementsPill(
+            expanded = true,
+            state = previewAchievementsSignedIn(),
+            onToggle = {},
+            onSelectTab = {},
+            onLogin = { _, _ -> },
+            onLoginWithApiKey = { _, _ -> },
+            onSignOut = {},
         )
     }
 }

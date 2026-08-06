@@ -57,6 +57,9 @@ import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.SocialMenuTab
 import com.arcadia.shell.feature.home.SocialMenuUiState
 import com.arcadia.shell.feature.home.SocialPresence
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewProfile
 import com.arcadia.shell.feature.home.SteamFriendEntry
 import com.arcadia.shell.feature.home.discordFriendActivity
 import com.arcadia.shell.feature.home.discordFriendPresence
@@ -1468,4 +1471,36 @@ fun steamPersonaToPresence(personaState: Int, inGame: Boolean): SocialPresence =
     personaState == 3 || personaState == 4 -> SocialPresence.Away
     personaState > 0 -> SocialPresence.Online
     else -> SocialPresence.Offline
+}
+
+@XoraPreview
+@Composable
+private fun SocialMenuPanelPreview() {
+    XoraPreviewTheme {
+        SocialMenuPanel(
+            social = SocialMenuUiState(),
+            profile = previewProfile(),
+            profileAvatarModel = null,
+            accountRows = emptyList(),
+            selectedRowIndex = 0,
+            onSelectTab = {},
+            onSelectRow = {},
+            onActivateRow = {},
+        )
+    }
+}
+
+@XoraPreview
+@Composable
+private fun PresenceAvatarPreview() {
+    XoraPreviewTheme {
+        PresenceAvatar(
+            displayName = "Ash",
+            presetId = "preset_0",
+            size = 48.dp,
+            imageModel = null,
+            presence = SocialPresence.Online,
+            selected = true,
+        )
+    }
 }

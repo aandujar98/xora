@@ -46,6 +46,8 @@ import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.SocialPresence
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
 import com.arcadia.shell.launcher.discord.DiscordDmMessage
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 
@@ -279,6 +281,23 @@ private fun ConversationBubble(message: DiscordDmMessage) {
                     else Color.White.copy(alpha = 0.12f),
                 )
                 .padding(horizontal = 12.dp, vertical = 9.dp),
+        )
+    }
+}
+
+@XoraPreview
+@Composable
+private fun DiscordConversationWindowPreview() {
+    XoraPreviewTheme {
+        DiscordConversationWindow(
+            open = true,
+            thread = DiscordDmThreadUiState(
+                peerUserId = "preview",
+                peerDisplayName = "Friend",
+            ),
+            onDraftChange = {},
+            onSend = {},
+            onDismiss = {},
         )
     }
 }

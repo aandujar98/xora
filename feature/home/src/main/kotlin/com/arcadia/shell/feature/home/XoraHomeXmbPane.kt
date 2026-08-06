@@ -74,6 +74,9 @@ import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewHomeUi
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -1048,3 +1051,24 @@ private val SYSTEM_BOX_WIDTH_FOCUS = 124.dp
 private const val SYSTEM_BOX_ASPECT = 1.05f
 private val SYSTEM_ITEM_ROW = 148.dp
 private val SYSTEM_ITEM_PITCH = 132.dp
+
+@XoraPreview
+@Composable
+private fun XoraHomeXmbPanePreview() {
+    XoraPreviewTheme {
+        XoraHomeXmbPane(
+            state = previewHomeUi(),
+            onSelectCategory = {},
+            onSelectItem = {},
+            onActivateItem = {},
+        )
+    }
+}
+
+@XoraPreview
+@Composable
+private fun XoraXmbHeroDetailPreview() {
+    XoraPreviewTheme {
+        XoraXmbHeroDetail(state = previewHomeUi())
+    }
+}

@@ -49,6 +49,9 @@ import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.component.ProfileAvatar
 import com.arcadia.shell.feature.home.component.xmb.drawableResForPlatformId
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewHomeUi
 import com.arcadia.shell.retroachievements.RaProfile
 
 /**
@@ -174,6 +177,21 @@ fun RaLibraryPane(
                 )
             }
         }
+    }
+}
+
+@XoraPreview
+@Composable
+private fun RaLibraryPanePreview() {
+    XoraPreviewTheme {
+        RaLibraryPane(
+            state = previewHomeUi(homePage = HomePage.RaLibrary),
+            onSelectIndex = {},
+            onSelectTab = {},
+            onSelectPlatformFilter = {},
+            onActivate = {},
+            onRetry = {},
+        )
     }
 }
 

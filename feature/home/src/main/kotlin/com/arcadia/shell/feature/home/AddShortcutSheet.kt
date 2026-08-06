@@ -40,6 +40,8 @@ import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.component.ArtworkImage
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
 import com.arcadia.shell.launcher.InstalledAppSync
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.ShortcutSpan
@@ -457,5 +459,28 @@ private fun ShortcutTargetRow(
                     .padding(horizontal = 8.dp, vertical = 2.dp),
             )
         }
+    }
+}
+
+@XoraPreview
+@Composable
+private fun AddShortcutSheetPreview() {
+    XoraPreviewTheme {
+        AddShortcutSheet(
+            picker = null,
+            pendingKind = null,
+            pendingSpan = ShortcutSpan.OneByOne,
+            onDismiss = {},
+            onPinRecentGame = {},
+            onPinAndroidApp = {},
+            onPinPicture = {},
+            onPinGif = {},
+            onSelectSpan = {},
+            onConfirmSpan = {},
+            onCancelSpan = {},
+            onSelectTarget = {},
+            onConfirmTarget = {},
+            onCancelTargetPicker = {},
+        )
     }
 }

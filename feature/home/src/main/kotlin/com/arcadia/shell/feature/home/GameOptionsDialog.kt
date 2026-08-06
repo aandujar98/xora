@@ -20,6 +20,9 @@ import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewGame
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.LaunchDisplayPreference
 import com.arcadia.shell.model.Player
@@ -132,4 +135,21 @@ fun GameOptionsDialog(
             TextButton(onClick = onDismiss) { Text(text = "Close") }
         },
     )
+}
+
+@XoraPreview
+@Composable
+private fun GameOptionsDialogPreview() {
+    XoraPreviewTheme {
+        GameOptionsDialog(
+            game = previewGame(favorite = true),
+            isDualScreen = true,
+            loadPlayers = { emptyList() },
+            onDismiss = {},
+            onPlay = {},
+            onToggleFavorite = {},
+            onSelectPlayer = {},
+            onSelectDisplay = {},
+        )
+    }
 }

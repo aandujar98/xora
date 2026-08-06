@@ -36,12 +36,16 @@ import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewGame
 import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.libretro.GameSaveKind
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.scraper.ScraperPreference
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -453,4 +457,66 @@ fun ScrapeOptionsSheet(
         onRescrapeGame = onRescrapeGame,
         onRescrapePlatform = onRescrapePlatform,
     )
+}
+
+@XoraPreview
+@Composable
+private fun RomOptionsSheetPreview() {
+    XoraPreviewTheme {
+        RomOptionsSheet(
+            game = previewGame(favorite = true),
+            saves = listOf(
+                GameSaveEntry(
+                    path = "/saves/zelda.srm",
+                    fileName = "zelda.srm",
+                    kind = GameSaveKind.Battery,
+                    label = "Battery save",
+                    sizeBytes = 8_192,
+                    lastModifiedMs = 1_700_000_000_000L,
+                ),
+            ),
+            gamePreference = ScraperPreference.Auto,
+            platformPreference = ScraperPreference.ScreenScraper,
+            currentEmulatorLabel = "XOrA Emulator",
+            navActions = emptyFlow(),
+            onDismiss = {},
+            onToggleFavorite = {},
+            onPickBoxArt = {},
+            onPickBackground = {},
+            onPickSoundBite = {},
+            onClearBoxArt = {},
+            onClearBackground = {},
+            onClearSoundBite = {},
+            onPreviewSoundBite = {},
+            onImportSaves = {},
+            onDeleteSave = {},
+            onSetGamePreference = {},
+            onSetPlatformPreference = {},
+            onChooseEmulator = {},
+            onRescrapeGame = {},
+            onRescrapePlatform = {},
+        )
+    }
+}
+
+@XoraPreview
+@Suppress("DEPRECATION")
+@Composable
+private fun ScrapeOptionsSheetPreview() {
+    XoraPreviewTheme {
+        ScrapeOptionsSheet(
+            game = previewGame(),
+            gamePreference = ScraperPreference.Auto,
+            platformPreference = ScraperPreference.SteamGridDb,
+            currentEmulatorLabel = "RetroArch",
+            navActions = emptyFlow(),
+            onDismiss = {},
+            onToggleFavorite = {},
+            onSetGamePreference = {},
+            onSetPlatformPreference = {},
+            onChooseEmulator = {},
+            onRescrapeGame = {},
+            onRescrapePlatform = {},
+        )
+    }
 }

@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
@@ -56,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -70,6 +72,7 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LiquidGlassSurface
 import com.arcadia.shell.designsystem.SkyBackground
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.feature.settings.preview.SettingsPreviewTheme
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import kotlin.math.roundToInt
@@ -281,6 +284,48 @@ fun OnboardingScreen(
                 )
 
                 OnboardingHints(state = state)
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun WelcomeStepPreview() {
+    SettingsPreviewTheme {
+        SkyBackground(modifier = Modifier.fillMaxSize(), sparkle = true) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(40.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                WelcomeStep(
+                    brandIcon = ColorPainter(MaterialTheme.colorScheme.primary),
+                )
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun OnboardingTipAndDonePreview() {
+    SettingsPreviewTheme {
+        SkyBackground(modifier = Modifier.fillMaxSize(), sparkle = true) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .widthIn(max = 720.dp)
+                    .padding(28.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                TipStep(
+                    title = "Artwork scrapers",
+                    body = "Add credentials later in Setup to fill in covers, screenshots, and trailers.",
+                )
+                DoneStep()
             }
         }
     }

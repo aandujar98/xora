@@ -46,6 +46,9 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewHomeUi
 
 /**
  * Grid-style RSS feed page for Home. Selection is index-driven (same model as the old game grid).
@@ -166,6 +169,19 @@ fun RssPane(
                 }
             }
         }
+    }
+}
+
+@XoraPreview
+@Composable
+private fun RssPanePreview() {
+    XoraPreviewTheme {
+        RssPane(
+            state = previewHomeUi(homePage = HomePage.RssFeed),
+            onSelectItem = {},
+            onOpenItem = {},
+            onRetry = {},
+        )
     }
 }
 

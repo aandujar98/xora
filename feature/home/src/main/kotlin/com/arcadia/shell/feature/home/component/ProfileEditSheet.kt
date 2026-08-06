@@ -35,6 +35,9 @@ import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewProfile
 
 /**
  * Profile display-name / avatar editor.
@@ -201,5 +204,23 @@ fun ProfileEditSheet(
                 }
             }
         }
+    }
+}
+
+@XoraPreview
+@Composable
+private fun ProfileEditSheetPreview() {
+    XoraPreviewTheme {
+        ProfileEditSheet(
+            profile = previewProfile(),
+            avatarImageModel = null,
+            raConfigured = true,
+            onDismiss = {},
+            onSave = { _, _ -> },
+            onSelectAvatarPreset = {},
+            onRequestPhoto = {},
+            onUseRaAvatar = {},
+            onClearAvatar = {},
+        )
     }
 }

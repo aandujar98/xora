@@ -20,10 +20,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.feature.settings.preview.SettingsPreviewTheme
 import com.arcadia.shell.scanner.StorageVolumeRoot
 import java.io.File
 
@@ -147,5 +149,35 @@ private fun FolderRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun FolderPickerDialogPreview() {
+    SettingsPreviewTheme {
+        FolderPickerDialog(
+            volumes = listOf(
+                StorageVolumeRoot(
+                    label = "Internal storage",
+                    path = "/storage/emulated/0",
+                    isRemovable = false,
+                ),
+                StorageVolumeRoot(
+                    label = "SD card",
+                    path = "/storage/1234-5678",
+                    isRemovable = true,
+                ),
+            ),
+            listDirectories = { path ->
+                listOf(
+                    File(path, "ROMs"),
+                    File(path, "Saves"),
+                    File(path, "Screenshots"),
+                )
+            },
+            onDismiss = {},
+            onPick = {},
+        )
     }
 }

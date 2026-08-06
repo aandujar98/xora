@@ -48,6 +48,9 @@ import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewHomeUi
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.TrailerRefs
 import java.util.concurrent.TimeUnit
@@ -545,4 +548,40 @@ private fun formatDuration(millis: Long): String {
     val hours = TimeUnit.MILLISECONDS.toHours(millis)
     val minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60
     return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+}
+
+@XoraPreview
+@Composable
+private fun HeroPanePreview() {
+    val state = previewHomeUi(homePage = HomePage.GameSelector)
+    XoraPreviewTheme {
+        HeroPane(
+            game = state.selectedGame,
+            profile = state.profile,
+            profileAvatarModel = state.profileAvatarModel,
+            raConfigured = state.achievements.credentials.isConfigured,
+            accountPanelExpanded = state.accountPanelExpanded,
+            systemPanelExpanded = state.systemPanelExpanded,
+            achievementsPanelExpanded = state.achievementsPanelExpanded,
+            achievements = state.achievements,
+            quickLaunchGames = state.quickLaunchGames,
+            socialMenu = state.socialMenu,
+            accountPanelRows = state.accountPanelRows,
+            accountPanelSelectedIndex = state.accountPanelSelectedIndex,
+            systemPanelSelectedIndex = state.systemPanelSelectedIndex,
+            trailer = state.trailer,
+            onToggleAccountPanel = {},
+            onToggleSystemPanel = {},
+            onToggleAchievementsPanel = {},
+            onSaveProfile = { _, _ -> },
+            onSelectAvatarPreset = {},
+            onRequestLocalAvatar = {},
+            onUseRaAvatar = {},
+            onClearAvatar = {},
+            onSelectAchievementsTab = {},
+            onLoginRetroAchievements = { _, _ -> },
+            onLoginRetroAchievementsWithApiKey = { _, _ -> },
+            onSignOutRetroAchievements = {},
+        )
+    }
 }

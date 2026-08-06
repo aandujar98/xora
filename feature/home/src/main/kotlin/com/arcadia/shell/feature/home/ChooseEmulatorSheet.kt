@@ -40,10 +40,15 @@ import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewGame
 import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.launcher.DetectedEmulator
+import com.arcadia.shell.launcher.DetectedEmulatorKind
 import com.arcadia.shell.model.GamePlatform
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -217,6 +222,42 @@ fun ChooseEmulatorSheet(
                 color = glass.contentMuted,
             )
         }
+    }
+}
+
+@XoraPreview
+@Composable
+private fun ChooseEmulatorSheetPreview() {
+    XoraPreviewTheme {
+        ChooseEmulatorSheet(
+            platform = previewGame().platform,
+            options = listOf(
+                DetectedEmulator(
+                    playerId = "xora_nes",
+                    displayName = "XOrA Emulator",
+                    subtitle = "Built-in Libretro core",
+                    packageName = null,
+                    coreName = "fceumm",
+                    kind = DetectedEmulatorKind.XoraCore,
+                    available = true,
+                ),
+                DetectedEmulator(
+                    playerId = "retroarch_nes",
+                    displayName = "RetroArch",
+                    subtitle = "Installed core: Nestopia",
+                    packageName = "com.retroarch",
+                    coreName = "nestopia",
+                    kind = DetectedEmulatorKind.RetroArchCore,
+                    available = true,
+                ),
+            ),
+            selectedPlayerId = "xora_nes",
+            emptyMessage = "No emulators found for this system.",
+            navActions = emptyFlow(),
+            onSelect = {},
+            onClear = {},
+            onDismiss = {},
+        )
     }
 }
 

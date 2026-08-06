@@ -50,6 +50,9 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewShortcuts
 import com.arcadia.shell.launcher.InstalledAppSync
 import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.HomeShortcutKind
@@ -597,3 +600,18 @@ private fun AddShortcutTile(
 /** @suppress Kept for call sites that still reference the old constant name. */
 @Deprecated("Use DEFAULT_HOME_SHORTCUT_GRID_COLUMNS", ReplaceWith("DEFAULT_HOME_SHORTCUT_GRID_COLUMNS"))
 internal const val HOME_SHORTCUT_GRID_COLUMNS = DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
+
+@XoraPreview
+@Composable
+private fun HomeShortcutsGridPreview() {
+    XoraPreviewTheme {
+        HomeShortcutsGrid(
+            shortcuts = previewShortcuts(),
+            selectedIndex = 0,
+            editMode = false,
+            onSelect = {},
+            onActivate = {},
+            onAddSlot = {},
+        )
+    }
+}

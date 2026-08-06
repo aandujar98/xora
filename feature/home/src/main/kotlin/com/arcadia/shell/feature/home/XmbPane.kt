@@ -45,6 +45,9 @@ import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.feature.home.component.xmb.PlatformIcon
 import com.arcadia.shell.feature.home.component.xmb.XmbGameTile
 import com.arcadia.shell.feature.home.component.xmb.XmbInsightPanel
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewHomeUi
 import com.arcadia.shell.model.Game
 import kotlin.math.abs
 import kotlinx.coroutines.delay
@@ -299,3 +302,16 @@ private const val SYSTEM_DOCK_HIDE_MS = 1_350L
 /** Strip + insights share the column; weights keep case art and About panel both visible. */
 private const val GAME_STRIP_WEIGHT = 0.56f
 private const val INSIGHTS_WEIGHT = 0.44f
+
+@XoraPreview
+@Composable
+private fun XmbPanePreview() {
+    XoraPreviewTheme {
+        XmbPane(
+            state = previewHomeUi(homePage = HomePage.GameSelector),
+            onSelectTab = {},
+            onSelectGame = {},
+            onLaunchGame = {},
+        )
+    }
+}

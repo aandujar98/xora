@@ -36,6 +36,8 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.ShellTheme
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
 
 enum class ThemesSheetTab { Presets, Customize }
 
@@ -344,6 +346,30 @@ private fun ThemePresetRow(
                 }
             },
             color = Color.White.copy(alpha = 0.55f),
+        )
+    }
+}
+
+@XoraPreview
+@Composable
+private fun ThemesSheetPreview() {
+    XoraPreviewTheme {
+        ThemesSheet(
+            activeThemeId = "default",
+            shopThemeIds = emptyList(),
+            hasCustomWallpaper = false,
+            customWallpaperLabel = "None",
+            hasCustomBgm = false,
+            shortcutCount = 0,
+            onDismiss = {},
+            onSelectTheme = {},
+            onShopComingSoon = {},
+            onUploadComingSoon = {},
+            onRequestWallpaper = {},
+            onClearWallpaper = {},
+            onRequestBgm = {},
+            onClearBgm = {},
+            onManageShortcuts = {},
         )
     }
 }
