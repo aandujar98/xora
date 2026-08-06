@@ -60,6 +60,7 @@ import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
+import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.datastore.label
@@ -225,6 +226,27 @@ fun SettingsScreen(
                             },
                         )
                     }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("XMB game titles")
+                Text(
+                    text = "Clear logos beside box art, or plain text titles.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = state.settings.xmbTitleStyle == XmbTitleStyle.TitleIcons,
+                        onClick = { viewModel.setXmbTitleStyle(XmbTitleStyle.TitleIcons) },
+                        label = { Text(text = "Title icons") },
+                    )
+                    FilterChip(
+                        selected = state.settings.xmbTitleStyle == XmbTitleStyle.Text,
+                        onClick = { viewModel.setXmbTitleStyle(XmbTitleStyle.Text) },
+                        label = { Text(text = "Text") },
+                    )
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
@@ -639,6 +661,33 @@ fun SettingsScreen(
                         Text(text = "Sign out")
                     }
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                SettingsFieldLabel("ROM hashes")
+                Text(
+                    text = if (state.isHashingRoms) {
+                        "Hashing ROMs in the background…"
+                    } else if (state.missingRomHashes == 0) {
+                        "All library ROMs have RetroAchievements hashes."
+                    } else {
+                        "${state.missingRomHashes} ROMs still need a hash. " +
+                            "XOrA Emulator hashes on launch; the launcher needs this pass."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = viewModel::hashAllRoms,
+                    enabled = !state.isHashingRoms,
+                ) {
+                    Text(
+                        text = if (state.isHashingRoms) {
+                            "Hashing…"
+                        } else {
+                            "Hash all ROMs"
+                        },
+                    )
+                }
             }
         }
 
@@ -650,10 +699,10 @@ fun SettingsScreen(
                         "Web API key is still required once (Steam has no password→API key for " +
                         "third parties). Conversations show message previews from Steam, Discord, " +
                         "and other messaging apps when Notification Access is on — reply works when " +
-                        "the notification exposes RemoteInput. Discord DMs via bot OAuth stay out of " +
-                        "scope; save an invite or profile link for Open Discord. Live Rich Presence on " +
-                        "Android uses Discord’s Social SDK (account linking required — unauthenticated " +
-                        "RPC is desktop-only).",
+                        "the notification exposes RemoteInput. In-launcher Discord friend chat uses " +
+                        "the Social SDK communication scopes (Link Discord in Social; re-link if you " +
+                        "connected before messaging was enabled). Live Rich Presence on Android also " +
+                        "needs that account link — unauthenticated RPC is desktop-only.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -874,11 +923,11 @@ fun SettingsScreen(
                 SettingsFieldLabel("Storage access")
                 Text(
                     text = if (state.hasStorageAccess) {
-                        "All-files access granted. Every emulator can be driven, including the " +
-                            "ones that need a real file path."
+                        "All-files access granted. XOrA Launcher and XOrA Emulator share one " +
+                            "library — folders open by real path (no duplicate ROM entries)."
                     } else {
                         "Without all-files access, XOrA can still read folders you pick through " +
-                            "the document picker, but emulators such as Dolphin and DuckStation " +
+                            "the document picker, but XOrA Emulator, Dolphin, and DuckStation " +
                             "will not be able to open those games."
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -986,7 +1035,8 @@ fun SettingsScreen(
 
         item(key = "emulators_choose_hint") {
             Text(
-                text = "Tip: on the game list, press Select → Choose Emulator to pick " +
+                text = "Tip: on a ROM, press Select → ROM options to customize art, " +
+                    "sound bite, and saves, or Choose Emulator to pick " +
                     "an installed app or RetroArch core for the current system.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1018,6 +1068,32 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                SettingsFieldLabel("Filesystem ROM access")
+                Text(
+                    text = if (state.hasStorageAccess) {
+                        "All-files access granted. XOrA Emulator can open ROMs by real " +
+                            "filesystem path (required for Libretro load)."
+                    } else {
+                        "XOrA Emulator needs all-files access so it can pass a real filesystem " +
+                            "ROM path to Libretro. Document-picker library folders alone are not enough."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!state.hasStorageAccess) {
+                    Button(onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) }) {
+                        Text(text = "Allow access to system files")
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) },
+                    ) {
+                        Text(text = "System files access settings")
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                 val statusLine = when {
                     state.xoraDownloadRunning ->
@@ -1125,6 +1201,21 @@ fun SettingsScreen(
                     OutlinedButton(onClick = viewModel::clearRetroAchievementsCredentials) {
                         Text(text = "Sign out")
                     }
+                }
+                Text(
+                    text = if (state.missingRomHashes == 0) {
+                        "Library hashes ready for launcher RetroAchievements."
+                    } else {
+                        "${state.missingRomHashes} ROMs still need hashing for launcher RA."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = viewModel::hashAllRoms,
+                    enabled = !state.isHashingRoms,
+                ) {
+                    Text(text = if (state.isHashingRoms) "Hashing…" else "Hash all ROMs")
                 }
             }
         }

@@ -36,6 +36,8 @@ data class Game(
     val heroImagePath: String? = null,
     val logoImagePath: String? = null,
     val boxArtPath: String? = null,
+    /** Optional short audio clip played when this ROM is focused in the XMB. */
+    val soundBitePath: String? = null,
     /**
      * Encoded trailer reference ([TrailerRefs]): direct media URI/path or `youtube:` id.
      * Null when unknown or when a lookup found nothing (see [trailerResolved]).
@@ -46,6 +48,10 @@ data class Game(
     val playerIdOverride: String? = null,
     val launchDisplayPreference: LaunchDisplayPreference = LaunchDisplayPreference.Inherit,
     val scrapeState: ScrapeState = ScrapeState.Pending,
+    /** RetroAchievements / ScreenScraper hashes; null until a hash pass has run. */
+    val crc32: String? = null,
+    val md5: String? = null,
+    val sha1: String? = null,
 ) {
     val platform: GamePlatform get() = PlatformCatalog.requireById(platformId)
 

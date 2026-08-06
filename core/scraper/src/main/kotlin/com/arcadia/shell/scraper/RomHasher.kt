@@ -100,17 +100,25 @@ class RomHasher @Inject constructor(
         }.getOrNull()
     }
 
+    /**
+     * Prefer a live file/PFD length over the DB [Game.sizeBytes]. Stale scan sizes break SNES/PCE
+     * header stripping and produce MD5s that miss RetroAchievements while the emulator (which
+     * always uses [File.length]) still matches.
+     */
     private fun resolveSizeBytes(game: Game): Long {
-        if (game.sizeBytes > 0L) return game.sizeBytes
         val path = game.filePath
         if (path != null) {
             val length = File(path).length()
             if (length > 0L) return length
         }
-        val uri = game.documentUri ?: return 0L
-        return runCatching {
-            context.contentResolver.openFileDescriptor(uri.toUri(), "r")?.use { it.statSize }
-        }.getOrNull()?.takeIf { it > 0L } ?: 0L
+        val uri = game.documentUri
+        if (uri != null) {
+            val fromPfd = runCatching {
+                context.contentResolver.openFileDescriptor(uri.toUri(), "r")?.use { it.statSize }
+            }.getOrNull()?.takeIf { it > 0L }
+            if (fromPfd != null) return fromPfd
+        }
+        return game.sizeBytes.takeIf { it > 0L } ?: 0L
     }
 
     private fun hashDisc(game: Game, extension: String, platformId: String): RomHashes? {

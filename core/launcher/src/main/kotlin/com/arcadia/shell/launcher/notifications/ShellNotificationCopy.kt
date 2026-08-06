@@ -27,6 +27,16 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
         )
     }
 
+    is ShellNotification.RetroAchievementsSignedIn -> {
+        val mode = if (hardcore) "Hardcore" else "Softcore"
+        val game = gameTitle?.trim()?.takeIf { it.isNotEmpty() }
+        ShellNotificationCopy(
+            category = "RetroAchievements",
+            body = "Logged in as $username",
+            subtitle = listOfNotNull(mode, game).joinToString(" · "),
+        )
+    }
+
     is ShellNotification.DiscordMessage -> ShellNotificationCopy(
         category = "Messages",
         body = snippet.ifBlank { "New Discord message" },

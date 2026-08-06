@@ -6,7 +6,9 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.core.net.toUri
 import com.arcadia.shell.model.LibraryRoot
+import com.arcadia.shell.model.StorageDocumentIds
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import javax.inject.Inject
 
 /**
@@ -16,9 +18,13 @@ import javax.inject.Inject
  * `DocumentFile.listFiles()` is the obvious API here and is roughly an order of magnitude slower,
  * because it issues a separate query per child to populate each wrapper object. On a library with
  * thousands of ROMs that difference is the gap between a few seconds and several minutes.
+ *
+ * When all-files access is granted, each document is also resolved to a real filesystem path so
+ * XOrA Emulator and path-based players share the same library row as the launcher grid.
  */
 class SafRomWalker @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val storageAccess: StorageAccess,
 ) : RomWalker {
 
     override fun walk(root: LibraryRoot): Sequence<ScannedFile> = sequence {
@@ -26,6 +32,7 @@ class SafRomWalker @Inject constructor(
         val rootDocumentId = runCatching {
             DocumentsContract.getTreeDocumentId(treeUri)
         }.getOrNull() ?: return@sequence
+        val resolvePaths = storageAccess.hasAllFilesAccess
 
         yieldAll(
             walkDocument(
@@ -34,6 +41,7 @@ class SafRomWalker @Inject constructor(
                 folderChain = emptyList(),
                 depth = 0,
                 recursive = root.recursive,
+                resolvePaths = resolvePaths,
             ),
         )
     }
@@ -44,6 +52,7 @@ class SafRomWalker @Inject constructor(
         folderChain: List<String>,
         depth: Int,
         recursive: Boolean,
+        resolvePaths: Boolean,
     ): Sequence<ScannedFile> = sequence {
         if (depth > WalkRules.MAX_DEPTH) return@sequence
 
@@ -51,7 +60,7 @@ class SafRomWalker @Inject constructor(
         val directories = mutableListOf<Pair<String, String>>()
 
         queryChildren(childrenUri) { cursor ->
-            val id = cursor.getString(COLUMN_ID)
+            val id = cursor.getString(COLUMN_ID) ?: return@queryChildren
             val name = cursor.getString(COLUMN_NAME) ?: return@queryChildren
             val mimeType = cursor.getString(COLUMN_MIME)
 
@@ -60,13 +69,20 @@ class SafRomWalker @Inject constructor(
                     directories += id to name
                 }
             } else if (!WalkRules.shouldSkipFile(name)) {
+                val documentUri = DocumentsContract
+                    .buildDocumentUriUsingTree(treeUri, id)
+                    .toString()
+                val filePath = if (resolvePaths) {
+                    StorageDocumentIds.pathForDocumentId(id)
+                        ?.takeIf { File(it).isFile }
+                } else {
+                    null
+                }
                 yield(
                     ScannedFile(
                         name = name,
-                        filePath = null,
-                        documentUri = DocumentsContract
-                            .buildDocumentUriUsingTree(treeUri, id)
-                            .toString(),
+                        filePath = filePath,
+                        documentUri = documentUri,
                         sizeBytes = cursor.getLong(COLUMN_SIZE),
                         lastModified = cursor.getLong(COLUMN_MODIFIED),
                         folderChain = folderChain,
@@ -85,6 +101,7 @@ class SafRomWalker @Inject constructor(
                     folderChain = folderChain + childName,
                     depth = depth + 1,
                     recursive = true,
+                    resolvePaths = resolvePaths,
                 ),
             )
         }

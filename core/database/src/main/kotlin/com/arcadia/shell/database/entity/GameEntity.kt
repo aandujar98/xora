@@ -45,6 +45,7 @@ data class GameEntity(
     val heroImagePath: String? = null,
     val logoImagePath: String? = null,
     val boxArtPath: String? = null,
+    val soundBitePath: String? = null,
     val trailerUrl: String? = null,
     val trailerResolved: Boolean = false,
     val playerIdOverride: String? = null,
@@ -73,11 +74,15 @@ fun GameEntity.toDomain(): Game = Game(
     heroImagePath = heroImagePath,
     logoImagePath = logoImagePath,
     boxArtPath = boxArtPath,
+    soundBitePath = soundBitePath,
     trailerUrl = trailerUrl,
     trailerResolved = trailerResolved,
     playerIdOverride = playerIdOverride,
     launchDisplayPreference = launchDisplayPreference,
     scrapeState = scrapeState,
+    crc32 = crc32,
+    md5 = md5,
+    sha1 = sha1,
 )
 
 fun Game.toEntity(
@@ -103,10 +108,14 @@ fun Game.toEntity(
     heroImagePath = heroImagePath,
     logoImagePath = logoImagePath,
     boxArtPath = boxArtPath,
+    soundBitePath = soundBitePath,
     trailerUrl = trailerUrl,
     trailerResolved = trailerResolved,
     playerIdOverride = playerIdOverride,
     launchDisplayPreference = launchDisplayPreference,
     scrapeState = scrapeState,
+    crc32 = crc32,
+    md5 = md5,
+    sha1 = sha1,
     lastSeenAt = lastSeenAt,
 )

@@ -13,6 +13,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,6 +33,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,9 +44,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -53,6 +61,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arcadia.shell.datastore.TrailerDisplayMode
+import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
@@ -66,6 +75,7 @@ import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.model.Game
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -652,11 +662,21 @@ private fun XmbCross(
                     }
                     Spacer(modifier = Modifier.width(glyphGap))
                     if (browsingRoms) {
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .width(1.5.dp)
+                                .fillMaxHeight(0.7f)
+                                .align(Alignment.CenterVertically)
+                                .background(Color.White.copy(alpha = 0.35f)),
+                        )
                         XmbRomTitle(
                             title = item.title,
                             logoPath = item.logoPath,
                             subtitle = item.subtitle,
                             selected = selected,
+                            titleStyle = xmb.titleStyle,
+                            playTimeMs = item.playTimeMs,
                         )
                     } else {
                         Column(modifier = Modifier.widthIn(max = 360.dp)) {
@@ -691,13 +711,16 @@ private fun XmbRomTitle(
     logoPath: String?,
     subtitle: String?,
     selected: Boolean,
+    titleStyle: XmbTitleStyle,
+    playTimeMs: Long,
 ) {
     val logoHeight = if (selected) ROM_LOGO_HEIGHT_FOCUS else ROM_LOGO_HEIGHT
+    val showLogo = titleStyle == XmbTitleStyle.TitleIcons && !logoPath.isNullOrBlank()
     Column(
         modifier = Modifier.widthIn(max = 420.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        if (!logoPath.isNullOrBlank()) {
+        if (showLogo) {
             ArtworkImage(
                 path = logoPath,
                 contentDescription = title,
@@ -719,16 +742,25 @@ private fun XmbRomTitle(
             )
         }
         AnimatedVisibility(
-            visible = selected && !subtitle.isNullOrBlank(),
+            visible = selected,
             enter = fadeIn(tween(ArcadiaMotion.Fast)) +
                 scaleIn(tween(ArcadiaMotion.Fast), initialScale = 0.96f),
             exit = fadeOut(tween(ArcadiaMotion.Fast)),
         ) {
-            XoraSecondaryText(
-                text = subtitle.orEmpty(),
-                fontSize = 11.sp,
-                maxLines = 1,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (!subtitle.isNullOrBlank()) {
+                    XoraSecondaryText(
+                        text = subtitle,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                    )
+                }
+                XoraSecondaryText(
+                    text = "Playtime: ${formatXmbPlaytime(playTimeMs)}",
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
@@ -745,11 +777,55 @@ private fun XmbItemGlyph(
     modifier: Modifier = Modifier,
 ) {
     val shape = if (boxArt) RoundedCornerShape(16.dp) else CircleShape
+    val cornerPx = 16.dp
+    val glow = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+    val rim = Color.White.copy(alpha = 0.95f)
     Box(
         modifier = modifier
             .width(width)
             .height(height)
-            .clip(shape)
+            .then(
+                if (boxArt) {
+                    Modifier
+                        .graphicsLayer {
+                            shadowElevation = if (selected) 20f else 12f
+                            this.shape = shape
+                            clip = false
+                            ambientShadowColor = Color.Black.copy(alpha = 0.55f)
+                            spotShadowColor = Color.Black.copy(alpha = 0.72f)
+                        }
+                        .drawWithContent {
+                            drawContent()
+                            if (selected) {
+                                val stroke = 3.5.dp.toPx()
+                                val inset = stroke / 2f
+                                drawRoundRect(
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            glow.copy(alpha = 0.55f),
+                                            rim.copy(alpha = 0.75f),
+                                            glow.copy(alpha = 0.45f),
+                                        ),
+                                        start = Offset.Zero,
+                                        end = Offset(size.width, size.height),
+                                    ),
+                                    topLeft = Offset(inset, inset),
+                                    size = Size(size.width - stroke, size.height - stroke),
+                                    cornerRadius = CornerRadius(cornerPx.toPx(), cornerPx.toPx()),
+                                    style = Stroke(width = stroke),
+                                )
+                            }
+                        }
+                        .clip(shape)
+                        .border(
+                            width = if (selected) 2.5.dp else 0.dp,
+                            color = if (selected) rim else Color.Transparent,
+                            shape = shape,
+                        )
+                } else {
+                    Modifier.clip(shape)
+                },
+            )
             .background(
                 when {
                     !artPath.isNullOrBlank() -> Color.Black.copy(alpha = 0.35f)
@@ -776,6 +852,17 @@ private fun XmbItemGlyph(
                 size = minOf(width, height) * 0.5f,
             )
         }
+    }
+}
+
+private fun formatXmbPlaytime(millis: Long): String {
+    if (millis < 60_000L) return "—"
+    val hours = TimeUnit.MILLISECONDS.toHours(millis)
+    val minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60
+    return when {
+        hours <= 0L -> "$minutes min"
+        minutes == 0L -> if (hours == 1L) "1 hour" else "$hours hours"
+        else -> "${hours}h ${minutes}m"
     }
 }
 

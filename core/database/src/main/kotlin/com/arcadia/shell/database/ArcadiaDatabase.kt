@@ -19,7 +19,7 @@ import com.arcadia.shell.database.entity.PlayerEntity
         PlayerEntity::class,
         PlatformSettingsEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(ArcadiaConverters::class)

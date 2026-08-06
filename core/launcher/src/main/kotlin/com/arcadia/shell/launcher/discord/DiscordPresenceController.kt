@@ -58,9 +58,15 @@ class DiscordPresenceController @Inject constructor(
     /** First friends snapshot only seeds online ids so reconnects do not flood banners. */
     private var discordOnlineSeeded = false
     private val knownOnlineDiscordIds = linkedSetOf<String>()
+    private var currentUserId: String? = null
+    /** Newest message id seen per peer — used to emit inbound DM banners once. */
+    private val lastSeenMessageIdByPeer = mutableMapOf<String, String>()
 
     private val _state = MutableStateFlow(DiscordPresenceUiState())
     override val state: StateFlow<DiscordPresenceUiState> = _state.asStateFlow()
+
+    private val _dmThread = MutableStateFlow(DiscordDmThreadUiState())
+    override val dmThread: StateFlow<DiscordDmThreadUiState> = _dmThread.asStateFlow()
 
     init {
         DiscordSocialSdkBridgeHolder.bridge = bridge
@@ -79,6 +85,11 @@ class DiscordPresenceController @Inject constructor(
             if (ready) {
                 Log.i(TAG, "Social SDK Ready — publishing Rich Presence")
                 schedulePublish(immediate = true)
+                val openPeer = _dmThread.value.peerUserId
+                if (!openPeer.isNullOrBlank()) {
+                    bridge.setShowingChat(true)
+                    bridge.loadUserMessages(openPeer, DM_MESSAGE_LIMIT)
+                }
             } else if (appInForeground) {
                 restoreTokensIfNeeded()
             }
@@ -142,6 +153,39 @@ class DiscordPresenceController @Inject constructor(
                     authorized = bridge.isAuthorized,
                     friends = current.friends,
                 )
+            }
+        }
+        bridge.setCurrentUserListener { userId ->
+            currentUserId = userId
+            _state.update { current ->
+                rebuild(
+                    applicationId = current.applicationId,
+                    activity = current.activity,
+                    ready = bridge.isReady,
+                    authorized = bridge.isAuthorized,
+                    friends = current.friends,
+                )
+            }
+            // Re-tag open thread messages now that self id is known.
+            _dmThread.update { thread ->
+                if (thread.messages.isEmpty()) thread
+                else thread.copy(messages = thread.messages.map { it.withMineFlag(userId) })
+            }
+        }
+        bridge.setMessagesListener { recipientId, messages ->
+            onMessagesUpdated(recipientId, messages)
+        }
+        bridge.setMessageSendResultListener { ok, error, recipientId, _messageId ->
+            _dmThread.update { thread ->
+                if (thread.peerUserId != recipientId) thread
+                else thread.copy(
+                    sending = false,
+                    draft = if (ok) "" else thread.draft,
+                    error = if (ok) null else error.ifBlank { "Could not send message" },
+                )
+            }
+            if (ok) {
+                bridge.loadUserMessages(recipientId, DM_MESSAGE_LIMIT)
             }
         }
         _state.value = rebuild(
@@ -233,6 +277,9 @@ class DiscordPresenceController @Inject constructor(
         if (id.isNotBlank()) {
             startSdk(id)
         }
+        if (_dmThread.value.peerUserId != null) {
+            bridge.setShowingChat(true)
+        }
         schedulePublish(immediate = true)
         _state.update { current ->
             rebuild(
@@ -251,6 +298,10 @@ class DiscordPresenceController @Inject constructor(
         // Custom Tab is open, but stop spamming presence updates.
         publishJob?.cancel()
         publishJob = null
+        // Re-enable Discord app notifications while XOrA is backgrounded.
+        if (_dmThread.value.peerUserId != null) {
+            bridge.setShowingChat(false)
+        }
     }
 
     override fun attachHostActivity(activity: Activity) {
@@ -311,6 +362,120 @@ class DiscordPresenceController @Inject constructor(
         Intent(Intent.ACTION_VIEW, Uri.parse(DiscordPresenceUiState.PORTAL_APPLICATIONS))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
+    override fun openDm(userId: String, displayName: String, avatarUrl: String?) {
+        val peer = userId.trim()
+        if (peer.isEmpty()) return
+        Log.i(TAG, "openDm peer=$peer")
+        _dmThread.value = DiscordDmThreadUiState(
+            peerUserId = peer,
+            peerDisplayName = displayName.ifBlank { peer },
+            peerAvatarUrl = avatarUrl,
+            messages = emptyList(),
+            draft = "",
+            loading = true,
+            sending = false,
+            error = null,
+        )
+        bridge.setShowingChat(true)
+        if (bridge.isReady) {
+            bridge.loadUserMessages(peer, DM_MESSAGE_LIMIT)
+        }
+    }
+
+    override fun closeDm() {
+        val hadOpen = _dmThread.value.peerUserId != null
+        _dmThread.value = DiscordDmThreadUiState()
+        if (hadOpen) {
+            bridge.setShowingChat(false)
+        }
+    }
+
+    override fun updateDmDraft(draft: String) {
+        _dmThread.update { thread ->
+            if (thread.peerUserId == null) thread else thread.copy(draft = draft, error = null)
+        }
+    }
+
+    override fun sendDm() {
+        val thread = _dmThread.value
+        val peer = thread.peerUserId ?: return
+        val content = thread.draft.trim()
+        if (content.isEmpty()) {
+            _dmThread.update { it.copy(error = "Enter a message first.") }
+            return
+        }
+        if (!bridge.isReady) {
+            _dmThread.update { it.copy(error = "Discord not connected.") }
+            return
+        }
+        _dmThread.update { it.copy(sending = true, error = null) }
+        bridge.sendUserMessage(peer, content)
+    }
+
+    override fun refreshDm() {
+        val peer = _dmThread.value.peerUserId ?: return
+        if (!bridge.isReady) return
+        _dmThread.update { it.copy(loading = true, error = null) }
+        bridge.loadUserMessages(peer, DM_MESSAGE_LIMIT)
+    }
+
+    private fun onMessagesUpdated(recipientId: String, messages: List<DiscordDmMessage>) {
+        val self = currentUserId ?: bridge.currentUserId
+        val tagged = messages.map { msg ->
+            when {
+                !self.isNullOrBlank() -> msg.withMineFlag(self)
+                else -> {
+                    // Fallback: in a 1:1 DM the peer is recipientId from the load call.
+                    msg.copy(isMine = msg.authorId != recipientId)
+                }
+            }
+        }
+        val openPeer = _dmThread.value.peerUserId
+        if (openPeer != null && openPeer == recipientId) {
+            _dmThread.update { thread ->
+                thread.copy(
+                    messages = tagged,
+                    loading = false,
+                    error = null,
+                )
+            }
+        }
+        emitIncomingDmBanner(recipientId, tagged, chatShowingPeer = openPeer)
+    }
+
+    private fun emitIncomingDmBanner(
+        peerUserId: String,
+        messages: List<DiscordDmMessage>,
+        chatShowingPeer: String?,
+    ) {
+        val newest = messages.lastOrNull() ?: return
+        val previousId = lastSeenMessageIdByPeer[peerUserId]
+        lastSeenMessageIdByPeer[peerUserId] = newest.messageId
+        if (previousId == null) {
+            // First snapshot for this peer — seed only, no banner flood.
+            return
+        }
+        if (newest.messageId == previousId) return
+        if (newest.isMine) return
+        if (chatShowingPeer == peerUserId) return
+        val friend = _state.value.friends.firstOrNull { it.userId == peerUserId }
+        val sender = friend?.displayName
+            ?: _dmThread.value.takeIf { it.peerUserId == peerUserId }?.peerDisplayName
+            ?: "Discord friend"
+        notificationCenter.emit(
+            ShellNotification.DiscordMessage(
+                id = "discord-dm:${newest.messageId}",
+                sender = sender,
+                snippet = newest.content.ifBlank { "New message" }.take(120),
+                avatarUrl = friend?.avatarUrl
+                    ?: _dmThread.value.takeIf { it.peerUserId == peerUserId }?.peerAvatarUrl,
+            ),
+        )
+    }
+
+    private fun DiscordDmMessage.withMineFlag(selfId: String): DiscordDmMessage =
+        copy(isMine = authorId == selfId)
+
     private fun startSdk(applicationId: String) {
         val ok = runCatching { bridge.ensureInitialized(applicationId) }
             .onFailure { Log.e(TAG, "ensureInitialized crashed — degrading without SDK", it) }
@@ -348,6 +513,9 @@ class DiscordPresenceController @Inject constructor(
         stopCallbackLoop()
         publishJob?.cancel()
         publishJob = null
+        closeDm()
+        currentUserId = null
+        lastSeenMessageIdByPeer.clear()
         runCatching { bridge.destroy() }
             .onFailure { Log.e(TAG, "bridge.destroy failed", it) }
     }
@@ -579,6 +747,7 @@ class DiscordPresenceController @Inject constructor(
             } else {
                 emptyList()
             },
+            currentUserId = currentUserId ?: bridge.currentUserId,
             connecting = connecting,
             presencePublishing = capability == DiscordPresenceCapability.Connected &&
                 lastPublishOk == true &&
@@ -623,6 +792,7 @@ class DiscordPresenceController @Inject constructor(
         private const val CALLBACK_BACKGROUND_MS = 2_500L
         private const val DEFERRED_LOG_MIN_INTERVAL_MS = 8_000L
         private const val MAX_FRIENDS_UI = 40
+        private const val DM_MESSAGE_LIMIT = 50
     }
 }
 

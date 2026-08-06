@@ -7,6 +7,7 @@ import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UiFitMode
+import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.datastore.uiTextScaleLabel
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.ShellThemeId
@@ -120,6 +121,7 @@ sealed interface StartSettingsAction {
 
     // General
     data object CycleGamesSecondarySlot : StartSettingsAction
+    data object CycleXmbTitleStyle : StartSettingsAction
     data object EditHome : StartSettingsAction
     data object EditProfile : StartSettingsAction
     data object ScanEmulators : StartSettingsAction
@@ -501,6 +503,15 @@ fun buildStartSettingsRows(
                 else -> "Continue"
             },
             action = StartSettingsAction.CycleGamesSecondarySlot,
+        ),
+        StartSettingsRow.Action(
+            id = "xmb_title_style",
+            title = "XMB game titles",
+            subtitle = when (settings.xmbTitleStyle) {
+                XmbTitleStyle.TitleIcons -> "Title icons"
+                XmbTitleStyle.Text -> "Text"
+            },
+            action = StartSettingsAction.CycleXmbTitleStyle,
         ),
         StartSettingsRow.Action(
             id = "edit_home",

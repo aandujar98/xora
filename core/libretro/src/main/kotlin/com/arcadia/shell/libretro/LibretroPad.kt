@@ -27,7 +27,16 @@ object LibretroPad {
     private const val DPAD_MASK =
         (1 shl UP) or (1 shl DOWN) or (1 shl LEFT) or (1 shl RIGHT)
 
-    fun keyCodeToButton(keyCode: Int): Int? = when (keyCode) {
+    /**
+     * Resolve a keycode to a Libretro joypad button.
+     * [customMappings] (keycode → button index) win over the built-in table when present.
+     */
+    fun keyCodeToButton(keyCode: Int, customMappings: Map<Int, Int> = emptyMap()): Int? {
+        customMappings[keyCode]?.let { return it }
+        return defaultKeyCodeToButton(keyCode)
+    }
+
+    fun defaultKeyCodeToButton(keyCode: Int): Int? = when (keyCode) {
         KeyEvent.KEYCODE_BUTTON_B -> B
         KeyEvent.KEYCODE_BUTTON_Y -> Y
         KeyEvent.KEYCODE_BUTTON_SELECT,
@@ -65,6 +74,67 @@ object LibretroPad {
         KeyEvent.KEYCODE_BUTTON_11 -> L2
         KeyEvent.KEYCODE_BUTTON_12 -> R2
         else -> null
+    }
+
+    /** Face / shoulder / system buttons offered in the remapper UI (D-pad stays on hat/keys). */
+    val MAPPABLE_BUTTONS: List<Pair<Int, String>> = listOf(
+        A to "A (South)",
+        B to "B (East)",
+        X to "X (North)",
+        Y to "Y (West)",
+        L to "L",
+        R to "R",
+        L2 to "L2",
+        R2 to "R2",
+        L3 to "L3",
+        R3 to "R3",
+        SELECT to "Select",
+        START to "Start",
+    )
+
+    fun buttonLabel(button: Int): String =
+        MAPPABLE_BUTTONS.firstOrNull { it.first == button }?.second ?: "Button $button"
+
+    fun keyCodeLabel(keyCode: Int): String = when (keyCode) {
+        KeyEvent.KEYCODE_BUTTON_A -> "Button A"
+        KeyEvent.KEYCODE_BUTTON_B -> "Button B"
+        KeyEvent.KEYCODE_BUTTON_X -> "Button X"
+        KeyEvent.KEYCODE_BUTTON_Y -> "Button Y"
+        KeyEvent.KEYCODE_BUTTON_L1 -> "L1"
+        KeyEvent.KEYCODE_BUTTON_R1 -> "R1"
+        KeyEvent.KEYCODE_BUTTON_L2 -> "L2"
+        KeyEvent.KEYCODE_BUTTON_R2 -> "R2"
+        KeyEvent.KEYCODE_BUTTON_THUMBL -> "L3"
+        KeyEvent.KEYCODE_BUTTON_THUMBR -> "R3"
+        KeyEvent.KEYCODE_BUTTON_SELECT -> "Select"
+        KeyEvent.KEYCODE_BUTTON_START -> "Start"
+        KeyEvent.KEYCODE_DPAD_UP -> "D-Pad Up"
+        KeyEvent.KEYCODE_DPAD_DOWN -> "D-Pad Down"
+        KeyEvent.KEYCODE_DPAD_LEFT -> "D-Pad Left"
+        KeyEvent.KEYCODE_DPAD_RIGHT -> "D-Pad Right"
+        KeyEvent.KEYCODE_DPAD_CENTER -> "D-Pad Center"
+        else -> KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_")
+    }
+
+    /** Connected pads as (id, name). */
+    fun connectedControllers(): List<Pair<Int, String>> {
+        val out = ArrayList<Pair<Int, String>>()
+        for (id in InputDevice.getDeviceIds()) {
+            val device = InputDevice.getDevice(id) ?: continue
+            val sources = device.sources
+            val isPad = sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
+                sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
+            if (!isPad || device.isVirtual) continue
+            val name = device.name?.takeIf { it.isNotBlank() } ?: "Controller $id"
+            out += id to name
+        }
+        return out
+    }
+
+    fun matchesPreferredController(device: InputDevice?, preferredName: String): Boolean {
+        if (preferredName.isBlank()) return true
+        val name = device?.name?.trim().orEmpty()
+        return name.equals(preferredName, ignoreCase = true)
     }
 
     fun axisToShort(value: Float, deadzone: Float = 0.15f): Short {
@@ -115,12 +185,13 @@ object LibretroPad {
         (buttons and DPAD_MASK.inv() and (1 shl L2).inv() and (1 shl R2).inv()) or
             digitalPadFromAxes(event)
 
-    fun KeyEvent.isFromGameController(): Boolean =
+    fun KeyEvent.isFromGameController(customMappings: Map<Int, Int> = emptyMap()): Boolean =
         isFromSource(InputDevice.SOURCE_GAMEPAD) ||
             isFromSource(InputDevice.SOURCE_JOYSTICK) ||
             isFromSource(InputDevice.SOURCE_DPAD) ||
             // Many Bluetooth pads also report as keyboard for face buttons.
-            (isFromSource(InputDevice.SOURCE_KEYBOARD) && keyCodeToButton(keyCode) != null)
+            (isFromSource(InputDevice.SOURCE_KEYBOARD) &&
+                keyCodeToButton(keyCode, customMappings) != null)
 
     fun MotionEvent.isFromGameController(): Boolean =
         isFromSource(InputDevice.SOURCE_GAMEPAD) ||
@@ -128,16 +199,5 @@ object LibretroPad {
             isFromSource(InputDevice.SOURCE_DPAD)
 
     /** Human-readable names of currently connected game controllers. */
-    fun connectedControllerNames(): List<String> {
-        val names = ArrayList<String>()
-        for (id in InputDevice.getDeviceIds()) {
-            val device = InputDevice.getDevice(id) ?: continue
-            val sources = device.sources
-            val isPad = sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
-                sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
-            if (!isPad || device.isVirtual) continue
-            names += device.name?.takeIf { it.isNotBlank() } ?: "Controller $id"
-        }
-        return names
-    }
+    fun connectedControllerNames(): List<String> = connectedControllers().map { it.second }
 }

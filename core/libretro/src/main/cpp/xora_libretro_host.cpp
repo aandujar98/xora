@@ -1022,10 +1022,20 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadGame(
         g_api.get_system_av_info(&av);
         if (av.timing.fps > 1.0) g_fps = av.timing.fps;
         if (av.timing.sample_rate > 1.0) g_sample_rate = av.timing.sample_rate;
-        if (av.geometry.max_width > 0) hw_w = av.geometry.max_width;
-        if (av.geometry.max_height > 0) hw_h = av.geometry.max_height;
-        ALOGI("AV: %ux%u @ %.2f fps, %.0f Hz",
-              av.geometry.base_width, av.geometry.base_height, g_fps, g_sample_rate);
+        // Prefer base geometry for the initial FBO. max_* from GLideN64 can be 4K+ and
+        // allocating that offscreen + glReadPixels every frame OOMs on handhelds.
+        if (av.geometry.base_width > 0) hw_w = av.geometry.base_width;
+        if (av.geometry.base_height > 0) hw_h = av.geometry.base_height;
+        else {
+            if (av.geometry.max_width > 0) hw_w = av.geometry.max_width;
+            if (av.geometry.max_height > 0) hw_h = av.geometry.max_height;
+        }
+        constexpr unsigned kMaxHwFbo = 1920;
+        if (hw_w > kMaxHwFbo) hw_w = kMaxHwFbo;
+        if (hw_h > kMaxHwFbo) hw_h = kMaxHwFbo;
+        ALOGI("AV: %ux%u @ %.2f fps, %.0f Hz (hw fbo %ux%u)",
+              av.geometry.base_width, av.geometry.base_height, g_fps, g_sample_rate,
+              hw_w, hw_h);
     }
     // HW cores need context_reset after a successful load (and a sized FBO).
     if (xora_hw::is_active()) {

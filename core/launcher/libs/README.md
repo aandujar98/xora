@@ -3,28 +3,25 @@
 Live Discord Rich Presence on Android requires Discord’s proprietary **Social SDK** partner
 binary. It is **not** published on Maven Central.
 
-## What to download
+## Vendored binary
 
-1. Open the [Discord Developer Portal](https://discord.com/developers/applications) → your app
-   (SORA Application ID `1531690290526683176`).
-2. Sidebar → **Discord Social SDK** → **Downloads**.
-3. Download the latest **C++ / Android** Social SDK zip (e.g. `DiscordSocialSdk-1.9.x.zip`).
-4. From the zip, copy the **release** Android archive:
-
-```
-discord_social_sdk/lib/release/discord_partner_sdk.aar
-```
-
-to:
+This tree vendors:
 
 ```
 core/launcher/libs/discord_partner_sdk.aar
 ```
 
-(Prefer the non-Krisp `discord_partner_sdk.aar` over `discord_partner_sdk_krisp.aar` unless you
-need noise cancellation — Krisp is larger.)
+**SDK version: DiscordSocialSdk 1.9.17379** (release AAR, non-Krisp). Prefer this file over
+`discord_partner_sdk_krisp.aar` unless you need noise cancellation — Krisp is larger.
 
-5. Optional fallback headers (Prefab already ships them inside the AAR):
+To refresh from the [Discord Developer Portal](https://discord.com/developers/applications)
+(SORA Application ID `1531690290526683176`):
+
+1. Sidebar → **Discord Social SDK** → **Downloads**.
+2. Download **DiscordSocialSdk-1.9.17379** (or newer) for C++ / Android.
+3. Copy `discord_social_sdk/lib/release/discord_partner_sdk.aar` over the vendored path above.
+
+Optional fallback headers (Prefab already ships them inside the AAR):
 
 ```
 core/launcher/libs/discord_partner_sdk/include/discordpp.h
@@ -38,8 +35,8 @@ core/launcher/libs/discord_partner_sdk/include/cdiscord.h
 - **With** the AAR: Gradle adds the dependency, enables Prefab + NDK, and builds `libsora_discord`
   (JNI bridge). Runtime can publish real Rich Presence after Discord account linking.
 
-Do **not** commit the AAR or client secrets (already gitignored). The public Application ID alone
-is safe to keep in preferences / defaults.
+Do **not** commit client secrets. The public Application ID alone is safe to keep in preferences /
+defaults.
 
 ## Portal setup (account linking)
 
