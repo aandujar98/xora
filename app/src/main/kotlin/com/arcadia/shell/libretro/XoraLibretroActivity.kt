@@ -168,6 +168,10 @@ class XoraLibretroActivity : ComponentActivity() {
     private var frameTick by mutableIntStateOf(0)
     private var primaryGameView: ImageView? = null
     private var secondaryGameView: ImageView? = null
+    /** Pause/boot/banner Compose layer — hidden during gameplay so submenu frost cannot linger. */
+    private var overlayCompose: ComposeView? = null
+    /** Root that holds the game ImageView under the optional Compose overlay. */
+    private var gameRoot: FrameLayout? = null
     private val bitmapLock = Any()
 
     /**
@@ -385,6 +389,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
         }
+        gameRoot = root
         val gameView = ImageView(this).apply {
             setBackgroundColor(AndroidColor.BLACK)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -407,8 +412,10 @@ class XoraLibretroActivity : ComponentActivity() {
             )
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         }
-        root.addView(overlay)
+        overlayCompose = overlay
+        // Attached only while pause/boot/status chrome is needed — see syncOverlayVisibility().
         setContentView(root)
+        syncOverlayVisibility()
 
         overlay.setContent {
             val settings by preferences.settings.collectAsStateWithLifecycle(
@@ -431,6 +438,11 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
+            // Submenu white-alpha chrome was leaving a wash after Resume — hide this view
+            // entirely whenever pause/boot/status chrome is idle.
+            LaunchedEffect(menuOpen, bootOverlayVisible, statusText, runJob == null) {
+                syncOverlayVisibility()
+            }
             val textScale = settings.uiTextScale
             val shellThemeId = settings.shellThemeId
             val menuActions = remember(
@@ -686,7 +698,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f)),
+                                .background(Color(0xFF0B0D12)),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -714,6 +726,7 @@ class XoraLibretroActivity : ComponentActivity() {
         if (romPath.isNullOrBlank() || coreName.isBlank()) {
             statusText = "Missing ROM or core"
             bootOverlayVisible = false
+            syncOverlayVisibility()
             return
         }
 
@@ -724,6 +737,7 @@ class XoraLibretroActivity : ComponentActivity() {
             if (path == null) {
                 statusText = "Could not install core '$coreName'. Check network / Settings → XOrA Emulator."
                 bootOverlayVisible = false
+                syncOverlayVisibility()
                 return@launch
             }
             val saveImport = withContext(Dispatchers.IO) {
@@ -756,6 +770,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     LibretroNative.nativeLastError()
                 } ?: "Failed to load game"
                 bootOverlayVisible = false
+                syncOverlayVisibility()
                 return@launch
             }
             gameLoaded = true
@@ -1250,6 +1265,7 @@ class XoraLibretroActivity : ComponentActivity() {
         waitingForMapButton = null
         menuOpen = true
         paused = true
+        syncOverlayVisibility()
         uiSounds.playConfirm()
     }
 
@@ -1262,12 +1278,48 @@ class XoraLibretroActivity : ComponentActivity() {
         waitingForMapButton = null
         paused = false
         statusText = ""
+        syncOverlayVisibility()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
         }
         ImmersiveMode.apply(window)
         window.decorView.requestFocus()
+    }
+
+    /**
+     * ComposeView must not sit over the ImageView during gameplay. Opening pause submenus
+     * (settings / RA / controllers) used to leave a milky wash even after Resume — translucent
+     * Compose chrome over a sibling ImageView can promote a lasting HWUI blend. Hide by
+     * detaching the overlay entirely, and keep it View-opaque while any pause menu is up.
+     */
+    private fun syncOverlayVisibility() {
+        val showChrome = menuOpen ||
+            bootOverlayVisible ||
+            (statusText.isNotBlank() && runJob == null)
+        val overlay = overlayCompose ?: return
+        val root = gameRoot ?: return
+        if (showChrome) {
+            if (overlay.parent == null) {
+                root.addView(overlay)
+            }
+            overlay.visibility = View.VISIBLE
+            overlay.setLayerType(View.LAYER_TYPE_NONE, null)
+            // Pause/submenu stack is fully opaque at the View level so nothing blends with the
+            // ImageView underneath (plain Resume was fine; submenu navigation was not).
+            overlay.setBackgroundColor(
+                if (menuOpen) AndroidColor.BLACK else AndroidColor.TRANSPARENT,
+            )
+        } else {
+            overlay.setBackgroundColor(AndroidColor.TRANSPARENT)
+            overlay.setLayerType(View.LAYER_TYPE_NONE, null)
+            overlay.visibility = View.GONE
+            (overlay.parent as? ViewGroup)?.removeView(overlay)
+            primaryGameView?.clearColorFilter()
+            primaryGameView?.imageAlpha = 255
+            primaryGameView?.invalidate()
+            root.invalidate()
+        }
     }
 
     private fun activateMenuAction(index: Int) {
@@ -1385,7 +1437,10 @@ class XoraLibretroActivity : ComponentActivity() {
             primaryGameView?.invalidate()
             secondaryGameView?.invalidate()
             frameTick++
-            if (bootOverlayVisible) bootOverlayVisible = false
+            if (bootOverlayVisible) {
+                bootOverlayVisible = false
+                syncOverlayVisibility()
+            }
         }
     }
 
@@ -1466,10 +1521,13 @@ private data class MenuAction(
     val onClick: () -> Unit,
 )
 
-/** Opaque dark chrome for in-emulator menus — never use [liquidGlass] here (white sheen wash). */
+/** Opaque dark chrome for in-emulator menus — never translucent white frost over gameplay. */
 private val XoraEmulatorPanelShape = RoundedCornerShape(18.dp)
 private val XoraEmulatorPanelColor = Color(0xFF14161C)
-private val XoraEmulatorPanelBorder = Color.White.copy(alpha = 0.14f)
+private val XoraEmulatorPanelBorder = Color(0xFF3A3F4A)
+private val XoraEmulatorFocusFill = Color(0xFF2A303A)
+private val XoraEmulatorFocusFillStrong = Color(0xFF343B48)
+private val XoraEmulatorRowFill = Color(0xFF1C2129)
 
 private fun Modifier.xoraEmulatorPanel(shape: Shape = XoraEmulatorPanelShape): Modifier =
     this
@@ -1681,7 +1739,7 @@ private fun XoraEmulatorPauseMenu(
                         .fillMaxWidth()
                         .background(
                             if (focused) {
-                                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f)
+                                XoraEmulatorFocusFill
                             } else {
                                 androidx.compose.ui.graphics.Color.Transparent
                             },
@@ -1825,7 +1883,7 @@ private fun XoraEmulatorSettingsPanel(
                         .fillMaxWidth()
                         .background(
                             if (focused) {
-                                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f)
+                                XoraEmulatorFocusFill
                             } else {
                                 androidx.compose.ui.graphics.Color.Transparent
                             },
@@ -1932,7 +1990,7 @@ private fun XoraEmulatorControllersPanel(
                             .fillMaxWidth()
                             .background(
                                 if (focused) {
-                                    Color.White.copy(alpha = 0.12f)
+                                    XoraEmulatorFocusFill
                                 } else {
                                     Color.Transparent
                                 },
@@ -2026,7 +2084,7 @@ private fun XoraEmulatorMappingPanel(
                         fontSize = 14.sp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
+                            .background(XoraEmulatorFocusFillStrong, RoundedCornerShape(10.dp))
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                     )
                 }
@@ -2035,7 +2093,7 @@ private fun XoraEmulatorMappingPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            if (backFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                            if (backFocused) XoraEmulatorFocusFill else Color.Transparent,
                             RoundedCornerShape(10.dp),
                         )
                         .clickable {
@@ -2064,7 +2122,7 @@ private fun XoraEmulatorMappingPanel(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                if (focused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                                if (focused) XoraEmulatorFocusFill else Color.Transparent,
                                 RoundedCornerShape(10.dp),
                             )
                             .clickable {
@@ -2252,7 +2310,7 @@ private fun AchievementsToolbarChip(
         fontSize = 14.sp,
         modifier = Modifier
             .background(
-                if (focused) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f),
+                if (focused) XoraEmulatorFocusFillStrong else XoraEmulatorRowFill,
                 RoundedCornerShape(10.dp),
             )
             .clickable(onClick = onClick)
@@ -2273,7 +2331,7 @@ private fun EmulatorAchievementRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                if (focused) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.04f),
+                if (focused) XoraEmulatorFocusFillStrong else XoraEmulatorRowFill,
                 RoundedCornerShape(14.dp),
             )
             .clickable(onClick = onClick)
@@ -2291,7 +2349,9 @@ private fun EmulatorAchievementRow(
             modifier = Modifier
                 .size(56.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color.White.copy(alpha = if (achievement.unlocked) 0.12f else 0.08f)),
+                .background(
+                    if (achievement.unlocked) XoraEmulatorFocusFill else XoraEmulatorRowFill,
+                ),
             alpha = if (achievement.unlocked) 1f else 0.45f,
         )
         Column(
