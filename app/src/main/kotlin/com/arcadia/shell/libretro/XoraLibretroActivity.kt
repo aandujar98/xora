@@ -2,6 +2,7 @@ package com.arcadia.shell.libretro
 
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
+import android.graphics.PixelFormat
 import android.hardware.input.InputManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -11,12 +12,16 @@ import android.os.Bundle
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -112,9 +117,11 @@ import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
 /**
- * In-process Libretro session. Frames are presented via [ImageView] (AndroidView) under
- * Compose pause chrome. Compose [Image]/mutable [Bitmap] was leaving a milky wash after
- * overlay Resume; ImageView stays mounted and only invalidates after [Bitmap.setPixels].
+ * In-process Libretro session.
+ *
+ * Framebuffer lives on a sibling [ImageView] under a transparent [ComposeView] (not inside
+ * Compose). Pause overlays that shared the Compose tree with the game were leaving a milky
+ * wash over the whole window — including black letterboxes — after Resume.
  *
  * All Libretro core entry points run on a dedicated single OS thread. Cores such as
  * Mupen64Plus-Next use libco; [retro_init] / [retro_run] / serialize must share that thread or
@@ -368,7 +375,42 @@ class XoraLibretroActivity : ComponentActivity() {
         inputManager = getSystemService(INPUT_SERVICE) as InputManager
         inputManager?.registerInputDeviceListener(inputDeviceListener, null)
 
-        setContent {
+        // Game framebuffer is a real View under Compose — overlays cannot promote a wash layer
+        // that encloses the ImageView (the bug that greyed letterboxes after Resume).
+        window.setFormat(PixelFormat.OPAQUE)
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(AndroidColor.BLACK)
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+        }
+        val gameView = ImageView(this).apply {
+            setBackgroundColor(AndroidColor.BLACK)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = false
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+        }
+        primaryGameView = gameView
+        root.addView(gameView)
+
+        val overlay = ComposeView(this).apply {
+            setBackgroundColor(AndroidColor.TRANSPARENT)
+            // Avoid an offscreen layer that can bake overlay frost into the window.
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        }
+        root.addView(overlay)
+        setContentView(root)
+
+        overlay.setContent {
             val settings by preferences.settings.collectAsStateWithLifecycle(
                 initialValue = ShellSettings(),
             )
@@ -381,6 +423,12 @@ class XoraLibretroActivity : ComponentActivity() {
             LaunchedEffect(xora) {
                 xoraSettings = xora
                 refreshExpandTopology()
+                primaryGameView?.scaleType = when (xora.aspectMode) {
+                    XoraAspectMode.Stretch -> ImageView.ScaleType.FIT_XY
+                    XoraAspectMode.Integer,
+                    XoraAspectMode.Core,
+                    -> ImageView.ScaleType.FIT_CENTER
+                }
             }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
             val textScale = settings.uiTextScale
@@ -395,42 +443,16 @@ class XoraLibretroActivity : ComponentActivity() {
                 buildMenuActions()
             }
 
-            // Always dark emulator chrome — light theme glass tokens use white frost that
-            // reads as a lasting bright wash over the framebuffer after Resume.
+            // Always dark emulator chrome — light theme glass tokens use white frost.
             ArcadiaTheme(
                 darkTheme = true,
                 shellThemeId = shellThemeId,
                 uiTextScale = textScale,
             ) {
-                // Kill Haze for the whole session. liquidGlass white sheen / frost over the
-                // live bitmap was the white tint left after pause submenus and Resume.
                 CompositionLocalProvider(LocalArcadiaHaze provides null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(androidx.compose.ui.graphics.Color.Black),
-                    ) {
-                    // Keep the ImageView framebuffer mounted under the pause plate. Unmounting /
-                    // remounting Compose Image around overlays left a milky wash after Resume.
-                    val bmp = gameBitmap
-                    if (bmp != null) {
-                        XoraPrimaryGameFrame(
-                            bitmap = bmp,
-                            frameTick = frameTick,
-                            platformId = platformId,
-                            aspectMode = xora.aspectMode,
-                            integerScale = xora.integerScale,
-                            bezelsEnabled = xora.bezelsEnabled && !expandActive,
-                            bezelOpacity = xora.bezelOpacity,
-                            onImageView = { primaryGameView = it },
-                        )
-                    } else if (xora.bezelsEnabled && !expandActive) {
-                        XoraBezelBackdrop(
-                            platformId = platformId,
-                            opacity = xora.bezelOpacity * 0.7f,
-                        )
-                    }
-
+                    // Transparent root so the sibling ImageView shows through. Never paint an
+                    // opaque full-bleed plate here except while pause/boot overlays are up.
+                    Box(modifier = Modifier.fillMaxSize()) {
                     if (expandActive) {
                         SecondaryDisplayPane(displayId = secondaryDisplayId) {
                             Box(
@@ -441,15 +463,12 @@ class XoraLibretroActivity : ComponentActivity() {
                             ) {
                                 val bottom = bottomBitmap
                                 if (bottom != null) {
-                                    XoraPrimaryGameFrame(
+                                    XoraGameImageView(
                                         bitmap = bottom,
                                         frameTick = frameTick,
-                                        platformId = platformId,
                                         aspectMode = xora.aspectMode,
-                                        integerScale = xora.integerScale,
-                                        bezelsEnabled = false,
-                                        bezelOpacity = xora.bezelOpacity,
                                         onImageView = { secondaryGameView = it },
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 }
                             }
@@ -1457,46 +1476,6 @@ private fun Modifier.xoraEmulatorPanel(shape: Shape = XoraEmulatorPanelShape): M
         .clip(shape)
         .background(XoraEmulatorPanelColor, shape)
         .border(width = 1.dp, color = XoraEmulatorPanelBorder, shape = shape)
-
-@Composable
-private fun XoraPrimaryGameFrame(
-    bitmap: Bitmap,
-    frameTick: Int,
-    platformId: String,
-    aspectMode: XoraAspectMode,
-    integerScale: Int,
-    bezelsEnabled: Boolean,
-    bezelOpacity: Float,
-    onImageView: (ImageView?) -> Unit = {},
-) {
-    val aspect = bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1).toFloat()
-    val frame: @Composable () -> Unit = {
-        XoraScaledGameFrame(
-            contentWidthPx = bitmap.width,
-            contentHeightPx = bitmap.height,
-            mode = aspectMode,
-            integerScaleCap = integerScale,
-            modifier = Modifier.fillMaxSize(),
-        ) { _ ->
-            XoraGameImageView(
-                bitmap = bitmap,
-                frameTick = frameTick,
-                aspectMode = aspectMode,
-                onImageView = onImageView,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-    }
-    if (bezelsEnabled && aspectMode != XoraAspectMode.Stretch) {
-        XoraSystemBezel(
-            platformId = platformId,
-            opacity = bezelOpacity,
-            contentAspect = aspect,
-        ) { frame() }
-    } else {
-        frame()
-    }
-}
 
 /**
  * Classic View framebuffer — avoids Compose Image + asImageBitmap texture/premul wash after
