@@ -19,8 +19,11 @@ import com.arcadia.shell.datastore.CirclePinSource
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.GameCustomMediaStore
 import com.arcadia.shell.datastore.HomeThemeMediaStore
 import com.arcadia.shell.datastore.LocalProfile
+import com.arcadia.shell.libretro.GameSaveCatalog
+import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_COLUMNS
@@ -35,6 +38,7 @@ import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UI_TEXT_SCALE_PRESETS
 import com.arcadia.shell.datastore.UiFitMode
+import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.isReduceMotionPreferred
@@ -54,6 +58,7 @@ import com.arcadia.shell.launcher.conversations.ConversationRepository
 import com.arcadia.shell.launcher.conversations.ConversationSource
 import com.arcadia.shell.launcher.conversations.ConversationsUiState
 import com.arcadia.shell.launcher.conversations.NotificationConversation
+import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
@@ -84,6 +89,7 @@ import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scanner.StorageAccess
 import com.arcadia.shell.scraper.PlatformArtRepository
 import com.arcadia.shell.scraper.ScraperPreference
+import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.ScraperScheduler
 import com.arcadia.shell.scraper.SteamOpenId
 import com.arcadia.shell.scraper.SteamWebApiClient
@@ -149,8 +155,12 @@ class HomeViewModel @Inject constructor(
     private val retroAchievements: RetroAchievementsRepository,
     private val avatarStore: ProfileAvatarStore,
     private val themeMediaStore: HomeThemeMediaStore,
+    private val gameCustomMediaStore: GameCustomMediaStore,
+    private val gameSaveCatalog: GameSaveCatalog,
+    private val gameSoundBitePlayer: GameSoundBitePlayer,
     private val trailerResolver: TrailerResolver,
     private val scraperScheduler: ScraperScheduler,
+    private val libraryHashScheduler: LibraryHashScheduler,
     private val platformArtRepository: PlatformArtRepository,
     private val rssFeedClient: RssFeedClient,
     private val gameInsightRepository: GameInsightRepository,
@@ -195,6 +205,9 @@ class HomeViewModel @Inject constructor(
     private val mediaPickerRequests = Channel<HomeMediaPickerRequest>(Channel.BUFFERED)
     /** Observed from the primary Activity composition only — never under a Presentation. */
     val mediaPickerRequestFlow: Flow<HomeMediaPickerRequest> = mediaPickerRequests.receiveAsFlow()
+
+    /** Bumps when ROM options should re-scan on-disk saves. */
+    private val romSaveRefresh = MutableStateFlow(0)
 
     private val externalAuthRequests = Channel<HomeExternalAuthRequest>(Channel.BUFFERED)
     /** Custom Tab / OAuth launches — Activity-rooted only (same hoist as media pickers). */
@@ -388,15 +401,18 @@ class HomeViewModel @Inject constructor(
         discordSocialUi,
         conversationsUi,
         conversationReply,
-        combine(circlePins, managingCircle, friendSearchQuery) { pins, managing, query ->
-            Triple(pins, managing, query)
-        },
-    ) { steam, discord, conversations, reply, circle ->
+        combine(
+            combine(circlePins, managingCircle, friendSearchQuery, ::Triple),
+            discordRichPresence.dmThread,
+        ) { circle, dm -> circle to dm },
+    ) { steam, discord, conversations, reply, circleAndDm ->
+        val (circle, dm) = circleAndDm
         SocialPartners(
             steam = steam,
             discord = discord,
             conversations = conversations,
             reply = reply,
+            discordDm = dm,
             circlePins = circle.first,
             managingCircle = circle.second,
             friendSearchQuery = circle.third,
@@ -408,6 +424,7 @@ class HomeViewModel @Inject constructor(
         val discord: DiscordSocialUiState,
         val conversations: ConversationsUiState,
         val reply: ConversationReplyUiState,
+        val discordDm: DiscordDmThreadUiState,
         val circlePins: List<CirclePin>,
         val managingCircle: Boolean,
         val friendSearchQuery: String,
@@ -425,6 +442,7 @@ class HomeViewModel @Inject constructor(
             discord = partners.discord,
             conversations = partners.conversations,
             reply = partners.reply,
+            discordDm = partners.discordDm,
             circlePins = partners.circlePins,
             managingCircle = partners.managingCircle,
             friendSearchQuery = partners.friendSearchQuery,
@@ -439,6 +457,7 @@ class HomeViewModel @Inject constructor(
         val discord: DiscordSocialUiState,
         val conversations: ConversationsUiState,
         val reply: ConversationReplyUiState,
+        val discordDm: DiscordDmThreadUiState,
         val circlePins: List<CirclePin>,
         val managingCircle: Boolean,
         val friendSearchQuery: String,
@@ -764,6 +783,21 @@ class HomeViewModel @Inject constructor(
             }
             .launchIn(viewModelScope)
 
+        // Focused ROM sound bite (customized via Select → ROM options).
+        uiState
+            .map { state ->
+                val game = state.xoraXmb.focusGame
+                    ?.takeIf { state.xoraXmb.depth == XoraXmbDepth.Roms }
+                    ?: state.selectedGame?.takeIf { state.homePage == HomePage.GameSelector }
+                game?.id to game?.soundBitePath
+            }
+            .distinctUntilChanged()
+            .onEach { (_, path) ->
+                if (!path.isNullOrBlank()) gameSoundBitePlayer.play(path)
+                else gameSoundBitePlayer.stop()
+            }
+            .launchIn(viewModelScope)
+
         // Track library browsing for Discord status bridge / future Social SDK presence.
         uiState
             .map { it.selectedGame }
@@ -793,8 +827,12 @@ class HomeViewModel @Inject constructor(
         // Re-check notification access when the social panel opens (permission changes off-process).
         accountPanelExpanded
             .onEach { open ->
-                if (open) conversationRepository.refreshListenerEnabled()
-                else conversationReply.value = ConversationReplyUiState()
+                if (open) {
+                    conversationRepository.refreshListenerEnabled()
+                } else {
+                    conversationReply.value = ConversationReplyUiState()
+                    discordRichPresence.closeDm()
+                }
             }
             .launchIn(viewModelScope)
 
@@ -1120,6 +1158,7 @@ class HomeViewModel @Inject constructor(
             "Favorite" -> GamesSecondarySlot.Favorite
             else -> GamesSecondarySlot.Continue
         }
+        val xmbTitleStyle = chrome.settings.xmbTitleStyle
         val xoraCategory = XoraXmbCategory.entries.getOrElse(theme.xora.categoryIndex) {
             XoraXmbCategory.Games
         }
@@ -1157,6 +1196,7 @@ class HomeViewModel @Inject constructor(
             discord = social.discord,
             conversations = social.conversations,
             reply = social.reply,
+            discordDm = social.discordDm,
             circlePins = social.circlePins,
             managingCircle = social.managingCircle,
             friendSearchQuery = social.friendSearchQuery,
@@ -1167,6 +1207,7 @@ class HomeViewModel @Inject constructor(
             discord = socialMenu.discord,
             conversations = socialMenu.conversations,
             reply = socialMenu.reply,
+            discordDm = socialMenu.discordDm,
             circlePins = socialMenu.circlePins,
             managingCircle = socialMenu.managingCircle,
             friendSearchQuery = socialMenu.friendSearchQuery,
@@ -1209,6 +1250,7 @@ class HomeViewModel @Inject constructor(
                 drilledPlatformId = theme.xora.drilledPlatformId,
                 items = xoraItems,
                 gamesSecondarySlot = gamesSecondarySlot,
+                titleStyle = xmbTitleStyle,
                 focusTitle = xoraSelected?.title ?: xoraCategory.label,
                 focusSubtitle = xoraSelected?.subtitle ?: xoraCategory.label,
                 focusGame = xoraFocusGame,
@@ -1276,6 +1318,7 @@ class HomeViewModel @Inject constructor(
         circlePins: List<CirclePin>,
         managingCircle: Boolean,
         friendSearchQuery: String,
+        discordDm: DiscordDmThreadUiState = DiscordDmThreadUiState(),
     ): List<AccountPanelRow> {
         val circleKeys = circlePins.mapTo(mutableSetOf()) { it.key }
         val q = friendSearchQuery.trim()
@@ -1294,6 +1337,11 @@ class HomeViewModel @Inject constructor(
 
             when (tab) {
                 SocialMenuTab.Discord -> {
+                    if (discordDm.peerUserId != null) {
+                        add(AccountPanelRow.DiscordDmClose)
+                        add(AccountPanelRow.DiscordDmSend)
+                        return@buildList
+                    }
                     val needsLink = discord.presence.capability != DiscordPresenceCapability.Connected
                     if (needsLink) {
                         add(AccountPanelRow.DiscordConnect)
@@ -1745,9 +1793,17 @@ class HomeViewModel @Inject constructor(
                 }
             }
             NavAction.ScrapeMenu -> {
-                if (xmb.depth == XoraXmbDepth.Roms) {
-                    xmb.focusGame?.let { emit(HomeEvent.OpenScrapeMenu(it.id)) }
-                        ?: state.selectedGame?.let { emit(HomeEvent.OpenScrapeMenu(it.id)) }
+                val game = when {
+                    xmb.depth == XoraXmbDepth.Roms -> xmb.focusGame ?: state.selectedGame
+                    xmb.focusGame != null &&
+                        (xmb.selectedItem?.action is XoraXmbAction.LaunchGame ||
+                            xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite) ->
+                        xmb.focusGame
+                    else -> null
+                }
+                game?.let {
+                    romSaveRefresh.update { tick -> tick + 1 }
+                    emit(HomeEvent.OpenScrapeMenu(it.id))
                 }
             }
             NavAction.ToggleFavorite -> {
@@ -2674,20 +2730,22 @@ class HomeViewModel @Inject constructor(
         when (action) {
             NavAction.Left, NavAction.PreviousPlatform -> {
                 clearConversationReply()
+                discordRichPresence.closeDm()
                 cycleSocialMenuTab(-1)
             }
             NavAction.Right, NavAction.NextPlatform -> {
                 clearConversationReply()
+                discordRichPresence.closeDm()
                 cycleSocialMenuTab(1)
             }
             NavAction.Up -> moveAccountPanelSelection(-1)
             NavAction.Down -> moveAccountPanelSelection(1)
             NavAction.Confirm -> activateAccountPanelSelection()
             NavAction.Cancel -> {
-                if (conversationReply.value.conversationKey != null) {
-                    clearConversationReply()
-                } else {
-                    collapseHeroPanels()
+                when {
+                    conversationReply.value.conversationKey != null -> clearConversationReply()
+                    discordRichPresence.dmThread.value.peerUserId != null -> handleDiscordDmBack()
+                    else -> collapseHeroPanels()
                 }
             }
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
@@ -2761,6 +2819,7 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         if (socialMenuTab.value == tab) return
         clearConversationReply()
+        discordRichPresence.closeDm()
         socialMenuTab.value = tab
         accountPanelSelectedIndex.value = 0
         conversationRepository.refreshListenerEnabled()
@@ -2875,6 +2934,13 @@ class HomeViewModel @Inject constructor(
                 }
             }
             AccountPanelRow.DiscordOpenApp -> openDiscord()
+            AccountPanelRow.DiscordDmSend -> {
+                discordRichPresence.sendDm()
+            }
+            AccountPanelRow.DiscordDmClose -> {
+                discordRichPresence.closeDm()
+                accountPanelSelectedIndex.value = 0
+            }
         }
     }
 
@@ -2885,8 +2951,22 @@ class HomeViewModel @Inject constructor(
 
     fun updateConversationReplyDraft(draft: String) {
         noteUserActivity()
+        if (discordRichPresence.dmThread.value.peerUserId != null) {
+            discordRichPresence.updateDmDraft(draft)
+            return
+        }
         conversationReply.update { current ->
             if (current.conversationKey == null) current else current.copy(draft = draft)
+        }
+    }
+
+    private fun handleDiscordDmBack() {
+        val thread = discordRichPresence.dmThread.value
+        if (thread.draft.isNotBlank()) {
+            discordRichPresence.updateDmDraft("")
+        } else {
+            discordRichPresence.closeDm()
+            accountPanelSelectedIndex.value = 0
         }
     }
 
@@ -2907,6 +2987,7 @@ class HomeViewModel @Inject constructor(
                 discord = discordSocialUi.value,
                 conversations = conversationsUi.value,
                 reply = replyState,
+                discordDm = discordRichPresence.dmThread.value,
                 circlePins = circlePins.value,
                 managingCircle = managingCircle.value,
                 friendSearchQuery = friendSearchQuery.value,
@@ -2992,6 +3073,35 @@ class HomeViewModel @Inject constructor(
 
     private fun openDiscordFriendConversation(userId: String, social: SocialMenuUiState) {
         val friend = social.discord.friends.firstOrNull { it.userId == userId }
+        val presence = discordRichPresence.state.value
+        val sdkReady = presence.capability == DiscordPresenceCapability.Connected &&
+            presence.nativeBridgeLoaded
+        if (sdkReady) {
+            socialMenuTab.value = SocialMenuTab.Discord
+            managingCircle.value = false
+            discordRichPresence.openDm(
+                userId = userId,
+                displayName = friend?.displayName ?: userId,
+                avatarUrl = friend?.avatarUrl,
+            )
+            val rows = buildAccountPanelRows(
+                tab = SocialMenuTab.Discord,
+                steam = social.steam,
+                discord = social.discord,
+                conversations = social.conversations,
+                reply = social.reply,
+                discordDm = DiscordDmThreadUiState(peerUserId = userId),
+                circlePins = social.circlePins,
+                managingCircle = false,
+                friendSearchQuery = social.friendSearchQuery,
+            )
+            val sendIndex = rows.indexOfFirst { it is AccountPanelRow.DiscordDmSend }
+            if (sendIndex >= 0) {
+                accountPanelSelectedIndex.value = sendIndex
+            }
+            emit(HomeEvent.ShowMessage("Type a message, then press A on Send."))
+            return
+        }
         val matchingConvo = social.conversations.discordConversations.firstOrNull { convo ->
             friend != null && convo.title.equals(friend.displayName, ignoreCase = true)
         }
@@ -2999,7 +3109,7 @@ class HomeViewModel @Inject constructor(
             activateConversation(matchingConvo.key)
             return
         }
-        // No Social SDK DM API exposed — open Discord user profile / app as best effort.
+        // SDK missing / not Connected — deep-link into the Discord app.
         if (openExternalUrl("discord://discord.com/users/$userId")) return
         if (openExternalUrl("https://discord.com/users/$userId")) return
         if (openExternalUrl("discord://")) return
@@ -3161,6 +3271,7 @@ class HomeViewModel @Inject constructor(
                 emit(HomeEvent.OpenGameOptions(it.id))
             }
             NavAction.ScrapeMenu -> state.selectedGame?.let {
+                romSaveRefresh.update { tick -> tick + 1 }
                 emit(HomeEvent.OpenScrapeMenu(it.id))
             }
             NavAction.ToggleFavorite -> toggleFavorite()
@@ -3354,6 +3465,13 @@ class HomeViewModel @Inject constructor(
                 }
                 preferences.setGamesSecondarySlot(next)
             }
+            StartSettingsAction.CycleXmbTitleStyle -> viewModelScope.launch {
+                val next = when (preferences.settings.first().xmbTitleStyle) {
+                    XmbTitleStyle.TitleIcons -> XmbTitleStyle.Text
+                    XmbTitleStyle.Text -> XmbTitleStyle.TitleIcons
+                }
+                preferences.setXmbTitleStyle(next)
+            }
             StartSettingsAction.CycleBgmVolume -> viewModelScope.launch {
                 preferences.setBgmVolume(nextVolumeStep(preferences.settings.first().bgmVolume))
             }
@@ -3502,10 +3620,11 @@ class HomeViewModel @Inject constructor(
                 emit(HomeEvent.ShowError(progress.error ?: "Scan failed."))
                 return@launch
             }
+            libraryHashScheduler.enqueue(rehashAll = false, replace = false)
             scraperScheduler.enqueue(replace = true)
             emit(
                 HomeEvent.ShowMessage(
-                    "Scanned ${progress.gamesFound} games — fetching artwork…",
+                    "Scanned ${progress.gamesFound} games — hashing ROMs & fetching artwork…",
                 ),
             )
         }
@@ -4292,6 +4411,129 @@ class HomeViewModel @Inject constructor(
 
     fun setFavorite(gameId: String, favorite: Boolean) {
         viewModelScope.launch { libraryRepository.setFavorite(gameId, favorite) }
+    }
+
+    fun listSavesForGame(game: Game): List<GameSaveEntry> = gameSaveCatalog.listForGame(game)
+
+    fun romSaveRefreshTick(): StateFlow<Int> = romSaveRefresh
+
+    fun refreshRomSaves() {
+        romSaveRefresh.update { it + 1 }
+    }
+
+    fun importSavesForGame(gameId: String) {
+        viewModelScope.launch {
+            val game = libraryRepository.findById(gameId) ?: return@launch
+            val result = gameSaveCatalog.importExternal(game)
+            refreshRomSaves()
+            emit(
+                HomeEvent.ShowMessage(
+                    result.message ?: "No matching RetroArch / beside-ROM saves found.",
+                ),
+            )
+        }
+    }
+
+    fun deleteSaveForGame(entry: GameSaveEntry) {
+        viewModelScope.launch {
+            val ok = gameSaveCatalog.delete(entry)
+            refreshRomSaves()
+            emit(
+                if (ok) HomeEvent.ShowMessage("Deleted ${entry.fileName}")
+                else HomeEvent.ShowError("Could not delete that save file."),
+            )
+        }
+    }
+
+    fun pickGameBoxArt(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameBoxArt(gameId)) }
+        }
+    }
+
+    fun pickGameBackground(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameBackground(gameId)) }
+        }
+    }
+
+    fun pickGameSoundBite(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameSoundBite(gameId)) }
+        }
+    }
+
+    fun setGameBoxArt(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = gameCustomMediaStore.importBoxArt(gameId, uri)
+                libraryRepository.setBoxArtPath(gameId, path)
+                emit(HomeEvent.ShowMessage("Box art updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import box art."))
+            }
+        }
+    }
+
+    fun setGameBackground(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = gameCustomMediaStore.importBackground(gameId, uri)
+                libraryRepository.setHeroImagePath(gameId, path)
+                emit(HomeEvent.ShowMessage("Background updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import background."))
+            }
+        }
+    }
+
+    fun setGameSoundBite(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = gameCustomMediaStore.importSoundBite(gameId, uri)
+                libraryRepository.setSoundBitePath(gameId, path)
+                gameSoundBitePlayer.play(path)
+                emit(HomeEvent.ShowMessage("Sound bite updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import sound bite."))
+            }
+        }
+    }
+
+    fun clearGameBoxArt(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearBoxArt(gameId)
+            libraryRepository.setBoxArtPath(gameId, null)
+            emit(HomeEvent.ShowMessage("Box art cleared."))
+        }
+    }
+
+    fun clearGameBackground(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearBackground(gameId)
+            libraryRepository.setHeroImagePath(gameId, null)
+            emit(HomeEvent.ShowMessage("Background cleared."))
+        }
+    }
+
+    fun clearGameSoundBite(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearSoundBite(gameId)
+            libraryRepository.setSoundBitePath(gameId, null)
+            gameSoundBitePlayer.stop()
+            emit(HomeEvent.ShowMessage("Sound bite cleared."))
+        }
+    }
+
+    fun previewGameSoundBite(gameId: String) {
+        viewModelScope.launch {
+            val path = libraryRepository.findById(gameId)?.soundBitePath
+            if (path.isNullOrBlank()) {
+                emit(HomeEvent.ShowMessage("No sound bite set."))
+            } else {
+                gameSoundBitePlayer.play(path)
+            }
+        }
     }
 
     suspend fun scraperPreferenceForGame(gameId: String): ScraperPreference {

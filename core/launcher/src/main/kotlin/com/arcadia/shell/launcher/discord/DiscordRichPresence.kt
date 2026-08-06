@@ -72,6 +72,29 @@ data class DiscordFriendEntry(
     val isOnline: Boolean get() = group != "offline"
 }
 
+/** One DM message from the Social SDK (in-launcher Discord chat). */
+data class DiscordDmMessage(
+    val messageId: String,
+    val authorId: String,
+    val recipientId: String,
+    val sentAtMs: Long,
+    val sentFromGame: Boolean,
+    val content: String,
+    val isMine: Boolean = false,
+)
+
+/** Open DM thread state for the Social → Discord chat pane. */
+data class DiscordDmThreadUiState(
+    val peerUserId: String? = null,
+    val peerDisplayName: String = "",
+    val peerAvatarUrl: String? = null,
+    val messages: List<DiscordDmMessage> = emptyList(),
+    val draft: String = "",
+    val loading: Boolean = false,
+    val sending: Boolean = false,
+    val error: String? = null,
+)
+
 data class DiscordPresenceUiState(
     val applicationId: String = "",
     val activity: DiscordPresenceActivity = DiscordPresenceActivity.Idle,
@@ -91,6 +114,8 @@ data class DiscordPresenceUiState(
     val lastError: String? = null,
     /** Discord friends from Social SDK (empty until linked / Ready). */
     val friends: List<DiscordFriendEntry> = emptyList(),
+    /** Linked Discord user snowflake (for isMine on DM messages). */
+    val currentUserId: String? = null,
     /**
      * True after OAuth UpdateToken succeeded (or a stored token is being restored) but before
      * [DiscordPresenceCapability.Connected] / Ready. Social UI shows “Connecting…” instead of
@@ -170,16 +195,20 @@ data class DiscordPresenceUiState(
             "Install or open the Discord app, then Link Discord account (Social → Discord or Settings)."
 
         const val DETAIL_NEEDS_LINK =
-            "On Android/handhelds, Rich Presence requires Discord account linking " +
-                "(Social → Discord → Link). Unauthenticated RPC is desktop-only. " +
-                "After OAuth, status becomes Connected and friends see Playing XOrA. " +
-                "Portal: app name XOrA, Public Client on, redirect URI registered. " +
-                "Scopes: openid, sdk.social_layer_presence. Logcat: SoraDiscord"
+            "On Android/handhelds, Rich Presence and in-launcher Discord DMs require Discord " +
+                "account linking (Social → Discord → Link). Unauthenticated RPC is desktop-only. " +
+                "After OAuth, status becomes Connected — friends see Playing XOrA and you can " +
+                "message them inside Social. Portal: app name XOrA, Public Client on, redirect " +
+                "URI registered. Scopes: Social SDK communication scopes (presence + messaging). " +
+                "Re-link if you linked before messaging was enabled. Logcat: SoraDiscord"
     }
 }
 
 interface DiscordRichPresence {
     val state: StateFlow<DiscordPresenceUiState>
+
+    /** Open Discord DM thread for the Social menu chat pane. */
+    val dmThread: StateFlow<DiscordDmThreadUiState>
 
     fun setApplicationId(applicationId: String)
 
@@ -205,6 +234,20 @@ interface DiscordRichPresence {
 
     /** Starts Discord account linking when the Social SDK is present. */
     fun startAccountLinking(activity: Activity)
+
+    /** Opens an in-launcher DM with a Discord friend (Social SDK messaging). */
+    fun openDm(userId: String, displayName: String, avatarUrl: String?)
+
+    /** Closes the in-launcher DM pane and clears draft / messages. */
+    fun closeDm()
+
+    fun updateDmDraft(draft: String)
+
+    /** Sends [DiscordDmThreadUiState.draft] to the open peer. */
+    fun sendDm()
+
+    /** Reloads recent messages for the open DM peer. */
+    fun refreshDm()
 
     /**
      * Builds a chooser intent that shares [DiscordPresenceUiState.shareText] (status bridge).

@@ -82,6 +82,10 @@ void destroy_fbo_unlocked() {
 bool create_fbo_unlocked(unsigned width, unsigned height) {
     if (width == 0) width = 640;
     if (height == 0) height = 480;
+    // Cap offscreen targets — Mupen/GLideN64 can request 4K+; full glReadPixels OOMs.
+    constexpr unsigned kMaxDim = 1920;
+    if (width > kMaxDim) width = kMaxDim;
+    if (height > kMaxDim) height = kMaxDim;
     // Grow only — avoids thrashing when cores report base vs max geometry.
     if (g_fbo && width <= g_fbo_w && height <= g_fbo_h) {
         glBindFramebuffer(GL_FRAMEBUFFER, g_fbo);

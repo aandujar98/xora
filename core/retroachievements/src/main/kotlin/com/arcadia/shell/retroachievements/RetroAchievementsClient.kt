@@ -98,6 +98,69 @@ class RetroAchievementsClient @Inject constructor(
     suspend fun loginWithToken(username: String, connectToken: String): Result<RaLoginSession> =
         loginWithTokenBody(username, connectToken).mapCatching { parseLoginBody(it) }
 
+    /**
+     * Connect `r=patch` — achievement definitions for [gameId]. Raw JSON for rcheevos injection.
+     */
+    suspend fun fetchPatchBody(
+        username: String,
+        connectToken: String,
+        gameId: Int,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val user = username.trim()
+        val token = connectToken.trim()
+        if (user.isBlank() || token.isEmpty() || gameId <= 0) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Username, Connect token, and game id are required."),
+            )
+        }
+        runCatching {
+            postForm(
+                "$SITE_BASE/dorequest.php",
+                mapOf(
+                    "r" to "patch",
+                    "u" to user,
+                    "t" to token,
+                    "g" to gameId.toString(),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Connect `r=startsession` — starts a play session and returns unlock state. Raw JSON for
+     * rcheevos injection so the emulator host never re-hits Cloudflare for session start.
+     */
+    suspend fun startSessionBody(
+        username: String,
+        connectToken: String,
+        gameId: Int,
+        md5: String,
+        hardcore: Boolean,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val user = username.trim()
+        val token = connectToken.trim()
+        val hash = md5.trim().lowercase()
+        if (user.isBlank() || token.isEmpty() || gameId <= 0 || hash.length != 32) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Username, Connect token, game id, and MD5 are required."),
+            )
+        }
+        runCatching {
+            postForm(
+                "$SITE_BASE/dorequest.php",
+                mapOf(
+                    "r" to "startsession",
+                    "u" to user,
+                    "t" to token,
+                    "g" to gameId.toString(),
+                    "h" to if (hardcore) "1" else "0",
+                    "m" to hash,
+                    "l" to RCHEEVOS_CLIENT_VERSION,
+                ),
+            )
+        }
+    }
+
     suspend fun fetchProfile(credentials: RetroAchievementsCredentials): Result<RaProfile> =
         withContext(Dispatchers.IO) {
             if (!credentials.isConfigured) {
@@ -435,6 +498,13 @@ class RetroAchievementsClient @Inject constructor(
          * blocked/legacy names can make `gameid` return Success:false + GameID:0.
          */
         const val USER_AGENT = "XOrA/1.0.0"
+
+        /**
+         * `l=` on Connect `startsession` — must match the vendored rcheevos [RCHEEVOS_VERSION_STRING].
+         * Kept as a Kotlin constant so the emulator can prefetch the session without linking native.
+         */
+        /** Matches vendored rcheevos when patch==0 → "major.minor". */
+        const val RCHEEVOS_CLIENT_VERSION = "11.6"
 
         /** Roughly one year — enough for a browseable “all recent” list without dumping history. */
         const val RECENT_WINDOW_MINUTES = 525_600

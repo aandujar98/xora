@@ -33,7 +33,7 @@ enum class NavAction {
      */
     Options,
     /**
-     * Scrape & library menu (Select on game select): scrapers, favourite, Choose Emulator.
+     * ROM options menu (Select on a focused ROM): customize art/sound, saves, scrapers, emulator.
      * On Home shortcuts, Select opens shortcut customize instead.
      */
     ScrapeMenu,

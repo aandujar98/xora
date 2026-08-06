@@ -1,6 +1,7 @@
 package com.arcadia.shell.libretro
 
 import android.util.Log
+import com.arcadia.shell.database.repository.LibraryRepository
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
@@ -21,7 +22,8 @@ import java.io.File
 
 /**
  * Starts a RetroAchievements session for an in-process Libretro game:
- * hash ROM → login with stored Connect/Web token → map memory → evaluate each frame.
+ * hash ROM → resolve game id → prefetch Connect payloads on the launcher HTTP stack →
+ * inject into rcheevos (login / gameid / patch / startsession).
  *
  * Softcore vs hardcore follows [RetroAchievementsSettings.hardcore].
  */
@@ -30,6 +32,7 @@ class LibretroRaSession(
     private val okHttpClient: OkHttpClient,
     private val retroAchievements: RetroAchievementsRepository,
     private val romHasher: RomHasher,
+    private val libraryRepository: LibraryRepository,
     private val notifications: ShellNotificationCenter,
     private val gameTitle: String,
     private val raSettings: RetroAchievementsSettings = RetroAchievementsSettings(),
@@ -84,21 +87,47 @@ class LibretroRaSession(
             }
 
             _status.value = "RA: hashing ROM…"
-            val game = Game(
-                id = gameId,
-                title = gameTitle,
-                sortKey = gameTitle.lowercase(),
-                platformId = platformId,
-                fileName = File(romPath).name,
-                filePath = romPath,
-                documentUri = null,
-                sizeBytes = File(romPath).length().coerceAtLeast(0L),
-            )
-            val hashes = withContext(Dispatchers.IO) { romHasher.hash(game) }
-            if (hashes == null) {
-                _status.value = "RA: could not hash this ROM"
+            val storedMd5 = withContext(Dispatchers.IO) {
+                libraryRepository.findById(gameId)?.md5?.trim()?.lowercase()
+                    ?.takeIf { it.length == 32 }
+            }
+            val md5 = if (storedMd5 != null) {
+                storedMd5
+            } else {
+                val game = Game(
+                    id = gameId,
+                    title = gameTitle,
+                    sortKey = gameTitle.lowercase(),
+                    platformId = platformId,
+                    fileName = File(romPath).name,
+                    filePath = romPath,
+                    documentUri = null,
+                    sizeBytes = File(romPath).length().coerceAtLeast(0L),
+                )
+                val hashes = withContext(Dispatchers.IO) { romHasher.hash(game) }
+                if (hashes == null) {
+                    _status.value = "RA: could not hash this ROM"
+                    return@launch
+                }
+                runCatching {
+                    libraryRepository.setHashes(gameId, hashes.crc32, hashes.md5, hashes.sha1)
+                }
+                hashes.md5.lowercase()
+            }
+
+            _status.value = "RA: identifying ROM…"
+            val resolvedId = withContext(Dispatchers.IO) {
+                retroAchievements.resolveRomGameId(md5, platformId)
+            }.getOrElse { error ->
+                _status.value = "RA: ${error.message ?: "could not identify ROM"}"
                 return@launch
             }
+            if (resolvedId == null) {
+                _status.value = "RA: no RetroAchievements set for this ROM"
+                Log.i(TAG, "No RA set for md5=$md5 platform=$platformId")
+                return@launch
+            }
+            Log.i(TAG, "RA identified md5=$md5 → gameId=$resolvedId")
 
             val consoleId = RaConsoleIds.forPlatform(platformId) ?: 0
             val memOk = LibretroNative.nativeRaInitMemory(consoleId)
@@ -113,8 +142,9 @@ class LibretroRaSession(
             }
             LibretroNative.nativeRaSetHardcore(raSettings.hardcore)
 
-            // Refresh Connect token on the launcher HTTP stack, then inject that JSON into
-            // rcheevos so native login does not make a second (often Cloudflare-blocked) request.
+            // Refresh Connect token + prefetch patch/startsession on the launcher HTTP stack
+            // (Cloudflare-safe UA). Inject those JSON bodies into rcheevos so native never needs
+            // a second live dorequest for login / gameid / patch / startsession.
             val login = withContext(Dispatchers.IO) {
                 retroAchievements.refreshEmulatorSession()
             }.getOrElse { error ->
@@ -122,9 +152,44 @@ class LibretroRaSession(
                 return@launch
             }
 
-            LibretroNative.nativeRaQueueLoginResponse(login.loginJson)
-            LibretroNative.nativeRaLoadGame(hashes.md5.lowercase())
-            LibretroNative.nativeRaLogin(login.session.username, login.session.token)
+            _status.value = "RA: loading achievements…"
+            val gameSession = withContext(Dispatchers.IO) {
+                retroAchievements.prefetchEmulatorGameSession(
+                    username = login.session.username,
+                    connectToken = login.session.token,
+                    gameId = resolvedId,
+                    md5 = md5,
+                    hardcore = raSettings.hardcore,
+                )
+            }.getOrElse { error ->
+                _status.value = "RA: ${error.message ?: "could not load achievements"}"
+                return@launch
+            }
+
+            notifications.emit(
+                ShellNotification.RetroAchievementsSignedIn(
+                    id = "ra-signin:${login.session.username}:${System.currentTimeMillis()}",
+                    username = login.session.username,
+                    hardcore = raSettings.hardcore,
+                    gameTitle = gameTitle,
+                ),
+                force = true,
+            )
+            _status.value = "RA: logged in as ${login.session.username}"
+
+            // Seed rcheevos on the IO dispatcher so nested sync callbacks do not block the UI
+            // thread (and so frame-loop mutex waits stay off Main).
+            withContext(Dispatchers.IO) {
+                LibretroNative.nativeRaAddGameHash(md5, resolvedId)
+                LibretroNative.nativeRaQueueGameIdResponse(
+                    """{"Success":true,"GameID":$resolvedId}""",
+                )
+                LibretroNative.nativeRaQueueLoginResponse(login.loginJson)
+                LibretroNative.nativeRaQueuePatchResponse(gameSession.patchJson)
+                LibretroNative.nativeRaQueueStartSessionResponse(gameSession.startSessionJson)
+                LibretroNative.nativeRaLoadGame(md5)
+                LibretroNative.nativeRaLogin(login.session.username, login.session.token)
+            }
         }
     }
 

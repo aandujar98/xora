@@ -1,6 +1,7 @@
 package com.arcadia.shell.retroachievements
 
 import android.util.Log
+import com.arcadia.shell.database.repository.LibraryRepository
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.model.Game
@@ -10,6 +11,11 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -19,6 +25,7 @@ class RetroAchievementsRepository @Inject constructor(
     private val preferences: ShellPreferences,
     private val client: RetroAchievementsClient,
     private val hasher: RomHasher,
+    private val libraryRepository: LibraryRepository,
 ) {
     private val gameIdByMd5 = ConcurrentHashMap<String, Int>()
 
@@ -159,6 +166,89 @@ class RetroAchievementsRepository @Inject constructor(
     ): Result<List<RaCompletionGame>> =
         client.fetchCompletionProgress(currentCredentials(), count = count, offset = offset)
 
+    /**
+     * Resolve a ROM MD5 to a RetroAchievements game id using the same Connect + Web API hash
+     * library fallback as the launcher. Used by XOrA Emulator so Cloudflare-blocked Connect
+     * `gameid` calls still succeed.
+     */
+    suspend fun resolveRomGameId(md5: String, platformId: String): Result<Int?> {
+        val creds = currentCredentials()
+        val consoleId = RaConsoleIds.forPlatform(platformId)
+        return client.resolveGameId(md5.lowercase(), credentials = creds, consoleId = consoleId)
+    }
+
+    /**
+     * Prefetch Connect `patch` + `startsession` JSON on the launcher HTTP stack for the emulator.
+     * Pair with [refreshEmulatorSession] so rcheevos never needs a live dorequest after login.
+     */
+    suspend fun prefetchEmulatorGameSession(
+        username: String,
+        connectToken: String,
+        gameId: Int,
+        md5: String,
+        hardcore: Boolean,
+    ): Result<RaEmulatorGameSession> {
+        val patch = client.fetchPatchBody(username, connectToken, gameId).getOrElse {
+            return Result.failure(
+                IllegalStateException(
+                    RetroAchievementsClient.sanitizeErrorMessage(
+                        it.message ?: "Could not download achievement set.",
+                    ),
+                ),
+            )
+        }
+        connectSuccessOrFail(patch, "Could not download achievement set.").getOrElse {
+            return Result.failure(it)
+        }
+        val start = client.startSessionBody(
+            username = username,
+            connectToken = connectToken,
+            gameId = gameId,
+            md5 = md5,
+            hardcore = hardcore,
+        ).getOrElse {
+            return Result.failure(
+                IllegalStateException(
+                    RetroAchievementsClient.sanitizeErrorMessage(
+                        it.message ?: "Could not start RetroAchievements session.",
+                    ),
+                ),
+            )
+        }
+        connectSuccessOrFail(start, "Could not start RetroAchievements session.").getOrElse {
+            return Result.failure(it)
+        }
+        return Result.success(
+            RaEmulatorGameSession(patchJson = patch, startSessionJson = start),
+        )
+    }
+
+    private fun connectSuccessOrFail(body: String, fallback: String): Result<Unit> {
+        val trimmed = body.trimStart()
+        if (!trimmed.startsWith("{")) {
+            return Result.failure(IllegalStateException("RetroAchievements response was blocked."))
+        }
+        return runCatching {
+            val obj = CONNECT_JSON.parseToJsonElement(trimmed).jsonObject
+            val success = obj["Success"]?.jsonPrimitive?.booleanOrNull
+            if (success == false) {
+                val error = obj["Error"]?.jsonPrimitive?.contentOrNull
+                    ?: obj["Code"]?.jsonPrimitive?.contentOrNull
+                    ?: fallback
+                error(RetroAchievementsClient.sanitizeErrorMessage(error))
+            }
+        }.fold(
+            onSuccess = { Result.success(Unit) },
+            onFailure = {
+                Result.failure(
+                    IllegalStateException(
+                        RetroAchievementsClient.sanitizeErrorMessage(it.message ?: fallback),
+                    ),
+                )
+            },
+        )
+    }
+
     suspend fun lookupSelectedGame(game: Game?): RaGameLookup {
         if (game == null || game.isAndroidApp) return RaGameLookup.NoHash
 
@@ -186,29 +276,44 @@ class RetroAchievementsRepository @Inject constructor(
             )
         }
 
-        val hashes = try {
-            withTimeout(HASH_TIMEOUT_MS) { hasher.hash(game) }
-        } catch (_: TimeoutCancellationException) {
-            Log.w(TAG, "Hash timeout for ${game.fileName}")
-            return RaGameLookup.Failed("Timed out hashing this ROM for RetroAchievements.")
-        } ?: return RaGameLookup.Failed(
-            when {
-                game.filePath == null && game.documentUri == null ->
-                    "Could not hash this ROM for RetroAchievements (missing file access)."
-                game.platformId in RaHashRules.DISC_HASH_PLATFORMS ->
-                    "Could not compute the RetroAchievements disc hash for this " +
-                        "${game.platform.displayName} image. Try .cue/.bin, .iso, or .gdi."
-                else ->
-                    "Could not hash this ROM for RetroAchievements " +
-                        "(missing file access, or a format that needs a custom hash)."
-            },
-        )
+        // Prefer a previously stored library hash (from "Hash all ROMs" / scrape). Live-hash when
+        // missing so selection still works before the background pass finishes.
+        val storedMd5 = game.md5?.trim()?.lowercase()?.takeIf { it.length == 32 }
+        val hashes = if (storedMd5 != null) {
+            null
+        } else {
+            try {
+                withTimeout(HASH_TIMEOUT_MS) { hasher.hash(game) }
+            } catch (_: TimeoutCancellationException) {
+                Log.w(TAG, "Hash timeout for ${game.fileName}")
+                return RaGameLookup.Failed("Timed out hashing this ROM for RetroAchievements.")
+            } ?: return RaGameLookup.Failed(
+                when {
+                    game.filePath == null && game.documentUri == null ->
+                        "Could not hash this ROM for RetroAchievements (missing file access)."
+                    game.platformId in RaHashRules.DISC_HASH_PLATFORMS ->
+                        "Could not compute the RetroAchievements disc hash for this " +
+                            "${game.platform.displayName} image. Try .cue/.bin, .iso, or .gdi."
+                    else ->
+                        "Could not hash this ROM for RetroAchievements " +
+                            "(missing file access, or a format that needs a custom hash). " +
+                            "Run Setup → RetroAchievements → Hash all ROMs."
+                },
+            )
+        }
 
-        val md5 = hashes.md5.lowercase()
+        val md5 = storedMd5 ?: hashes!!.md5.lowercase()
+        val hashedBytes = hashes?.hashedBytes ?: game.sizeBytes
+        if (storedMd5 == null && hashes != null) {
+            runCatching {
+                libraryRepository.setHashes(game.id, hashes.crc32, hashes.md5, hashes.sha1)
+            }
+        }
         Log.i(
             TAG,
             "Hash ok for ${game.fileName} platform=${game.platformId} " +
-                "bytes=${hashes.hashedBytes} md5=$md5 — resolving game id",
+                "bytes=$hashedBytes md5=$md5 " +
+                "(${if (storedMd5 != null) "stored" else "live"}) — resolving game id",
         )
 
         val creds = currentCredentials()
@@ -243,7 +348,7 @@ class RetroAchievementsRepository @Inject constructor(
                     )
                 },
             )
-        } ?: return RaGameLookup.NoGame(md5 = md5, hashedBytes = hashes.hashedBytes)
+        } ?: return RaGameLookup.NoGame(md5 = md5, hashedBytes = hashedBytes)
 
         if (!creds.isConfigured) {
             return RaGameLookup.Failed("Not signed in.")
@@ -271,5 +376,6 @@ class RetroAchievementsRepository @Inject constructor(
         const val TAG = "RetroAchievements"
         const val HASH_TIMEOUT_MS = 45_000L
         const val API_TIMEOUT_MS = 30_000L
+        private val CONNECT_JSON = Json { ignoreUnknownKeys = true }
     }
 }

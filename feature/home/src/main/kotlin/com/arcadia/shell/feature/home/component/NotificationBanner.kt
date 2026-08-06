@@ -272,6 +272,16 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             accent = if (notification.hardcore) Color(0xFFFFC24B) else Color(0xFF37D6A0),
         )
 
+        is ShellNotification.RetroAchievementsSignedIn -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_trophy,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = null,
+            avatarFallback = "RA",
+            accent = if (notification.hardcore) Color(0xFFFFC24B) else Color(0xFF37D6A0),
+        )
+
         is ShellNotification.DiscordMessage -> BannerContent(
             category = copy.category,
             categoryIconRes = R.drawable.ic_banner_messages,

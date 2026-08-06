@@ -83,7 +83,9 @@ class ScrapeCoordinator @Inject constructor(
 
     /** Returns true when artwork or a better title was found and stored. */
     private suspend fun scrapeOne(game: Game, credentials: ScraperCredentials): Boolean {
-        val hashes = if (credentials.hasScreenScraper) hasher.hash(game) else null
+        // Always hash when possible — RetroAchievements launcher lookup needs MD5s even when the
+        // user has no ScreenScraper account.
+        val hashes = hasher.hash(game)
 
         hashes?.let {
             libraryRepository.setHashes(game.id, it.crc32, it.md5, it.sha1)

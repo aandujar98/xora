@@ -37,7 +37,37 @@ data class XoraEmulatorSettings(
     val netplayUseRelay: Boolean = false,
     /** Last host address typed in Join (IP or hostname). */
     val netplayHostAddress: String = "",
+    /**
+     * Preferred physical controller name from [android.view.InputDevice.getName].
+     * Blank = accept input from any connected gamepad.
+     */
+    val preferredControllerName: String = "",
+    /**
+     * Optional keyCode → Libretro joypad button index remaps.
+     * Empty = built-in [com.arcadia.shell.libretro.LibretroPad] defaults.
+     */
+    val buttonMappings: Map<Int, Int> = emptyMap(),
 )
+
+/** Encode [XoraEmulatorSettings.buttonMappings] for DataStore (`keycode:button,…`). */
+fun encodeButtonMappings(mappings: Map<Int, Int>): String =
+    mappings.entries
+        .sortedBy { it.value }
+        .joinToString(",") { "${it.key}:${it.value}" }
+
+/** Decode a [encodeButtonMappings] string; invalid tokens are skipped. */
+fun decodeButtonMappings(raw: String): Map<Int, Int> {
+    if (raw.isBlank()) return emptyMap()
+    val out = LinkedHashMap<Int, Int>()
+    raw.split(',').forEach { token ->
+        val parts = token.split(':')
+        if (parts.size != 2) return@forEach
+        val key = parts[0].toIntOrNull() ?: return@forEach
+        val button = parts[1].toIntOrNull() ?: return@forEach
+        if (button in 0..15) out[key] = button
+    }
+    return out
+}
 
 /** How XOrA scales the core framebuffer on screen. */
 enum class XoraAspectMode {

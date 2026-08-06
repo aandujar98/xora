@@ -7,6 +7,7 @@ import com.arcadia.shell.datastore.DiscordSocialSettings
 import com.arcadia.shell.datastore.SteamWebApiCredentials
 import com.arcadia.shell.launcher.conversations.ConversationsUiState
 import com.arcadia.shell.launcher.conversations.NotificationConversation
+import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordFriendEntry
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 
@@ -95,6 +96,10 @@ sealed interface AccountPanelRow {
     /** Single Discord Rich Presence link CTA (Discord tab only when not linked). */
     data object DiscordConnect : AccountPanelRow
     data object DiscordOpenApp : AccountPanelRow
+    /** Sends the in-launcher Discord DM draft. */
+    data object DiscordDmSend : AccountPanelRow
+    /** Closes the in-launcher Discord DM pane. */
+    data object DiscordDmClose : AccountPanelRow
 }
 
 data class ConversationReplyUiState(
@@ -108,6 +113,8 @@ data class SocialMenuUiState(
     val discord: DiscordSocialUiState = DiscordSocialUiState(),
     val conversations: ConversationsUiState = ConversationsUiState(),
     val reply: ConversationReplyUiState = ConversationReplyUiState(),
+    /** In-launcher Discord DM thread (Social SDK messaging). */
+    val discordDm: DiscordDmThreadUiState = DiscordDmThreadUiState(),
     /** Persisted mixed Circle pins (max [CIRCLE_FRIEND_LIMIT]). */
     val circlePins: List<CirclePin> = emptyList(),
     /** When true, friend lists show add/remove Circle controls. */
@@ -116,6 +123,8 @@ data class SocialMenuUiState(
     val friendSearchQuery: String = "",
 ) {
     val isReplying: Boolean get() = reply.conversationKey != null
+
+    val isDiscordDmOpen: Boolean get() = discordDm.peerUserId != null
 
     val circleSlotsFilled: Int get() = circlePins.size.coerceAtMost(CIRCLE_FRIEND_LIMIT)
 

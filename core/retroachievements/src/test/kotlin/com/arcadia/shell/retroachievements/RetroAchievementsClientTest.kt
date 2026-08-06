@@ -45,6 +45,10 @@ class RetroAchievementsClientTest {
         assertEquals(21, RaConsoleIds.forPlatform("ps2"))
         assertEquals(41, RaConsoleIds.forPlatform("psp"))
         assertEquals(40, RaConsoleIds.forPlatform("dreamcast"))
+        assertEquals(13, RaConsoleIds.forPlatform("atarilynx"))
+        assertEquals(29, RaConsoleIds.forPlatform("msx"))
+        assertEquals(30, RaConsoleIds.forPlatform("c64"))
+        assertEquals(35, RaConsoleIds.forPlatform("amiga"))
     }
 
     @Test

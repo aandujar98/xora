@@ -19,6 +19,14 @@ sealed interface ShellNotification {
         val hardcore: Boolean = false,
     ) : ShellNotification
 
+    /** Shown when XOrA Emulator successfully authenticates with RetroAchievements. */
+    data class RetroAchievementsSignedIn(
+        override val id: String,
+        val username: String,
+        val hardcore: Boolean = false,
+        val gameTitle: String? = null,
+    ) : ShellNotification
+
     data class DiscordMessage(
         override val id: String,
         val sender: String,

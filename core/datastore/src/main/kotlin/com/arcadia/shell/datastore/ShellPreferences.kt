@@ -106,6 +106,14 @@ enum class AvatarSource {
     RetroAchievements,
 }
 
+/** How XMB ROM rows show the game title next to box art. */
+enum class XmbTitleStyle {
+    /** Prefer clear-logo / wheel art when available. */
+    TitleIcons,
+    /** Always show the game title as text. */
+    Text,
+}
+
 data class ShellSettings(
     /**
      * Which pane the secondary physical display shows. The library always owns input focus, so this
@@ -136,6 +144,10 @@ data class ShellSettings(
      * Stored as the enum name string.
      */
     val gamesSecondarySlot: String = "Continue",
+    /**
+     * XMB ROM browse: clear-logo title icons vs plain text titles.
+     */
+    val xmbTitleStyle: XmbTitleStyle = XmbTitleStyle.TitleIcons,
     /**
      * Download each game's scanned manual during a metadata scrape, for the companion screen to
      * page through. Off by default: manuals are the largest media ScreenScraper serves, and a big
@@ -273,17 +285,18 @@ data class SteamWebApiCredentials(
 }
 
 /**
- * Discord social-menu hooks. Full OAuth2 + privileged DM intents are out of scope;
- * this stores an optional invite / profile deep link for “Open Discord”, plus a
- * Discord Application ID for Rich Presence (Social SDK / status bridge).
+ * Discord social-menu hooks. Stores an optional invite / profile deep link for
+ * “Open Discord”, plus a Discord Application ID for Social SDK Rich Presence and
+ * in-launcher friend DMs (communication scopes). Re-link after scope upgrades.
  */
 data class DiscordSocialSettings(
     /** Invite URL, profile URL, or discord:// deep link. */
     val openUrl: String = "",
     /**
-     * Discord Developer Portal Application (client) ID used for Rich Presence.
-     * Defaults to [DEFAULT_DISCORD_APPLICATION_ID] until the user clears or overrides it.
-     * Live mobile presence still requires Discord’s proprietary Social SDK AAR.
+     * Discord Developer Portal Application (client) ID used for Rich Presence and
+     * in-launcher Discord chat. Defaults to [DEFAULT_DISCORD_APPLICATION_ID] until
+     * the user clears or overrides it. Live mobile presence / DMs still require
+     * Discord’s proprietary Social SDK AAR.
      */
     val applicationId: String = DEFAULT_DISCORD_APPLICATION_ID,
 ) {
@@ -321,6 +334,9 @@ class ShellPreferences @Inject constructor(
                 .coerceIn(MIN_UI_TEXT_SCALE, MAX_UI_TEXT_SCALE),
             scrapeAfterScan = prefs[Keys.SCRAPE_AFTER_SCAN] ?: true,
             gamesSecondarySlot = prefs[Keys.GAMES_SECONDARY_SLOT] ?: "Continue",
+            xmbTitleStyle = prefs[Keys.XMB_TITLE_STYLE]
+                ?.let { name -> runCatching { XmbTitleStyle.valueOf(name) }.getOrNull() }
+                ?: XmbTitleStyle.TitleIcons,
             manualScrapeEnabled = prefs[Keys.MANUAL_SCRAPE_ENABLED] ?: false,
             lastScanAt = prefs[Keys.LAST_SCAN_AT] ?: 0,
             bgmVolume = prefs[Keys.BGM_VOLUME] ?: DEFAULT_BGM_VOLUME,
@@ -385,6 +401,8 @@ class ShellPreferences @Inject constructor(
             netplaySpectator = prefs[Keys.XORA_NETPLAY_SPECTATOR] ?: false,
             netplayUseRelay = prefs[Keys.XORA_NETPLAY_RELAY] ?: false,
             netplayHostAddress = prefs[Keys.XORA_NETPLAY_HOST].orEmpty(),
+            preferredControllerName = prefs[Keys.XORA_CONTROLLER_NAME].orEmpty(),
+            buttonMappings = decodeButtonMappings(prefs[Keys.XORA_BUTTON_MAPPINGS].orEmpty()),
         )
     }
 
@@ -526,6 +544,10 @@ class ShellPreferences @Inject constructor(
         it[Keys.GAMES_SECONDARY_SLOT] = slot
     }
 
+    suspend fun setXmbTitleStyle(style: XmbTitleStyle) = edit {
+        it[Keys.XMB_TITLE_STYLE] = style.name
+    }
+
     suspend fun setManualScrapeEnabled(enabled: Boolean) = edit {
         it[Keys.MANUAL_SCRAPE_ENABLED] = enabled
     }
@@ -649,6 +671,18 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setXoraNetplayHostAddress(address: String) = edit {
         it[Keys.XORA_NETPLAY_HOST] = address.trim().take(128)
+    }
+
+    suspend fun setXoraPreferredControllerName(name: String) = edit {
+        it[Keys.XORA_CONTROLLER_NAME] = name.trim().take(128)
+    }
+
+    suspend fun setXoraButtonMappings(mappings: Map<Int, Int>) = edit {
+        it[Keys.XORA_BUTTON_MAPPINGS] = encodeButtonMappings(mappings)
+    }
+
+    suspend fun clearXoraButtonMappings() = edit {
+        it[Keys.XORA_BUTTON_MAPPINGS] = ""
     }
 
     suspend fun setRaEnabled(enabled: Boolean) = edit {
@@ -927,6 +961,7 @@ class ShellPreferences @Inject constructor(
         val UI_TEXT_SCALE = floatPreferencesKey("ui_text_scale")
         val SCRAPE_AFTER_SCAN = booleanPreferencesKey("scrape_after_scan")
         val GAMES_SECONDARY_SLOT = stringPreferencesKey("games_secondary_slot")
+        val XMB_TITLE_STYLE = stringPreferencesKey("xmb_title_style")
         val MANUAL_SCRAPE_ENABLED = booleanPreferencesKey("manual_scrape_enabled")
         val LAST_SCAN_AT = longPreferencesKey("last_scan_at")
         val BGM_VOLUME = floatPreferencesKey("bgm_volume")
@@ -980,6 +1015,8 @@ class ShellPreferences @Inject constructor(
         val XORA_NETPLAY_SPECTATOR = booleanPreferencesKey("xora_netplay_spectator")
         val XORA_NETPLAY_RELAY = booleanPreferencesKey("xora_netplay_relay")
         val XORA_NETPLAY_HOST = stringPreferencesKey("xora_netplay_host")
+        val XORA_CONTROLLER_NAME = stringPreferencesKey("xora_preferred_controller")
+        val XORA_BUTTON_MAPPINGS = stringPreferencesKey("xora_button_mappings")
         val RA_ENABLED = booleanPreferencesKey("ra_enabled")
         val RA_HARDCORE = booleanPreferencesKey("ra_hardcore")
         val RA_UNLOCK_NOTIFICATIONS = booleanPreferencesKey("ra_unlock_notifications")

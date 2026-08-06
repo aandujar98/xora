@@ -57,8 +57,9 @@ import com.arcadia.shell.feature.home.HomePageContent
 import com.arcadia.shell.feature.home.HomeScreen
 import com.arcadia.shell.feature.home.HomeUiState
 import com.arcadia.shell.feature.home.HomeViewModel
-import com.arcadia.shell.feature.home.ScrapeOptionsSheet
+import com.arcadia.shell.feature.home.RomOptionsSheet
 import com.arcadia.shell.feature.home.ThemesSheet
+import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.feature.home.XoraXmbHeroDetail
 import com.arcadia.shell.feature.home.component.GuidePanel
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
@@ -101,10 +102,12 @@ fun ArcadiaShell(
     var chooseEmulatorPlatformId by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val routeTween = arcadiaTween<Float>(ArcadiaMotion.Medium)
-    val overlayOpen = optionsGameId != null ||
-        scrapeMenuGameId != null ||
-        chooseEmulatorPlatformId != null
+    // Game options dialog blocks the dispatcher; bottom sheets keep it on so SheetNavCapture works.
+    val dialogOverlayOpen = optionsGameId != null
+    val sheetOverlayOpen = scrapeMenuGameId != null || chooseEmulatorPlatformId != null
+    val overlayOpen = dialogOverlayOpen || sheetOverlayOpen
     val context = LocalContext.current
+    var pendingGameMediaId by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Activity Result launchers must live only in this Activity-rooted composition. Home hub /
     // shortcuts also compose under ComposePresentation on dual-screen, where nested Dialog and
@@ -135,6 +138,27 @@ fun ArcadiaShell(
     ) { uri ->
         if (uri != null) homeViewModel.setLocalAvatar(uri)
     }
+    val gameBoxArtPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        val gameId = pendingGameMediaId
+        pendingGameMediaId = null
+        if (uri != null && gameId != null) homeViewModel.setGameBoxArt(gameId, uri)
+    }
+    val gameBackgroundPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val gameId = pendingGameMediaId
+        pendingGameMediaId = null
+        if (uri != null && gameId != null) homeViewModel.setGameBackground(gameId, uri)
+    }
+    val gameSoundBitePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        val gameId = pendingGameMediaId
+        pendingGameMediaId = null
+        if (uri != null && gameId != null) homeViewModel.setGameSoundBite(gameId, uri)
+    }
 
     LaunchedEffect(homeViewModel) {
         homeViewModel.mediaPickerRequestFlow.collect { request ->
@@ -151,6 +175,20 @@ fun ArcadiaShell(
                     HomeMediaPickerRequest.ProfileAvatar -> profileAvatarPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                     )
+                    is HomeMediaPickerRequest.GameBoxArt -> {
+                        pendingGameMediaId = request.gameId
+                        gameBoxArtPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    }
+                    is HomeMediaPickerRequest.GameBackground -> {
+                        pendingGameMediaId = request.gameId
+                        gameBackgroundPicker.launch(arrayOf("image/*", "video/*"))
+                    }
+                    is HomeMediaPickerRequest.GameSoundBite -> {
+                        pendingGameMediaId = request.gameId
+                        gameSoundBitePicker.launch("audio/*")
+                    }
                 }
             }
         }
@@ -178,11 +216,10 @@ fun ArcadiaShell(
     }
 
     // Gamepad navigation belongs to the library only. Setup, onboarding, and the options dialog
-    // are ordinary forms, and they should get plain focus traversal instead. Guide keeps the
-    // dispatcher on.
-    LaunchedEffect(route, overlayOpen, shellState.showOnboarding) {
+    // are ordinary forms. Bottom sheets keep the dispatcher on so Select/U/D/B reach SheetNavCapture.
+    LaunchedEffect(route, dialogOverlayOpen, shellState.showOnboarding) {
         homeViewModel.gamepadDispatcher.isEnabled =
-            route == ShellRoute.Home && !overlayOpen && !shellState.showOnboarding
+            route == ShellRoute.Home && !dialogOverlayOpen && !shellState.showOnboarding
     }
 
     // Idle trailers are Home-only; Settings, options, Guide, Start config, welcome-back, and launch overlay must return to artwork.
@@ -497,15 +534,30 @@ fun ArcadiaShell(
             val emulatorLabel by produceState<String?>(null, game.platformId) {
                 value = homeViewModel.platformEmulatorLabel(game.platformId)
             }
+            val saveTick by homeViewModel.romSaveRefreshTick()
+                .collectAsStateWithLifecycle()
+            val saves by produceState(emptyList<GameSaveEntry>(), game.id, saveTick, game.filePath) {
+                value = homeViewModel.listSavesForGame(game)
+            }
             SheetNavCapture(homeViewModel)
-            ScrapeOptionsSheet(
+            RomOptionsSheet(
                 game = game,
+                saves = saves,
                 gamePreference = gamePref,
                 platformPreference = platformPref,
                 currentEmulatorLabel = emulatorLabel,
                 navActions = homeViewModel.sheetNavActionFlow,
                 onDismiss = { scrapeMenuGameId = null },
                 onToggleFavorite = { favorite -> homeViewModel.setFavorite(gameId, favorite) },
+                onPickBoxArt = { homeViewModel.pickGameBoxArt(gameId) },
+                onPickBackground = { homeViewModel.pickGameBackground(gameId) },
+                onPickSoundBite = { homeViewModel.pickGameSoundBite(gameId) },
+                onClearBoxArt = { homeViewModel.clearGameBoxArt(gameId) },
+                onClearBackground = { homeViewModel.clearGameBackground(gameId) },
+                onClearSoundBite = { homeViewModel.clearGameSoundBite(gameId) },
+                onPreviewSoundBite = { homeViewModel.previewGameSoundBite(gameId) },
+                onImportSaves = { homeViewModel.importSavesForGame(gameId) },
+                onDeleteSave = { entry -> homeViewModel.deleteSaveForGame(entry) },
                 onSetGamePreference = { pref ->
                     homeViewModel.setGameScraperPreference(gameId, pref)
                 },

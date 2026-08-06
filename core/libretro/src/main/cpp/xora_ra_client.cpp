@@ -5,6 +5,7 @@
 #include "xora_ra_memory.h"
 
 #include "rc_client.h"
+#include "rc_client_external.h"
 #include "rc_error.h"
 
 #include <android/log.h>
@@ -37,6 +38,20 @@ bool g_hardcore_wanted = false;
 std::string g_pending_hash;
 /** One-shot Connect login2 JSON from Kotlin — consumed by the next login server_call. */
 std::string g_queued_login_json;
+/** One-shot Connect gameid JSON from Kotlin (Connect + Web API fallback). */
+std::string g_queued_gameid_json;
+/** One-shot Connect patch JSON (achievement set) from Kotlin. */
+std::string g_queued_patch_json;
+/** One-shot Connect startsession JSON from Kotlin. */
+std::string g_queued_startsession_json;
+
+bool consume_queued_json(const char* label, std::string& queue, std::string& body_storage) {
+    if (queue.empty()) return false;
+    body_storage = queue;
+    queue.clear();
+    ALOGI("RA %s: using queued Connect JSON (%zu bytes)", label, body_storage.size());
+    return true;
+}
 
 JNIEnv* env_for_current_thread() {
     if (!g_jvm) return nullptr;
@@ -91,15 +106,25 @@ void server_call(
     jstring jpost = request->post_data ? env->NewStringUTF(request->post_data) : nullptr;
     jstring jct = request->content_type ? env->NewStringUTF(request->content_type) : nullptr;
 
-    // Prefer a Kotlin-validated login2 body so rcheevos never re-hits Cloudflare for sign-in.
+    // Prefer Kotlin-validated bodies so rcheevos never re-hits Cloudflare for Connect calls.
     const bool is_login =
         request->post_data && std::strstr(request->post_data, "r=login2") != nullptr;
+    const bool is_gameid =
+        (request->post_data && std::strstr(request->post_data, "r=gameid") != nullptr) ||
+        (request->url && std::strstr(request->url, "r=gameid") != nullptr);
+    const bool is_patch =
+        request->post_data && std::strstr(request->post_data, "r=patch") != nullptr;
+    const bool is_startsession =
+        request->post_data && std::strstr(request->post_data, "r=startsession") != nullptr;
     std::string body_storage;
-    if (is_login && !g_queued_login_json.empty()) {
-        body_storage = g_queued_login_json;
-        g_queued_login_json.clear();
+    const bool used_queue =
+        (is_login && consume_queued_json("login", g_queued_login_json, body_storage)) ||
+        (is_gameid && consume_queued_json("gameid", g_queued_gameid_json, body_storage)) ||
+        (is_patch && consume_queued_json("patch", g_queued_patch_json, body_storage)) ||
+        (is_startsession &&
+         consume_queued_json("startsession", g_queued_startsession_json, body_storage));
+    if (used_queue) {
         response.http_status_code = 200;
-        ALOGI("RA login: using queued Connect login2 JSON (%zu bytes)", body_storage.size());
         if (jurl) env->DeleteLocalRef(jurl);
         if (jpost) env->DeleteLocalRef(jpost);
         if (jct) env->DeleteLocalRef(jct);
@@ -143,13 +168,32 @@ void server_call(
         env->ExceptionClear();
     }
 
+    // Empty CLIENT_ERROR bodies become the opaque rcheevos "No response" — always leave a message.
+    if (body_storage.empty() &&
+        (response.http_status_code == RC_API_SERVER_RESPONSE_CLIENT_ERROR ||
+         response.http_status_code < 200 ||
+         response.http_status_code >= 300)) {
+        if (response.http_status_code == RC_API_SERVER_RESPONSE_CLIENT_ERROR) {
+            body_storage = "HTTP request failed";
+        } else {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "HTTP %d with empty body", response.http_status_code);
+            body_storage = buf;
+        }
+        // Keep CLIENT_ERROR so rcheevos surfaces body as the error_message.
+        if (response.http_status_code != RC_API_SERVER_RESPONSE_CLIENT_ERROR &&
+            response.http_status_code != RC_API_SERVER_RESPONSE_RETRYABLE_CLIENT_ERROR) {
+            response.http_status_code = RC_API_SERVER_RESPONSE_CLIENT_ERROR;
+        }
+    }
     response.body = body_storage.c_str();
     response.body_length = body_storage.size();
     if (response.http_status_code < 200 || response.http_status_code >= 300) {
         ALOGW(
-            "RA HTTP %d url=%s body=%.160s",
+            "RA HTTP %d url=%s post=%.80s body=%.160s",
             response.http_status_code,
             request->url ? request->url : "?",
+            request->post_data ? request->post_data : "",
             body_storage.c_str()
         );
     }
@@ -258,11 +302,20 @@ void load_game_callback(int result, const char* error_message, rc_client_t* clie
         notify_status(buf);
     } else {
         g_game_loaded = false;
-        ALOGE("RA load game failed: %s", error_message ? error_message : rc_error_str(result));
-        std::string msg = "RA: no achievements for this ROM";
-        if (error_message && error_message[0]) {
-            msg = "RA: ";
-            msg += error_message;
+        const char* detail = (error_message && error_message[0])
+            ? error_message
+            : rc_error_str(result);
+        ALOGE("RA load game failed (%d): %s", result, detail ? detail : "?");
+        std::string msg = "RA: ";
+        if (detail && detail[0]) {
+            // rcheevos uses "Unknown game" when the hash has no linked set.
+            if (std::strcmp(detail, "Unknown game") == 0) {
+                msg += "no RetroAchievements set for this ROM";
+            } else {
+                msg += detail;
+            }
+        } else {
+            msg += "could not load achievements for this ROM";
         }
         notify_status(msg.c_str());
     }
@@ -339,6 +392,10 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRaDetach(JNIEnv* env, jclas
     std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
     destroy_client_unlocked();
     g_queued_login_json.clear();
+    g_queued_gameid_json.clear();
+    g_queued_patch_json.clear();
+    g_queued_startsession_json.clear();
+    g_pending_hash.clear();
     if (g_bridge) {
         env->DeleteGlobalRef(g_bridge);
         g_bridge = nullptr;
@@ -363,6 +420,73 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRaQueueLoginResponse(
         env->ReleaseStringUTFChars(login_json, json);
         ALOGI("RA queued login JSON (%zu bytes)", g_queued_login_json.size());
     }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeRaQueueGameIdResponse(
+    JNIEnv* env,
+    jclass,
+    jstring game_id_json
+) {
+    std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
+    g_queued_gameid_json.clear();
+    if (!game_id_json) return;
+    const char* json = env->GetStringUTFChars(game_id_json, nullptr);
+    if (json) {
+        g_queued_gameid_json.assign(json);
+        env->ReleaseStringUTFChars(game_id_json, json);
+        ALOGI("RA queued gameid JSON (%zu bytes)", g_queued_gameid_json.size());
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeRaQueuePatchResponse(
+    JNIEnv* env,
+    jclass,
+    jstring patch_json
+) {
+    std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
+    g_queued_patch_json.clear();
+    if (!patch_json) return;
+    const char* json = env->GetStringUTFChars(patch_json, nullptr);
+    if (json) {
+        g_queued_patch_json.assign(json);
+        env->ReleaseStringUTFChars(patch_json, json);
+        ALOGI("RA queued patch JSON (%zu bytes)", g_queued_patch_json.size());
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeRaQueueStartSessionResponse(
+    JNIEnv* env,
+    jclass,
+    jstring start_session_json
+) {
+    std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
+    g_queued_startsession_json.clear();
+    if (!start_session_json) return;
+    const char* json = env->GetStringUTFChars(start_session_json, nullptr);
+    if (json) {
+        g_queued_startsession_json.assign(json);
+        env->ReleaseStringUTFChars(start_session_json, json);
+        ALOGI("RA queued startsession JSON (%zu bytes)", g_queued_startsession_json.size());
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeRaAddGameHash(
+    JNIEnv* env,
+    jclass,
+    jstring md5_hex,
+    jint game_id
+) {
+    std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
+    if (!ensure_client_unlocked() || !md5_hex || game_id <= 0) return;
+    const char* hash = env->GetStringUTFChars(md5_hex, nullptr);
+    if (!hash) return;
+    rc_client_add_game_hash(g_client, hash, static_cast<uint32_t>(game_id));
+    ALOGI("RA add_game_hash md5=%s → gameId=%d", hash, static_cast<int>(game_id));
+    env->ReleaseStringUTFChars(md5_hex, hash);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -488,4 +612,108 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRaSummary(JNIEnv* env, jcla
         );
     }
     return env->NewStringUTF(buf);
+}
+
+/**
+ * Returns Object[][] rows:
+ * [id, title, description, points, badgeUrl, unlocked ("0"/"1"), hardcore ("0"/"1"), progress]
+ */
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeRaListAchievements(JNIEnv* env, jclass) {
+    std::lock_guard<std::recursive_mutex> lock(g_ra_mutex);
+    if (!g_client || !g_game_loaded) return nullptr;
+
+    rc_client_achievement_list_t* list = rc_client_create_achievement_list(
+        g_client,
+        RC_CLIENT_ACHIEVEMENT_CATEGORY_CORE,
+        RC_CLIENT_ACHIEVEMENT_LIST_GROUPING_PROGRESS
+    );
+    if (!list) return nullptr;
+
+    uint32_t total = 0;
+    for (uint32_t b = 0; b < list->num_buckets; ++b) {
+        total += list->buckets[b].num_achievements;
+    }
+
+    jclass string_cls = env->FindClass("java/lang/String");
+    jclass string_array_cls = env->FindClass("[Ljava/lang/String;");
+    if (!string_cls || !string_array_cls) {
+        rc_client_destroy_achievement_list(list);
+        return nullptr;
+    }
+
+    jobjectArray rows = env->NewObjectArray(static_cast<jsize>(total), string_array_cls, nullptr);
+    if (!rows) {
+        rc_client_destroy_achievement_list(list);
+        env->DeleteLocalRef(string_cls);
+        env->DeleteLocalRef(string_array_cls);
+        return nullptr;
+    }
+
+    jsize row_index = 0;
+    for (uint32_t b = 0; b < list->num_buckets; ++b) {
+        const rc_client_achievement_bucket_t& bucket = list->buckets[b];
+        for (uint32_t i = 0; i < bucket.num_achievements; ++i) {
+            const rc_client_achievement_t* ach = bucket.achievements[i];
+            if (!ach) continue;
+
+            const bool unlocked = ach->state == RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED ||
+                (ach->unlocked & RC_CLIENT_ACHIEVEMENT_UNLOCKED_BOTH) != 0;
+            const bool hardcore =
+                (ach->unlocked & RC_CLIENT_ACHIEVEMENT_UNLOCKED_HARDCORE) != 0;
+
+            char badge_url[256]{};
+            rc_client_achievement_get_image_url(
+                ach,
+                unlocked ? RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED : RC_CLIENT_ACHIEVEMENT_STATE_ACTIVE,
+                badge_url,
+                sizeof(badge_url)
+            );
+
+            char id_buf[16];
+            char points_buf[16];
+            std::snprintf(id_buf, sizeof(id_buf), "%u", ach->id);
+            std::snprintf(points_buf, sizeof(points_buf), "%u", ach->points);
+
+            jobjectArray row = env->NewObjectArray(8, string_cls, nullptr);
+            if (!row) continue;
+            auto put = [&](jsize idx, const char* value) {
+                jstring js = env->NewStringUTF(value ? value : "");
+                if (js) {
+                    env->SetObjectArrayElement(row, idx, js);
+                    env->DeleteLocalRef(js);
+                }
+            };
+            put(0, id_buf);
+            put(1, ach->title);
+            put(2, ach->description);
+            put(3, points_buf);
+            put(4, badge_url);
+            put(5, unlocked ? "1" : "0");
+            put(6, hardcore ? "1" : "0");
+            put(7, ach->measured_progress);
+
+            env->SetObjectArrayElement(rows, row_index++, row);
+            env->DeleteLocalRef(row);
+        }
+    }
+
+    // Shrink if some null achievements were skipped.
+    if (row_index < static_cast<jsize>(total)) {
+        jobjectArray trimmed = env->NewObjectArray(row_index, string_array_cls, nullptr);
+        if (trimmed) {
+            for (jsize i = 0; i < row_index; ++i) {
+                auto elem = env->GetObjectArrayElement(rows, i);
+                env->SetObjectArrayElement(trimmed, i, elem);
+                if (elem) env->DeleteLocalRef(elem);
+            }
+            env->DeleteLocalRef(rows);
+            rows = trimmed;
+        }
+    }
+
+    rc_client_destroy_achievement_list(list);
+    env->DeleteLocalRef(string_cls);
+    env->DeleteLocalRef(string_array_cls);
+    return rows;
 }

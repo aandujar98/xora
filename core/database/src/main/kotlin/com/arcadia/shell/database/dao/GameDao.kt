@@ -34,6 +34,9 @@ interface GameDao {
     @Query("SELECT * FROM games WHERE rootId = :rootId")
     suspend fun findByRootId(rootId: String): List<GameEntity>
 
+    @Query("SELECT * FROM games")
+    suspend fun getAll(): List<GameEntity>
+
     @Query(
         """
         SELECT * FROM games
@@ -42,6 +45,37 @@ interface GameDao {
         """,
     )
     suspend fun findByScrapeState(state: ScrapeState, limit: Int): List<GameEntity>
+
+    /** ROMs that still need a RetroAchievements / ScreenScraper hash pass. */
+    @Query(
+        """
+        SELECT * FROM games
+        WHERE platformId != 'android'
+          AND (md5 IS NULL OR md5 = '')
+        ORDER BY sortKey ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun findMissingHashes(limit: Int): List<GameEntity>
+
+    @Query(
+        """
+        SELECT * FROM games
+        WHERE platformId != 'android'
+        ORDER BY sortKey ASC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun findAllRoms(limit: Int, offset: Int): List<GameEntity>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM games
+        WHERE platformId != 'android'
+          AND (md5 IS NULL OR md5 = '')
+        """,
+    )
+    suspend fun countMissingHashes(): Int
 
     @Query("SELECT COUNT(*) FROM games")
     suspend fun count(): Int
@@ -56,6 +90,12 @@ interface GameDao {
      */
     @Query("DELETE FROM games WHERE rootId = :rootId AND lastSeenAt < :scanStartedAt")
     suspend fun pruneMissing(rootId: String, scanStartedAt: Long): Int
+
+    @Query("DELETE FROM games WHERE rootId = :rootId")
+    suspend fun deleteByRootId(rootId: String): Int
+
+    @Query("DELETE FROM games WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>): Int
 
     @Query("UPDATE games SET favorite = :favorite WHERE id = :id")
     suspend fun setFavorite(id: String, favorite: Boolean)
@@ -137,6 +177,18 @@ interface GameDao {
 
     @Query("UPDATE games SET launchDisplayPreference = :preference WHERE id = :id")
     suspend fun setLaunchDisplayPreference(id: String, preference: LaunchDisplayPreference)
+
+    @Query("UPDATE games SET boxArtPath = :path WHERE id = :id")
+    suspend fun setBoxArtPath(id: String, path: String?)
+
+    @Query("UPDATE games SET heroImagePath = :path WHERE id = :id")
+    suspend fun setHeroImagePath(id: String, path: String?)
+
+    @Query("UPDATE games SET logoImagePath = :path WHERE id = :id")
+    suspend fun setLogoImagePath(id: String, path: String?)
+
+    @Query("UPDATE games SET soundBitePath = :path WHERE id = :id")
+    suspend fun setSoundBitePath(id: String, path: String?)
 
     @Query("DELETE FROM games")
     suspend fun deleteAll()

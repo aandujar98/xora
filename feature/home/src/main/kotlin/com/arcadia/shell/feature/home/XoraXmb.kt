@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home
 
+import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.PlatformSummary
 
@@ -53,6 +54,8 @@ data class XoraXmbItem(
     val artPath: String? = null,
     /** Clear-logo / wheel title art — preferred over [title] text for ROM rows. */
     val logoPath: String? = null,
+    /** Accumulated play time for ROM rows ([Game.playTimeMs]). */
+    val playTimeMs: Long = 0,
     /** Vector glyph when [artPath] is null. */
     val icon: XmbIcon = XmbIcon.System,
 )
@@ -85,6 +88,8 @@ data class XoraXmbUiState(
     val drilledPlatformId: String? = null,
     val items: List<XoraXmbItem> = emptyList(),
     val gamesSecondarySlot: GamesSecondarySlot = GamesSecondarySlot.Continue,
+    /** Clear-logo title icons vs text for ROM browse rows. */
+    val titleStyle: XmbTitleStyle = XmbTitleStyle.TitleIcons,
     /** Detail for the hero / dual pane. */
     val focusTitle: String = "Games",
     val focusSubtitle: String? = "Browse your library",
@@ -308,6 +313,7 @@ fun buildXoraRomItems(games: List<Game>): List<XoraXmbItem> =
             action = XoraXmbAction.LaunchGame(game.id),
             artPath = game.boxArtPath ?: game.heroImagePath,
             logoPath = game.logoImagePath,
+            playTimeMs = game.playTimeMs,
             icon = XmbIcon.Games,
         )
     }

@@ -49,6 +49,8 @@ data class SettingsUiState(
     val discordPresence: DiscordPresenceUiState = DiscordPresenceUiState(),
     val notificationListenerEnabled: Boolean = false,
     val isScraping: Boolean = false,
+    val isHashingRoms: Boolean = false,
+    val missingRomHashes: Int = 0,
     val message: String? = null,
     val raAuthBusy: Boolean = false,
     val raAuthError: String? = null,
