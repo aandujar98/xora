@@ -1246,37 +1246,16 @@ class XoraLibretroActivity : ComponentActivity() {
         waitingForMapButton = null
         paused = false
         statusText = ""
-        invalidateGameDisplay()
+        // Remount the game Image after the opaque pause plate. Do NOT recycle bitmaps here —
+        // Compose may still hold asImageBitmap() from the previous frame (crash on Resume).
+        displayGeneration++
+        frameTick++
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
         }
         ImmersiveMode.apply(window)
         window.decorView.requestFocus()
-    }
-
-    /** Drop any Compose-promoted texture from the pause stack and force a fresh Image layer. */
-    private fun invalidateGameDisplay() {
-        synchronized(bitmapLock) {
-            val src = gameBitmap
-            if (src != null && !src.isRecycled) {
-                val copy = runCatching { src.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
-                if (copy != null) {
-                    src.recycle()
-                    gameBitmap = copy
-                }
-            }
-            val bottom = bottomBitmap
-            if (bottom != null && !bottom.isRecycled) {
-                val copy = runCatching { bottom.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
-                if (copy != null) {
-                    bottom.recycle()
-                    bottomBitmap = copy
-                }
-            }
-        }
-        displayGeneration++
-        frameTick++
     }
 
     private fun activateMenuAction(index: Int) {
@@ -1353,6 +1332,8 @@ class XoraLibretroActivity : ComponentActivity() {
         if (w <= 0 || h <= 0 || packed.size < w * h + 2) return
         val pixels = packed.copyOfRange(2, 2 + w * h)
         val split = expandActive && h >= 2
+        // When replacing bitmaps, leave the previous instance unreycled — Compose Image may
+        // still be drawing the prior asImageBitmap until the next frame remounts.
         runOnUiThread {
             synchronized(bitmapLock) {
                 if (split) {
@@ -1360,7 +1341,6 @@ class XoraLibretroActivity : ComponentActivity() {
                     val bottomH = h - topH
                     var top = gameBitmap
                     if (top == null || top.width != w || top.height != topH || top.isRecycled) {
-                        top?.recycle()
                         top = Bitmap.createBitmap(w, topH, Bitmap.Config.ARGB_8888)
                         gameBitmap = top
                     }
@@ -1370,17 +1350,16 @@ class XoraLibretroActivity : ComponentActivity() {
                     if (bottom == null || bottom.width != w || bottom.height != bottomH ||
                         bottom.isRecycled
                     ) {
-                        bottom?.recycle()
                         bottom = Bitmap.createBitmap(w, bottomH, Bitmap.Config.ARGB_8888)
                         bottomBitmap = bottom
                     }
                     bottom.setPixels(pixels, topH * w, w, 0, 0, w, bottomH)
                 } else {
-                    bottomBitmap?.recycle()
-                    bottomBitmap = null
+                    if (bottomBitmap != null) {
+                        bottomBitmap = null
+                    }
                     var bmp = gameBitmap
                     if (bmp == null || bmp.width != w || bmp.height != h || bmp.isRecycled) {
-                        bmp?.recycle()
                         bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                         gameBitmap = bmp
                     }

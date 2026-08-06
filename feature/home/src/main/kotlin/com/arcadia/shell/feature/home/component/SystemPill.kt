@@ -18,7 +18,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -169,75 +168,67 @@ fun SystemPill(
         modifier = modifier.widthIn(max = if (expanded) 360.dp else 300.dp),
         horizontalAlignment = Alignment.End,
     ) {
-        // Collapsed status: glass capsule + circular PFP outside the pill clip.
-        // Keeping the avatar inside PillShape (50% round caps) squashed it into an oval.
+        // Collapsed status pill: Wi‑Fi · time · date · battery · bell · PFP
+        // Use a soft rounded bar (not 50% PillShape stadium) so the in-pill circle
+        // isn't clipped into an oval by the round end caps.
         Row(
+            modifier = Modifier
+                .liquidGlass(
+                    shape = RoundedCornerShape(20.dp),
+                    tone = GlassTone.OverMedia,
+                    intensity = GlassIntensity.Standard,
+                )
+                .clickable(onClick = onToggle)
+                .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onToggle,
-            ),
         ) {
-            Row(
+            WifiGlyph(connected = wifiConnected, tint = glass.content)
+            Text(
+                text = timeText,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = glass.content,
+            )
+            Box(
                 modifier = Modifier
-                    .liquidGlass(
-                        shape = ArcadiaGlass.PillShape,
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Standard,
-                    )
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .width(1.dp)
+                    .height(14.dp)
+                    .background(glass.contentMuted.copy(alpha = 0.35f)),
+            )
+            Text(
+                text = dateShort,
+                style = MaterialTheme.typography.labelMedium,
+                color = glass.contentMuted,
+            )
+            BatteryGlyph(
+                percent = batteryPercent,
+                charging = charging,
+                tint = glass.content,
+            )
+            Text(
+                text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
+                style = MaterialTheme.typography.labelMedium,
+                color = glass.contentMuted,
+            )
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onOpenNotifications),
+                contentAlignment = Alignment.Center,
             ) {
-                WifiGlyph(connected = wifiConnected, tint = glass.content)
-                Text(
-                    text = timeText,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = glass.content,
+                BellIcon(
+                    tint = Color(0xFFFFC857),
+                    showBadge = notificationUnreadCount > 0,
+                    modifier = Modifier.size(22.dp),
                 )
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(14.dp)
-                        .background(glass.contentMuted.copy(alpha = 0.35f)),
-                )
-                Text(
-                    text = dateShort,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = glass.contentMuted,
-                )
-                BatteryGlyph(
-                    percent = batteryPercent,
-                    charging = charging,
-                    tint = glass.content,
-                )
-                Text(
-                    text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = glass.contentMuted,
-                )
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onOpenNotifications),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    BellIcon(
-                        tint = Color(0xFFFFC857),
-                        showBadge = notificationUnreadCount > 0,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
             }
             Box {
                 ProfileAvatar(
                     displayName = profile.displayName,
                     presetId = profile.avatarPresetId,
-                    size = 44.dp,
+                    size = 40.dp,
                     imageModel = avatarImageModel,
                     borderColor = Color.White.copy(alpha = 0.45f),
                 )
