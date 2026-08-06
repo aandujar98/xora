@@ -63,22 +63,24 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
+import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.GlassIntensity
+import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.AchievementsUiState
-import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaGameProgress
 import com.arcadia.shell.retroachievements.RaProfile
 
-private val PillBg = Color(0xE61C1C1E)
-private val PillShape = RoundedCornerShape(999.dp)
-private val PanelShape = RoundedCornerShape(16.dp)
+/** Soft bar radius — same as RT, so in-pill circles aren't clipped into ovals. */
+private val CollapsedBarShape = RoundedCornerShape(20.dp)
 private val BadgeShape = RoundedCornerShape(8.dp)
 private val ProgressTrack = Color(0xFF3A3A3C)
 private val ProgressFill = Color.White
-private val DividerColor = Color.White.copy(alpha = 0.35f)
-private val MutedWhite = Color.White.copy(alpha = 0.72f)
+private val DividerColor = Color.White.copy(alpha = 0.28f)
 
 @Composable
 fun AchievementsPill(
@@ -92,37 +94,44 @@ fun AchievementsPill(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val glass = rememberGlassTokens(GlassTone.OverMedia)
     val needsLogin = !state.credentials.isConfigured || state.needsLogin
     val matched = state.gameLookup as? RaGameLookup.Matched
     val progress = matched?.progress
 
     Column(
-        modifier = modifier.widthIn(max = if (expanded) 320.dp else 220.dp),
+        modifier = modifier.widthIn(max = if (expanded) 320.dp else 240.dp),
         horizontalAlignment = Alignment.End,
     ) {
-        if (!expanded) {
-            CollapsedRaPill(
-                state = state,
-                progress = progress,
-                onToggle = onToggle,
-            )
-        }
+        // Collapsed trigger stays mounted like RT / LT — glass capsule over media.
+        CollapsedRaPill(
+            state = state,
+            progress = progress,
+            contentColor = glass.content,
+            mutedColor = glass.contentMuted,
+            onToggle = onToggle,
+        )
 
         AnimatedVisibility(
             visible = expanded,
             enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + expandVertically(
-                expandFrom = Alignment.Bottom,
+                expandFrom = Alignment.Top,
                 animationSpec = arcadiaTween<IntSize>(ArcadiaMotion.Medium),
             ),
             exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) + shrinkVertically(
-                shrinkTowards = Alignment.Bottom,
+                shrinkTowards = Alignment.Top,
                 animationSpec = arcadiaTween<IntSize>(ArcadiaMotion.Fast),
             ),
         ) {
             Column(
                 modifier = Modifier
-                    .clip(PanelShape)
-                    .background(PillBg)
+                    .padding(top = 8.dp)
+                    .liquidGlass(
+                        shape = ArcadiaGlass.PanelShape,
+                        tone = GlassTone.OverMedia,
+                        intensity = GlassIntensity.Strong,
+                        shimmer = true,
+                    )
                     .clickable(onClick = onToggle)
                     .padding(14.dp)
                     .fillMaxWidth()
@@ -153,7 +162,7 @@ fun AchievementsPill(
                     ) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(28.dp),
-                            color = Color.White,
+                            color = glass.content,
                             strokeWidth = 2.dp,
                         )
                     }
@@ -161,10 +170,14 @@ fun AchievementsPill(
                         progress = progress,
                         profile = state.profile,
                         credentials = state.credentials,
+                        contentColor = glass.content,
+                        mutedColor = glass.contentMuted,
                         onSignOut = onSignOut,
                     )
                     else -> ExpandedEmptyState(
                         state = state,
+                        contentColor = glass.content,
+                        mutedColor = glass.contentMuted,
                         onSignOut = onSignOut,
                     )
                 }
@@ -177,6 +190,8 @@ fun AchievementsPill(
 private fun CollapsedRaPill(
     state: AchievementsUiState,
     progress: RaGameProgress?,
+    contentColor: Color,
+    mutedColor: Color,
     onToggle: () -> Unit,
 ) {
     val label = when {
@@ -188,20 +203,23 @@ private fun CollapsedRaPill(
 
     Row(
         modifier = Modifier
-            .clip(PillShape)
-            .background(PillBg)
+            .liquidGlass(
+                shape = CollapsedBarShape,
+                tone = GlassTone.OverMedia,
+                intensity = GlassIntensity.Standard,
+            )
             .clickable(onClick = onToggle)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 10.dp, vertical = 7.dp)
             .semantics { contentDescription = "RetroAchievements $label" },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        TrophyGlyph(modifier = Modifier.size(16.dp))
+        TrophyGlyph(modifier = Modifier.size(16.dp), tint = contentColor)
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White,
+            color = contentColor,
             maxLines = 1,
         )
         Box(
@@ -210,7 +228,7 @@ private fun CollapsedRaPill(
                 .height(14.dp)
                 .background(DividerColor),
         )
-        ClockGlyph(modifier = Modifier.size(14.dp))
+        ClockGlyph(modifier = Modifier.size(14.dp), tint = mutedColor)
         OverlappingAvatars(
             urls = avatarUrls,
             size = 18.dp,
@@ -218,6 +236,7 @@ private fun CollapsedRaPill(
             maxVisible = 3,
             extraCount = 0,
         )
+        TriggerGlyph(letter = "X")
     }
 }
 
@@ -226,6 +245,8 @@ private fun ExpandedRaSummary(
     progress: RaGameProgress,
     profile: RaProfile?,
     credentials: RetroAchievementsCredentials,
+    contentColor: Color,
+    mutedColor: Color,
     onSignOut: () -> Unit,
 ) {
     val earnedBadges = progress.achievements.filter { it.earned }
@@ -253,7 +274,7 @@ private fun ExpandedRaSummary(
             text = progress.title,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White,
+            color = contentColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -292,26 +313,26 @@ private fun ExpandedRaSummary(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        TrophyGlyph(modifier = Modifier.size(16.dp))
+        TrophyGlyph(modifier = Modifier.size(16.dp), tint = contentColor)
         Text(
             text = progress.progressLabel,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White,
+            color = contentColor,
         )
         Box(
             modifier = Modifier
                 .weight(1f)
                 .height(8.dp)
-                .clip(PillShape)
-                .background(ProgressTrack),
+                .clip(CollapsedBarShape)
+                .background(ProgressTrack.copy(alpha = 0.55f)),
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(progress.completionFraction)
-                    .clip(PillShape)
-                    .background(ProgressFill),
+                    .clip(CollapsedBarShape)
+                    .background(ProgressFill.copy(alpha = 0.92f)),
             )
         }
     }
@@ -322,11 +343,11 @@ private fun ExpandedRaSummary(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ClockGlyph(modifier = Modifier.size(14.dp))
+        ClockGlyph(modifier = Modifier.size(14.dp), tint = mutedColor)
         Text(
             text = "Recent Players:",
             style = MaterialTheme.typography.labelMedium,
-            color = MutedWhite,
+            color = mutedColor,
         )
         Spacer(modifier = Modifier.weight(1f))
         OverlappingAvatars(
@@ -343,7 +364,7 @@ private fun ExpandedRaSummary(
         onClick = onSignOut,
         modifier = Modifier.align(Alignment.End),
     ) {
-        Text("Sign out", color = MutedWhite)
+        Text("Sign out", color = mutedColor)
     }
     }
 }
@@ -351,6 +372,8 @@ private fun ExpandedRaSummary(
 @Composable
 private fun ExpandedEmptyState(
     state: AchievementsUiState,
+    contentColor: Color,
+    mutedColor: Color,
     onSignOut: () -> Unit,
 ) {
     Column(
@@ -361,7 +384,7 @@ private fun ExpandedEmptyState(
             text = state.profile?.username ?: state.credentials.username,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White,
+            color = contentColor,
         )
         Text(
             text = when (state.gameLookup) {
@@ -372,10 +395,10 @@ private fun ExpandedEmptyState(
                 else -> state.error ?: "No achievement data yet."
             },
             style = MaterialTheme.typography.bodySmall,
-            color = MutedWhite,
+            color = mutedColor,
         )
         TextButton(onClick = onSignOut, modifier = Modifier.align(Alignment.End)) {
-            Text("Sign out", color = MutedWhite)
+            Text("Sign out", color = mutedColor)
         }
     }
 }
@@ -693,7 +716,10 @@ private fun consoleShortName(consoleName: String): String {
 }
 
 @Composable
-private fun TrophyGlyph(modifier: Modifier = Modifier) {
+private fun TrophyGlyph(
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White,
+) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
@@ -708,9 +734,9 @@ private fun TrophyGlyph(modifier: Modifier = Modifier) {
             quadraticTo(w * 0.22f, h * 0.38f, w * 0.28f, cupTop)
             close()
         }
-        drawPath(cupPath, color = Color.White)
+        drawPath(cupPath, color = tint)
         drawArc(
-            color = Color.White,
+            color = tint,
             startAngle = 90f,
             sweepAngle = 180f,
             useCenter = false,
@@ -719,7 +745,7 @@ private fun TrophyGlyph(modifier: Modifier = Modifier) {
             style = stroke,
         )
         drawArc(
-            color = Color.White,
+            color = tint,
             startAngle = 270f,
             sweepAngle = 180f,
             useCenter = false,
@@ -728,13 +754,13 @@ private fun TrophyGlyph(modifier: Modifier = Modifier) {
             style = stroke,
         )
         drawRoundRect(
-            color = Color.White,
+            color = tint,
             topLeft = Offset(w * 0.44f, cupBottom),
             size = Size(w * 0.12f, h * 0.18f),
             cornerRadius = CornerRadius(w * 0.04f),
         )
         drawRoundRect(
-            color = Color.White,
+            color = tint,
             topLeft = Offset(w * 0.30f, h * 0.78f),
             size = Size(w * 0.40f, h * 0.14f),
             cornerRadius = CornerRadius(w * 0.04f),
@@ -743,24 +769,27 @@ private fun TrophyGlyph(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ClockGlyph(modifier: Modifier = Modifier) {
+private fun ClockGlyph(
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White,
+) {
     Canvas(modifier = modifier) {
         val w = size.width
         val stroke = Stroke(width = w * 0.12f, cap = StrokeCap.Round)
         drawCircle(
-            color = Color.White,
+            color = tint,
             radius = w * 0.42f,
             style = stroke,
         )
         drawLine(
-            color = Color.White,
+            color = tint,
             start = Offset(w * 0.5f, w * 0.28f),
             end = Offset(w * 0.5f, w * 0.52f),
             strokeWidth = w * 0.12f,
             cap = StrokeCap.Round,
         )
         drawLine(
-            color = Color.White,
+            color = tint,
             start = Offset(w * 0.5f, w * 0.52f),
             end = Offset(w * 0.68f, w * 0.62f),
             strokeWidth = w * 0.12f,
