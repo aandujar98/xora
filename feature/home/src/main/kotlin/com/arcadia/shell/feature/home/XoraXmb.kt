@@ -73,6 +73,13 @@ sealed interface XoraXmbAction {
     data object DrillAllGames : XoraXmbAction
     /** Games → XOrA Emulator settings list. */
     data object DrillXoraEmulator : XoraXmbAction
+    /** In-emulator XMB only — close overlay and keep playing. */
+    data object ResumeGame : XoraXmbAction
+    /** In-emulator XMB only — leave the session and return to the launcher. */
+    data object QuitGame : XoraXmbAction
+    data object SaveGameState : XoraXmbAction
+    data object LoadGameState : XoraXmbAction
+    data object ResetGame : XoraXmbAction
     data object PhotosStub : XoraXmbAction
     data object VideosStub : XoraXmbAction
     data object MusicNowPlayingStub : XoraXmbAction
@@ -129,6 +136,11 @@ fun buildXoraCategoryItems(
     gamesSecondarySlot: GamesSecondarySlot,
     continueGame: Game?,
     favoriteGame: Game?,
+    /**
+     * When true (PS3-style in-emulator XMB), include the XOrA Emulator row.
+     * Hidden on the launcher Home XMB — only appears while a game session is open.
+     */
+    showXoraEmulator: Boolean = false,
 ): List<XoraXmbItem> = when (category) {
     XoraXmbCategory.Profiles -> listOf(
         XoraXmbItem(
@@ -218,30 +230,87 @@ fun buildXoraCategoryItems(
                 icon = XmbIcon.Favorite,
             )
         }
-        listOf(
-            XoraXmbItem(
-                id = "ra",
-                title = "Retro Achievements",
-                subtitle = "Progress & hardcore library",
-                action = XoraXmbAction.OpenRaLibrary,
-                icon = XmbIcon.Trophy,
-            ),
-            secondary,
-            XoraXmbItem(
-                id = "xora_emulator",
-                title = "XOrA Emulator",
-                subtitle = "Controllers, bezels & display",
-                action = XoraXmbAction.DrillXoraEmulator,
-                icon = XmbIcon.Emulator,
-            ),
-            XoraXmbItem(
-                id = "all_games",
-                title = "All Games",
-                subtitle = "Browse by system",
-                action = XoraXmbAction.DrillAllGames,
-                icon = XmbIcon.Folder,
-            ),
-        )
+        buildList {
+            if (showXoraEmulator) {
+                // PS3-style in-session Games column — Resume first, then emulator prefs.
+                add(
+                    XoraXmbItem(
+                        id = "resume",
+                        title = "Resume",
+                        subtitle = continueGame?.title ?: "Back to game",
+                        action = XoraXmbAction.ResumeGame,
+                        artPath = continueGame?.boxArtPath ?: continueGame?.heroImagePath,
+                        logoPath = continueGame?.logoImagePath,
+                        icon = XmbIcon.Continue,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "xora_emulator",
+                        title = "XOrA Emulator",
+                        subtitle = "Controllers, bezels & display",
+                        action = XoraXmbAction.DrillXoraEmulator,
+                        icon = XmbIcon.Emulator,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "save_state",
+                        title = "Save state",
+                        subtitle = "Slot 0",
+                        action = XoraXmbAction.SaveGameState,
+                        icon = XmbIcon.Folder,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "load_state",
+                        title = "Load state",
+                        subtitle = "Slot 0",
+                        action = XoraXmbAction.LoadGameState,
+                        icon = XmbIcon.Folder,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "reset_game",
+                        title = "Reset",
+                        subtitle = "Restart the soft session",
+                        action = XoraXmbAction.ResetGame,
+                        icon = XmbIcon.General,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "quit_game",
+                        title = "Quit to XOrA",
+                        subtitle = "Leave this game",
+                        action = XoraXmbAction.QuitGame,
+                        icon = XmbIcon.Settings,
+                    ),
+                )
+            } else {
+                add(
+                    XoraXmbItem(
+                        id = "ra",
+                        title = "Retro Achievements",
+                        subtitle = "Progress & hardcore library",
+                        action = XoraXmbAction.OpenRaLibrary,
+                        icon = XmbIcon.Trophy,
+                    ),
+                )
+                add(secondary)
+                add(
+                    XoraXmbItem(
+                        id = "all_games",
+                        title = "All Games",
+                        subtitle = "Browse by system",
+                        action = XoraXmbAction.DrillAllGames,
+                        icon = XmbIcon.Folder,
+                    ),
+                )
+            }
+        }
     }
     XoraXmbCategory.Media -> listOf(
         XoraXmbItem(

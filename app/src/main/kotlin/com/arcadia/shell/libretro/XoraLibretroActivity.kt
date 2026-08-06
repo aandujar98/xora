@@ -1,6 +1,5 @@
 package com.arcadia.shell.libretro
 
-import android.app.AlertDialog
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import android.graphics.PixelFormat
@@ -27,6 +26,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,10 +48,16 @@ import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
+import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.display.DisplayTopologyMonitor
 import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.SecondaryDisplayPane
+import com.arcadia.shell.feature.home.LocalInGameXmbController
+import com.arcadia.shell.feature.home.XoraEmulatorXmbSetting
+import com.arcadia.shell.feature.home.XoraInGameXmbController
+import com.arcadia.shell.feature.home.XoraInGameXmbOverlay
+import com.arcadia.shell.feature.home.XoraXmbAction
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.retroachievements.RetroAchievementsRepository
@@ -77,15 +83,11 @@ import kotlin.coroutines.coroutineContext
 /**
  * In-process Libretro session.
  *
- * Framebuffer lives on a sibling [ImageView]. Pause uses a system [AlertDialog] — never a
- * full-screen Compose overlay over the game (that greys letterboxes after Resume).
+ * Framebuffer lives on an [ImageView]. Back / PS-style chord opens the launcher XMB over a
+ * blurred frozen frame (ImageView hidden while the overlay is up so Resume cannot leave a wash).
+ * The XOrA Emulator XMB row is only available in that in-session overlay.
  *
- * A wrap-content [ComposeView] hosts notification banners, secondary-display panes, and
- * preference [LaunchedEffect]s only.
- *
- * All Libretro core entry points run on a dedicated single OS thread. Cores such as
- * Mupen64Plus-Next use libco; [retro_init] / [retro_run] / serialize must share that thread or
- * N64 sessions SIGSEGV on the first frame or savestate.
+ * All Libretro core entry points run on a dedicated single OS thread.
  */
 @AndroidEntryPoint
 class XoraLibretroActivity : ComponentActivity() {
@@ -102,12 +104,11 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var saveFileImporter: SaveFileImporter
 
     @Volatile private var menuOpen = false
-    /** True while the pause dialog is showing — pauses the frame loop. */
+    /** True while the in-game XMB is showing — pauses the frame loop. */
     @Volatile private var paused = false
     /** True while the activity is backgrounded (home/recents) — pauses the frame loop. */
     @Volatile private var activityInBackground = false
     private var gameLoaded = false
-    private var pauseDialog: AlertDialog? = null
     private var raSession: LibretroRaSession? = null
 
     private var runJob: Job? = null
@@ -118,6 +119,11 @@ class XoraLibretroActivity : ComponentActivity() {
     private var frameTick by mutableIntStateOf(0)
     private var primaryGameView: ImageView? = null
     private var secondaryGameView: ImageView? = null
+    private var gameRoot: FrameLayout? = null
+    private var xmbOverlay: ComposeView? = null
+    private var frozenMenuFrame by mutableStateOf<Bitmap?>(null)
+    private var profileName by mutableStateOf("Player")
+    private val inGameXmbController = XoraInGameXmbController()
     private val bitmapLock = Any()
 
     /**
@@ -152,59 +158,6 @@ class XoraLibretroActivity : ComponentActivity() {
         override fun onInputDeviceAdded(deviceId: Int) = Unit
         override fun onInputDeviceRemoved(deviceId: Int) = Unit
         override fun onInputDeviceChanged(deviceId: Int) = Unit
-    }
-
-    private fun buildMenuActions(): List<MenuAction> {
-        val hardcore = raSettings.hardcore && raSettings.enabled
-        val actions = mutableListOf(
-            MenuAction("Resume") { closeMenu() },
-        )
-        if (!hardcore) {
-            actions += MenuAction("Save state") {
-                lifecycleScope.launch(emuDispatcher) {
-                    saveState(0)
-                    withContext(Dispatchers.Main.immediate) {
-                        Toast.makeText(
-                            this@XoraLibretroActivity,
-                            "State saved (slot 0)",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-            }
-            actions += MenuAction("Load state") {
-                lifecycleScope.launch(emuDispatcher) {
-                    val ok = loadState(0)
-                    withContext(Dispatchers.Main.immediate) {
-                        Toast.makeText(
-                            this@XoraLibretroActivity,
-                            if (ok) "State loaded (slot 0)" else "No save in slot 0",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-            }
-        } else {
-            actions += MenuAction("Save state (hardcore off)") {
-                Toast.makeText(
-                    this,
-                    "Hardcore mode — save states disabled",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
-        actions += MenuAction("Reset") {
-            lifecycleScope.launch(emuDispatcher) {
-                LibretroNative.nativeReset()
-                withContext(Dispatchers.Main.immediate) {
-                    raSession?.onEmulatorReset()
-                    Toast.makeText(this@XoraLibretroActivity, "Reset", Toast.LENGTH_SHORT).show()
-                    closeMenu()
-                }
-            }
-        }
-        actions += MenuAction("Quit to XOrA") { finish() }
-        return actions
     }
 
     private fun refreshExpandTopology() {
@@ -259,6 +212,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
         }
+        gameRoot = root
         val gameView = ImageView(this).apply {
             setBackgroundColor(AndroidColor.BLACK)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -272,7 +226,6 @@ class XoraLibretroActivity : ComponentActivity() {
         root.addView(gameView)
 
         // Wrap-content host for RA unlock banners + secondary display + preference effects.
-        // Never MATCH_PARENT — a full-window Compose layer greys letterboxes.
         val banners = ComposeView(this).apply {
             setBackgroundColor(AndroidColor.TRANSPARENT)
             setLayerType(View.LAYER_TYPE_NONE, null)
@@ -287,7 +240,23 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         root.addView(banners)
 
+        val xmb = ComposeView(this).apply {
+            setBackgroundColor(AndroidColor.BLACK)
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            visibility = View.GONE
+        }
+        xmbOverlay = xmb
+        // Not attached until Back opens the in-game XMB.
+
         setContentView(root)
+        lifecycleScope.launch {
+            profileName = preferences.profile.first().displayName
+        }
 
         banners.setContent {
             val settings by preferences.settings.collectAsStateWithLifecycle(
@@ -340,6 +309,31 @@ class XoraLibretroActivity : ComponentActivity() {
             ) {
                 Box(modifier = Modifier.wrapContentSize(align = Alignment.TopStart)) {
                     NotificationBannerHost(center = shellNotifications)
+                }
+            }
+        }
+
+        xmb.setContent {
+            val settings by preferences.settings.collectAsStateWithLifecycle(
+                initialValue = ShellSettings(),
+            )
+            val xora by preferences.xoraEmulatorSettings.collectAsStateWithLifecycle(
+                initialValue = XoraEmulatorSettings(),
+            )
+            ArcadiaTheme(
+                darkTheme = true,
+                shellThemeId = settings.shellThemeId,
+                uiTextScale = settings.uiTextScale,
+            ) {
+                CompositionLocalProvider(LocalInGameXmbController provides inGameXmbController) {
+                    XoraInGameXmbOverlay(
+                        frozenFrame = frozenMenuFrame,
+                        gameTitle = gameTitle,
+                        profileName = profileName,
+                        emulatorSettings = xora,
+                        onAction = { handleInGameXmbAction(it) },
+                        onDismiss = { closeMenu() },
+                    )
                 }
             }
         }
@@ -486,9 +480,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     return true
                 }
                 if (menuOpen) {
-                    // Pause AlertDialog owns navigation; consume gamepad so the core stays idle.
-                    return LibretroPad.run { event.isFromGameController(customMappings) } ||
-                        LibretroPad.keyCodeToButton(keyCode, customMappings) != null
+                    return handleInGameXmbKey(keyCode)
                 }
                 if (!LibretroPad.matchesPreferredController(
                         InputDevice.getDevice(event.deviceId),
@@ -515,7 +507,12 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
                 if (menuOpen) {
                     return LibretroPad.run { event.isFromGameController(customMappings) } ||
-                        LibretroPad.keyCodeToButton(keyCode, customMappings) != null
+                        LibretroPad.keyCodeToButton(keyCode, customMappings) != null ||
+                        keyCode == KeyEvent.KEYCODE_BACK ||
+                        keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                        keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                        keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                        keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
                 }
                 if (!LibretroPad.matchesPreferredController(
                         InputDevice.getDevice(event.deviceId),
@@ -600,38 +597,184 @@ class XoraLibretroActivity : ComponentActivity() {
         return ok
     }
 
+    private fun handleInGameXmbKey(keyCode: Int): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                inGameXmbController.moveCategory?.invoke(-1)
+                uiSounds.playCursor()
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                inGameXmbController.moveCategory?.invoke(1)
+                uiSounds.playCursor()
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                inGameXmbController.moveItem?.invoke(-1)
+                uiSounds.playCursor()
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                inGameXmbController.moveItem?.invoke(1)
+                uiSounds.playCursor()
+                return true
+            }
+            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+            -> {
+                inGameXmbController.confirm?.invoke()
+                uiSounds.playConfirm()
+                return true
+            }
+            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
+                inGameXmbController.cancel?.invoke()
+                uiSounds.playCancel()
+                return true
+            }
+            KeyEvent.KEYCODE_BUTTON_MODE, KeyEvent.KEYCODE_MENU -> {
+                closeMenu()
+                return true
+            }
+        }
+        return true
+    }
+
     private fun openMenu() {
         if (menuOpen || isFinishing) return
+        val root = gameRoot ?: return
+        val overlay = xmbOverlay ?: return
+        // Freeze a copy of the current frame, then hide the live ImageView so the XMB Compose
+        // layer is never stacked over a visible framebuffer (tint bug).
+        val src = synchronized(bitmapLock) { gameBitmap }
+        frozenMenuFrame = src?.takeIf { !it.isRecycled }?.let { runCatching { it.copy(it.config ?: Bitmap.Config.ARGB_8888, false) }.getOrNull() }
+        primaryGameView?.visibility = View.GONE
+        if (overlay.parent == null) {
+            root.addView(overlay)
+        }
+        overlay.visibility = View.VISIBLE
+        root.bringChildToFront(overlay)
         menuOpen = true
         paused = true
         uiSounds.playConfirm()
-        val actions = buildMenuActions()
-        pauseDialog = AlertDialog.Builder(this)
-            .setTitle(gameTitle)
-            .setItems(actions.map { it.label }.toTypedArray()) { _, which ->
-                actions.getOrNull(which)?.onClick?.invoke()
-            }
-            .setOnDismissListener {
-                pauseDialog = null
-                if (menuOpen) {
-                    menuOpen = false
-                    paused = false
-                    restoreImmersiveFocus()
-                }
-            }
-            .show()
     }
 
     private fun closeMenu() {
-        val dialog = pauseDialog
-        if (dialog != null) {
-            dialog.dismiss()
-            return
+        if (!menuOpen && xmbOverlay?.parent == null) return
+        menuOpen = false
+        paused = false
+        val overlay = xmbOverlay
+        overlay?.visibility = View.GONE
+        (overlay?.parent as? ViewGroup)?.removeView(overlay)
+        val stale = frozenMenuFrame
+        frozenMenuFrame = null
+        stale?.recycle()
+        primaryGameView?.visibility = View.VISIBLE
+        primaryGameView?.invalidate()
+        restoreImmersiveFocus()
+    }
+
+    private fun handleInGameXmbAction(action: XoraXmbAction) {
+        when (action) {
+            XoraXmbAction.ResumeGame -> closeMenu()
+            XoraXmbAction.QuitGame -> {
+                closeMenu()
+                finish()
+            }
+            XoraXmbAction.SaveGameState -> {
+                val hardcore = raSettings.hardcore && raSettings.enabled
+                if (hardcore) {
+                    Toast.makeText(this, "Hardcore mode — save states disabled", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                lifecycleScope.launch(emuDispatcher) {
+                    saveState(0)
+                    withContext(Dispatchers.Main.immediate) {
+                        Toast.makeText(this@XoraLibretroActivity, "State saved (slot 0)", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            XoraXmbAction.LoadGameState -> {
+                val hardcore = raSettings.hardcore && raSettings.enabled
+                if (hardcore) {
+                    Toast.makeText(this, "Hardcore mode — load states disabled", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                lifecycleScope.launch(emuDispatcher) {
+                    val ok = loadState(0)
+                    withContext(Dispatchers.Main.immediate) {
+                        Toast.makeText(
+                            this@XoraLibretroActivity,
+                            if (ok) "State loaded (slot 0)" else "No save in slot 0",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        if (ok) closeMenu()
+                    }
+                }
+            }
+            XoraXmbAction.ResetGame -> {
+                lifecycleScope.launch(emuDispatcher) {
+                    LibretroNative.nativeReset()
+                    withContext(Dispatchers.Main.immediate) {
+                        raSession?.onEmulatorReset()
+                        Toast.makeText(this@XoraLibretroActivity, "Reset", Toast.LENGTH_SHORT).show()
+                        closeMenu()
+                    }
+                }
+            }
+            is XoraXmbAction.ToggleXoraEmulatorSetting -> toggleInGameEmulatorSetting(action.setting)
+            XoraXmbAction.OpenFullXoraEmulatorSetup ->
+                Toast.makeText(
+                    this,
+                    "Quit to XOrA → Games → Full Setup for cores & storage",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            is XoraXmbAction.OpenSettingsCategory ->
+                Toast.makeText(this, "Quit to XOrA to change launcher settings", Toast.LENGTH_SHORT).show()
+            else -> Unit
         }
-        if (menuOpen) {
-            menuOpen = false
-            paused = false
-            restoreImmersiveFocus()
+    }
+
+    private fun toggleInGameEmulatorSetting(setting: XoraEmulatorXmbSetting) {
+        lifecycleScope.launch {
+            val current = preferences.xoraEmulatorSettings.first()
+            when (setting) {
+                XoraEmulatorXmbSetting.Aspect -> {
+                    val next = when (current.aspectMode) {
+                        XoraAspectMode.Core -> XoraAspectMode.Integer
+                        XoraAspectMode.Integer -> XoraAspectMode.Stretch
+                        XoraAspectMode.Stretch -> XoraAspectMode.Core
+                    }
+                    preferences.setXoraAspectMode(next)
+                }
+                XoraEmulatorXmbSetting.Bezels ->
+                    preferences.setXoraBezelsEnabled(!current.bezelsEnabled)
+                XoraEmulatorXmbSetting.BezelOpacity -> {
+                    val stepped = ((current.bezelOpacity * 100f).toInt() + 10).let { raw ->
+                        if (raw > 100) 40 else raw
+                    }
+                    preferences.setXoraBezelOpacity(stepped / 100f)
+                }
+                XoraEmulatorXmbSetting.InternalResolution -> {
+                    val values = XoraInternalResolution.entries
+                    val i = values.indexOf(current.internalResolution).coerceAtLeast(0)
+                    preferences.setXoraInternalResolution(values[(i + 1) % values.size])
+                }
+                XoraEmulatorXmbSetting.ExpandDualDisplay ->
+                    preferences.setXoraExpandDualDisplay(!current.expandDualDisplay)
+                XoraEmulatorXmbSetting.PreferredController -> {
+                    val names = listOf("") + LibretroPad.connectedControllerNames()
+                    val idx = names.indexOf(current.preferredControllerName).let {
+                        if (it >= 0) it else 0
+                    }
+                    preferences.setXoraPreferredControllerName(names[(idx + 1) % names.size])
+                }
+                XoraEmulatorXmbSetting.ClearButtonMappings -> {
+                    preferences.clearXoraButtonMappings()
+                    Toast.makeText(this@XoraLibretroActivity, "Custom mappings cleared", Toast.LENGTH_SHORT).show()
+                }
+                XoraEmulatorXmbSetting.Netplay ->
+                    preferences.setXoraNetplayEnabled(!current.netplayEnabled)
+            }
         }
     }
 
@@ -761,10 +904,7 @@ class XoraLibretroActivity : ComponentActivity() {
         // Explicit quit — drop the autosave so the next launch is a fresh boot.
         runCatching { coreStore.autosaveFile(platformId, gameId).delete() }
         gameLoaded = false
-        pauseDialog?.dismiss()
-        pauseDialog = null
-        menuOpen = false
-        paused = false
+        closeMenu()
         super.finish()
         @Suppress("DEPRECATION")
         overridePendingTransition(
@@ -798,8 +938,7 @@ class XoraLibretroActivity : ComponentActivity() {
     override fun onDestroy() {
         inputManager?.unregisterInputDeviceListener(inputDeviceListener)
         inputManager = null
-        pauseDialog?.dismiss()
-        pauseDialog = null
+        closeMenu()
         runJob?.cancel()
         runJob = null
         raSession?.stop()
@@ -833,14 +972,9 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 }
 
-private data class MenuAction(
-    val label: String,
-    val onClick: () -> Unit,
-)
-
 /**
- * Classic View framebuffer — avoids Compose Image + asImageBitmap texture/premul wash after
- * pause overlays. The same Bitmap instance is mutated via setPixels; we only invalidate.
+ * Classic View framebuffer for the secondary display pane. The same Bitmap instance is mutated
+ * via setPixels; we only invalidate.
  */
 @Composable
 private fun XoraGameImageView(

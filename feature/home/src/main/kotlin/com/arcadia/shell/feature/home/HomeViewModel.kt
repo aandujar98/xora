@@ -1921,6 +1921,13 @@ class HomeViewModel @Inject constructor(
                 toggleXoraEmulatorSetting(action.setting)
             XoraXmbAction.OpenFullXoraEmulatorSetup ->
                 emit(HomeEvent.OpenSettings)
+            // In-emulator XMB actions — only handled inside XoraLibretroActivity.
+            XoraXmbAction.ResumeGame,
+            XoraXmbAction.QuitGame,
+            XoraXmbAction.SaveGameState,
+            XoraXmbAction.LoadGameState,
+            XoraXmbAction.ResetGame,
+            -> Unit
             XoraXmbAction.PhotosStub ->
                 emit(HomeEvent.ShowMessage("Photos — coming soon."))
             XoraXmbAction.VideosStub ->
