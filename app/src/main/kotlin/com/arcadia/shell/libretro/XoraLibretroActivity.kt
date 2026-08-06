@@ -9,6 +9,7 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
 import android.os.Bundle
+import android.view.Gravity
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -40,6 +41,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -168,9 +170,14 @@ class XoraLibretroActivity : ComponentActivity() {
     private var frameTick by mutableIntStateOf(0)
     private var primaryGameView: ImageView? = null
     private var secondaryGameView: ImageView? = null
-    /** Pause/boot/banner Compose layer — hidden during gameplay so submenu frost cannot linger. */
+    /**
+     * Full-screen pause/boot/status Compose layer. Never stacked over a visible game ImageView —
+     * that sibling blend is what greys letterboxes after submenu → Resume.
+     */
     private var overlayCompose: ComposeView? = null
-    /** Root that holds the game ImageView under the optional Compose overlay. */
+    /** Wrap-content toast host kept mounted during gameplay (RA unlock banners, etc.). */
+    private var bannerCompose: ComposeView? = null
+    /** Root that holds the game ImageView and optional Compose chrome. */
     private var gameRoot: FrameLayout? = null
     private val bitmapLock = Any()
 
@@ -379,8 +386,8 @@ class XoraLibretroActivity : ComponentActivity() {
         inputManager = getSystemService(INPUT_SERVICE) as InputManager
         inputManager?.registerInputDeviceListener(inputDeviceListener, null)
 
-        // Game framebuffer is a real View under Compose — overlays cannot promote a wash layer
-        // that encloses the ImageView (the bug that greyed letterboxes after Resume).
+        // Game framebuffer and full-screen Compose chrome are mutually exclusive. Stacking a
+        // transparent/translucent ComposeView over the ImageView greys letterboxes after menus.
         window.setFormat(PixelFormat.OPAQUE)
         val root = FrameLayout(this).apply {
             setBackgroundColor(AndroidColor.BLACK)
@@ -403,8 +410,8 @@ class XoraLibretroActivity : ComponentActivity() {
         root.addView(gameView)
 
         val overlay = ComposeView(this).apply {
-            setBackgroundColor(AndroidColor.TRANSPARENT)
-            // Avoid an offscreen layer that can bake overlay frost into the window.
+            // Always opaque while attached — never a transparent sheet over the framebuffer.
+            setBackgroundColor(AndroidColor.BLACK)
             setLayerType(View.LAYER_TYPE_NONE, null)
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -413,11 +420,28 @@ class XoraLibretroActivity : ComponentActivity() {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         }
         overlayCompose = overlay
-        // Attached only while pause/boot/status chrome is needed — see syncOverlayVisibility().
+
+        // Separate wrap-content host so unlock toasts work during gameplay without a full-window
+        // Compose layer sitting on top of the ImageView.
+        val banners = ComposeView(this).apply {
+            setBackgroundColor(AndroidColor.TRANSPARENT)
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            isClickable = false
+            isFocusable = false
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.START,
+            )
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        }
+        bannerCompose = banners
+        root.addView(banners)
+
         setContentView(root)
         syncOverlayVisibility()
 
-        overlay.setContent {
+        banners.setContent {
             val settings by preferences.settings.collectAsStateWithLifecycle(
                 initialValue = ShellSettings(),
             )
@@ -438,11 +462,55 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
-            // Submenu white-alpha chrome was leaving a wash after Resume — hide this view
-            // entirely whenever pause/boot/status chrome is idle.
             LaunchedEffect(menuOpen, bootOverlayVisible, statusText, runJob == null) {
                 syncOverlayVisibility()
             }
+
+            if (expandActive) {
+                SecondaryDisplayPane(displayId = secondaryDisplayId) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(androidx.compose.ui.graphics.Color.Black),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val bottom = bottomBitmap
+                        if (bottom != null) {
+                            XoraGameImageView(
+                                bitmap = bottom,
+                                frameTick = frameTick,
+                                aspectMode = xora.aspectMode,
+                                onImageView = { secondaryGameView = it },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                }
+            }
+
+            ArcadiaTheme(
+                darkTheme = true,
+                shellThemeId = settings.shellThemeId,
+                uiTextScale = settings.uiTextScale,
+            ) {
+                // Must wrap-content — a full-size transparent ComposeView over the game
+                // reintroduces the letterbox wash.
+                Box(modifier = Modifier.wrapContentSize(align = Alignment.TopStart)) {
+                    NotificationBannerHost(center = shellNotifications)
+                }
+            }
+        }
+
+        overlay.setContent {
+            val settings by preferences.settings.collectAsStateWithLifecycle(
+                initialValue = ShellSettings(),
+            )
+            val xora by preferences.xoraEmulatorSettings.collectAsStateWithLifecycle(
+                initialValue = XoraEmulatorSettings(),
+            )
+            val raPrefs by preferences.retroAchievementsSettings.collectAsStateWithLifecycle(
+                initialValue = RetroAchievementsSettings(),
+            )
             val textScale = settings.uiTextScale
             val shellThemeId = settings.shellThemeId
             val menuActions = remember(
@@ -462,39 +530,14 @@ class XoraLibretroActivity : ComponentActivity() {
                 uiTextScale = textScale,
             ) {
                 CompositionLocalProvider(LocalArcadiaHaze provides null) {
-                    // Transparent root so the sibling ImageView shows through. Never paint an
-                    // opaque full-bleed plate here except while pause/boot overlays are up.
-                    Box(modifier = Modifier.fillMaxSize()) {
-                    if (expandActive) {
-                        SecondaryDisplayPane(displayId = secondaryDisplayId) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(androidx.compose.ui.graphics.Color.Black),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                val bottom = bottomBitmap
-                                if (bottom != null) {
-                                    XoraGameImageView(
-                                        bitmap = bottom,
-                                        frameTick = frameTick,
-                                        aspectMode = xora.aspectMode,
-                                        onImageView = { secondaryGameView = it },
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
-                                }
-                            }
-                        }
-                    }
-
+                    // Opaque full-bleed chrome only. Game ImageView is GONE while this is attached.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF0B0D12)),
+                    ) {
                     if (menuOpen) {
-                        // Fully opaque pause plate over the still-mounted ImageView.
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFF0B0D12)),
-                        ) {
-                            when {
+                        when {
                                     mappingOpen -> {
                                         XoraEmulatorMappingPanel(
                                             mappings = xora.buttonMappings,
@@ -692,13 +735,10 @@ class XoraLibretroActivity : ComponentActivity() {
                                             closeMenu()
                                         }
                                     }
-                                }
-                            }
+                        }
                     } else if (statusText.isNotBlank() && runJob == null) {
                         Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFF0B0D12)),
+                            modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -716,8 +756,6 @@ class XoraLibretroActivity : ComponentActivity() {
                         title = gameTitle,
                         subtitle = if (statusText.isNotBlank()) statusText else "XOrA Emulator",
                     )
-
-                    NotificationBannerHost(center = shellNotifications)
                     }
                 }
             }
@@ -1288,10 +1326,10 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     /**
-     * ComposeView must not sit over the ImageView during gameplay. Opening pause submenus
-     * (settings / RA / controllers) used to leave a milky wash even after Resume — translucent
-     * Compose chrome over a sibling ImageView can promote a lasting HWUI blend. Hide by
-     * detaching the overlay entirely, and keep it View-opaque while any pause menu is up.
+     * Full-screen Compose chrome and the game ImageView are mutually exclusive.
+     * Never leave a ComposeView (even opaque) composited over a visible framebuffer — submenu
+     * navigation was still greying letterboxes with that stack. Banners live on a separate
+     * wrap-content ComposeView so toasts still work during gameplay.
      */
     private fun syncOverlayVisibility() {
         val showChrome = menuOpen ||
@@ -1299,25 +1337,25 @@ class XoraLibretroActivity : ComponentActivity() {
             (statusText.isNotBlank() && runJob == null)
         val overlay = overlayCompose ?: return
         val root = gameRoot ?: return
+        val game = primaryGameView
         if (showChrome) {
+            game?.visibility = View.GONE
+            overlay.setBackgroundColor(AndroidColor.BLACK)
+            overlay.setLayerType(View.LAYER_TYPE_NONE, null)
             if (overlay.parent == null) {
                 root.addView(overlay)
+            } else {
+                overlay.visibility = View.VISIBLE
             }
-            overlay.visibility = View.VISIBLE
-            overlay.setLayerType(View.LAYER_TYPE_NONE, null)
-            // Pause/submenu stack is fully opaque at the View level so nothing blends with the
-            // ImageView underneath (plain Resume was fine; submenu navigation was not).
-            overlay.setBackgroundColor(
-                if (menuOpen) AndroidColor.BLACK else AndroidColor.TRANSPARENT,
-            )
+            bannerCompose?.let { root.bringChildToFront(it) }
         } else {
-            overlay.setBackgroundColor(AndroidColor.TRANSPARENT)
             overlay.setLayerType(View.LAYER_TYPE_NONE, null)
             overlay.visibility = View.GONE
             (overlay.parent as? ViewGroup)?.removeView(overlay)
-            primaryGameView?.clearColorFilter()
-            primaryGameView?.imageAlpha = 255
-            primaryGameView?.invalidate()
+            game?.clearColorFilter()
+            game?.imageAlpha = 255
+            game?.visibility = View.VISIBLE
+            game?.invalidate()
             root.invalidate()
         }
     }
