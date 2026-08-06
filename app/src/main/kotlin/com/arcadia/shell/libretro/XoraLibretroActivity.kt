@@ -1,5 +1,6 @@
 package com.arcadia.shell.libretro
 
+import android.app.AlertDialog
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import android.graphics.PixelFormat
@@ -17,67 +18,29 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import coil3.request.crossfade
 import com.arcadia.shell.audio.UiSoundController
 import com.arcadia.shell.database.repository.LibraryRepository
 import com.arcadia.shell.datastore.RetroAchievementsSettings
@@ -85,14 +48,7 @@ import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
-import com.arcadia.shell.datastore.label
-import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ArcadiaTheme
-import com.arcadia.shell.designsystem.GlassTone
-import com.arcadia.shell.designsystem.LocalArcadiaHaze
-import com.arcadia.shell.designsystem.XoraSecondaryText
-import com.arcadia.shell.designsystem.XoraTitleText
-import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.display.DisplayTopologyMonitor
 import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.SecondaryDisplayPane
@@ -121,9 +77,11 @@ import kotlin.coroutines.coroutineContext
 /**
  * In-process Libretro session.
  *
- * Framebuffer lives on a sibling [ImageView] under a transparent [ComposeView] (not inside
- * Compose). Pause overlays that shared the Compose tree with the game were leaving a milky
- * wash over the whole window — including black letterboxes — after Resume.
+ * Framebuffer lives on a sibling [ImageView]. Pause uses a system [AlertDialog] — never a
+ * full-screen Compose overlay over the game (that greys letterboxes after Resume).
+ *
+ * A wrap-content [ComposeView] hosts notification banners, secondary-display panes, and
+ * preference [LaunchedEffect]s only.
  *
  * All Libretro core entry points run on a dedicated single OS thread. Cores such as
  * Mupen64Plus-Next use libco; [retro_init] / [retro_run] / serialize must share that thread or
@@ -143,42 +101,23 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var libraryRepository: LibraryRepository
     @Inject lateinit var saveFileImporter: SaveFileImporter
 
-    private var menuOpen by mutableStateOf(false)
-    private var settingsOpen by mutableStateOf(false)
-    private var achievementsOpen by mutableStateOf(false)
-    private var controllersOpen by mutableStateOf(false)
-    private var mappingOpen by mutableStateOf(false)
-    /** When non-null, the next gamepad key assigns that Libretro button. */
-    private var waitingForMapButton by mutableStateOf<Int?>(null)
-    private var statusText by mutableStateOf("Loading…")
-    /** Full-screen XOrA plate until the first frame (or a hard error) — no Android slide feel. */
-    private var bootOverlayVisible by mutableStateOf(true)
-    private var raStatusText by mutableStateOf<String?>(null)
-    private var paused by mutableStateOf(false)
+    @Volatile private var menuOpen = false
+    /** True while the pause dialog is showing — pauses the frame loop. */
+    @Volatile private var paused = false
     /** True while the activity is backgrounded (home/recents) — pauses the frame loop. */
     @Volatile private var activityInBackground = false
     private var gameLoaded = false
-    private var focusedMenuIndex by mutableIntStateOf(0)
-    private var raAchievements by mutableStateOf<List<RaLiveAchievement>>(emptyList())
+    private var pauseDialog: AlertDialog? = null
     private var raSession: LibretroRaSession? = null
 
     private var runJob: Job? = null
     private var audioTrack: AudioTrack? = null
     /** Live gameplay bitmap presented via ImageView (updated in place + invalidate). */
-    private var gameBitmap by mutableStateOf<Bitmap?>(null)
+    private var gameBitmap: Bitmap? = null
     private var bottomBitmap by mutableStateOf<Bitmap?>(null)
     private var frameTick by mutableIntStateOf(0)
     private var primaryGameView: ImageView? = null
     private var secondaryGameView: ImageView? = null
-    /**
-     * Full-screen pause/boot/status Compose layer. Never stacked over a visible game ImageView —
-     * that sibling blend is what greys letterboxes after submenu → Resume.
-     */
-    private var overlayCompose: ComposeView? = null
-    /** Wrap-content toast host kept mounted during gameplay (RA unlock banners, etc.). */
-    private var bannerCompose: ComposeView? = null
-    /** Root that holds the game ImageView and optional Compose chrome. */
-    private var gameRoot: FrameLayout? = null
     private val bitmapLock = Any()
 
     /**
@@ -203,9 +142,8 @@ class XoraLibretroActivity : ComponentActivity() {
     private var coreName: String = ""
     private var selectHeld = false
     private var startHeld = false
-    private var xoraSettings by mutableStateOf(XoraEmulatorSettings())
-    private var raSettings by mutableStateOf(RetroAchievementsSettings())
-    private var netplayStatus by mutableStateOf<String?>(null)
+    private var xoraSettings = XoraEmulatorSettings()
+    private var raSettings = RetroAchievementsSettings()
     private var expandActive by mutableStateOf(false)
     private var secondaryDisplayId by mutableStateOf<Int?>(null)
 
@@ -220,15 +158,17 @@ class XoraLibretroActivity : ComponentActivity() {
         val hardcore = raSettings.hardcore && raSettings.enabled
         val actions = mutableListOf(
             MenuAction("Resume") { closeMenu() },
-            MenuAction("Settings") { openInGameSettings() },
-            MenuAction("RetroAchievements") { openAchievements() },
         )
         if (!hardcore) {
             actions += MenuAction("Save state") {
                 lifecycleScope.launch(emuDispatcher) {
                     saveState(0)
                     withContext(Dispatchers.Main.immediate) {
-                        statusText = "State saved (slot 0)"
+                        Toast.makeText(
+                            this@XoraLibretroActivity,
+                            "State saved (slot 0)",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             }
@@ -236,13 +176,21 @@ class XoraLibretroActivity : ComponentActivity() {
                 lifecycleScope.launch(emuDispatcher) {
                     val ok = loadState(0)
                     withContext(Dispatchers.Main.immediate) {
-                        statusText = if (ok) "State loaded (slot 0)" else "No save in slot 0"
+                        Toast.makeText(
+                            this@XoraLibretroActivity,
+                            if (ok) "State loaded (slot 0)" else "No save in slot 0",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             }
         } else {
             actions += MenuAction("Save state (hardcore off)") {
-                statusText = "Hardcore mode — save states disabled"
+                Toast.makeText(
+                    this,
+                    "Hardcore mode — save states disabled",
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
         }
         actions += MenuAction("Reset") {
@@ -250,96 +198,13 @@ class XoraLibretroActivity : ComponentActivity() {
                 LibretroNative.nativeReset()
                 withContext(Dispatchers.Main.immediate) {
                     raSession?.onEmulatorReset()
-                    statusText = "Reset"
+                    Toast.makeText(this@XoraLibretroActivity, "Reset", Toast.LENGTH_SHORT).show()
                     closeMenu()
                 }
             }
         }
-        if (xoraSettings.netplayEnabled) {
-            actions += MenuAction("Netplay: Host") {
-                netplayStatus =
-                    "Hosting as ${xoraSettings.netplayNickname} on port ${xoraSettings.netplayPort}" +
-                        if (xoraSettings.netplayUseRelay) " (relay)" else ""
-                statusText = netplayStatus ?: ""
-            }
-            actions += MenuAction("Netplay: Join") {
-                val host = xoraSettings.netplayHostAddress.ifBlank { "…" }
-                netplayStatus =
-                    "Join ${xoraSettings.netplayNickname} → $host:${xoraSettings.netplayPort}" +
-                        if (xoraSettings.netplaySpectator) " (spectator)" else ""
-                statusText = netplayStatus ?: ""
-            }
-        }
         actions += MenuAction("Quit to XOrA") { finish() }
         return actions
-    }
-
-    private fun openInGameSettings() {
-        settingsOpen = true
-        achievementsOpen = false
-        controllersOpen = false
-        mappingOpen = false
-        waitingForMapButton = null
-        focusedMenuIndex = 0
-        statusText = ""
-    }
-
-    private fun closeInGameSettings() {
-        settingsOpen = false
-        controllersOpen = false
-        mappingOpen = false
-        waitingForMapButton = null
-        focusedMenuIndex = 0
-    }
-
-    private fun openAchievements() {
-        achievementsOpen = true
-        settingsOpen = false
-        controllersOpen = false
-        mappingOpen = false
-        waitingForMapButton = null
-        focusedMenuIndex = 0
-        statusText = ""
-        refreshAchievementList()
-    }
-
-    private fun closeAchievements() {
-        achievementsOpen = false
-        focusedMenuIndex = 0
-    }
-
-    private fun openControllers() {
-        controllersOpen = true
-        mappingOpen = false
-        waitingForMapButton = null
-        focusedMenuIndex = 0
-    }
-
-    private fun closeControllers() {
-        controllersOpen = false
-        mappingOpen = false
-        waitingForMapButton = null
-        focusedMenuIndex = 0
-    }
-
-    private fun openButtonMapping() {
-        mappingOpen = true
-        waitingForMapButton = null
-        focusedMenuIndex = 0
-    }
-
-    private fun closeButtonMapping() {
-        mappingOpen = false
-        waitingForMapButton = null
-        focusedMenuIndex = 0
-    }
-
-    private fun refreshAchievementList() {
-        raAchievements = runCatching {
-            LibretroNative.nativeRaListAchievements()
-                ?.mapNotNull { RaLiveAchievement.fromNativeRow(it) }
-                .orEmpty()
-        }.getOrDefault(emptyList())
     }
 
     private fun refreshExpandTopology() {
@@ -386,8 +251,6 @@ class XoraLibretroActivity : ComponentActivity() {
         inputManager = getSystemService(INPUT_SERVICE) as InputManager
         inputManager?.registerInputDeviceListener(inputDeviceListener, null)
 
-        // Game framebuffer and full-screen Compose chrome are mutually exclusive. Stacking a
-        // transparent/translucent ComposeView over the ImageView greys letterboxes after menus.
         window.setFormat(PixelFormat.OPAQUE)
         val root = FrameLayout(this).apply {
             setBackgroundColor(AndroidColor.BLACK)
@@ -396,7 +259,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
         }
-        gameRoot = root
         val gameView = ImageView(this).apply {
             setBackgroundColor(AndroidColor.BLACK)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -409,20 +271,8 @@ class XoraLibretroActivity : ComponentActivity() {
         primaryGameView = gameView
         root.addView(gameView)
 
-        val overlay = ComposeView(this).apply {
-            // Always opaque while attached — never a transparent sheet over the framebuffer.
-            setBackgroundColor(AndroidColor.BLACK)
-            setLayerType(View.LAYER_TYPE_NONE, null)
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            )
-            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-        }
-        overlayCompose = overlay
-
-        // Separate wrap-content host so unlock toasts work during gameplay without a full-window
-        // Compose layer sitting on top of the ImageView.
+        // Wrap-content host for RA unlock banners + secondary display + preference effects.
+        // Never MATCH_PARENT — a full-window Compose layer greys letterboxes.
         val banners = ComposeView(this).apply {
             setBackgroundColor(AndroidColor.TRANSPARENT)
             setLayerType(View.LAYER_TYPE_NONE, null)
@@ -435,11 +285,9 @@ class XoraLibretroActivity : ComponentActivity() {
             )
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         }
-        bannerCompose = banners
         root.addView(banners)
 
         setContentView(root)
-        syncOverlayVisibility()
 
         banners.setContent {
             val settings by preferences.settings.collectAsStateWithLifecycle(
@@ -462,9 +310,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
-            LaunchedEffect(menuOpen, bootOverlayVisible, statusText, runJob == null) {
-                syncOverlayVisibility()
-            }
 
             if (expandActive) {
                 SecondaryDisplayPane(displayId = secondaryDisplayId) {
@@ -493,289 +338,26 @@ class XoraLibretroActivity : ComponentActivity() {
                 shellThemeId = settings.shellThemeId,
                 uiTextScale = settings.uiTextScale,
             ) {
-                // Must wrap-content — a full-size transparent ComposeView over the game
-                // reintroduces the letterbox wash.
                 Box(modifier = Modifier.wrapContentSize(align = Alignment.TopStart)) {
                     NotificationBannerHost(center = shellNotifications)
                 }
             }
         }
 
-        overlay.setContent {
-            val settings by preferences.settings.collectAsStateWithLifecycle(
-                initialValue = ShellSettings(),
-            )
-            val xora by preferences.xoraEmulatorSettings.collectAsStateWithLifecycle(
-                initialValue = XoraEmulatorSettings(),
-            )
-            val raPrefs by preferences.retroAchievementsSettings.collectAsStateWithLifecycle(
-                initialValue = RetroAchievementsSettings(),
-            )
-            val textScale = settings.uiTextScale
-            val shellThemeId = settings.shellThemeId
-            val menuActions = remember(
-                xora.netplayEnabled,
-                xora.netplayPort,
-                xora.netplayNickname,
-                raPrefs.hardcore,
-                raPrefs.enabled,
-            ) {
-                buildMenuActions()
-            }
-
-            // Always dark emulator chrome — light theme glass tokens use white frost.
-            ArcadiaTheme(
-                darkTheme = true,
-                shellThemeId = shellThemeId,
-                uiTextScale = textScale,
-            ) {
-                CompositionLocalProvider(LocalArcadiaHaze provides null) {
-                    // Opaque full-bleed chrome only. Game ImageView is GONE while this is attached.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFF0B0D12)),
-                    ) {
-                    if (menuOpen) {
-                        when {
-                                    mappingOpen -> {
-                                        XoraEmulatorMappingPanel(
-                                            mappings = xora.buttonMappings,
-                                            waitingForButton = waitingForMapButton,
-                                            focusedIndex = focusedMenuIndex,
-                                            onFocus = { focusedMenuIndex = it },
-                                            onBack = {
-                                                uiSounds.playCancel()
-                                                closeButtonMapping()
-                                            },
-                                            onStartCapture = { button ->
-                                                uiSounds.playConfirm()
-                                                waitingForMapButton = button
-                                            },
-                                        )
-                                        BackHandler {
-                                            uiSounds.playCancel()
-                                            closeButtonMapping()
-                                        }
-                                    }
-                                    controllersOpen -> {
-                                        XoraEmulatorControllersPanel(
-                                            preferredName = xora.preferredControllerName,
-                                            mappingCount = xora.buttonMappings.size,
-                                            focusedIndex = focusedMenuIndex,
-                                            onFocus = { focusedMenuIndex = it },
-                                            onBack = {
-                                                uiSounds.playCancel()
-                                                closeControllers()
-                                            },
-                                            onCycleController = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    val list = listOf("") + LibretroPad.connectedControllerNames()
-                                                    val current = xora.preferredControllerName
-                                                    val idx = list.indexOf(current).let {
-                                                        if (it >= 0) it else 0
-                                                    }
-                                                    val next = list[(idx + 1) % list.size]
-                                                    preferences.setXoraPreferredControllerName(next)
-                                                }
-                                            },
-                                            onOpenMapping = {
-                                                uiSounds.playConfirm()
-                                                openButtonMapping()
-                                            },
-                                            onResetDefaults = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    preferences.clearXoraButtonMappings()
-                                                    preferences.setXoraPreferredControllerName("")
-                                                }
-                                            },
-                                        )
-                                        BackHandler {
-                                            uiSounds.playCancel()
-                                            closeControllers()
-                                        }
-                                    }
-                                    settingsOpen -> {
-                                        XoraEmulatorSettingsPanel(
-                                            xora = xora,
-                                            ra = raPrefs,
-                                            platformId = platformId,
-                                            dualDisplayAvailable = secondaryDisplayId != null,
-                                            focusedIndex = focusedMenuIndex,
-                                            onFocus = { focusedMenuIndex = it },
-                                            onBack = {
-                                                uiSounds.playCancel()
-                                                closeInGameSettings()
-                                            },
-                                            onToggleExpand = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    preferences.setXoraExpandDualDisplay(!xora.expandDualDisplay)
-                                                    refreshExpandTopology()
-                                                }
-                                            },
-                                            onCycleAspect = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    val next = when (xora.aspectMode) {
-                                                        XoraAspectMode.Core -> XoraAspectMode.Integer
-                                                        XoraAspectMode.Integer -> XoraAspectMode.Stretch
-                                                        XoraAspectMode.Stretch -> XoraAspectMode.Core
-                                                    }
-                                                    preferences.setXoraAspectMode(next)
-                                                }
-                                            },
-                                            onToggleBezels = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    preferences.setXoraBezelsEnabled(!xora.bezelsEnabled)
-                                                }
-                                            },
-                                            onCycleInternalRes = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    val values = com.arcadia.shell.datastore.XoraInternalResolution.entries
-                                                    val i = values.indexOf(xora.internalResolution)
-                                                    val next = values[(i + 1) % values.size]
-                                                    preferences.setXoraInternalResolution(next)
-                                                    applyCoreOptionsLive(xora.copy(internalResolution = next))
-                                                }
-                                            },
-                                            onCycleNdsLayout = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    val values = com.arcadia.shell.datastore.DualScreenLayout.entries
-                                                    val i = values.indexOf(xora.ndsScreenLayout)
-                                                    val next = values[(i + 1) % values.size]
-                                                    preferences.setXoraNdsScreenLayout(next)
-                                                    applyCoreOptionsLive(xora.copy(ndsScreenLayout = next))
-                                                }
-                                            },
-                                            onCycle3dsLayout = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    val values = com.arcadia.shell.datastore.ThreeDsScreenLayout.entries
-                                                    val i = values.indexOf(xora.threeDsScreenLayout)
-                                                    val next = values[(i + 1) % values.size]
-                                                    preferences.setXora3dsScreenLayout(next)
-                                                    applyCoreOptionsLive(xora.copy(threeDsScreenLayout = next))
-                                                }
-                                            },
-                                            onToggleRa = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    preferences.setRaEnabled(!raPrefs.enabled)
-                                                }
-                                            },
-                                            onToggleHardcore = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    val next = !raPrefs.hardcore
-                                                    preferences.setRaHardcore(next)
-                                                    LibretroNative.nativeRaSetHardcore(next)
-                                                }
-                                            },
-                                            onToggleNetplay = {
-                                                uiSounds.playConfirm()
-                                                lifecycleScope.launch {
-                                                    preferences.setXoraNetplayEnabled(!xora.netplayEnabled)
-                                                }
-                                            },
-                                            onOpenControllers = {
-                                                uiSounds.playConfirm()
-                                                openControllers()
-                                            },
-                                        )
-                                        BackHandler {
-                                            uiSounds.playCancel()
-                                            closeInGameSettings()
-                                        }
-                                    }
-                                    achievementsOpen -> {
-                                        XoraEmulatorAchievementsPanel(
-                                            title = gameTitle,
-                                            summary = raStatusText ?: LibretroNative.nativeRaSummary()?.let { "RA: $it" },
-                                            achievements = raAchievements,
-                                            focusedIndex = focusedMenuIndex,
-                                            onFocus = { focusedMenuIndex = it },
-                                            onBack = {
-                                                uiSounds.playCancel()
-                                                closeAchievements()
-                                            },
-                                            onRefresh = {
-                                                uiSounds.playConfirm()
-                                                refreshAchievementList()
-                                            },
-                                        )
-                                        BackHandler {
-                                            uiSounds.playCancel()
-                                            closeAchievements()
-                                        }
-                                    }
-                                    else -> {
-                                        XoraEmulatorPauseMenu(
-                                            title = gameTitle,
-                                            subtitle = coreName.ifBlank { "XOrA Emulator" },
-                                            status = statusText,
-                                            raStatus = raStatusText,
-                                            netplayStatus = netplayStatus,
-                                            actions = menuActions.map { it.label },
-                                            focusedIndex = focusedMenuIndex,
-                                            onFocus = { focusedMenuIndex = it },
-                                            onActivate = { index -> activateMenuAction(index) },
-                                            onDismiss = {
-                                                uiSounds.playCancel()
-                                                closeMenu()
-                                            },
-                                        )
-                                        BackHandler {
-                                            uiSounds.playCancel()
-                                            closeMenu()
-                                        }
-                                    }
-                        }
-                    } else if (statusText.isNotBlank() && runJob == null) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = statusText,
-                                color = androidx.compose.ui.graphics.Color.White,
-                                modifier = Modifier
-                                    .xoraEmulatorPanel()
-                                    .padding(horizontal = 20.dp, vertical = 14.dp),
-                            )
-                        }
-                    }
-
-                    XoraBootOverlay(
-                        visible = bootOverlayVisible,
-                        title = gameTitle,
-                        subtitle = if (statusText.isNotBlank()) statusText else "XOrA Emulator",
-                    )
-                    }
-                }
-            }
-        }
-
         if (romPath.isNullOrBlank() || coreName.isBlank()) {
-            statusText = "Missing ROM or core"
-            bootOverlayVisible = false
-            syncOverlayVisibility()
+            Toast.makeText(this, "Missing ROM or core", Toast.LENGTH_LONG).show()
             return
         }
 
         lifecycleScope.launch {
-            statusText = "Preparing $coreName…"
             val path = corePathExtra?.takeIf { File(it).isFile }
                 ?: withContext(Dispatchers.IO) { coreDownloader.ensureCore(coreName) }
             if (path == null) {
-                statusText = "Could not install core '$coreName'. Check network / Settings → XOrA Emulator."
-                bootOverlayVisible = false
-                syncOverlayVisibility()
+                Toast.makeText(
+                    this@XoraLibretroActivity,
+                    "Could not install core '$coreName'. Check network / Settings → XOrA Emulator.",
+                    Toast.LENGTH_LONG,
+                ).show()
                 return@launch
             }
             val saveImport = withContext(Dispatchers.IO) {
@@ -804,11 +386,10 @@ class XoraLibretroActivity : ComponentActivity() {
                 ) && LibretroNative.nativeLoadGame(romPath)
             }
             if (!ok) {
-                statusText = withContext(emuDispatcher) {
+                val err = withContext(emuDispatcher) {
                     LibretroNative.nativeLastError()
                 } ?: "Failed to load game"
-                bootOverlayVisible = false
-                syncOverlayVisibility()
+                Toast.makeText(this@XoraLibretroActivity, err, Toast.LENGTH_LONG).show()
                 return@launch
             }
             gameLoaded = true
@@ -822,13 +403,16 @@ class XoraLibretroActivity : ComponentActivity() {
                 false
             }
             refreshExpandTopology()
-            statusText = when {
+            val bootMsg = when {
                 !saveImport.message.isNullOrBlank() && restored ->
                     "${saveImport.message} · Resumed previous session"
                 !saveImport.message.isNullOrBlank() -> saveImport.message!!
                 restored -> "Resumed previous session"
                 expandActive -> "Expanded · top primary / bottom secondary"
-                else -> ""
+                else -> null
+            }
+            if (!bootMsg.isNullOrBlank()) {
+                Toast.makeText(this@XoraLibretroActivity, bootMsg, Toast.LENGTH_SHORT).show()
             }
             startRaSession(romPath)
             startAudio()
@@ -902,186 +486,9 @@ class XoraLibretroActivity : ComponentActivity() {
                     return true
                 }
                 if (menuOpen) {
-                    if (mappingOpen && waitingForMapButton != null) {
-                        val button = waitingForMapButton
-                        if (button != null) {
-                            if (keyCode == KeyEvent.KEYCODE_BUTTON_B || keyCode == KeyEvent.KEYCODE_BACK) {
-                                waitingForMapButton = null
-                                uiSounds.playCancel()
-                                return true
-                            }
-                            lifecycleScope.launch {
-                                val current = preferences.xoraEmulatorSettings.first()
-                                    .buttonMappings.toMutableMap()
-                                current.entries.removeAll { it.value == button }
-                                current[keyCode] = button
-                                preferences.setXoraButtonMappings(current)
-                                waitingForMapButton = null
-                            }
-                            uiSounds.playConfirm()
-                            return true
-                        }
-                    }
-                    if (mappingOpen) {
-                        val mappingCount = 1 + LibretroPad.MAPPABLE_BUTTONS.size
-                        when (keyCode) {
-                            KeyEvent.KEYCODE_DPAD_UP -> {
-                                focusedMenuIndex =
-                                    (focusedMenuIndex - 1 + mappingCount) % mappingCount
-                                uiSounds.playCursor()
-                                return true
-                            }
-                            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                focusedMenuIndex = (focusedMenuIndex + 1) % mappingCount
-                                uiSounds.playCursor()
-                                return true
-                            }
-                            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER,
-                            KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER,
-                            -> {
-                                if (focusedMenuIndex == 0) {
-                                    uiSounds.playCancel()
-                                    closeButtonMapping()
-                                } else {
-                                    val button = LibretroPad.MAPPABLE_BUTTONS
-                                        .getOrNull(focusedMenuIndex - 1)?.first
-                                    if (button != null) {
-                                        uiSounds.playConfirm()
-                                        waitingForMapButton = button
-                                    }
-                                }
-                                return true
-                            }
-                            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
-                                uiSounds.playCancel()
-                                closeButtonMapping()
-                                return true
-                            }
-                        }
-                        return LibretroPad.run { event.isFromGameController(customMappings) }
-                    }
-                    if (controllersOpen) {
-                        val controllersCount = CONTROLLERS_ROW_COUNT
-                        when (keyCode) {
-                            KeyEvent.KEYCODE_DPAD_UP -> {
-                                focusedMenuIndex =
-                                    (focusedMenuIndex - 1 + controllersCount) % controllersCount
-                                uiSounds.playCursor()
-                                return true
-                            }
-                            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                focusedMenuIndex = (focusedMenuIndex + 1) % controllersCount
-                                uiSounds.playCursor()
-                                return true
-                            }
-                            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER,
-                            KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER,
-                            -> {
-                                activateControllersRow(focusedMenuIndex)
-                                return true
-                            }
-                            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
-                                uiSounds.playCancel()
-                                closeControllers()
-                                return true
-                            }
-                        }
-                        return LibretroPad.run { event.isFromGameController(customMappings) }
-                    }
-                    if (settingsOpen) {
-                        val settingsCount = IN_GAME_SETTINGS_ROW_COUNT
-                        when (keyCode) {
-                            KeyEvent.KEYCODE_DPAD_UP -> {
-                                focusedMenuIndex =
-                                    (focusedMenuIndex - 1 + settingsCount) % settingsCount
-                                uiSounds.playCursor()
-                                return true
-                            }
-                            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                focusedMenuIndex = (focusedMenuIndex + 1) % settingsCount
-                                uiSounds.playCursor()
-                                return true
-                            }
-                            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER,
-                            KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER,
-                            -> {
-                                activateInGameSetting(focusedMenuIndex)
-                                return true
-                            }
-                            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
-                                uiSounds.playCancel()
-                                closeInGameSettings()
-                                return true
-                            }
-                        }
-                        return LibretroPad.run { event.isFromGameController(customMappings) }
-                    }
-                    if (achievementsOpen) {
-                        // 0 = Back, 1 = Refresh, then one row per achievement.
-                        val count = 2 + raAchievements.size
-                        when (keyCode) {
-                            KeyEvent.KEYCODE_DPAD_UP -> {
-                                focusedMenuIndex =
-                                    (focusedMenuIndex - 1 + count.coerceAtLeast(1)) %
-                                        count.coerceAtLeast(1)
-                                uiSounds.playCursor()
-                                return true
-                            }
-                            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                focusedMenuIndex =
-                                    (focusedMenuIndex + 1) % count.coerceAtLeast(1)
-                                uiSounds.playCursor()
-                                return true
-                            }
-                            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER,
-                            KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER,
-                            -> {
-                                when (focusedMenuIndex) {
-                                    0 -> {
-                                        uiSounds.playCancel()
-                                        closeAchievements()
-                                    }
-                                    1 -> {
-                                        uiSounds.playConfirm()
-                                        refreshAchievementList()
-                                    }
-                                }
-                                return true
-                            }
-                            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
-                                uiSounds.playCancel()
-                                closeAchievements()
-                                return true
-                            }
-                        }
-                        return LibretroPad.run { event.isFromGameController(customMappings) }
-                    }
-                    val actions = buildMenuActions()
-                    when (keyCode) {
-                        KeyEvent.KEYCODE_DPAD_UP -> {
-                            focusedMenuIndex =
-                                (focusedMenuIndex - 1 + actions.size) % actions.size
-                            uiSounds.playCursor()
-                            return true
-                        }
-                        KeyEvent.KEYCODE_DPAD_DOWN -> {
-                            focusedMenuIndex = (focusedMenuIndex + 1) % actions.size
-                            uiSounds.playCursor()
-                            return true
-                        }
-                        KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER,
-                        KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER,
-                        -> {
-                            activateMenuAction(focusedMenuIndex)
-                            return true
-                        }
-                        KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
-                            uiSounds.playCancel()
-                            closeMenu()
-                            return true
-                        }
-                    }
-                    return LibretroPad.run { event.isFromGameController(customMappings) }
+                    // Pause AlertDialog owns navigation; consume gamepad so the core stays idle.
+                    return LibretroPad.run { event.isFromGameController(customMappings) } ||
+                        LibretroPad.keyCodeToButton(keyCode, customMappings) != null
                 }
                 if (!LibretroPad.matchesPreferredController(
                         InputDevice.getDevice(event.deviceId),
@@ -1145,106 +552,6 @@ class XoraLibretroActivity : ComponentActivity() {
         return true
     }
 
-    private fun applyCoreOptionsLive(settings: XoraEmulatorSettings) {
-        refreshExpandTopology()
-        val vars = XoraCoreOptions.variablesFor(
-            platformId = platformId,
-            coreName = coreName,
-            settings = settings,
-            expandActive = expandActive,
-        )
-        lifecycleScope.launch(emuDispatcher) {
-            vars.forEach { (key, value) ->
-                LibretroNative.nativeSetCoreVariable(key, value)
-            }
-        }
-    }
-
-    private fun activateInGameSetting(index: Int) {
-        if (index == 0) {
-            uiSounds.playCancel()
-        } else {
-            uiSounds.playConfirm()
-        }
-        val xora = xoraSettings
-        val ra = raSettings
-        when (index) {
-            0 -> closeInGameSettings()
-            1 -> if (platformId == "nds" || platformId == "3ds") {
-                lifecycleScope.launch {
-                    preferences.setXoraExpandDualDisplay(!xora.expandDualDisplay)
-                    refreshExpandTopology()
-                }
-            }
-            2 -> lifecycleScope.launch {
-                val next = when (xora.aspectMode) {
-                    XoraAspectMode.Core -> XoraAspectMode.Integer
-                    XoraAspectMode.Integer -> XoraAspectMode.Stretch
-                    XoraAspectMode.Stretch -> XoraAspectMode.Core
-                }
-                preferences.setXoraAspectMode(next)
-            }
-            3 -> lifecycleScope.launch {
-                preferences.setXoraBezelsEnabled(!xora.bezelsEnabled)
-            }
-            4 -> when (platformId) {
-                "nds" -> lifecycleScope.launch {
-                    val values = com.arcadia.shell.datastore.DualScreenLayout.entries
-                    val next = values[(values.indexOf(xora.ndsScreenLayout) + 1) % values.size]
-                    preferences.setXoraNdsScreenLayout(next)
-                    applyCoreOptionsLive(xora.copy(ndsScreenLayout = next))
-                }
-                "3ds" -> lifecycleScope.launch {
-                    val values = com.arcadia.shell.datastore.ThreeDsScreenLayout.entries
-                    val next = values[(values.indexOf(xora.threeDsScreenLayout) + 1) % values.size]
-                    preferences.setXora3dsScreenLayout(next)
-                    applyCoreOptionsLive(xora.copy(threeDsScreenLayout = next))
-                }
-                else -> lifecycleScope.launch {
-                    val values = com.arcadia.shell.datastore.XoraInternalResolution.entries
-                    val next = values[(values.indexOf(xora.internalResolution) + 1) % values.size]
-                    preferences.setXoraInternalResolution(next)
-                    applyCoreOptionsLive(xora.copy(internalResolution = next))
-                }
-            }
-            5 -> lifecycleScope.launch {
-                preferences.setRaEnabled(!ra.enabled)
-            }
-            6 -> lifecycleScope.launch {
-                val next = !ra.hardcore
-                preferences.setRaHardcore(next)
-                LibretroNative.nativeRaSetHardcore(next)
-            }
-            7 -> lifecycleScope.launch {
-                preferences.setXoraNetplayEnabled(!xora.netplayEnabled)
-            }
-            8 -> openControllers()
-        }
-    }
-
-    private fun activateControllersRow(index: Int) {
-        if (index == 0) {
-            uiSounds.playCancel()
-        } else {
-            uiSounds.playConfirm()
-        }
-        when (index) {
-            0 -> closeControllers()
-            1 -> lifecycleScope.launch {
-                val list = listOf("") + LibretroPad.connectedControllerNames()
-                val current = xoraSettings.preferredControllerName
-                val idx = list.indexOf(current).let { if (it >= 0) it else 0 }
-                val next = list[(idx + 1) % list.size]
-                preferences.setXoraPreferredControllerName(next)
-            }
-            2 -> openButtonMapping()
-            3 -> lifecycleScope.launch {
-                preferences.clearXoraButtonMappings()
-                preferences.setXoraPreferredControllerName("")
-            }
-        }
-    }
-
     private fun startRaSession(romPath: String) {
         lifecycleScope.launch {
             val prefs = preferences.retroAchievementsSettings.first()
@@ -1260,7 +567,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 raSettings = prefs,
             )
             raSession = session
-            launch { session.status.collect { raStatusText = it } }
             session.start(romPath = romPath, platformId = platformId, gameId = gameId)
         }
     }
@@ -1295,74 +601,47 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun openMenu() {
-        focusedMenuIndex = 0
-        settingsOpen = false
-        achievementsOpen = false
-        controllersOpen = false
-        mappingOpen = false
-        waitingForMapButton = null
+        if (menuOpen || isFinishing) return
         menuOpen = true
         paused = true
-        syncOverlayVisibility()
         uiSounds.playConfirm()
+        val actions = buildMenuActions()
+        pauseDialog = AlertDialog.Builder(this)
+            .setTitle(gameTitle)
+            .setItems(actions.map { it.label }.toTypedArray()) { _, which ->
+                actions.getOrNull(which)?.onClick?.invoke()
+            }
+            .setOnDismissListener {
+                pauseDialog = null
+                if (menuOpen) {
+                    menuOpen = false
+                    paused = false
+                    restoreImmersiveFocus()
+                }
+            }
+            .show()
     }
 
     private fun closeMenu() {
-        menuOpen = false
-        settingsOpen = false
-        achievementsOpen = false
-        controllersOpen = false
-        mappingOpen = false
-        waitingForMapButton = null
-        paused = false
-        statusText = ""
-        syncOverlayVisibility()
+        val dialog = pauseDialog
+        if (dialog != null) {
+            dialog.dismiss()
+            return
+        }
+        if (menuOpen) {
+            menuOpen = false
+            paused = false
+            restoreImmersiveFocus()
+        }
+    }
+
+    private fun restoreImmersiveFocus() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
         }
         ImmersiveMode.apply(window)
         window.decorView.requestFocus()
-    }
-
-    /**
-     * Full-screen Compose chrome and the game ImageView are mutually exclusive.
-     * Never leave a ComposeView (even opaque) composited over a visible framebuffer — submenu
-     * navigation was still greying letterboxes with that stack. Banners live on a separate
-     * wrap-content ComposeView so toasts still work during gameplay.
-     */
-    private fun syncOverlayVisibility() {
-        val showChrome = menuOpen ||
-            bootOverlayVisible ||
-            (statusText.isNotBlank() && runJob == null)
-        val overlay = overlayCompose ?: return
-        val root = gameRoot ?: return
-        val game = primaryGameView
-        if (showChrome) {
-            game?.visibility = View.GONE
-            overlay.setBackgroundColor(AndroidColor.BLACK)
-            overlay.setLayerType(View.LAYER_TYPE_NONE, null)
-            if (overlay.parent == null) {
-                root.addView(overlay)
-            } else {
-                overlay.visibility = View.VISIBLE
-            }
-            bannerCompose?.let { root.bringChildToFront(it) }
-        } else {
-            overlay.setLayerType(View.LAYER_TYPE_NONE, null)
-            overlay.visibility = View.GONE
-            (overlay.parent as? ViewGroup)?.removeView(overlay)
-            game?.clearColorFilter()
-            game?.imageAlpha = 255
-            game?.visibility = View.VISIBLE
-            game?.invalidate()
-            root.invalidate()
-        }
-    }
-
-    private fun activateMenuAction(index: Int) {
-        uiSounds.playConfirm()
-        buildMenuActions().getOrNull(index)?.onClick?.invoke()
     }
 
     private fun startAudio() {
@@ -1475,10 +754,6 @@ class XoraLibretroActivity : ComponentActivity() {
             primaryGameView?.invalidate()
             secondaryGameView?.invalidate()
             frameTick++
-            if (bootOverlayVisible) {
-                bootOverlayVisible = false
-                syncOverlayVisibility()
-            }
         }
     }
 
@@ -1486,6 +761,10 @@ class XoraLibretroActivity : ComponentActivity() {
         // Explicit quit — drop the autosave so the next launch is a fresh boot.
         runCatching { coreStore.autosaveFile(platformId, gameId).delete() }
         gameLoaded = false
+        pauseDialog?.dismiss()
+        pauseDialog = null
+        menuOpen = false
+        paused = false
         super.finish()
         @Suppress("DEPRECATION")
         overridePendingTransition(
@@ -1519,6 +798,8 @@ class XoraLibretroActivity : ComponentActivity() {
     override fun onDestroy() {
         inputManager?.unregisterInputDeviceListener(inputDeviceListener)
         inputManager = null
+        pauseDialog?.dismiss()
+        pauseDialog = null
         runJob?.cancel()
         runJob = null
         raSession?.stop()
@@ -1549,8 +830,6 @@ class XoraLibretroActivity : ComponentActivity() {
             KeyEvent.KEYCODE_NUMPAD_ENTER,
         )
         private val DUAL_SCREEN_PLATFORMS = setOf("nds", "3ds")
-        private const val IN_GAME_SETTINGS_ROW_COUNT = 9
-        private const val CONTROLLERS_ROW_COUNT = 4
     }
 }
 
@@ -1558,20 +837,6 @@ private data class MenuAction(
     val label: String,
     val onClick: () -> Unit,
 )
-
-/** Opaque dark chrome for in-emulator menus — never translucent white frost over gameplay. */
-private val XoraEmulatorPanelShape = RoundedCornerShape(18.dp)
-private val XoraEmulatorPanelColor = Color(0xFF14161C)
-private val XoraEmulatorPanelBorder = Color(0xFF3A3F4A)
-private val XoraEmulatorFocusFill = Color(0xFF2A303A)
-private val XoraEmulatorFocusFillStrong = Color(0xFF343B48)
-private val XoraEmulatorRowFill = Color(0xFF1C2129)
-
-private fun Modifier.xoraEmulatorPanel(shape: Shape = XoraEmulatorPanelShape): Modifier =
-    this
-        .clip(shape)
-        .background(XoraEmulatorPanelColor, shape)
-        .border(width = 1.dp, color = XoraEmulatorPanelBorder, shape = shape)
 
 /**
  * Classic View framebuffer — avoids Compose Image + asImageBitmap texture/premul wash after
@@ -1616,814 +881,5 @@ private fun XoraGameImageView(
     )
     DisposableEffect(Unit) {
         onDispose { onImageView(null) }
-    }
-}
-
-@Composable
-private fun XoraBootOverlay(
-    visible: Boolean,
-    title: String,
-    subtitle: String,
-) {
-    var show by remember { mutableStateOf(visible) }
-    LaunchedEffect(visible) {
-        if (visible) {
-            show = true
-        } else {
-            delay(ArcadiaMotion.Medium.toLong())
-            show = false
-        }
-    }
-    val alpha by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = ArcadiaMotion.Medium),
-        label = "xora-boot-fade",
-    )
-    if (!show && alpha <= 0.01f) return
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .alpha(alpha)
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        androidx.compose.ui.graphics.Color(0xFF0A0C10),
-                        androidx.compose.ui.graphics.Color(0xFF12161E),
-                        androidx.compose.ui.graphics.Color(0xFF0A0C10),
-                    ),
-                ),
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier
-                .padding(32.dp)
-                .xoraEmulatorPanel()
-                .padding(horizontal = 28.dp, vertical = 22.dp),
-        ) {
-            Text(
-                text = "XOrA",
-                color = androidx.compose.ui.graphics.Color.White,
-                fontSize = 42.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = title,
-                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.92f),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = subtitle,
-                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.65f),
-                fontSize = 13.sp,
-            )
-        }
-    }
-}
-
-@Composable
-private fun XoraEmulatorPauseMenu(
-    title: String,
-    subtitle: String,
-    status: String,
-    raStatus: String?,
-    netplayStatus: String?,
-    actions: List<String>,
-    focusedIndex: Int,
-    onFocus: (Int) -> Unit,
-    onActivate: (Int) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onDismiss,
-            ),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .padding(start = 48.dp, end = 48.dp)
-                .widthIn(max = 420.dp)
-                .fillMaxWidth(0.42f),
-        ) {
-            val panelMax = maxHeight * 0.88f
-            Column(
-                modifier = Modifier
-                    .heightIn(max = panelMax)
-                    .fillMaxWidth()
-                    .xoraEmulatorPanel()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {},
-                    )
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 22.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-            XoraTitleText(
-                text = title,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 22.sp,
-                maxLines = 2,
-            )
-            XoraSecondaryText(
-                text = subtitle,
-                fontSize = 12.sp,
-                fillColor = glass.contentMuted,
-                maxLines = 1,
-            )
-            if (status.isNotBlank()) {
-                XoraSecondaryText(
-                    text = status,
-                    fontSize = 12.sp,
-                    fillColor = glass.contentMuted,
-                    maxLines = 2,
-                )
-            }
-            if (!raStatus.isNullOrBlank()) {
-                XoraSecondaryText(
-                    text = raStatus,
-                    fontSize = 12.sp,
-                    fillColor = glass.contentMuted,
-                    maxLines = 2,
-                )
-            }
-            if (!netplayStatus.isNullOrBlank()) {
-                XoraSecondaryText(
-                    text = netplayStatus,
-                    fontSize = 12.sp,
-                    fillColor = glass.contentMuted,
-                    maxLines = 2,
-                )
-            }
-            actions.forEachIndexed { index, label ->
-                val focused = index == focusedIndex
-                Text(
-                    text = label,
-                    color = if (focused) glass.content else glass.contentMuted,
-                    fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
-                    fontSize = if (focused) 18.sp else 15.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (focused) {
-                                XoraEmulatorFocusFill
-                            } else {
-                                androidx.compose.ui.graphics.Color.Transparent
-                            },
-                            RoundedCornerShape(10.dp),
-                        )
-                        .clickable {
-                            onFocus(index)
-                            onActivate(index)
-                        }
-                        .padding(horizontal = 12.dp, vertical = 12.dp),
-                )
-            }
-            XoraSecondaryText(
-                text = "Settings · Start+Select / Back · A confirms",
-                fontSize = 11.sp,
-                fillColor = glass.contentMuted,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            }
-        }
-    }
-}
-
-@Composable
-private fun XoraEmulatorSettingsPanel(
-    xora: XoraEmulatorSettings,
-    ra: RetroAchievementsSettings,
-    platformId: String,
-    dualDisplayAvailable: Boolean,
-    focusedIndex: Int,
-    onFocus: (Int) -> Unit,
-    onBack: () -> Unit,
-    onToggleExpand: () -> Unit,
-    onCycleAspect: () -> Unit,
-    onToggleBezels: () -> Unit,
-    onCycleInternalRes: () -> Unit,
-    onCycleNdsLayout: () -> Unit,
-    onCycle3dsLayout: () -> Unit,
-    onToggleRa: () -> Unit,
-    onToggleHardcore: () -> Unit,
-    onToggleNetplay: () -> Unit,
-    onOpenControllers: () -> Unit,
-) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
-    val controllerSubtitle = when {
-        xora.preferredControllerName.isNotBlank() -> xora.preferredControllerName
-        else -> "Any controller"
-    }
-    val mappingSubtitle = if (xora.buttonMappings.isNotEmpty()) {
-        "${xora.buttonMappings.size} custom"
-    } else {
-        "Default"
-    }
-    val layoutLabel = when (platformId) {
-        "nds" -> "DS layout · ${xora.ndsScreenLayout.label()}"
-        "3ds" -> "3DS layout · ${xora.threeDsScreenLayout.label()}"
-        else -> "Internal res · ${xora.internalResolution.label()}"
-    }
-    val rows = listOf(
-        "Back" to "Return to pause menu",
-        "Expand dual display" to when {
-            platformId !in setOf("nds", "3ds") -> "DS / 3DS only"
-            !dualDisplayAvailable -> "No secondary display"
-            xora.expandDualDisplay -> "On · top / bottom panels"
-            else -> "Off"
-        },
-        "Aspect ratio" to xora.aspectMode.label(),
-        "System bezels" to if (xora.bezelsEnabled) "On" else "Off",
-        layoutLabel to "A cycles",
-        "RetroAchievements" to if (ra.enabled) "On" else "Off",
-        "Hardcore mode" to if (ra.hardcore) "On · no save states" else "Off",
-        "Netplay menu" to if (xora.netplayEnabled) "On" else "Off",
-        "Controllers" to "$controllerSubtitle · $mappingSubtitle",
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onBack,
-            ),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .padding(start = 48.dp, end = 48.dp)
-                .widthIn(max = 460.dp)
-                .fillMaxWidth(0.48f),
-        ) {
-            val panelMax = maxHeight * 0.88f
-            Column(
-                modifier = Modifier
-                    .heightIn(max = panelMax)
-                    .fillMaxWidth()
-                    .xoraEmulatorPanel()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {},
-                    )
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 22.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-            XoraTitleText(
-                text = "XOrA Emulator Settings",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 20.sp,
-                maxLines = 1,
-            )
-            XoraSecondaryText(
-                text = "Changes apply immediately · B / Back returns",
-                fontSize = 12.sp,
-                fillColor = glass.contentMuted,
-                maxLines = 1,
-            )
-            rows.forEachIndexed { index, (title, subtitle) ->
-                val focused = index == focusedIndex
-                val activate: () -> Unit = {
-                    onFocus(index)
-                    when (index) {
-                        0 -> onBack()
-                        1 -> onToggleExpand()
-                        2 -> onCycleAspect()
-                        3 -> onToggleBezels()
-                        4 -> when (platformId) {
-                            "nds" -> onCycleNdsLayout()
-                            "3ds" -> onCycle3dsLayout()
-                            else -> onCycleInternalRes()
-                        }
-                        5 -> onToggleRa()
-                        6 -> onToggleHardcore()
-                        7 -> onToggleNetplay()
-                        8 -> onOpenControllers()
-                    }
-                }
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (focused) {
-                                XoraEmulatorFocusFill
-                            } else {
-                                androidx.compose.ui.graphics.Color.Transparent
-                            },
-                            RoundedCornerShape(10.dp),
-                        )
-                        .clickable(onClick = activate)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    Text(
-                        text = title,
-                        color = if (focused) glass.content else glass.contentMuted,
-                        fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
-                        fontSize = if (focused) 17.sp else 14.sp,
-                    )
-                    Text(
-                        text = subtitle,
-                        color = glass.contentMuted,
-                        fontSize = 11.sp,
-                    )
-                }
-            }
-            }
-        }
-    }
-}
-
-@Composable
-private fun XoraEmulatorControllersPanel(
-    preferredName: String,
-    mappingCount: Int,
-    focusedIndex: Int,
-    onFocus: (Int) -> Unit,
-    onBack: () -> Unit,
-    onCycleController: () -> Unit,
-    onOpenMapping: () -> Unit,
-    onResetDefaults: () -> Unit,
-) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
-    val controllerLabel = preferredName.ifBlank { "Any controller" }
-    val mappingLabel = if (mappingCount > 0) "$mappingCount custom" else "Default"
-    val rows = listOf(
-        "Back" to "Return to settings",
-        "Controller" to controllerLabel,
-        "Button mapping" to mappingLabel,
-        "Reset to defaults" to "Clear preferred pad and remaps",
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onBack,
-            ),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .padding(start = 48.dp, end = 48.dp)
-                .widthIn(max = 460.dp)
-                .fillMaxWidth(0.48f),
-        ) {
-            val panelMax = maxHeight * 0.88f
-            Column(
-                modifier = Modifier
-                    .heightIn(max = panelMax)
-                    .fillMaxWidth()
-                    .xoraEmulatorPanel()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {},
-                    )
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 22.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                XoraTitleText(
-                    text = "Controllers",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 20.sp,
-                    maxLines = 1,
-                )
-                XoraSecondaryText(
-                    text = "A cycles · B / Back returns",
-                    fontSize = 12.sp,
-                    fillColor = glass.contentMuted,
-                    maxLines = 1,
-                )
-                rows.forEachIndexed { index, (title, subtitle) ->
-                    val focused = index == focusedIndex
-                    val activate: () -> Unit = {
-                        onFocus(index)
-                        when (index) {
-                            0 -> onBack()
-                            1 -> onCycleController()
-                            2 -> onOpenMapping()
-                            3 -> onResetDefaults()
-                        }
-                    }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (focused) {
-                                    XoraEmulatorFocusFill
-                                } else {
-                                    Color.Transparent
-                                },
-                                RoundedCornerShape(10.dp),
-                            )
-                            .clickable(onClick = activate)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                    ) {
-                        Text(
-                            text = title,
-                            color = if (focused) glass.content else glass.contentMuted,
-                            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
-                            fontSize = if (focused) 17.sp else 14.sp,
-                        )
-                        Text(
-                            text = subtitle,
-                            color = glass.contentMuted,
-                            fontSize = 11.sp,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun XoraEmulatorMappingPanel(
-    mappings: Map<Int, Int>,
-    waitingForButton: Int?,
-    focusedIndex: Int,
-    onFocus: (Int) -> Unit,
-    onBack: () -> Unit,
-    onStartCapture: (Int) -> Unit,
-) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
-    val buttonRows = LibretroPad.MAPPABLE_BUTTONS.map { (button, label) ->
-        val keyCode = mappings.entries.firstOrNull { it.value == button }?.key
-        val bound = if (keyCode != null) LibretroPad.keyCodeLabel(keyCode) else "Default"
-        label to bound
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onBack,
-            ),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .padding(start = 48.dp, end = 48.dp)
-                .widthIn(max = 460.dp)
-                .fillMaxWidth(0.48f),
-        ) {
-            val panelMax = maxHeight * 0.88f
-            Column(
-                modifier = Modifier
-                    .heightIn(max = panelMax)
-                    .fillMaxWidth()
-                    .xoraEmulatorPanel()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {},
-                    )
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 22.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                XoraTitleText(
-                    text = "Button mapping",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 20.sp,
-                    maxLines = 1,
-                )
-                XoraSecondaryText(
-                    text = "A assigns · B / Back returns",
-                    fontSize = 12.sp,
-                    fillColor = glass.contentMuted,
-                    maxLines = 1,
-                )
-                if (waitingForButton != null) {
-                    Text(
-                        text = "Press a button for ${LibretroPad.buttonLabel(waitingForButton)}…",
-                        color = glass.content,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(XoraEmulatorFocusFillStrong, RoundedCornerShape(10.dp))
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                    )
-                }
-                val backFocused = focusedIndex == 0
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (backFocused) XoraEmulatorFocusFill else Color.Transparent,
-                            RoundedCornerShape(10.dp),
-                        )
-                        .clickable {
-                            onFocus(0)
-                            onBack()
-                        }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    Text(
-                        text = "Back",
-                        color = if (backFocused) glass.content else glass.contentMuted,
-                        fontWeight = if (backFocused) FontWeight.SemiBold else FontWeight.Normal,
-                        fontSize = if (backFocused) 17.sp else 14.sp,
-                    )
-                    Text(
-                        text = "Return to controllers",
-                        color = glass.contentMuted,
-                        fontSize = 11.sp,
-                    )
-                }
-                buttonRows.forEachIndexed { index, (title, subtitle) ->
-                    val rowIndex = index + 1
-                    val focused = rowIndex == focusedIndex
-                    val button = LibretroPad.MAPPABLE_BUTTONS[index].first
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (focused) XoraEmulatorFocusFill else Color.Transparent,
-                                RoundedCornerShape(10.dp),
-                            )
-                            .clickable {
-                                onFocus(rowIndex)
-                                onStartCapture(button)
-                            }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                    ) {
-                        Text(
-                            text = title,
-                            color = if (focused) glass.content else glass.contentMuted,
-                            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
-                            fontSize = if (focused) 17.sp else 14.sp,
-                        )
-                        Text(
-                            text = subtitle,
-                            color = glass.contentMuted,
-                            fontSize = 11.sp,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun XoraEmulatorAchievementsPanel(
-    title: String,
-    summary: String?,
-    achievements: List<RaLiveAchievement>,
-    focusedIndex: Int,
-    onFocus: (Int) -> Unit,
-    onBack: () -> Unit,
-    onRefresh: () -> Unit,
-) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
-    val listState = rememberLazyListState()
-    val unlocked = achievements.count { it.unlocked }
-    val progressLabel = if (achievements.isEmpty()) {
-        summary?.takeIf { it.isNotBlank() } ?: "No achievements loaded yet"
-    } else {
-        "$unlocked / ${achievements.size} unlocked"
-    }
-
-    LaunchedEffect(focusedIndex, achievements.size) {
-        val listIndex = when {
-            focusedIndex <= 1 -> 0
-            else -> (focusedIndex - 1).coerceIn(0, achievements.size.coerceAtLeast(1))
-        }
-        listState.animateScrollToItem(listIndex)
-    }
-
-    // Opaque constrained panel over the shared pause dim — never a full-bleed frost plate.
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onBack,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .padding(horizontal = 28.dp, vertical = 20.dp)
-                .widthIn(max = 720.dp)
-                .fillMaxWidth(0.78f),
-        ) {
-            val panelHeight = maxHeight * 0.88f
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(panelHeight)
-                    .xoraEmulatorPanel(RoundedCornerShape(22.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {},
-                    )
-                    .padding(horizontal = 22.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        XoraTitleText(
-                            text = "RetroAchievements",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 24.sp,
-                            maxLines = 1,
-                        )
-                        XoraSecondaryText(
-                            text = "$title · $progressLabel",
-                            fontSize = 13.sp,
-                            fillColor = glass.contentMuted,
-                            maxLines = 1,
-                        )
-                    }
-                    AchievementsToolbarChip(
-                        label = "Back",
-                        focused = focusedIndex == 0,
-                        onClick = {
-                            onFocus(0)
-                            onBack()
-                        },
-                        content = glass.content,
-                        muted = glass.contentMuted,
-                    )
-                    AchievementsToolbarChip(
-                        label = "Refresh",
-                        focused = focusedIndex == 1,
-                        onClick = {
-                            onFocus(1)
-                            onRefresh()
-                        },
-                        content = glass.content,
-                        muted = glass.contentMuted,
-                    )
-                }
-
-                if (achievements.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        XoraSecondaryText(
-                            text = "Achievements appear here after RetroAchievements finishes loading this ROM.",
-                            fontSize = 14.sp,
-                            fillColor = glass.contentMuted,
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    ) {
-                        itemsIndexed(achievements, key = { _, item -> item.id }) { index, achievement ->
-                            val rowFocus = index + 2
-                            EmulatorAchievementRow(
-                                achievement = achievement,
-                                focused = focusedIndex == rowFocus,
-                                onClick = { onFocus(rowFocus) },
-                                content = glass.content,
-                                muted = glass.contentMuted,
-                            )
-                        }
-                    }
-                }
-
-                XoraSecondaryText(
-                    text = "B / Back returns · A selects · D-pad scrolls",
-                    fontSize = 11.sp,
-                    fillColor = glass.contentMuted,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AchievementsToolbarChip(
-    label: String,
-    focused: Boolean,
-    onClick: () -> Unit,
-    content: Color,
-    muted: Color,
-) {
-    Text(
-        text = label,
-        color = if (focused) content else muted,
-        fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
-        fontSize = 14.sp,
-        modifier = Modifier
-            .background(
-                if (focused) XoraEmulatorFocusFillStrong else XoraEmulatorRowFill,
-                RoundedCornerShape(10.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-    )
-}
-
-@Composable
-private fun EmulatorAchievementRow(
-    achievement: RaLiveAchievement,
-    focused: Boolean,
-    onClick: () -> Unit,
-    content: Color,
-    muted: Color,
-) {
-    val context = LocalContext.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                if (focused) XoraEmulatorFocusFillStrong else XoraEmulatorRowFill,
-                RoundedCornerShape(14.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(achievement.badgeUrl.takeIf { it.isNotBlank() })
-                .crossfade(120)
-                .build(),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(
-                    if (achievement.unlocked) XoraEmulatorFocusFill else XoraEmulatorRowFill,
-                ),
-            alpha = if (achievement.unlocked) 1f else 0.45f,
-        )
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            Text(
-                text = achievement.title,
-                color = if (achievement.unlocked) content else muted,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = buildString {
-                    append(achievement.description)
-                    if (achievement.progress.isNotBlank() && !achievement.unlocked) {
-                        append(" · ")
-                        append(achievement.progress)
-                    }
-                    if (achievement.hardcore) append(" · Hardcore")
-                },
-                color = muted,
-                fontSize = 13.sp,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Text(
-            text = "${achievement.points}",
-            color = if (focused || achievement.unlocked) content else muted,
-            fontWeight = FontWeight.Bold,
-            fontSize = 16.sp,
-        )
     }
 }
