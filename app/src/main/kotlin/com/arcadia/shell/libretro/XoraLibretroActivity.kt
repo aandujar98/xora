@@ -58,6 +58,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -1652,6 +1653,51 @@ private fun XoraEmulatorPauseMenu(
                 modifier = Modifier.padding(top = 8.dp),
             )
             }
+        }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0A0C10)
+@Composable
+private fun XoraBootOverlayPreview() {
+    ArcadiaTheme(darkTheme = true) {
+        XoraBootOverlay(
+            visible = true,
+            title = "The Legend of Zelda",
+            subtitle = "Preparing fceumm...",
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0A0C10)
+@Composable
+private fun XoraEmulatorPauseMenuPreview() {
+    ArcadiaTheme(darkTheme = true) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
+            XoraEmulatorPauseMenu(
+                title = "The Legend of Zelda",
+                subtitle = "fceumm",
+                status = "State saved (slot 0)",
+                raStatus = "RA: 12/40 unlocked",
+                netplayStatus = "Hosting as Ash on port 55435",
+                actions = listOf(
+                    "Resume",
+                    "Settings",
+                    "RetroAchievements",
+                    "Save state",
+                    "Load state",
+                    "Reset",
+                    "Quit to XOrA",
+                ),
+                focusedIndex = 1,
+                onFocus = {},
+                onActivate = {},
+                onDismiss = {},
+            )
         }
     }
 }
