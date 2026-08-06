@@ -227,6 +227,7 @@ class LibraryScanner @Inject constructor(
         heroImagePath = heroImagePath ?: old.heroImagePath,
         logoImagePath = logoImagePath ?: old.logoImagePath,
         boxArtPath = boxArtPath ?: old.boxArtPath,
+        soundBitePath = soundBitePath ?: old.soundBitePath,
         trailerUrl = trailerUrl ?: old.trailerUrl,
         trailerResolved = trailerResolved || old.trailerResolved,
         playerIdOverride = playerIdOverride ?: old.playerIdOverride,

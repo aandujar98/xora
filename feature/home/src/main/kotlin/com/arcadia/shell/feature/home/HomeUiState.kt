@@ -281,7 +281,7 @@ sealed interface HomeEvent {
     /** Start Discord Social SDK account linking (needs a foreground Activity). */
     data object LinkDiscordAccount : HomeEvent
     data class OpenGameOptions(val gameId: String) : HomeEvent
-    /** Select button: scrape-source / favourite bottom sheet for [gameId]. */
+    /** Select button: ROM options (customize + saves + scrape) for [gameId]. */
     data class OpenScrapeMenu(val gameId: String) : HomeEvent
     /** Best-effort: reorder the shell task to the front when Guide opens. */
     data object BringShellToFront : HomeEvent
@@ -298,6 +298,9 @@ sealed interface HomeMediaPickerRequest {
     data object Wallpaper : HomeMediaPickerRequest
     data object Bgm : HomeMediaPickerRequest
     data object ProfileAvatar : HomeMediaPickerRequest
+    data class GameBoxArt(val gameId: String) : HomeMediaPickerRequest
+    data class GameBackground(val gameId: String) : HomeMediaPickerRequest
+    data class GameSoundBite(val gameId: String) : HomeMediaPickerRequest
 }
 
 /**
