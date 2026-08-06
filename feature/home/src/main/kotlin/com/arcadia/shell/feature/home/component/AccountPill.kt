@@ -97,35 +97,50 @@ fun AccountPill(
             horizontalAlignment = Alignment.Start,
             modifier = Modifier.heightIn(max = maxHeight),
         ) {
-            Row(
-                modifier = Modifier
-                    .liquidGlass(
-                        shape = ArcadiaGlass.PillShape,
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Standard,
-                    )
-                    .clickable(onClick = onToggle)
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // Collapsed LT chrome hides while the panel is open; Back / LT restores it.
+            AnimatedVisibility(
+                visible = !expanded,
+                enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
+                    animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+                    initialScale = 0.92f,
+                    transformOrigin = TransformOrigin(0.1f, 0f),
+                ),
+                exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) + scaleOut(
+                    animationSpec = arcadiaTween(ArcadiaMotion.Fast),
+                    targetScale = 0.96f,
+                    transformOrigin = TransformOrigin(0.1f, 0f),
+                ),
             ) {
-                StackedCircleAvatars(members = pillFriends)
-                if (extraOnline > 0) {
-                    Text(
-                        text = "+$extraOnline",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = glass.contentMuted,
-                    )
+                Row(
+                    modifier = Modifier
+                        .liquidGlass(
+                            shape = ArcadiaGlass.PillShape,
+                            tone = GlassTone.OverMedia,
+                            intensity = GlassIntensity.Standard,
+                        )
+                        .clickable(onClick = onToggle)
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    StackedCircleAvatars(members = pillFriends)
+                    if (extraOnline > 0) {
+                        Text(
+                            text = "+$extraOnline",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = glass.contentMuted,
+                        )
+                    }
+                    if (pillFriends.isEmpty()) {
+                        Text(
+                            text = if (onlineAcross > 0) "$onlineAcross online" else "Social",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = glass.contentMuted,
+                        )
+                    }
+                    TriggerGlyph(letter = "LT")
                 }
-                if (pillFriends.isEmpty()) {
-                    Text(
-                        text = if (onlineAcross > 0) "$onlineAcross online" else "Social",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = glass.contentMuted,
-                    )
-                }
-                TriggerGlyph(letter = "LT")
             }
 
             AnimatedVisibility(

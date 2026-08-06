@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -42,6 +44,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -86,31 +89,46 @@ fun AchievementsPill(
         modifier = modifier.widthIn(max = if (expanded) 360.dp else 200.dp),
         horizontalAlignment = Alignment.End,
     ) {
-        Row(
-            modifier = Modifier
-                .liquidGlass(
-                    shape = ArcadiaGlass.PillShape,
-                    tone = GlassTone.OverMedia,
-                    intensity = GlassIntensity.Standard,
-                )
-                .clickable(onClick = onToggle)
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // Collapsed X chrome hides while the panel is open; Back / X restores it.
+        AnimatedVisibility(
+            visible = !expanded,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
+                animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+                initialScale = 0.92f,
+                transformOrigin = TransformOrigin(0.9f, 1f),
+            ),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) + scaleOut(
+                animationSpec = arcadiaTween(ArcadiaMotion.Fast),
+                targetScale = 0.96f,
+                transformOrigin = TransformOrigin(0.9f, 1f),
+            ),
         ) {
-            TriggerGlyph(letter = "X")
-            TrophyGlyph(
+            Row(
                 modifier = Modifier
-                    .size(18.dp)
-                    .semantics { contentDescription = "RetroAchievements" },
-            )
-            Text(
-                text = collapsedLabel(state),
-                style = MaterialTheme.typography.labelMedium,
-                color = glass.contentMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+                    .liquidGlass(
+                        shape = ArcadiaGlass.PillShape,
+                        tone = GlassTone.OverMedia,
+                        intensity = GlassIntensity.Standard,
+                    )
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TriggerGlyph(letter = "X")
+                TrophyGlyph(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .semantics { contentDescription = "RetroAchievements" },
+                )
+                Text(
+                    text = collapsedLabel(state),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = glass.contentMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
 
         AnimatedVisibility(
