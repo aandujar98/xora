@@ -1,6 +1,7 @@
 package com.arcadia.shell.libretro
 
 import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
 import android.hardware.input.InputManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -10,15 +11,14 @@ import android.os.Bundle
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.widget.ImageView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
-import androidx.core.view.WindowCompat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,9 +44,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,13 +58,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import coil3.compose.AsyncImage
@@ -111,9 +112,9 @@ import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
 /**
- * In-process Libretro session. Frames are drawn via Compose [Image] (not SurfaceView /
- * AndroidView) so opaque shell layers cannot hide gameplay. Immersive fullscreen matches the
- * main launcher.
+ * In-process Libretro session. Frames are presented via [ImageView] (AndroidView) under
+ * Compose pause chrome. Compose [Image]/mutable [Bitmap] was leaving a milky wash after
+ * overlay Resume; ImageView stays mounted and only invalidates after [Bitmap.setPixels].
  *
  * All Libretro core entry points run on a dedicated single OS thread. Cores such as
  * Mupen64Plus-Next use libco; [retro_init] / [retro_run] / serialize must share that thread or
@@ -154,12 +155,12 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private var runJob: Job? = null
     private var audioTrack: AudioTrack? = null
-    /** Live gameplay bitmap shown via Compose Image (updated in place + frameTick). */
+    /** Live gameplay bitmap presented via ImageView (updated in place + invalidate). */
     private var gameBitmap by mutableStateOf<Bitmap?>(null)
     private var bottomBitmap by mutableStateOf<Bitmap?>(null)
     private var frameTick by mutableIntStateOf(0)
-    /** Bumped on Resume so Compose drops any layer promoted under the pause stack. */
-    private var displayGeneration by mutableIntStateOf(0)
+    private var primaryGameView: ImageView? = null
+    private var secondaryGameView: ImageView? = null
     private val bitmapLock = Any()
 
     /**
@@ -409,31 +410,28 @@ class XoraLibretroActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(androidx.compose.ui.graphics.Color.Black),
                     ) {
-                    // Hide the live framebuffer while the pause menu is up. Translucent dims
-                    // over a mutable Compose Image were leaving a milky wash after Resume.
-                    if (!menuOpen) {
-                        val bmp = gameBitmap
-                        key(displayGeneration) {
-                            if (bmp != null) {
-                                XoraPrimaryGameFrame(
-                                    bitmap = bmp,
-                                    frameTick = frameTick,
-                                    platformId = platformId,
-                                    aspectMode = xora.aspectMode,
-                                    integerScale = xora.integerScale,
-                                    bezelsEnabled = xora.bezelsEnabled && !expandActive,
-                                    bezelOpacity = xora.bezelOpacity,
-                                )
-                            } else if (xora.bezelsEnabled && !expandActive) {
-                                XoraBezelBackdrop(
-                                    platformId = platformId,
-                                    opacity = xora.bezelOpacity * 0.7f,
-                                )
-                            }
-                        }
+                    // Keep the ImageView framebuffer mounted under the pause plate. Unmounting /
+                    // remounting Compose Image around overlays left a milky wash after Resume.
+                    val bmp = gameBitmap
+                    if (bmp != null) {
+                        XoraPrimaryGameFrame(
+                            bitmap = bmp,
+                            frameTick = frameTick,
+                            platformId = platformId,
+                            aspectMode = xora.aspectMode,
+                            integerScale = xora.integerScale,
+                            bezelsEnabled = xora.bezelsEnabled && !expandActive,
+                            bezelOpacity = xora.bezelOpacity,
+                            onImageView = { primaryGameView = it },
+                        )
+                    } else if (xora.bezelsEnabled && !expandActive) {
+                        XoraBezelBackdrop(
+                            platformId = platformId,
+                            opacity = xora.bezelOpacity * 0.7f,
+                        )
                     }
 
-                    if (expandActive && !menuOpen) {
+                    if (expandActive) {
                         SecondaryDisplayPane(displayId = secondaryDisplayId) {
                             Box(
                                 modifier = Modifier
@@ -443,24 +441,23 @@ class XoraLibretroActivity : ComponentActivity() {
                             ) {
                                 val bottom = bottomBitmap
                                 if (bottom != null) {
-                                    key(displayGeneration) {
-                                        XoraPrimaryGameFrame(
-                                            bitmap = bottom,
-                                            frameTick = frameTick,
-                                            platformId = platformId,
-                                            aspectMode = xora.aspectMode,
-                                            integerScale = xora.integerScale,
-                                            bezelsEnabled = false,
-                                            bezelOpacity = xora.bezelOpacity,
-                                        )
-                                    }
+                                    XoraPrimaryGameFrame(
+                                        bitmap = bottom,
+                                        frameTick = frameTick,
+                                        platformId = platformId,
+                                        aspectMode = xora.aspectMode,
+                                        integerScale = xora.integerScale,
+                                        bezelsEnabled = false,
+                                        bezelOpacity = xora.bezelOpacity,
+                                        onImageView = { secondaryGameView = it },
+                                    )
                                 }
                             }
                         }
                     }
 
                     if (menuOpen) {
-                        // Fully opaque pause plate — never blend over the live game Image.
+                        // Fully opaque pause plate over the still-mounted ImageView.
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1246,10 +1243,6 @@ class XoraLibretroActivity : ComponentActivity() {
         waitingForMapButton = null
         paused = false
         statusText = ""
-        // Remount the game Image after the opaque pause plate. Do NOT recycle bitmaps here —
-        // Compose may still hold asImageBitmap() from the previous frame (crash on Resume).
-        displayGeneration++
-        frameTick++
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
@@ -1332,8 +1325,8 @@ class XoraLibretroActivity : ComponentActivity() {
         if (w <= 0 || h <= 0 || packed.size < w * h + 2) return
         val pixels = packed.copyOfRange(2, 2 + w * h)
         val split = expandActive && h >= 2
-        // When replacing bitmaps, leave the previous instance unreycled — Compose Image may
-        // still be drawing the prior asImageBitmap until the next frame remounts.
+        // When replacing bitmaps, leave the previous instance unreycled — ImageView may
+        // still be drawing the prior Bitmap until the next bind.
         runOnUiThread {
             synchronized(bitmapLock) {
                 if (split) {
@@ -1343,6 +1336,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     if (top == null || top.width != w || top.height != topH || top.isRecycled) {
                         top = Bitmap.createBitmap(w, topH, Bitmap.Config.ARGB_8888)
                         gameBitmap = top
+                        primaryGameView?.setImageBitmap(top)
                     }
                     top.setPixels(pixels, 0, w, 0, 0, w, topH)
 
@@ -1352,20 +1346,25 @@ class XoraLibretroActivity : ComponentActivity() {
                     ) {
                         bottom = Bitmap.createBitmap(w, bottomH, Bitmap.Config.ARGB_8888)
                         bottomBitmap = bottom
+                        secondaryGameView?.setImageBitmap(bottom)
                     }
                     bottom.setPixels(pixels, topH * w, w, 0, 0, w, bottomH)
                 } else {
                     if (bottomBitmap != null) {
                         bottomBitmap = null
+                        secondaryGameView?.setImageDrawable(null)
                     }
                     var bmp = gameBitmap
                     if (bmp == null || bmp.width != w || bmp.height != h || bmp.isRecycled) {
                         bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                         gameBitmap = bmp
+                        primaryGameView?.setImageBitmap(bmp)
                     }
                     bmp.setPixels(pixels, 0, w, 0, 0, w, h)
                 }
             }
+            primaryGameView?.invalidate()
+            secondaryGameView?.invalidate()
             frameTick++
             if (bootOverlayVisible) bootOverlayVisible = false
         }
@@ -1468,6 +1467,7 @@ private fun XoraPrimaryGameFrame(
     integerScale: Int,
     bezelsEnabled: Boolean,
     bezelOpacity: Float,
+    onImageView: (ImageView?) -> Unit = {},
 ) {
     val aspect = bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1).toFloat()
     val frame: @Composable () -> Unit = {
@@ -1477,15 +1477,14 @@ private fun XoraPrimaryGameFrame(
             mode = aspectMode,
             integerScaleCap = integerScale,
             modifier = Modifier.fillMaxSize(),
-        ) { scale ->
-            key(frameTick) {
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = null,
-                    contentScale = scale,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+        ) { _ ->
+            XoraGameImageView(
+                bitmap = bitmap,
+                frameTick = frameTick,
+                aspectMode = aspectMode,
+                onImageView = onImageView,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
     if (bezelsEnabled && aspectMode != XoraAspectMode.Stretch) {
@@ -1496,6 +1495,52 @@ private fun XoraPrimaryGameFrame(
         ) { frame() }
     } else {
         frame()
+    }
+}
+
+/**
+ * Classic View framebuffer — avoids Compose Image + asImageBitmap texture/premul wash after
+ * pause overlays. The same Bitmap instance is mutated via setPixels; we only invalidate.
+ */
+@Composable
+private fun XoraGameImageView(
+    bitmap: Bitmap,
+    frameTick: Int,
+    aspectMode: XoraAspectMode,
+    onImageView: (ImageView?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scaleType = when (aspectMode) {
+        XoraAspectMode.Stretch -> ImageView.ScaleType.FIT_XY
+        XoraAspectMode.Integer -> ImageView.ScaleType.FIT_XY
+        XoraAspectMode.Core -> ImageView.ScaleType.FIT_CENTER
+    }
+    AndroidView(
+        factory = { context ->
+            ImageView(context).apply {
+                setBackgroundColor(AndroidColor.BLACK)
+                adjustViewBounds = false
+                this.scaleType = scaleType
+                setImageBitmap(bitmap)
+                onImageView(this)
+            }
+        },
+        update = { view ->
+            view.scaleType = scaleType
+            val current = (view.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+            if (current !== bitmap) {
+                view.setImageBitmap(bitmap)
+            }
+            // frameTick changes every present — force a redraw of the mutated pixels.
+            if (frameTick >= 0) {
+                view.invalidate()
+            }
+            onImageView(view)
+        },
+        modifier = modifier,
+    )
+    DisposableEffect(Unit) {
+        onDispose { onImageView(null) }
     }
 }
 

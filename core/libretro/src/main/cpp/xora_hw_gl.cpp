@@ -12,6 +12,7 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
+#include <algorithm>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -407,11 +408,17 @@ bool read_frame(unsigned width, unsigned height, std::vector<uint32_t>& dst) {
         const uint8_t* row = rgba.data() + static_cast<size_t>(src_y) * width * 4;
         uint32_t* out = dst.data() + static_cast<size_t>(y) * width;
         for (unsigned x = 0; x < width; ++x) {
-            const uint8_t r = row[x * 4 + 0];
-            const uint8_t g = row[x * 4 + 1];
-            const uint8_t b = row[x * 4 + 2];
-            // Force opaque — partial GL alpha + Compose SrcOver over pause layers left a
-            // milky wash on the game quad after Resume (software path already forces 0xFF).
+            uint8_t r = row[x * 4 + 0];
+            uint8_t g = row[x * 4 + 1];
+            uint8_t b = row[x * 4 + 2];
+            const uint8_t a = row[x * 4 + 3];
+            // Un-premultiply then force opaque. Premul RGB with A forced to 0xFF looked
+            // washed / milky after pause overlays recomposited the present path.
+            if (a > 0 && a < 255) {
+                r = static_cast<uint8_t>(std::min(255, (static_cast<int>(r) * 255) / a));
+                g = static_cast<uint8_t>(std::min(255, (static_cast<int>(g) * 255) / a));
+                b = static_cast<uint8_t>(std::min(255, (static_cast<int>(b) * 255) / a));
+            }
             out[x] = 0xFF000000u |
                 (static_cast<uint32_t>(r) << 16) |
                 (static_cast<uint32_t>(g) << 8) |
