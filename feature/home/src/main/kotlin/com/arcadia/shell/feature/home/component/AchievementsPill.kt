@@ -7,23 +7,28 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -50,66 +55,56 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
-import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
-import com.arcadia.shell.designsystem.GlassIntensity
-import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.arcadiaTween
-import com.arcadia.shell.designsystem.liquidGlass
-import com.arcadia.shell.designsystem.rememberGlassTokens
-import com.arcadia.shell.feature.home.AchievementsPaneTab
 import com.arcadia.shell.feature.home.AchievementsUiState
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaGameLookup
-import com.arcadia.shell.retroachievements.RaRecentUnlock
+import com.arcadia.shell.retroachievements.RaGameProgress
+import com.arcadia.shell.retroachievements.RaProfile
+
+private val PillBg = Color(0xE61C1C1E)
+private val PillShape = RoundedCornerShape(999.dp)
+private val PanelShape = RoundedCornerShape(16.dp)
+private val BadgeShape = RoundedCornerShape(8.dp)
+private val ProgressTrack = Color(0xFF3A3A3C)
+private val ProgressFill = Color.White
+private val DividerColor = Color.White.copy(alpha = 0.35f)
+private val MutedWhite = Color.White.copy(alpha = 0.72f)
 
 @Composable
 fun AchievementsPill(
     expanded: Boolean,
     state: AchievementsUiState,
     onToggle: () -> Unit,
-    onSelectTab: (AchievementsPaneTab) -> Unit,
+    @Suppress("UNUSED_PARAMETER")
+    onSelectTab: (com.arcadia.shell.feature.home.AchievementsPaneTab) -> Unit,
     onLogin: (username: String, password: String) -> Unit,
     onLoginWithApiKey: (username: String, apiKey: String) -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
+    val needsLogin = !state.credentials.isConfigured || state.needsLogin
+    val matched = state.gameLookup as? RaGameLookup.Matched
+    val progress = matched?.progress
 
     Column(
-        modifier = modifier.widthIn(max = if (expanded) 360.dp else 200.dp),
+        modifier = modifier.widthIn(max = if (expanded) 320.dp else 220.dp),
         horizontalAlignment = Alignment.End,
     ) {
-        Row(
-            modifier = Modifier
-                .liquidGlass(
-                    shape = ArcadiaGlass.PillShape,
-                    tone = GlassTone.OverMedia,
-                    intensity = GlassIntensity.Standard,
-                )
-                .clickable(onClick = onToggle)
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            TriggerGlyph(letter = "X")
-            TrophyGlyph(
-                modifier = Modifier
-                    .size(18.dp)
-                    .semantics { contentDescription = "RetroAchievements" },
-            )
-            Text(
-                text = collapsedLabel(state),
-                style = MaterialTheme.typography.labelMedium,
-                color = glass.contentMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        if (!expanded) {
+            CollapsedRaPill(
+                state = state,
+                progress = progress,
+                onToggle = onToggle,
             )
         }
 
@@ -126,26 +121,23 @@ fun AchievementsPill(
         ) {
             Column(
                 modifier = Modifier
-                    .padding(top = 8.dp)
-                    .liquidGlass(
-                        shape = ArcadiaGlass.PanelShape,
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                    )
+                    .clip(PanelShape)
+                    .background(PillBg)
+                    .clickable(onClick = onToggle)
                     .padding(14.dp)
                     .fillMaxWidth()
-                    .heightIn(max = 360.dp)
+                    .heightIn(max = 420.dp)
                     .then(
-                        if (!state.credentials.isConfigured || state.needsLogin) {
+                        if (needsLogin) {
                             Modifier.verticalScroll(rememberScrollState())
                         } else {
                             Modifier
                         },
                     ),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when {
-                    !state.credentials.isConfigured || state.needsLogin -> LoginForm(
+                    needsLogin -> LoginForm(
                         initial = state.credentials,
                         isBusy = state.isLoggingIn,
                         error = state.error,
@@ -153,15 +145,389 @@ fun AchievementsPill(
                         onLogin = onLogin,
                         onLoginWithApiKey = onLoginWithApiKey,
                     )
-                    else -> LoggedInContent(
+                    state.isLoading && progress == null -> Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    progress != null -> ExpandedRaSummary(
+                        progress = progress,
+                        profile = state.profile,
+                        credentials = state.credentials,
+                        onSignOut = onSignOut,
+                    )
+                    else -> ExpandedEmptyState(
                         state = state,
-                        onSelectTab = onSelectTab,
                         onSignOut = onSignOut,
                     )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun CollapsedRaPill(
+    state: AchievementsUiState,
+    progress: RaGameProgress?,
+    onToggle: () -> Unit,
+) {
+    val label = when {
+        !state.credentials.isConfigured -> "Sign in"
+        progress != null -> progress.progressLabel
+        else -> state.profile?.totalPoints?.let { "$it pts" } ?: "…"
+    }
+    val avatarUrls = collapsedAvatarUrls(state)
+
+    Row(
+        modifier = Modifier
+            .clip(PillShape)
+            .background(PillBg)
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .semantics { contentDescription = "RetroAchievements $label" },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        TrophyGlyph(modifier = Modifier.size(16.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+            maxLines = 1,
+        )
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(14.dp)
+                .background(DividerColor),
+        )
+        ClockGlyph(modifier = Modifier.size(14.dp))
+        OverlappingAvatars(
+            urls = avatarUrls,
+            size = 18.dp,
+            overlap = 6.dp,
+            maxVisible = 3,
+            extraCount = 0,
+        )
+    }
+}
+
+@Composable
+private fun ExpandedRaSummary(
+    progress: RaGameProgress,
+    profile: RaProfile?,
+    credentials: RetroAchievementsCredentials,
+    onSignOut: () -> Unit,
+) {
+    val earnedBadges = progress.achievements.filter { it.earned }
+    val badgeSlots = buildList {
+        addAll(earnedBadges.take(5))
+        while (size < 7) add(null)
+    }
+    val playerUrls = listOfNotNull(
+        profile?.userPicUrl ?: RaProfile.userPicUrlFor(credentials.username),
+    )
+    val extraPlayers = (progress.numDistinctPlayers - playerUrls.size).coerceAtLeast(0)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+    // Header — game icon, title, console chip
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        GameIconThumb(url = progress.imageIconUrl, size = 40.dp)
+        Text(
+            text = progress.title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        ConsoleBadge(label = consoleShortName(progress.consoleName))
+    }
+
+    // Achievement badge strip
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        badgeSlots.forEach { achievement ->
+            if (achievement != null) {
+                BadgeImage(
+                    url = achievement.badgeUrl,
+                    locked = false,
+                    size = 34.dp,
+                    corner = 7.dp,
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.12f))
+                        .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape),
+                )
+            }
+        }
+    }
+
+    // Trophy progress + bar
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        TrophyGlyph(modifier = Modifier.size(16.dp))
+        Text(
+            text = progress.progressLabel,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(8.dp)
+                .clip(PillShape)
+                .background(ProgressTrack),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(progress.completionFraction)
+                    .clip(PillShape)
+                    .background(ProgressFill),
+            )
+        }
+    }
+
+    // Recent players
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ClockGlyph(modifier = Modifier.size(14.dp))
+        Text(
+            text = "Recent Players:",
+            style = MaterialTheme.typography.labelMedium,
+            color = MutedWhite,
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        OverlappingAvatars(
+            urls = playerUrls,
+            size = 22.dp,
+            overlap = 7.dp,
+            maxVisible = 4,
+            extraCount = extraPlayers.coerceAtMost(99),
+            showEmptySlots = 3,
+        )
+    }
+
+    TextButton(
+        onClick = onSignOut,
+        modifier = Modifier.align(Alignment.End),
+    ) {
+        Text("Sign out", color = MutedWhite)
+    }
+    }
+}
+
+@Composable
+private fun ExpandedEmptyState(
+    state: AchievementsUiState,
+    onSignOut: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = state.profile?.username ?: state.credentials.username,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+        )
+        Text(
+            text = when (state.gameLookup) {
+                is RaGameLookup.NoHash -> "This title can’t be hashed for RetroAchievements."
+                is RaGameLookup.NoGame -> "No RetroAchievements set for this ROM hash."
+                is RaGameLookup.Failed -> state.gameLookup.message
+                null -> "Select a game to load achievements."
+                else -> state.error ?: "No achievement data yet."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MutedWhite,
+        )
+        TextButton(onClick = onSignOut, modifier = Modifier.align(Alignment.End)) {
+            Text("Sign out", color = MutedWhite)
+        }
+    }
+}
+
+@Composable
+private fun ConsoleBadge(label: String) {
+    if (label.isBlank()) return
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = Color.White,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.White.copy(alpha = 0.16f))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun GameIconThumb(url: String, size: Dp) {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(BadgeShape)
+            .background(Color.White.copy(alpha = 0.1f)),
+    ) {
+        if (url.isNotBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(120)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun OverlappingAvatars(
+    urls: List<String>,
+    size: Dp,
+    overlap: Dp,
+    maxVisible: Int,
+    extraCount: Int,
+    showEmptySlots: Int = 0,
+) {
+    val visible = urls.take(maxVisible)
+    val empties = (showEmptySlots - visible.size).coerceAtLeast(0)
+    val totalSlots = visible.size + empties
+    if (totalSlots <= 0 && extraCount <= 0) return
+
+    val stackWidth = size + (size - overlap) * (totalSlots - 1).coerceAtLeast(0) +
+        if (extraCount > 0) (size - overlap) else 0.dp
+
+    Box(
+        modifier = Modifier
+            .width(stackWidth.coerceAtLeast(size))
+            .height(size),
+    ) {
+        visible.forEachIndexed { index, url ->
+            AvatarCircle(
+                url = url,
+                size = size,
+                modifier = Modifier.offset(x = (size - overlap) * index),
+            )
+        }
+        repeat(empties) { index ->
+            val slot = visible.size + index
+            Box(
+                modifier = Modifier
+                    .offset(x = (size - overlap) * slot)
+                    .size(size)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .border(1.dp, Color(0xFF0C1524), CircleShape),
+            )
+        }
+        if (extraCount > 0) {
+            Box(
+                modifier = Modifier
+                    .offset(x = (size - overlap) * totalSlots)
+                    .size(size)
+                    .clip(CircleShape)
+                    .background(Color(0xFF2C2C2E))
+                    .border(1.dp, Color(0xFF0C1524), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "+$extraCount",
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AvatarCircle(
+    url: String,
+    size: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    AsyncImage(
+        model = ImageRequest.Builder(context)
+            .data(url)
+            .crossfade(100)
+            .build(),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .border(1.dp, Color(0xFF0C1524), CircleShape)
+            .background(Color.White.copy(alpha = 0.12f)),
+    )
+}
+
+@Composable
+private fun BadgeImage(
+    url: String,
+    locked: Boolean,
+    size: Dp = 40.dp,
+    corner: Dp = 8.dp,
+) {
+    val context = LocalContext.current
+    AsyncImage(
+        model = ImageRequest.Builder(context)
+            .data(url)
+            .crossfade(120)
+            .build(),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(corner))
+            .background(Color.White.copy(alpha = if (locked) 0.08f else 0.12f))
+            .border(
+                width = 1.5.dp,
+                color = if (locked) Color.White.copy(alpha = 0.12f) else Color(0xFFFFC857),
+                shape = RoundedCornerShape(corner),
+            ),
+        alpha = if (locked) 0.45f else 1f,
+    )
 }
 
 @Composable
@@ -294,224 +660,35 @@ private fun LoginForm(
     }
 }
 
-@Composable
-private fun LoggedInContent(
-    state: AchievementsUiState,
-    onSelectTab: (AchievementsPaneTab) -> Unit,
-    onSignOut: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column {
-            Text(
-                text = state.profile?.username ?: state.credentials.username,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-            )
-            state.profile?.let { profile ->
-                Text(
-                    text = "${profile.totalPoints} pts",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.6f),
-                )
-            }
-        }
-        TextButton(onClick = onSignOut) { Text("Sign out") }
-    }
-
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(
-            selected = state.tab == AchievementsPaneTab.ThisGame,
-            onClick = { onSelectTab(AchievementsPaneTab.ThisGame) },
-            label = { Text("This game") },
-        )
-        FilterChip(
-            selected = state.tab == AchievementsPaneTab.Recent,
-            onClick = { onSelectTab(AchievementsPaneTab.Recent) },
-            label = { Text("Recent") },
-        )
-    }
-
-    if (state.isLoading) {
-        Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(modifier = Modifier.size(28.dp))
-        }
-        return
-    }
-
-    state.error?.let {
-        Text(
-            text = it,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.error,
-        )
-    }
-
-    when (state.tab) {
-        AchievementsPaneTab.ThisGame -> ThisGameList(state.gameLookup)
-        AchievementsPaneTab.Recent -> RecentList(state.recent)
-    }
+private fun collapsedAvatarUrls(state: AchievementsUiState): List<String> {
+    val user = state.profile?.userPicUrl
+        ?: state.credentials.username.takeIf { it.isNotBlank() }?.let(RaProfile::userPicUrlFor)
+    return listOfNotNull(user)
 }
 
-@Composable
-private fun ThisGameList(lookup: RaGameLookup?) {
-    when (lookup) {
-        null -> Text(
-            text = "Select a game to load achievements.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.55f),
-        )
-        RaGameLookup.NoHash -> Text(
-            text = "This title cannot be hashed for RetroAchievements.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.55f),
-        )
-        is RaGameLookup.NoGame -> Text(
-            text = "No RetroAchievements set matches this ROM hash " +
-                "(md5 ${lookup.md5.take(8)}…). " +
-                "If the game has a set, the dump may differ from linked hashes.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.55f),
-        )
-        is RaGameLookup.Failed -> Text(
-            text = lookup.message,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-        )
-        is RaGameLookup.Matched -> {
-            Text(
-                text = "${lookup.progress.title} · ${lookup.progress.progressLabel}",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.8f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                items(lookup.progress.achievements, key = { it.id }) { achievement ->
-                    AchievementRow(achievement)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecentList(recent: List<RaRecentUnlock>) {
-    if (recent.isEmpty()) {
-        Text(
-            text = "No recent unlocks yet.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.55f),
-        )
-        return
-    }
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        items(recent, key = { "${it.achievementId}-${it.date}" }) { unlock ->
-            RecentRow(unlock)
-        }
-    }
-}
-
-@Composable
-private fun AchievementRow(achievement: RaAchievement) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BadgeImage(url = achievement.badgeUrl, locked = !achievement.earned)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = achievement.title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = if (achievement.earned) Color.White else Color.White.copy(alpha = 0.55f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = achievement.description,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.5f),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Text(
-            text = "${achievement.points}",
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.75f),
-        )
-    }
-}
-
-@Composable
-private fun RecentRow(unlock: RaRecentUnlock) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BadgeImage(url = unlock.badgeUrl, locked = false)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = unlock.title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "${unlock.gameTitle} · ${unlock.consoleName}",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.5f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Text(
-            text = "${unlock.points}",
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.75f),
-        )
-    }
-}
-
-@Composable
-private fun BadgeImage(url: String, locked: Boolean) {
-    val context = LocalContext.current
-    AsyncImage(
-        model = ImageRequest.Builder(context)
-            .data(url)
-            .crossfade(120)
-            .build(),
-        contentDescription = null,
-        contentScale = ContentScale.Fit,
-        modifier = Modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.White.copy(alpha = if (locked) 0.08f else 0.12f))
-            .then(if (locked) Modifier else Modifier),
-        alpha = if (locked) 0.45f else 1f,
-    )
-}
-
-private fun collapsedLabel(state: AchievementsUiState): String {
-    if (!state.credentials.isConfigured) return "Sign in"
-    return when (val lookup = state.gameLookup) {
-        is RaGameLookup.Matched -> lookup.progress.progressLabel
-        else -> state.profile?.totalPoints?.let { "$it pts" } ?: "…"
+private fun consoleShortName(consoleName: String): String {
+    val n = consoleName.trim()
+    if (n.isEmpty()) return ""
+    return when {
+        n.contains("Portable", ignoreCase = true) -> "PSP"
+        n.contains("PlayStation 2", ignoreCase = true) -> "PS2"
+        n.contains("PlayStation", ignoreCase = true) -> "PS1"
+        n.contains("Nintendo 64", ignoreCase = true) -> "N64"
+        n.contains("Game Boy Advance", ignoreCase = true) -> "GBA"
+        n.contains("Game Boy Color", ignoreCase = true) -> "GBC"
+        n.contains("Game Boy", ignoreCase = true) -> "GB"
+        n.contains("Nintendo DS", ignoreCase = true) -> "NDS"
+        n.contains("3DS", ignoreCase = true) -> "3DS"
+        n.contains("Dreamcast", ignoreCase = true) -> "DC"
+        n.contains("Genesis", ignoreCase = true) ||
+            n.contains("Mega Drive", ignoreCase = true) -> "GEN"
+        n.contains("Master System", ignoreCase = true) -> "SMS"
+        n.contains("SNES", ignoreCase = true) ||
+            n.contains("Super Nintendo", ignoreCase = true) -> "SNES"
+        n.contains("NES", ignoreCase = true) ||
+            n.contains("Famicom", ignoreCase = true) -> "NES"
+        n.contains("Saturn", ignoreCase = true) -> "SAT"
+        else -> n.take(4).uppercase()
     }
 }
 
@@ -532,7 +709,6 @@ private fun TrophyGlyph(modifier: Modifier = Modifier) {
             close()
         }
         drawPath(cupPath, color = Color.White)
-        // Handles
         drawArc(
             color = Color.White,
             startAngle = 90f,
@@ -551,7 +727,6 @@ private fun TrophyGlyph(modifier: Modifier = Modifier) {
             size = Size(w * 0.28f, h * 0.28f),
             style = stroke,
         )
-        // Stem + base
         drawRoundRect(
             color = Color.White,
             topLeft = Offset(w * 0.44f, cupBottom),
@@ -563,6 +738,33 @@ private fun TrophyGlyph(modifier: Modifier = Modifier) {
             topLeft = Offset(w * 0.30f, h * 0.78f),
             size = Size(w * 0.40f, h * 0.14f),
             cornerRadius = CornerRadius(w * 0.04f),
+        )
+    }
+}
+
+@Composable
+private fun ClockGlyph(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val stroke = Stroke(width = w * 0.12f, cap = StrokeCap.Round)
+        drawCircle(
+            color = Color.White,
+            radius = w * 0.42f,
+            style = stroke,
+        )
+        drawLine(
+            color = Color.White,
+            start = Offset(w * 0.5f, w * 0.28f),
+            end = Offset(w * 0.5f, w * 0.52f),
+            strokeWidth = w * 0.12f,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            color = Color.White,
+            start = Offset(w * 0.5f, w * 0.52f),
+            end = Offset(w * 0.68f, w * 0.62f),
+            strokeWidth = w * 0.12f,
+            cap = StrokeCap.Round,
         )
     }
 }
