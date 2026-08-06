@@ -39,6 +39,9 @@ import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UI_TEXT_SCALE_PRESETS
 import com.arcadia.shell.datastore.UiFitMode
 import com.arcadia.shell.datastore.XmbTitleStyle
+import com.arcadia.shell.datastore.XoraAspectMode
+import com.arcadia.shell.datastore.XoraEmulatorSettings
+import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.isReduceMotionPreferred
@@ -241,6 +244,7 @@ class HomeViewModel @Inject constructor(
     private val startSettingsCategory = MutableStateFlow(StartSettingsCategory.Display)
     private val startSettingsRowIndex = MutableStateFlow(0)
     private val raSettingsState = MutableStateFlow(RetroAchievementsSettings())
+    private val xoraEmulatorSettingsState = MutableStateFlow(XoraEmulatorSettings())
     private val welcomeBackOpen = MutableStateFlow(false)
     private val isScraping = MutableStateFlow(false)
     private val lastInputAt = MutableStateFlow(SystemClock.elapsedRealtime())
@@ -468,12 +472,12 @@ class HomeViewModel @Inject constructor(
     )
 
     private val overlayFlow = combine(
-        homePage,
-        rssUi,
-        raLibraryUi,
+        combine(homePage, rssUi, raLibraryUi, ::Triple),
         guideFlow,
         socialFlow,
-    ) { page, rss, ra, guide, social ->
+        xoraEmulatorSettingsState,
+    ) { pageRssRa, guide, social, xoraEmulator ->
+        val (page, rss, ra) = pageRssRa
         OverlayChrome(
             homePage = page,
             rss = rss,
@@ -485,6 +489,7 @@ class HomeViewModel @Inject constructor(
             startSettingsRowIndex = guide.startSettingsRowIndex,
             isScraping = guide.isScraping,
             raSettings = guide.raSettings,
+            xoraEmulator = xoraEmulator,
             social = social,
         )
     }
@@ -642,6 +647,7 @@ class HomeViewModel @Inject constructor(
         val startSettingsRowIndex: Int,
         val isScraping: Boolean,
         val raSettings: RetroAchievementsSettings,
+        val xoraEmulator: XoraEmulatorSettings,
         val social: SocialChrome,
     )
 
@@ -667,6 +673,7 @@ class HomeViewModel @Inject constructor(
             startSettingsRowIndex = overlay.startSettingsRowIndex,
             isScraping = overlay.isScraping,
             raSettings = overlay.raSettings,
+            xoraEmulator = overlay.xoraEmulator,
             social = overlay.social,
             theme = theme,
             platformArtById = platformArt,
@@ -757,6 +764,10 @@ class HomeViewModel @Inject constructor(
 
         preferences.retroAchievementsSettings
             .onEach { raSettingsState.value = it }
+            .launchIn(viewModelScope)
+
+        preferences.xoraEmulatorSettings
+            .onEach { xoraEmulatorSettingsState.value = it }
             .launchIn(viewModelScope)
 
         gamepadDispatcher.actions
@@ -1147,6 +1158,7 @@ class HomeViewModel @Inject constructor(
         startSettingsRowIndex: Int,
         isScraping: Boolean,
         raSettings: RetroAchievementsSettings,
+        xoraEmulator: XoraEmulatorSettings,
         social: SocialChrome,
         theme: HomeThemeChrome,
         platformArtById: Map<String, String> = emptyMap(),
@@ -1205,6 +1217,7 @@ class HomeViewModel @Inject constructor(
                     allGames.filter { !it.isAndroidApp && it.platformId == platformId },
                 )
             }
+            XoraXmbDepth.Emulator -> buildXoraEmulatorItems(xoraEmulator)
         }
         val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
         val xoraSelected = xoraItems.getOrNull(xoraItemIndex)
@@ -1899,6 +1912,15 @@ class HomeViewModel @Inject constructor(
                 xoraItemIndex.value = 0
                 xoraDrilledPlatformId.value = null
             }
+            XoraXmbAction.DrillXoraEmulator -> {
+                xoraDepth.value = XoraXmbDepth.Emulator
+                xoraItemIndex.value = 0
+                xoraDrilledPlatformId.value = null
+            }
+            is XoraXmbAction.ToggleXoraEmulatorSetting ->
+                toggleXoraEmulatorSetting(action.setting)
+            XoraXmbAction.OpenFullXoraEmulatorSetup ->
+                emit(HomeEvent.OpenSettings)
             XoraXmbAction.PhotosStub ->
                 emit(HomeEvent.ShowMessage("Photos — coming soon."))
             XoraXmbAction.VideosStub ->
@@ -1955,6 +1977,51 @@ class HomeViewModel @Inject constructor(
         launchGame(target)
     }
 
+    private fun toggleXoraEmulatorSetting(setting: XoraEmulatorXmbSetting) {
+        viewModelScope.launch {
+            val current = preferences.xoraEmulatorSettings.first()
+            when (setting) {
+                XoraEmulatorXmbSetting.Aspect -> {
+                    val next = when (current.aspectMode) {
+                        XoraAspectMode.Core -> XoraAspectMode.Integer
+                        XoraAspectMode.Integer -> XoraAspectMode.Stretch
+                        XoraAspectMode.Stretch -> XoraAspectMode.Core
+                    }
+                    preferences.setXoraAspectMode(next)
+                }
+                XoraEmulatorXmbSetting.Bezels ->
+                    preferences.setXoraBezelsEnabled(!current.bezelsEnabled)
+                XoraEmulatorXmbSetting.BezelOpacity -> {
+                    val stepped = ((current.bezelOpacity * 100f).toInt() + 10).let { raw ->
+                        if (raw > 100) 40 else raw
+                    }
+                    preferences.setXoraBezelOpacity(stepped / 100f)
+                }
+                XoraEmulatorXmbSetting.InternalResolution -> {
+                    val values = XoraInternalResolution.entries
+                    val i = values.indexOf(current.internalResolution).coerceAtLeast(0)
+                    preferences.setXoraInternalResolution(values[(i + 1) % values.size])
+                }
+                XoraEmulatorXmbSetting.ExpandDualDisplay ->
+                    preferences.setXoraExpandDualDisplay(!current.expandDualDisplay)
+                XoraEmulatorXmbSetting.PreferredController -> {
+                    val names = listOf("") +
+                        com.arcadia.shell.libretro.LibretroPad.connectedControllerNames()
+                    val idx = names.indexOf(current.preferredControllerName).let {
+                        if (it >= 0) it else 0
+                    }
+                    preferences.setXoraPreferredControllerName(names[(idx + 1) % names.size])
+                }
+                XoraEmulatorXmbSetting.ClearButtonMappings -> {
+                    preferences.clearXoraButtonMappings()
+                    emit(HomeEvent.ShowMessage("Custom button mappings cleared."))
+                }
+                XoraEmulatorXmbSetting.Netplay ->
+                    preferences.setXoraNetplayEnabled(!current.netplayEnabled)
+            }
+        }
+    }
+
     private fun drillOutXora() {
         noteUserActivity()
         when (xoraDepth.value) {
@@ -1963,7 +2030,9 @@ class HomeViewModel @Inject constructor(
                 xoraItemIndex.value = 0
                 xoraDrilledPlatformId.value = null
             }
-            XoraXmbDepth.Systems -> {
+            XoraXmbDepth.Systems,
+            XoraXmbDepth.Emulator,
+            -> {
                 xoraDepth.value = XoraXmbDepth.Category
                 xoraItemIndex.value = 0
                 xoraDrilledPlatformId.value = null

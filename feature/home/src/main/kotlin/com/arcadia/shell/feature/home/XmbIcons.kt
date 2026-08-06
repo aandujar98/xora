@@ -48,6 +48,7 @@ enum class XmbIcon {
     News,
     System,
     GamePad,
+    Emulator,
 }
 
 fun XoraXmbCategory.toXmbIcon(): XmbIcon = when (this) {
@@ -116,6 +117,7 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Social -> drawChat(tint, stroke)
         XmbIcon.Notifications -> drawBell(tint, stroke)
         XmbIcon.Trophy -> drawTrophy(tint, stroke)
+        XmbIcon.Emulator -> drawController(tint, stroke)
         XmbIcon.Continue -> drawPlay(tint, stroke)
         XmbIcon.Favorite -> drawStar(tint, stroke)
         XmbIcon.Folder -> drawFolder(tint, stroke)

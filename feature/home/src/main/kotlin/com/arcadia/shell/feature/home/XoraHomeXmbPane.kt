@@ -555,6 +555,7 @@ private fun XmbCross(
             atRoot -> xmb.category.label
             xmb.depth == XoraXmbDepth.Systems -> "All Games"
             xmb.depth == XoraXmbDepth.Roms -> "Games"
+            xmb.depth == XoraXmbDepth.Emulator -> "XOrA Emulator"
             else -> xmb.category.label
         }
         val catLabelWidth = 120.dp
