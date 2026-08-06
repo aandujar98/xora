@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -209,3 +210,14 @@ private fun DrawScope.drawFourPointSparkle(
 
 private const val SPARKLE_COUNT_LIGHT = 4
 private const val SPARKLE_COUNT_DARK = 3
+
+@Preview(device = "spec:width=1920dp,height=1080dp,dpi=240", showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun SkyBackgroundPreview() {
+    ArcadiaTheme(darkTheme = true) {
+        SkyBackground(
+            sparkle = false,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}

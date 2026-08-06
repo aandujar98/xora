@@ -2,6 +2,7 @@ package com.arcadia.shell.feature.home.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,6 +21,8 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.maxBitmapSize
 import coil3.size.Size
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
 import com.arcadia.shell.launcher.InstalledAppSync
 import java.io.File
 
@@ -113,6 +116,21 @@ private fun resolveImageData(context: android.content.Context, path: String?): A
 }
 
 private const val CROSSFADE_MS = 180
+
+@XoraPreview
+@Composable
+private fun ArtworkImageFallbackPreview() {
+    XoraPreviewTheme {
+        ArtworkImage(
+            path = null,
+            contentDescription = null,
+            fallbackText = "The Legend of Zelda",
+            modifier = Modifier
+                .padding(16.dp)
+                .aspectRatio(0.72f),
+        )
+    }
+}
 
 /** XMB case tiles, hub shortcuts, system-pill thumbs. */
 const val THUMB_DECODE_MAX_EDGE_PX = 384

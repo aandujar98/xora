@@ -22,6 +22,9 @@ import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.feature.home.LibraryTab
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.TabKind
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewTabs
 
 /**
  * Recognizable system / console logo marks for XMB category icons.
@@ -111,6 +114,18 @@ fun drawableResForPlatformId(platformId: String?): Int = when (platformId) {
     "saturn" -> R.drawable.ic_platform_saturn
     "arcade", "neogeo" -> R.drawable.ic_platform_arcade
     else -> R.drawable.ic_platform_fallback
+}
+
+@XoraPreview
+@Composable
+private fun PlatformIconPreview() {
+    val tab = previewTabs().first { it.kind == TabKind.Platform }
+    XoraPreviewTheme {
+        PlatformIcon(
+            tab = tab,
+            selected = true,
+        )
+    }
 }
 
 @DrawableRes

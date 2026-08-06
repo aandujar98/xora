@@ -38,6 +38,9 @@ import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.GameInsightUiState
 import com.arcadia.shell.feature.home.component.ArtworkImage
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewInsight
 
 /**
  * Lower XMB detail area: combined About + Highlights card, plus a screenshots column.
@@ -367,3 +370,20 @@ private fun HighlightBlock(
 }
 
 private const val MAX_VISIBLE_SCREENSHOTS = 6
+
+@XoraPreview
+@Composable
+private fun XmbInsightPanelPreview() {
+    XoraPreviewTheme {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(280.dp),
+        ) {
+            XmbInsightPanel(
+                insight = previewInsight(),
+                gameTitle = "The Legend of Zelda",
+            )
+        }
+    }
+}

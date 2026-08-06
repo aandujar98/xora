@@ -23,6 +23,9 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewProfile
 
 @Composable
 fun ProfileAvatar(
@@ -67,5 +70,19 @@ fun ProfileAvatar(
                 fontSize = (size.value * 0.42f).sp,
             )
         }
+    }
+}
+
+@XoraPreview
+@Composable
+private fun ProfileAvatarPreview() {
+    val profile = previewProfile()
+    XoraPreviewTheme {
+        ProfileAvatar(
+            displayName = profile.displayName,
+            presetId = profile.avatarPresetId,
+            size = 96.dp,
+            onClick = {},
+        )
     }
 }

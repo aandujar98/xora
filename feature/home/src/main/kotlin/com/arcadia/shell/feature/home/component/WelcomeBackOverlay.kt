@@ -35,6 +35,9 @@ import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewProfile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -153,3 +156,16 @@ fun WelcomeBackOverlay(
 
 /** Visible hold before dissolve; total moment stays ~1.5–3s with enter/exit. */
 private const val WELCOME_HOLD_MS = 2_050
+
+@XoraPreview
+@Composable
+private fun WelcomeBackOverlayPreview() {
+    XoraPreviewTheme {
+        WelcomeBackOverlay(
+            visible = true,
+            profile = previewProfile(),
+            profileAvatarModel = null,
+            onDismiss = {},
+        )
+    }
+}

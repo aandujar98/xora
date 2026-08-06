@@ -28,6 +28,9 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewGame
 import com.arcadia.shell.model.Game
 
 /**
@@ -135,3 +138,16 @@ fun XmbGameTile(
 
 /** PSP / Vita case proportions — width:height ≈ 2:3. */
 private const val CASE_ASPECT = 2f / 3f
+
+@XoraPreview
+@Composable
+private fun XmbGameTilePreview() {
+    XoraPreviewTheme {
+        XmbGameTile(
+            game = previewGame(),
+            focused = true,
+            distanceFromFocus = 0,
+            onClick = {},
+        )
+    }
+}

@@ -33,6 +33,9 @@ import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewGame
 import com.arcadia.shell.model.Game
 
 private val ShardGap = 6.dp
@@ -285,5 +288,20 @@ private fun ShopShardContent() {
                 color = Color.White.copy(alpha = 0.55f),
             )
         }
+    }
+}
+
+@XoraPreview
+@Composable
+private fun HomeShardMenuPreview() {
+    XoraPreviewTheme {
+        HomeShardMenu(
+            continueGame = previewGame(),
+            focused = HomeShard.Continue,
+            raAvatarUrl = null,
+            onSelect = {},
+            onActivate = {},
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }

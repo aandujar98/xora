@@ -1,6 +1,9 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -15,6 +18,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
 
 /** Stable glyph ids for XMB rows that are not ROM box art. */
 enum class XmbIcon {
@@ -492,4 +497,25 @@ private fun DrawScope.drawSystemCube(tint: Color, stroke: Stroke) {
         strokeWidth = stroke.width,
         cap = StrokeCap.Round,
     )
+}
+
+@XoraPreview
+@Composable
+private fun XmbIconsPreview() {
+    XoraPreviewTheme {
+        Row(
+            modifier = Modifier.padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            listOf(
+                XmbIcon.Games,
+                XmbIcon.Settings,
+                XmbIcon.Trophy,
+                XmbIcon.Continue,
+                XmbIcon.Friends,
+            ).forEach { icon ->
+                XmbVectorIcon(icon = icon, size = 36.dp)
+            }
+        }
+    }
 }

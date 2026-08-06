@@ -26,6 +26,8 @@ import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.feature.home.HomeHubSection
 import com.arcadia.shell.feature.home.HomeHubUiState
 import com.arcadia.shell.feature.home.HomePage
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
 
 /**
  * Controller legend along the bottom edge. A controller-first interface has no visible affordances
@@ -233,3 +235,11 @@ fun hintsForSocialMenu(): List<Pair<String, String>> = SocialMenuHints
 fun hintsForSystemMenu(): List<Pair<String, String>> = SystemMenuHints
 
 fun hintsForStartSettings(): List<Pair<String, String>> = StartSettingsHints
+
+@XoraPreview
+@Composable
+private fun ButtonHintBarPreview() {
+    XoraPreviewTheme {
+        ButtonHintBar(hints = hintsForPage(HomePage.Home))
+    }
+}

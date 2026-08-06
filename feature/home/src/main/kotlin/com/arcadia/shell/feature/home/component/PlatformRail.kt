@@ -24,6 +24,9 @@ import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.feature.home.LibraryTab
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewTabs
 
 @Composable
 fun PlatformRail(
@@ -98,6 +101,18 @@ private fun PlatformChip(
             text = tab.gameCount.toString(),
             style = MaterialTheme.typography.labelSmall,
             color = contentColor.copy(alpha = 0.7f),
+        )
+    }
+}
+
+@XoraPreview
+@Composable
+private fun PlatformRailPreview() {
+    XoraPreviewTheme {
+        PlatformRail(
+            tabs = previewTabs(),
+            selectedIndex = 1,
+            onSelect = {},
         )
     }
 }

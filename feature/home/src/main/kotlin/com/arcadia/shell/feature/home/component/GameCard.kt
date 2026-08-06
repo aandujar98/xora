@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,6 +31,9 @@ import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewGame
 import com.arcadia.shell.model.Game
 
 @Composable
@@ -130,3 +134,16 @@ private fun FavoriteBadge(modifier: Modifier = Modifier) {
 
 /** Roughly the proportions of a physical game case, which most scraped box art matches. */
 private const val BOX_ART_ASPECT = 0.72f
+
+@XoraPreview
+@Composable
+private fun GameCardPreview() {
+    XoraPreviewTheme {
+        GameCard(
+            game = previewGame(),
+            isSelected = true,
+            onClick = {},
+            modifier = Modifier.width(140.dp),
+        )
+    }
+}

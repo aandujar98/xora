@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -36,6 +37,17 @@ fun ShellThemeBackdrop(
         ShellWallpaperStyle.MidnightGradient -> MidnightBackdrop(modifier)
         ShellWallpaperStyle.ClassicXmbWave -> ClassicXmbBackdrop(modifier)
         ShellWallpaperStyle.WarmArcadeGlow -> WarmArcadeBackdrop(modifier)
+    }
+}
+
+@Preview(device = "spec:width=1920dp,height=1080dp,dpi=240", showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun ShellThemeBackdropPreview() {
+    ArcadiaTheme(darkTheme = true) {
+        ShellThemeBackdrop(
+            style = ShellWallpaperStyle.MidnightGradient,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 

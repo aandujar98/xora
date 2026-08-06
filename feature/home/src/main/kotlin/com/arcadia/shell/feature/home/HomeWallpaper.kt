@@ -36,6 +36,8 @@ import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.ShellThemeBackdrop
 import com.arcadia.shell.designsystem.ShellWallpaperStyle
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
 import java.io.File
 
 /**
@@ -243,3 +245,14 @@ private fun assetExists(context: android.content.Context, path: String): Boolean
 /** Cap wallpaper decode for handheld RAM; crop still fills the viewport. */
 private const val WALLPAPER_DECODE_EDGE = 1280
 private val VIDEO_WALLPAPER_EXTS = setOf("mp4", "webm", "mkv", "mov")
+
+@XoraPreview
+@Composable
+private fun HomeWallpaperPreview() {
+    XoraPreviewTheme {
+        HomeWallpaper(
+            customPath = null,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}

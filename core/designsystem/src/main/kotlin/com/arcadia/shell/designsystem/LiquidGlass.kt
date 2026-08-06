@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -31,6 +33,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -334,4 +337,31 @@ fun LiquidGlassSurface(
         ),
         content = content,
     )
+}
+
+@Preview(device = "spec:width=1920dp,height=1080dp,dpi=240", showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun LiquidGlassSurfacePreview() {
+    ArcadiaTheme(darkTheme = true) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(Color(0xFF1A3A6B), Color(0xFF0E1A32)),
+                    ),
+                )
+                .padding(48.dp),
+        ) {
+            LiquidGlassSurface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                tone = GlassTone.Surface,
+                intensity = GlassIntensity.Standard,
+            ) {
+                Box(modifier = Modifier.fillMaxSize())
+            }
+        }
+    }
 }

@@ -47,6 +47,9 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.R
+import com.arcadia.shell.feature.home.preview.XoraPreview
+import com.arcadia.shell.feature.home.preview.XoraPreviewTheme
+import com.arcadia.shell.feature.home.preview.previewAchievementNotification
 import com.arcadia.shell.launcher.notifications.FriendNetwork
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
@@ -335,5 +338,18 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             avatarFallback = "✓",
             accent = Color(0xFF37D6A0),
         )
+    }
+}
+
+@XoraPreview
+@Composable
+private fun NotificationBannerPreview() {
+    XoraPreviewTheme {
+        Box(modifier = Modifier.padding(16.dp)) {
+            NotificationBanner(
+                notification = previewAchievementNotification(),
+                onDismiss = {},
+            )
+        }
     }
 }

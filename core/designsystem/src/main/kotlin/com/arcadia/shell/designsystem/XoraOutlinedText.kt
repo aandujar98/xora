@@ -1,9 +1,13 @@
 package com.arcadia.shell.designsystem
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
@@ -140,6 +144,24 @@ object XoraOutlineWidth {
             sp >= 18f -> 2.5.dp
             sp >= 14f -> 2.dp
             else -> 1.5.dp
+        }
+    }
+}
+
+@Preview(device = "spec:width=1920dp,height=1080dp,dpi=240", showBackground = true, backgroundColor = 0xFF0B1220)
+@Composable
+private fun XoraOutlinedTextPreview() {
+    ArcadiaTheme(darkTheme = true) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF1A3A6B))
+                .padding(32.dp),
+        ) {
+            XoraTitleText(
+                text = "XOrA Shell",
+                fontSize = 28.sp,
+            )
         }
     }
 }
