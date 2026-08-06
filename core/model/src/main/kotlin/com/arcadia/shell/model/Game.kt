@@ -36,6 +36,8 @@ data class Game(
     val heroImagePath: String? = null,
     val logoImagePath: String? = null,
     val boxArtPath: String? = null,
+    /** Optional short audio clip played when this ROM is focused in the XMB. */
+    val soundBitePath: String? = null,
     /**
      * Encoded trailer reference ([TrailerRefs]): direct media URI/path or `youtube:` id.
      * Null when unknown or when a lookup found nothing (see [trailerResolved]).
