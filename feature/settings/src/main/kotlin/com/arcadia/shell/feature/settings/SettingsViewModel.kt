@@ -15,6 +15,7 @@ import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.launcher.BuiltInPlayers
 import com.arcadia.shell.launcher.InstalledPlayerProbe
+import com.arcadia.shell.launcher.InstalledAppSync
 import com.arcadia.shell.launcher.PlayerSeeder
 import com.arcadia.shell.launcher.RetroArchCoreCatalog
 import com.arcadia.shell.launcher.RetroArchPackages
@@ -67,11 +68,13 @@ class SettingsViewModel @Inject constructor(
     private val coreDownloader: CoreDownloader,
     private val coreStore: CoreStore,
     private val xoraCatalog: XoraCoreCatalog,
+    private val installedAppSync: InstalledAppSync,
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
     private val transientMessage = MutableStateFlow<String?>(null)
     private val raBusy = MutableStateFlow(false)
+    private val appSyncBusy = MutableStateFlow(false)
     private val raError = MutableStateFlow<String?>(null)
     private val raPendingWebApiUser = MutableStateFlow<String?>(null)
 
@@ -179,7 +182,8 @@ class SettingsViewModel @Inject constructor(
             hasStorageAccess = storage.hasAccess,
             roots = storage.roots,
             suggestedVolumes = storage.suggestedVolumes,
-            gameCount = games.size,
+            gameCount = games.count { !it.isAndroidApp },
+            androidAppCount = games.count { it.isAndroidApp },
             scanProgress = progress,
             platformChoices = choices,
             settings = config.settings,
@@ -237,10 +241,12 @@ class SettingsViewModel @Inject constructor(
         baseUiState,
         raUiFlow,
         xoraStatusFlow,
-    ) { base, ra, xora ->
+        appSyncBusy,
+    ) { base, ra, xora, syncingApps ->
         val (busy, error, pending) = ra
         val uniqueCores = xora.cores.distinctBy { it.core }
         base.copy(
+            isSyncingApps = syncingApps,
             raAuthBusy = busy,
             raAuthError = error,
             raPendingWebApiUsername = pending,
@@ -321,6 +327,32 @@ class SettingsViewModel @Inject constructor(
             rootManager.remove(root)
             transientMessage.value = "Removed ${root.label}"
             refresh()
+        }
+    }
+
+    fun setAndroidAppSyncEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setAndroidAppSyncEnabled(enabled)
+            // Apply straight away: turning it off prunes the mirrored rows.
+            runCatching { installedAppSync.refresh() }
+            transientMessage.value = if (enabled) {
+                "Installed apps will appear on the Apps tab."
+            } else {
+                "Installed apps removed from the library."
+            }
+        }
+    }
+
+    fun syncAndroidAppsNow() {
+        if (appSyncBusy.value) return
+        viewModelScope.launch {
+            appSyncBusy.value = true
+            val result = runCatching { installedAppSync.refresh() }
+            appSyncBusy.value = false
+            transientMessage.value = result.fold(
+                onSuccess = { "Installed apps synced." },
+                onFailure = { it.message ?: "Could not sync installed apps." },
+            )
         }
     }
 

@@ -156,6 +156,11 @@ data class ShellSettings(
      * library would quietly pull gigabytes on the first scan of anyone who never asked for them.
      */
     val manualScrapeEnabled: Boolean = false,
+    /**
+     * Mirror launchable Android apps into the library so they appear on the Apps tab and can
+     * be pinned. On by default; turning it off prunes the synced rows on the next sync.
+     */
+    val androidAppSyncEnabled: Boolean = true,
     val lastScanAt: Long = 0,
     /** Looping shell soundtrack volume in the range 0f–1f. Zero mutes. */
     val bgmVolume: Float = DEFAULT_BGM_VOLUME,
@@ -340,6 +345,7 @@ class ShellPreferences @Inject constructor(
                 ?.let { name -> runCatching { XmbTitleStyle.valueOf(name) }.getOrNull() }
                 ?: XmbTitleStyle.TitleIcons,
             manualScrapeEnabled = prefs[Keys.MANUAL_SCRAPE_ENABLED] ?: false,
+            androidAppSyncEnabled = prefs[Keys.ANDROID_APP_SYNC_ENABLED] ?: true,
             lastScanAt = prefs[Keys.LAST_SCAN_AT] ?: 0,
             bgmVolume = prefs[Keys.BGM_VOLUME] ?: DEFAULT_BGM_VOLUME,
             uiSfxVolume = prefs[Keys.UI_SFX_VOLUME] ?: DEFAULT_UI_SFX_VOLUME,
@@ -552,6 +558,10 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setManualScrapeEnabled(enabled: Boolean) = edit {
         it[Keys.MANUAL_SCRAPE_ENABLED] = enabled
+    }
+
+    suspend fun setAndroidAppSyncEnabled(enabled: Boolean) = edit {
+        it[Keys.ANDROID_APP_SYNC_ENABLED] = enabled
     }
 
     suspend fun setLastScanAt(timestamp: Long) = edit { it[Keys.LAST_SCAN_AT] = timestamp }
@@ -965,6 +975,7 @@ class ShellPreferences @Inject constructor(
         val GAMES_SECONDARY_SLOT = stringPreferencesKey("games_secondary_slot")
         val XMB_TITLE_STYLE = stringPreferencesKey("xmb_title_style")
         val MANUAL_SCRAPE_ENABLED = booleanPreferencesKey("manual_scrape_enabled")
+        val ANDROID_APP_SYNC_ENABLED = booleanPreferencesKey("android_app_sync_enabled")
         val LAST_SCAN_AT = longPreferencesKey("last_scan_at")
         val BGM_VOLUME = floatPreferencesKey("bgm_volume")
         val UI_SFX_VOLUME = floatPreferencesKey("ui_sfx_volume")

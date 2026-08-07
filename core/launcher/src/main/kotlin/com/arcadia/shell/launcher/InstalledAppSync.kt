@@ -2,9 +2,11 @@ package com.arcadia.shell.launcher
 
 import com.arcadia.shell.database.dao.GameDao
 import com.arcadia.shell.database.entity.GameEntity
+import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.model.GamePlatform
 import com.arcadia.shell.model.ScrapeState
 import com.arcadia.shell.model.TitleCleaner
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,11 +20,17 @@ import javax.inject.Singleton
 class InstalledAppSync @Inject constructor(
     private val catalog: InstalledAppCatalog,
     private val gameDao: GameDao,
+    private val preferences: ShellPreferences,
 ) {
     suspend fun refresh() {
         val startedAt = System.currentTimeMillis()
         val existing = gameDao.findByRootId(ROOT_ID).associateBy { it.id }
-        val apps = catalog.listLaunchableApps()
+        val apps = if (preferences.settings.first().androidAppSyncEnabled) {
+            catalog.listLaunchableApps()
+        } else {
+            // Syncing off: fall through to the prune below so the Apps tab clears out.
+            emptyList()
+        }
 
         val entities = apps.map { app ->
             val id = idFor(app.packageName)
