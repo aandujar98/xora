@@ -63,6 +63,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arcadia.shell.datastore.TrailerDisplayMode
@@ -71,6 +72,7 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
@@ -203,33 +205,52 @@ fun XoraHomeXmbPane(
             )
         }
 
-        // Choosing a system is its own full-bleed step rather than a rung of the XMB cross.
-        if (xmb.depth == XoraXmbDepth.Systems) {
-            XoraPlatformPane(
-                items = xmb.items,
-                selectedIndex = xmb.itemIndex,
-                onSelectItem = onSelectItem,
-                onActivateItem = onActivateItem,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = chromeAlpha
-                        translationY = chromeSlidePx
+        // System and ROM browsing are card rungs of the same menu, so drilling slides sideways
+        // between them the way the PSP / PS3 shells do rather than cutting.
+        val depthSlideMs = motionMillis(XMB_DEPTH_SLIDE_MS)
+        AnimatedContent(
+            targetState = xmb.depth,
+            transitionSpec = {
+                val drillingIn = targetState.ordinal > initialState.ordinal
+                val slide = tween<IntOffset>(depthSlideMs, easing = FastOutSlowInEasing)
+                val enter = slideInHorizontally(slide) { width ->
+                    if (drillingIn) width / 2 else -width / 2
+                } + fadeIn(tween(depthSlideMs, easing = FastOutSlowInEasing))
+                val exit = slideOutHorizontally(slide) { width ->
+                    if (drillingIn) -width / 3 else width / 3
+                } + fadeOut(tween(depthSlideMs / 2, easing = FastOutSlowInEasing))
+                enter togetherWith exit
+            },
+            label = "xmbDepth",
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = chromeAlpha
+                    translationY = chromeSlidePx
+                },
+        ) { depth ->
+            when (depth) {
+                XoraXmbDepth.Systems, XoraXmbDepth.Roms -> XoraCardBrowsePane(
+                    items = xmb.items,
+                    selectedIndex = xmb.itemIndex,
+                    mode = if (depth == XoraXmbDepth.Systems) {
+                        CardBrowseMode.Systems
+                    } else {
+                        CardBrowseMode.Roms
                     },
-            )
-        } else {
-            XmbCross(
-                xmb = xmb,
-                onSelectCategory = onSelectCategory,
-                onSelectItem = onSelectItem,
-                onActivateItem = onActivateItem,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = chromeAlpha
-                        translationY = chromeSlidePx
-                    },
-            )
+                    onSelectItem = onSelectItem,
+                    onActivateItem = onActivateItem,
+                    achievements = state.achievements.focusedGameProgress,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                else -> XmbCross(
+                    xmb = xmb,
+                    onSelectCategory = onSelectCategory,
+                    onSelectItem = onSelectItem,
+                    onActivateItem = onActivateItem,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
 
         overlayContent()
@@ -999,7 +1020,7 @@ private fun XmbItemGlyph(
     }
 }
 
-private fun formatXmbPlaytime(millis: Long): String {
+internal fun formatXmbPlaytime(millis: Long): String {
     if (millis < 60_000L) return "—"
     val hours = TimeUnit.MILLISECONDS.toHours(millis)
     val minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60
@@ -1175,6 +1196,8 @@ private fun XoraXmbPillChrome(
     }
 }
 
+/** Drill in / out slide between XMB rungs (PSP / PS3 shell feel). */
+private const val XMB_DEPTH_SLIDE_MS = 300
 private const val CROSS_X_FRACTION = 0.28f
 /** Category strip sits in the upper third (PS3 XMB). */
 private const val CATEGORY_Y_FRACTION = 0.30f
