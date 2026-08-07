@@ -90,6 +90,10 @@ private val NamePillInnerGlow = Color(0x80FFFFFF)
 private val PageDotIdle = Color(0x33FFFFFF)
 private val PageDotActive = Color(0xD9FFFFFF)
 
+// The bottom row sits on the pale end of the sky, so the glyphs read dark rather than white.
+private val XmbRowActive = Color(0xE6102734)
+private val XmbRowIdle = Color(0x80102734)
+
 /** Sits under icons with transparent corners so every slot still reads as a glass bubble. */
 private val BubbleFill = Color(0x4D0E2230)
 
@@ -247,9 +251,19 @@ private fun VitaBubble(
             modifier = Modifier
                 .size(diameter)
                 .drawBehind {
-                    if (selected) {
-                        drawCircle(color = SelectionHalo, radius = size.minDimension * 0.62f)
-                    }
+                    if (!selected) return@drawBehind
+                    val haloRadius = size.minDimension * 0.68f
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colorStops = arrayOf(
+                                0.52f to SelectionHalo,
+                                1f to Color.Transparent,
+                            ),
+                            center = center,
+                            radius = haloRadius,
+                        ),
+                        radius = haloRadius,
+                    )
                 }
                 .shadow(
                     elevation = if (selected) 18.dp else 10.dp,
@@ -300,6 +314,7 @@ private fun VitaBubble(
                         style = MaterialTheme.typography.displaySmall.copy(
                             fontFamily = XoraFonts.Secondary,
                             fontWeight = FontWeight.SemiBold,
+                            fontSize = with(LocalDensity.current) { (diameter * 0.42f).toSp() },
                         ),
                     )
                 }
@@ -345,6 +360,19 @@ private fun SoftwareNamePill(
             .widthIn(min = minWidth, max = minWidth * 2.2f)
             .clip(shape)
             .background(NamePillFill)
+            // Stands in for the design's inset white bloom, which has no Compose equivalent.
+            .drawBehind {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to NamePillInnerGlow,
+                            0.45f to Color.Transparent,
+                            0.55f to Color.Transparent,
+                            1f to NamePillInnerGlow,
+                        ),
+                    ),
+                )
+            }
             .border(width = (NAME_PILL_BORDER * unit).dp, color = NamePillBorder, shape = shape)
             .padding(
                 horizontal = (28f * unit).dp,
@@ -352,20 +380,6 @@ private fun SoftwareNamePill(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to NamePillInnerGlow,
-                            0.42f to Color.Transparent,
-                            0.58f to Color.Transparent,
-                            1f to NamePillInnerGlow,
-                        ),
-                    ),
-                ),
-        )
         Text(
             text = label,
             maxLines = 1,
@@ -425,7 +439,7 @@ private fun XmbCategoryRow(
         categories.forEachIndexed { index, category ->
             XmbVectorIcon(
                 icon = category.toXmbIcon(),
-                tint = Color.White.copy(alpha = if (index == selectedIndex) 1f else 0.6f),
+                tint = if (index == selectedIndex) XmbRowActive else XmbRowIdle,
                 size = (XMB_ROW_ICON * unit).dp,
                 outlined = false,
             )
