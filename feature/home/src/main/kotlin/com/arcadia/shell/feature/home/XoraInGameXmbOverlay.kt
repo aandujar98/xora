@@ -58,6 +58,7 @@ fun XoraInGameXmbOverlay(
     gameTitle: String,
     profileName: String,
     emulatorSettings: XoraEmulatorSettings,
+    raHardcore: Boolean = false,
     onAction: (XoraXmbAction) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -72,7 +73,7 @@ fun XoraInGameXmbOverlay(
 
     val category = XoraXmbCategory.entries.getOrElse(categoryIndex) { XoraXmbCategory.Games }
     val items = when (depth) {
-        XoraXmbDepth.Emulator -> buildXoraEmulatorItems(emulatorSettings)
+        XoraXmbDepth.Emulator -> buildXoraEmulatorItems(emulatorSettings, raHardcore = raHardcore)
         else -> buildXoraCategoryItems(
             category = category,
             profileName = profileName,

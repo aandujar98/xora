@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -47,6 +49,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -103,14 +106,28 @@ fun AchievementsPill(
         modifier = modifier.widthIn(max = if (expanded) 320.dp else 240.dp),
         horizontalAlignment = Alignment.End,
     ) {
-        // Collapsed trigger stays mounted like RT / LT — glass capsule over media.
-        CollapsedRaPill(
-            state = state,
-            progress = progress,
-            contentColor = glass.content,
-            mutedColor = glass.contentMuted,
-            onToggle = onToggle,
-        )
+        // Collapsed X chrome hides while the panel is open; Back / X restores it.
+        AnimatedVisibility(
+            visible = !expanded,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
+                animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+                initialScale = 0.92f,
+                transformOrigin = TransformOrigin(0.9f, 1f),
+            ),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) + scaleOut(
+                animationSpec = arcadiaTween(ArcadiaMotion.Fast),
+                targetScale = 0.96f,
+                transformOrigin = TransformOrigin(0.9f, 1f),
+            ),
+        ) {
+            CollapsedRaPill(
+                state = state,
+                progress = progress,
+                contentColor = glass.content,
+                mutedColor = glass.contentMuted,
+                onToggle = onToggle,
+            )
+        }
 
         AnimatedVisibility(
             visible = expanded,

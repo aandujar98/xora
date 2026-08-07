@@ -1,6 +1,7 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -113,7 +114,17 @@ fun VerticalGameSelectorPane(
         animationSpec = arcadiaTween(ArcadiaMotion.Launch),
         label = "verticalSelectorLaunch",
     )
-    val chromeAlpha = 1f - launchProgress
+    val accountExpanded = state.accountPanelExpanded && !state.isLaunching
+    val systemExpanded = state.systemPanelExpanded && !state.isLaunching
+    val achievementsExpanded = state.achievementsPanelExpanded && !state.isLaunching
+    val anyPanelExpanded = accountExpanded || systemExpanded || achievementsExpanded
+    val panelHideProgress by animateFloatAsState(
+        targetValue = if (anyPanelExpanded) 1f else 0f,
+        animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+        label = "verticalPanelHideChrome",
+    )
+    val launchChromeAlpha = 1f - launchProgress
+    val chromeAlpha = launchChromeAlpha * (1f - panelHideProgress)
     val chromeSlidePx = launchProgress * 72f
     var profileEditing by remember { mutableStateOf(false) }
 
@@ -232,20 +243,20 @@ fun VerticalGameSelectorPane(
                 }
             }
 
-            Row(
+            AnimatedVisibility(
+                visible = !anyPanelExpanded || accountExpanded,
+                enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+                exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 8.dp)
                     .graphicsLayer {
-                        alpha = chromeAlpha
+                        alpha = launchChromeAlpha
                         translationY = -chromeSlidePx
                     },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
             ) {
                 AccountPill(
-                    expanded = state.accountPanelExpanded && !state.isLaunching,
+                    expanded = accountExpanded,
                     socialMenu = state.socialMenu,
                     profile = state.profile,
                     profileAvatarModel = state.profileAvatarModel,
@@ -258,13 +269,26 @@ fun VerticalGameSelectorPane(
                     onFriendSearchChange = onFriendSearchChange,
                     onReplyDraftChange = onReplyDraftChange,
                 )
+            }
+            AnimatedVisibility(
+                visible = !anyPanelExpanded || systemExpanded,
+                enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+                exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .graphicsLayer {
+                        alpha = launchChromeAlpha
+                        translationY = -chromeSlidePx
+                    },
+            ) {
                 SystemPill(
                     profile = state.profile,
                     avatarImageModel = state.profileAvatarModel,
                     raScore = state.achievements.profile?.totalPoints,
                     recentAchievements = state.achievements.recent,
                     jumpBackGames = state.quickLaunchGames.take(3),
-                    expanded = state.systemPanelExpanded && !state.isLaunching,
+                    expanded = systemExpanded,
                     selectedRowIndex = state.systemPanelSelectedIndex,
                     notificationUnreadCount = state.notificationUnreadCount,
                     onToggle = onToggleSystemPanel,
@@ -274,14 +298,10 @@ fun VerticalGameSelectorPane(
                 )
             }
 
-            AchievementsPill(
-                expanded = state.achievementsPanelExpanded && !state.isLaunching,
-                state = state.achievements,
-                onToggle = onToggleAchievementsPanel,
-                onSelectTab = onSelectAchievementsTab,
-                onLogin = onLoginRetroAchievements,
-                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOut = onSignOutRetroAchievements,
+            AnimatedVisibility(
+                visible = !anyPanelExpanded || achievementsExpanded,
+                enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+                exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(
@@ -289,10 +309,20 @@ fun VerticalGameSelectorPane(
                         bottom = metrics.mediaHeight + 20.dp,
                     )
                     .graphicsLayer {
-                        alpha = chromeAlpha
+                        alpha = launchChromeAlpha
                         translationY = chromeSlidePx
                     },
-            )
+            ) {
+                AchievementsPill(
+                    expanded = achievementsExpanded,
+                    state = state.achievements,
+                    onToggle = onToggleAchievementsPanel,
+                    onSelectTab = onSelectAchievementsTab,
+                    onLogin = onLoginRetroAchievements,
+                    onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+                    onSignOut = onSignOutRetroAchievements,
+                )
+            }
 
             if (profileEditing) {
                 ProfileEditSheet(

@@ -143,7 +143,13 @@ fun XoraHomeXmbPane(
         animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
         label = "xmbLaunchHold",
     )
-    val chromeAlpha = 1f - chromeProgress
+    // RT / LT / X panels clear the XMB cross until the panel collapses.
+    val panelHideProgress by animateFloatAsState(
+        targetValue = if (state.anyHeroPanelExpanded) 1f else 0f,
+        animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+        label = "xmbPanelHideChrome",
+    )
+    val chromeAlpha = (1f - chromeProgress) * (1f - panelHideProgress)
     val chromeSlidePx = chromeProgress * 72f
     val artworkScale = 1f + (holdProgress * 0.06f)
     val backdropMotion = rememberXmbBackdropMotion(
@@ -287,7 +293,12 @@ fun XoraXmbHeroDetail(
         animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
         label = "xmbHeroLaunchHold",
     )
-    val chromeAlpha = 1f - chromeProgress
+    val panelHideProgress by animateFloatAsState(
+        targetValue = if (state.anyHeroPanelExpanded) 1f else 0f,
+        animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+        label = "xmbHeroPanelHideChrome",
+    )
+    val chromeAlpha = (1f - chromeProgress) * (1f - panelHideProgress)
     val chromeSlidePx = chromeProgress * 72f
     val artworkScale = 1f + (holdProgress * 0.06f)
     val backdropMotion = rememberXmbBackdropMotion(
@@ -1070,21 +1081,26 @@ private fun XoraXmbPillChrome(
         if (state.profileEditRequest > 0) profileEditing = true
     }
     val launching = state.isLaunching
+    val accountExpanded = state.accountPanelExpanded && !launching
+    val systemExpanded = state.systemPanelExpanded && !launching
+    val achievementsExpanded = state.achievementsPanelExpanded && !launching
+    val anyExpanded = accountExpanded || systemExpanded || achievementsExpanded
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val paneMaxHeight = this.maxHeight
-        Row(
+        // Sibling pills clear while one panel is open; keep edge anchors so RT stays TopEnd.
+        AnimatedVisibility(
+            visible = !anyExpanded || accountExpanded,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .fillMaxWidth()
                 .heightIn(max = paneMaxHeight)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .graphicsLayer { alpha = if (launching) 0f else 1f },
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top,
         ) {
             AccountPill(
-                expanded = state.accountPanelExpanded && !launching,
+                expanded = accountExpanded,
                 socialMenu = state.socialMenu,
                 profile = state.profile,
                 profileAvatarModel = state.profileAvatarModel,
@@ -1098,13 +1114,24 @@ private fun XoraXmbPillChrome(
                 onReplyDraftChange = onReplyDraftChange,
                 modifier = Modifier.heightIn(max = paneMaxHeight - 24.dp),
             )
+        }
+        AnimatedVisibility(
+            visible = !anyExpanded || systemExpanded,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .heightIn(max = paneMaxHeight)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .graphicsLayer { alpha = if (launching) 0f else 1f },
+        ) {
             SystemPill(
                 profile = state.profile,
                 avatarImageModel = state.profileAvatarModel,
                 raScore = state.achievements.profile?.totalPoints,
                 recentAchievements = state.achievements.recent,
                 jumpBackGames = state.quickLaunchGames.take(3),
-                expanded = state.systemPanelExpanded && !launching,
+                expanded = systemExpanded,
                 selectedRowIndex = state.systemPanelSelectedIndex,
                 notificationUnreadCount = state.notificationUnreadCount,
                 onToggle = onToggleSystemPanel,
@@ -1114,19 +1141,25 @@ private fun XoraXmbPillChrome(
             )
         }
 
-        AchievementsPill(
-            expanded = state.achievementsPanelExpanded && !launching,
-            state = state.achievements,
-            onToggle = onToggleAchievementsPanel,
-            onSelectTab = onSelectAchievementsTab,
-            onLogin = onLoginRetroAchievements,
-            onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-            onSignOut = onSignOutRetroAchievements,
+        AnimatedVisibility(
+            visible = !anyExpanded || achievementsExpanded,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .graphicsLayer { alpha = if (launching) 0f else 1f },
-        )
+        ) {
+            AchievementsPill(
+                expanded = achievementsExpanded,
+                state = state.achievements,
+                onToggle = onToggleAchievementsPanel,
+                onSelectTab = onSelectAchievementsTab,
+                onLogin = onLoginRetroAchievements,
+                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+                onSignOut = onSignOutRetroAchievements,
+            )
+        }
 
         if (profileEditing) {
             ProfileEditSheet(

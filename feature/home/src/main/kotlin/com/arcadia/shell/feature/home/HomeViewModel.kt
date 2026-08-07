@@ -1217,7 +1217,10 @@ class HomeViewModel @Inject constructor(
                     allGames.filter { !it.isAndroidApp && it.platformId == platformId },
                 )
             }
-            XoraXmbDepth.Emulator -> buildXoraEmulatorItems(xoraEmulator)
+            XoraXmbDepth.Emulator -> buildXoraEmulatorItems(
+                settings = xoraEmulator,
+                raHardcore = raSettings.hardcore,
+            )
         }
         val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
         val xoraSelected = xoraItems.getOrNull(xoraItemIndex)
@@ -2025,6 +2028,19 @@ class HomeViewModel @Inject constructor(
                 }
                 XoraEmulatorXmbSetting.Netplay ->
                     preferences.setXoraNetplayEnabled(!current.netplayEnabled)
+                XoraEmulatorXmbSetting.RaHardcore -> {
+                    val next = !preferences.retroAchievementsSettings.first().hardcore
+                    preferences.setRaHardcore(next)
+                    emit(
+                        HomeEvent.ShowMessage(
+                            if (next) {
+                                "Hardcore RetroAchievements on"
+                            } else {
+                                "Hardcore RetroAchievements off"
+                            },
+                        ),
+                    )
+                }
             }
         }
     }
