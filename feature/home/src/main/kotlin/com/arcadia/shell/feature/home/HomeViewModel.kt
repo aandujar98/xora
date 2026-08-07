@@ -666,13 +666,32 @@ class HomeViewModel @Inject constructor(
         val social: SocialChrome,
     )
 
+    /** Scraped banner art plus which platforms have an emulator assigned, for the system picker. */
+    private data class PlatformChrome(
+        val artByPlatformId: Map<String, String> = emptyMap(),
+        val readyPlatformIds: Set<String> = emptySet(),
+    )
+
+    private val platformChromeFlow = combine(
+        platformArtRepository.artByPlatformId,
+        playerRepository.observePlatformSettings(),
+    ) { art, settings ->
+        PlatformChrome(
+            artByPlatformId = art,
+            readyPlatformIds = settings
+                .filter { !it.selectedPlayerId.isNullOrBlank() }
+                .map { it.platformId }
+                .toSet(),
+        )
+    }
+
     private val libraryUiState: StateFlow<HomeUiState> = combine(
         libraryFlow,
         chromeFlow,
         overlayFlow,
         homeThemeFlow,
-        platformArtRepository.artByPlatformId,
-    ) { library, chrome, overlay, theme, platformArt ->
+        platformChromeFlow,
+    ) { library, chrome, overlay, theme, platformChrome ->
         buildState(
             allGames = library.first,
             summaries = library.second,
@@ -691,7 +710,7 @@ class HomeViewModel @Inject constructor(
             xoraEmulator = overlay.xoraEmulator,
             social = overlay.social,
             theme = theme,
-            platformArtById = platformArt,
+            platformChrome = platformChrome,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -1176,8 +1195,9 @@ class HomeViewModel @Inject constructor(
         xoraEmulator: XoraEmulatorSettings,
         social: SocialChrome,
         theme: HomeThemeChrome,
-        platformArtById: Map<String, String> = emptyMap(),
+        platformChrome: PlatformChrome = PlatformChrome(),
     ): HomeUiState {
+        val platformArtById = platformChrome.artByPlatformId
         val tabs = buildTabs(allGames, summaries)
         val tabIndex = chrome.selection.tabIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
         val games = gamesForTab(allGames, tabs.getOrNull(tabIndex))
@@ -1225,7 +1245,11 @@ class HomeViewModel @Inject constructor(
                 continueGame = continueGame,
                 favoriteGame = favoriteGame,
             )
-            XoraXmbDepth.Systems -> buildXoraSystemItems(summaries, platformArtById)
+            XoraXmbDepth.Systems -> buildXoraSystemItems(
+                summaries = summaries,
+                artByPlatformId = platformArtById,
+                readyPlatformIds = platformChrome.readyPlatformIds,
+            )
             XoraXmbDepth.Roms -> {
                 val platformId = theme.xora.drilledPlatformId
                 buildXoraRomItems(

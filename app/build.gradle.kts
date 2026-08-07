@@ -139,4 +139,5 @@ dependencies {
     // Singleton Coil loader with bounded memory/disk (see ArcadiaApplication).
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.coil.gif)
 }

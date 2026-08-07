@@ -9,6 +9,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
+import coil3.gif.AnimatedImageDecoder
 import coil3.memory.MemoryCache
 import com.arcadia.shell.audio.BackgroundMusicController
 import com.arcadia.shell.audio.OnboardingMusicController
@@ -101,9 +102,13 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
     /**
      * Bound Coil caches so XMB scrubbing + hub art cannot push handhelds into OOM.
      * Disk is capped separately from [com.arcadia.shell.scraper.MediaCache] scraper files.
+     *
+     * The animated decoder makes GIF and animated WebP play wherever the shell shows an image —
+     * pinned shortcuts, wallpapers, avatars, Discord messages — rather than freezing on frame one.
      */
     override fun newImageLoader(context: Context): ImageLoader =
         ImageLoader.Builder(context)
+            .components { add(AnimatedImageDecoder.Factory()) }
             .memoryCache {
                 MemoryCache.Builder()
                     .maxSizePercent(context, MEMORY_CACHE_PERCENT)

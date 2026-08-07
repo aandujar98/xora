@@ -202,18 +202,34 @@ fun XoraHomeXmbPane(
             )
         }
 
-        XmbCross(
-            xmb = xmb,
-            onSelectCategory = onSelectCategory,
-            onSelectItem = onSelectItem,
-            onActivateItem = onActivateItem,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    alpha = chromeAlpha
-                    translationY = chromeSlidePx
-                },
-        )
+        // Choosing a system is its own full-bleed step rather than a rung of the XMB cross.
+        if (xmb.depth == XoraXmbDepth.Systems) {
+            XoraPlatformPane(
+                items = xmb.items,
+                selectedIndex = xmb.itemIndex,
+                onSelectItem = onSelectItem,
+                onActivateItem = onActivateItem,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = chromeAlpha
+                        translationY = chromeSlidePx
+                    },
+            )
+        } else {
+            XmbCross(
+                xmb = xmb,
+                onSelectCategory = onSelectCategory,
+                onSelectItem = onSelectItem,
+                onActivateItem = onActivateItem,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = chromeAlpha
+                        translationY = chromeSlidePx
+                    },
+            )
+        }
 
         overlayContent()
 
