@@ -1,7 +1,6 @@
 package com.arcadia.shell.feature.home
 
 import android.graphics.Bitmap
-import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -27,8 +26,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -59,6 +65,8 @@ fun XoraInGameXmbOverlay(
     profileName: String,
     emulatorSettings: XoraEmulatorSettings,
     raHardcore: Boolean = false,
+    /** Transient feedback, shown here rather than as a toast so the game window keeps focus. */
+    message: String? = null,
     onAction: (XoraXmbAction) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -150,21 +158,20 @@ fun XoraInGameXmbOverlay(
 
     Box(modifier = modifier.fillMaxSize()) {
         // Blurred game plate — never a translucent Compose sheet over a live ImageView sibling.
+        //
+        // The blur is baked into the bitmap the activity hands over rather than applied with
+        // Modifier.blur. A RenderEffect here is the only one in the emulator window, and the
+        // window has to stay opaque for the letterboxed game to stay black; leaving that
+        // compositing decision to HWUI is what the recurring wash-out looked like.
         if (frozenFrame != null && !frozenFrame.isRecycled) {
             val imageBitmap = remember(frozenFrame) { frozenFrame.asImageBitmap() }
             Image(
                 bitmap = imageBitmap,
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
+                filterQuality = FilterQuality.Medium,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            Modifier.blur(28.dp)
-                        } else {
-                            Modifier
-                        },
-                    )
                     .graphicsLayer {
                         scaleX = 1.06f
                         scaleY = 1.06f
@@ -176,6 +183,25 @@ fun XoraInGameXmbOverlay(
                 .fillMaxSize()
                 .background(Color(0x99060A12)),
         )
+
+        AnimatedVisibility(
+            visible = message != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 40.dp),
+        ) {
+            Text(
+                text = message.orEmpty(),
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(Color(0xCC10151F))
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+            )
+        }
 
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val density = LocalDensity.current

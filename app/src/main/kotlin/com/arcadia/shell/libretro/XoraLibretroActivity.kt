@@ -123,6 +123,9 @@ class XoraLibretroActivity : ComponentActivity() {
     private var xmbOverlay: ComposeView? = null
     private var frozenMenuFrame by mutableStateOf<Bitmap?>(null)
     private var profileName by mutableStateOf("Player")
+    /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
+    private var menuMessage by mutableStateOf<String?>(null)
+    private var menuMessageJob: Job? = null
     private val inGameXmbController = XoraInGameXmbController()
     private val bitmapLock = Any()
 
@@ -331,6 +334,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 CompositionLocalProvider(LocalInGameXmbController provides inGameXmbController) {
                     XoraInGameXmbOverlay(
                         frozenFrame = frozenMenuFrame,
+                        message = menuMessage,
                         gameTitle = gameTitle,
                         profileName = profileName,
                         emulatorSettings = xora,
@@ -428,7 +432,9 @@ class XoraLibretroActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) ImmersiveMode.apply(window)
+        // Regaining focus is exactly when a toast or system window has just gone away, which is
+        // when the wash used to appear — so restore the whole window state, not just immersive.
+        if (hasFocus && !menuOpen) restoreImmersiveFocus()
     }
 
     override fun onPause() {
@@ -650,7 +656,7 @@ class XoraLibretroActivity : ComponentActivity() {
         // Freeze a copy of the current frame, then hide the live ImageView so the XMB Compose
         // layer is never stacked over a visible framebuffer (tint bug).
         val src = synchronized(bitmapLock) { gameBitmap }
-        frozenMenuFrame = src?.takeIf { !it.isRecycled }?.let { runCatching { it.copy(it.config ?: Bitmap.Config.ARGB_8888, false) }.getOrNull() }
+        frozenMenuFrame = src?.takeIf { !it.isRecycled }?.let { frame -> blurredMenuPlate(frame) }
         primaryGameView?.visibility = View.GONE
         if (overlay.parent == null) {
             root.addView(overlay)
@@ -662,6 +668,27 @@ class XoraLibretroActivity : ComponentActivity() {
         uiSounds.playConfirm()
     }
 
+    /**
+     * Down-samples the frame and lets the upscale blur it, so the pause plate needs no
+     * RenderEffect. Cheap, and it looks the same on every API level rather than only on 31+.
+     */
+    private fun blurredMenuPlate(frame: Bitmap): Bitmap? = runCatching {
+        val width = (frame.width / MENU_PLATE_DOWNSCALE).coerceAtLeast(2)
+        val height = (frame.height / MENU_PLATE_DOWNSCALE).coerceAtLeast(2)
+        val small = Bitmap.createScaledBitmap(frame, width, height, true)
+        // createScaledBitmap can hand back the source when no scaling was needed; never alias it.
+        if (small === frame) frame.copy(frame.config ?: Bitmap.Config.ARGB_8888, false) else small
+    }.getOrNull()
+
+    private fun showMenuMessage(text: String) {
+        menuMessage = text
+        menuMessageJob?.cancel()
+        menuMessageJob = lifecycleScope.launch {
+            delay(MENU_MESSAGE_MS)
+            menuMessage = null
+        }
+    }
+
     private fun closeMenu() {
         if (!menuOpen && xmbOverlay?.parent == null) return
         menuOpen = false
@@ -669,6 +696,8 @@ class XoraLibretroActivity : ComponentActivity() {
         val overlay = xmbOverlay
         overlay?.visibility = View.GONE
         (overlay?.parent as? ViewGroup)?.removeView(overlay)
+        menuMessageJob?.cancel()
+        menuMessage = null
         val stale = frozenMenuFrame
         frozenMenuFrame = null
         stale?.recycle()
@@ -687,30 +716,26 @@ class XoraLibretroActivity : ComponentActivity() {
             XoraXmbAction.SaveGameState -> {
                 val hardcore = raSettings.hardcore && raSettings.enabled
                 if (hardcore) {
-                    Toast.makeText(this, "Hardcore mode — save states disabled", Toast.LENGTH_SHORT).show()
+                    showMenuMessage("Hardcore mode — save states disabled")
                     return
                 }
                 lifecycleScope.launch(emuDispatcher) {
                     saveState(0)
                     withContext(Dispatchers.Main.immediate) {
-                        Toast.makeText(this@XoraLibretroActivity, "State saved (slot 0)", Toast.LENGTH_SHORT).show()
+                        showMenuMessage("State saved (slot 0)")
                     }
                 }
             }
             XoraXmbAction.LoadGameState -> {
                 val hardcore = raSettings.hardcore && raSettings.enabled
                 if (hardcore) {
-                    Toast.makeText(this, "Hardcore mode — load states disabled", Toast.LENGTH_SHORT).show()
+                    showMenuMessage("Hardcore mode — load states disabled")
                     return
                 }
                 lifecycleScope.launch(emuDispatcher) {
                     val ok = loadState(0)
                     withContext(Dispatchers.Main.immediate) {
-                        Toast.makeText(
-                            this@XoraLibretroActivity,
-                            if (ok) "State loaded (slot 0)" else "No save in slot 0",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        showMenuMessage(if (ok) "State loaded (slot 0)" else "No save in slot 0")
                         if (ok) closeMenu()
                     }
                 }
@@ -720,20 +745,15 @@ class XoraLibretroActivity : ComponentActivity() {
                     LibretroNative.nativeReset()
                     withContext(Dispatchers.Main.immediate) {
                         raSession?.onEmulatorReset()
-                        Toast.makeText(this@XoraLibretroActivity, "Reset", Toast.LENGTH_SHORT).show()
-                        closeMenu()
+                                                closeMenu()
                     }
                 }
             }
             is XoraXmbAction.ToggleXoraEmulatorSetting -> toggleInGameEmulatorSetting(action.setting)
             XoraXmbAction.OpenFullXoraEmulatorSetup ->
-                Toast.makeText(
-                    this,
-                    "Quit to XOrA → Games → Full Setup for cores & storage",
-                    Toast.LENGTH_SHORT,
-                ).show()
+                showMenuMessage("Quit to XOrA → Games → Full Setup for cores & storage")
             is XoraXmbAction.OpenSettingsCategory ->
-                Toast.makeText(this, "Quit to XOrA to change launcher settings", Toast.LENGTH_SHORT).show()
+                showMenuMessage("Quit to XOrA to change launcher settings")
             else -> Unit
         }
     }
@@ -774,7 +794,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
                 XoraEmulatorXmbSetting.ClearButtonMappings -> {
                     preferences.clearXoraButtonMappings()
-                    Toast.makeText(this@XoraLibretroActivity, "Custom mappings cleared", Toast.LENGTH_SHORT).show()
+                    showMenuMessage("Custom mappings cleared")
                 }
                 XoraEmulatorXmbSetting.Netplay ->
                     preferences.setXoraNetplayEnabled(!current.netplayEnabled)
@@ -784,27 +804,41 @@ class XoraLibretroActivity : ComponentActivity() {
                     raSettings = raSettings.copy(hardcore = next)
                     // Apply immediately so softcore/hardcore matches the menu without relaunch.
                     LibretroNative.nativeRaSetHardcore(next)
-                    Toast.makeText(
-                        this@XoraLibretroActivity,
+                    showMenuMessage(
                         if (next) {
                             "Hardcore on — save states disabled"
                         } else {
                             "Hardcore off — softcore"
                         },
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    )
                 }
             }
         }
     }
 
+    /**
+     * Puts the window back exactly as gameplay needs it.
+     *
+     * Anything that takes focus away — a toast, a system dialog, the overlay itself — can leave
+     * the window with a translucent surface format or the system's light contrast scrims back on,
+     * and the result is a washed-out picture with grey letterbox bars instead of black. Re-stating
+     * all of it is cheap, so do it on every return rather than only once at startup.
+     */
     private fun restoreImmersiveFocus() {
+        window.setFormat(PixelFormat.OPAQUE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
         }
         ImmersiveMode.apply(window)
         window.decorView.requestFocus()
+        gameRoot?.setBackgroundColor(AndroidColor.BLACK)
+        primaryGameView?.apply {
+            setBackgroundColor(AndroidColor.BLACK)
+            alpha = 1f
+            colorFilter = null
+            invalidate()
+        }
     }
 
     private fun startAudio() {
@@ -986,6 +1020,9 @@ class XoraLibretroActivity : ComponentActivity() {
     companion object {
         /** Loop tick while paused / backgrounded, where no frames are produced. */
         private const val IDLE_TICK_MS = 200L
+        /** How far the pause plate is down-sampled before being scaled back up as a blur. */
+        private const val MENU_PLATE_DOWNSCALE = 12
+        private const val MENU_MESSAGE_MS = 2_600L
         private val chordKeys = setOf(
             KeyEvent.KEYCODE_BUTTON_SELECT,
             KeyEvent.KEYCODE_BUTTON_START,
