@@ -1,11 +1,8 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -19,26 +16,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -49,41 +39,30 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.GlassIntensity
+import com.arcadia.shell.designsystem.GlassTone
+import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
-import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.HomeShortcutKind
-import kotlin.math.PI
-import kotlin.math.sin
 
-/** Soft Vita-inspired palette for the shortcut tray atmosphere. */
-private val TraySkyTop = Color(0xFF1A3A5C)
-private val TraySkyMid = Color(0xFF0E2438)
-private val TraySkyBottom = Color(0xFF071018)
-private val BubbleRim = Color(0xE6F2F7FF)
-private val BubbleGlow = Color(0x886EB8FF)
-private val FocusRing = Color(0xFF7EC8FF)
-private val EditAccent = Color(0xFFE8A85C)
-private val EmptyFill = Color(0x33182028)
-private val LabelColor = Color(0xF2FFFFFF)
+private val TraySkyTop = Color(0xFF2ACBFD)
+private val TraySkyBottom = Color(0xFFDEF9FF)
+private val CursorGlow = Color(0xA6D6F6FF)
+private val BubbleRim = Color(0xCCF2F7FF)
+private val BubbleRimSelected = Color(0xFFFFFFFF)
+private val BubbleShadow = Color(0x66000000)
+private val BubbleTagText = Color(0xFFFFFFFF)
 
-/**
- * PS Vita–style floating shortcut bubbles.
- *
- * Slides down over the XMB when opened (Y). Bubbles hold pinned Android apps / ROMs.
- * Select enters edit mode so empty slots can be filled from the app/ROM picker.
- */
 @Composable
 fun VitaShortcutTray(
     visible: Boolean,
@@ -95,166 +74,99 @@ fun VitaShortcutTray(
     onAddSlot: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val reduceMotion = rememberReduceMotion()
-    val enterFade = fadeIn(arcadiaTween(ArcadiaMotion.Slow))
-    val exitFade = fadeOut(arcadiaTween(ArcadiaMotion.Medium))
-    val enterSlide = slideInVertically(
+    val enter = slideInVertically(
         animationSpec = arcadiaTween(ArcadiaMotion.Slow),
-        initialOffsetY = { -it },
-    )
-    val exitSlide = slideOutVertically(
+        initialOffsetY = { -it / 3 },
+    ) + fadeIn(arcadiaTween(ArcadiaMotion.Slow))
+    val exit = slideOutVertically(
         animationSpec = arcadiaTween(ArcadiaMotion.Medium),
-        targetOffsetY = { -it },
-    )
+        targetOffsetY = { -it / 3 },
+    ) + fadeOut(arcadiaTween(ArcadiaMotion.Medium))
+
+    val includeAdd = editMode || shortcuts.isEmpty()
+    val slots = remember(shortcuts, includeAdd) { buildVitaShortcutSlots(shortcuts, includeAdd) }
+    val focus = selectedIndex.coerceIn(0, (slots.lastIndex).coerceAtLeast(0))
+    val rows = remember(slots) { buildVitaRows(slots) }
 
     AnimatedVisibility(
         visible = visible,
-        enter = enterSlide + enterFade,
-        exit = exitSlide + exitFade,
+        enter = enter,
+        exit = exit,
         modifier = modifier,
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val trayMaxWidth = maxWidth
-            // Atmospheric plate — soft Vita night-sky wash over wallpaper.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                TraySkyTop.copy(alpha = 0.88f),
-                                TraySkyMid.copy(alpha = 0.82f),
-                                TraySkyBottom.copy(alpha = 0.92f),
-                            ),
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            TraySkyTop.copy(alpha = 0.95f),
+                            TraySkyBottom.copy(alpha = 0.92f),
                         ),
                     ),
-            )
+                ),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.radialGradient(
                             colors = listOf(
-                                Color(0x3348A0D8),
+                                Color.White.copy(alpha = 0.26f),
                                 Color.Transparent,
                             ),
-                            center = Offset(constraints.maxWidth * 0.5f, constraints.maxHeight * 0.38f),
-                            radius = constraints.maxWidth * 0.55f,
+                            center = Offset(640f, 280f),
+                            radius = 820f,
                         ),
                     ),
             )
 
-            val includeAdd = editMode || shortcuts.isEmpty()
-            val slots = remember(shortcuts, includeAdd) {
-                buildVitaShortcutSlots(shortcuts, includeAdd)
-            }
-            val focusIndex = selectedIndex.coerceIn(0, (slots.lastIndex).coerceAtLeast(0))
-            val listState = rememberLazyListState()
-
-            LaunchedEffect(focusIndex, slots.size, visible) {
-                if (!visible || slots.isEmpty()) return@LaunchedEffect
-                val target = focusIndex.coerceIn(0, slots.lastIndex)
-                runCatching { listState.animateScrollToItem(target) }
-            }
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = 56.dp, bottom = 48.dp),
+                    .padding(top = 118.dp, bottom = 128.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(
-                    text = if (editMode) "Edit shortcuts" else "Shortcuts",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 1.2.sp,
-                    ),
-                    color = LabelColor,
-                )
-                Text(
-                    text = if (editMode) {
-                        "A add / remove · Select done · Y close"
-                    } else {
-                        "A open · Select edit · Y close"
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = LabelColor.copy(alpha = 0.55f),
-                    modifier = Modifier.padding(top = 4.dp, bottom = 28.dp),
-                )
-
-                val bubbleSize = when {
-                    trayMaxWidth < 480.dp -> 84.dp
-                    trayMaxWidth < 720.dp -> 96.dp
-                    else -> 108.dp
-                }
-
-                LazyRow(
-                    state = listState,
-                    contentPadding = PaddingValues(horizontal = 48.dp),
-                    horizontalArrangement = Arrangement.spacedBy(28.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                ) {
-                    itemsIndexed(
-                        items = slots,
-                        key = { _, slot -> slot.key },
-                    ) { index, slot ->
-                        val wave = rememberWaveOffset(
-                            index = index,
-                            enabled = !reduceMotion && visible,
-                        )
-                        VitaShortcutBubble(
-                            slot = slot,
-                            selected = index == focusIndex,
-                            editMode = editMode,
-                            bubbleSize = bubbleSize,
-                            waveOffsetY = wave,
-                            onClick = {
-                                onSelect(index)
-                                when (slot) {
-                                    is VitaShortcutSlot.Filled -> onActivate(index)
-                                    is VitaShortcutSlot.Add -> onAddSlot()
-                                }
-                            },
-                        )
+                rows.forEachIndexed { rowIndex, row ->
+                    val yOffset = when (rowIndex) {
+                        0 -> 0.dp
+                        1 -> (-2).dp
+                        else -> 2.dp
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .offset(y = yOffset),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        row.forEach { entry ->
+                            VitaBubble(
+                                entry = entry,
+                                selected = entry.index == focus,
+                                editMode = editMode,
+                                onClick = {
+                                    onSelect(entry.index)
+                                    when (entry.slot) {
+                                        is VitaShortcutSlot.Filled -> onActivate(entry.index)
+                                        VitaShortcutSlot.Add -> onAddSlot()
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
-
-                val focused = slots.getOrNull(focusIndex)
-                Text(
-                    text = when (focused) {
-                        is VitaShortcutSlot.Filled -> focused.shortcut.title
-                        is VitaShortcutSlot.Add -> if (editMode) "Add app or ROM" else "Add shortcut"
-                        null -> ""
-                    },
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
-                    color = LabelColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .padding(horizontal = 32.dp)
-                        .widthIn(max = 420.dp),
-                )
-
-                if (focused is VitaShortcutSlot.Filled) {
-                    Text(
-                        text = when (focused.shortcut.kind) {
-                            HomeShortcutKind.AndroidApp -> "Android app"
-                            HomeShortcutKind.Game -> "ROM"
-                            HomeShortcutKind.Picture -> "Picture"
-                            HomeShortcutKind.Gif -> "GIF"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LabelColor.copy(alpha = 0.5f),
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                } else {
-                    Spacer(modifier = Modifier.height(18.dp))
-                }
             }
+
+            Text(
+                text = if (editMode) "A add/remove · Select done · Y close" else "A open · Select edit · Y close",
+                style = MaterialTheme.typography.labelMedium.copy(fontFamily = XoraFonts.Secondary),
+                color = Color.White.copy(alpha = 0.75f),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 26.dp),
+            )
         }
     }
 }
@@ -263,7 +175,7 @@ private sealed class VitaShortcutSlot {
     abstract val key: String
 
     data class Filled(val shortcut: HomeShortcut) : VitaShortcutSlot() {
-        override val key: String get() = shortcut.id
+        override val key: String = shortcut.id
     }
 
     data object Add : VitaShortcutSlot() {
@@ -271,63 +183,62 @@ private sealed class VitaShortcutSlot {
     }
 }
 
+private data class VitaTrayEntry(
+    val index: Int,
+    val slot: VitaShortcutSlot,
+)
+
 private fun buildVitaShortcutSlots(
     shortcuts: List<HomeShortcut>,
     includeAdd: Boolean,
 ): List<VitaShortcutSlot> {
-    val filled = shortcuts.map { VitaShortcutSlot.Filled(it) }
-    return if (includeAdd) filled + VitaShortcutSlot.Add else filled
+    val items = shortcuts.map { VitaShortcutSlot.Filled(it) }
+    return if (includeAdd) items + VitaShortcutSlot.Add else items
 }
 
-@Composable
-private fun rememberWaveOffset(index: Int, enabled: Boolean): Dp {
-    if (!enabled) {
-        // Static Vita-like stagger even without motion.
-        val phase = (index % 5) - 2
-        return (phase * 6).dp
+private fun buildVitaRows(slots: List<VitaShortcutSlot>): List<List<VitaTrayEntry>> {
+    if (slots.isEmpty()) return emptyList()
+    val capacities = listOf(3, 4, 3)
+    val rows = mutableListOf<List<VitaTrayEntry>>()
+    var cursor = 0
+    capacities.forEach { cap ->
+        if (cursor >= slots.size) return@forEach
+        val end = (cursor + cap).coerceAtMost(slots.size)
+        rows += (cursor until end).map { idx -> VitaTrayEntry(idx, slots[idx]) }
+        cursor = end
     }
-    val transition = rememberInfiniteTransition(label = "vitaBubbleWave")
-    val t by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2f * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 4200 + (index % 3) * 280, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "vitaWavePhase",
-    )
-    val base = sin(t + index * 0.85f)
-    return (base * 10f).dp
+    while (cursor < slots.size) {
+        val end = (cursor + 4).coerceAtMost(slots.size)
+        rows += (cursor until end).map { idx -> VitaTrayEntry(idx, slots[idx]) }
+        cursor = end
+    }
+    return rows
 }
 
 @Composable
-private fun VitaShortcutBubble(
-    slot: VitaShortcutSlot,
+private fun VitaBubble(
+    entry: VitaTrayEntry,
     selected: Boolean,
     editMode: Boolean,
-    bubbleSize: Dp,
-    waveOffsetY: Dp,
     onClick: () -> Unit,
 ) {
-    val scale by animateFloatAsState(
-        targetValue = if (selected) 1.12f else 1f,
-        animationSpec = tween(durationMillis = ArcadiaMotion.Medium, easing = FastOutSlowInEasing),
-        label = "vitaBubbleScale",
+    val pulse = rememberInfiniteTransition(label = "vitaCursorPulse")
+    val glowAlpha by pulse.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "vitaCursorAlpha",
     )
-    val rim = when {
-        selected && editMode -> EditAccent
-        selected -> FocusRing
-        else -> BubbleRim.copy(alpha = 0.55f)
-    }
+    val bubbleSize = 98.dp
+    val cursorSize = 112.dp
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .offset(y = waveOffsetY)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
+            .padding(horizontal = 12.dp, vertical = 4.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -337,46 +248,63 @@ private fun VitaShortcutBubble(
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(bubbleSize + 18.dp)
+                .size(cursorSize)
                 .drawBehind {
                     if (selected) {
                         drawCircle(
-                            color = BubbleGlow,
-                            radius = size.minDimension * 0.48f,
+                            color = CursorGlow.copy(alpha = glowAlpha),
+                            radius = size.minDimension * 0.50f,
                         )
                     }
-                    // Soft ground shadow under the bubble (Vita silhouette).
-                    drawOval(
-                        color = Color.Black.copy(alpha = 0.28f),
-                        topLeft = Offset(size.width * 0.18f, size.height * 0.78f),
-                        size = androidx.compose.ui.geometry.Size(
-                            size.width * 0.64f,
-                            size.height * 0.14f,
-                        ),
+                    drawCircle(
+                        color = BubbleShadow,
+                        radius = size.minDimension * 0.30f,
+                        center = Offset(size.width * 0.5f, size.height * 0.78f),
                     )
                 },
         ) {
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .size(cursorSize)
+                        .border(
+                            width = 2.5.dp,
+                            brush = Brush.sweepGradient(
+                                listOf(
+                                    Color.White.copy(alpha = 0.22f),
+                                    Color.White.copy(alpha = 0.95f),
+                                    Color.White.copy(alpha = 0.22f),
+                                ),
+                            ),
+                            shape = CircleShape,
+                        ),
+                )
+            }
+
             Box(
-                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(bubbleSize)
-                    .shadow(elevation = if (selected) 16.dp else 8.dp, shape = CircleShape)
                     .clip(CircleShape)
+                    .shadow(
+                        elevation = if (selected) 14.dp else 8.dp,
+                        shape = CircleShape,
+                        clip = false,
+                    )
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                Color(0xFF2A3A4C),
-                                Color(0xFF121820),
+                                Color.White.copy(alpha = 0.26f),
+                                Color(0x22001828),
                             ),
                         ),
                     )
                     .border(
-                        width = if (selected) 3.dp else 2.dp,
-                        color = rim,
+                        width = if (selected) 2.8.dp else 1.8.dp,
+                        color = if (selected) BubbleRimSelected else BubbleRim,
                         shape = CircleShape,
                     ),
             ) {
-                when (slot) {
+                when (val slot = entry.slot) {
                     is VitaShortcutSlot.Filled -> {
                         ArtworkImage(
                             path = slot.shortcut.artPath,
@@ -386,57 +314,69 @@ private fun VitaShortcutBubble(
                             decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
                             modifier = Modifier.fillMaxSize(),
                         )
-                        // Soft top gloss like Vita icon glass.
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color.White.copy(alpha = 0.22f),
-                                            Color.Transparent,
-                                            Color.Black.copy(alpha = 0.18f),
-                                        ),
-                                    ),
-                                ),
-                        )
                     }
                     VitaShortcutSlot.Add -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(EmptyFill),
+                                .background(Color(0x44253040)),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = "+",
-                                color = LabelColor.copy(alpha = 0.85f),
-                                fontSize = 36.sp,
-                                fontWeight = FontWeight.Light,
+                                color = Color.White.copy(alpha = 0.9f),
+                                style = MaterialTheme.typography.displaySmall.copy(
+                                    fontFamily = XoraFonts.Secondary,
+                                    fontWeight = FontWeight.SemiBold,
+                                ),
                             )
                         }
                     }
                 }
             }
-
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .size(bubbleSize + 10.dp)
-                        .border(
-                            width = 2.dp,
-                            brush = Brush.sweepGradient(
-                                listOf(
-                                    FocusRing.copy(alpha = 0.15f),
-                                    FocusRing,
-                                    FocusRing.copy(alpha = 0.15f),
-                                    FocusRing,
-                                ),
-                            ),
-                            shape = CircleShape,
-                        ),
-                )
-            }
         }
+
+        if (selected) {
+            val label = when (val slot = entry.slot) {
+                is VitaShortcutSlot.Filled -> slot.shortcut.title
+                VitaShortcutSlot.Add -> if (editMode) "Add app or ROM" else "Add"
+            }
+            SoftwareNamePill(label = label)
+        }
+    }
+}
+
+@Composable
+private fun SoftwareNamePill(label: String) {
+    Box(
+        modifier = Modifier
+            .padding(top = 6.dp)
+            .widthIn(min = 120.dp, max = 210.dp)
+            .liquidGlass(
+                shape = RoundedCornerShape(60.dp),
+                tone = GlassTone.OverMedia,
+                intensity = GlassIntensity.Standard,
+                shimmer = true,
+            )
+            .border(
+                width = 1.5.dp,
+                color = Color.White.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(60.dp),
+            )
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontFamily = XoraFonts.Secondary,
+                fontSize = 30.sp,
+                lineHeight = 30.sp,
+                fontWeight = FontWeight.SemiBold,
+            ),
+            color = BubbleTagText,
+        )
     }
 }

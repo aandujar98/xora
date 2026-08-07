@@ -139,7 +139,6 @@ fun AccountPill(
                             color = glass.contentMuted,
                         )
                     }
-                    TriggerGlyph(letter = "LT")
                 }
             }
 
