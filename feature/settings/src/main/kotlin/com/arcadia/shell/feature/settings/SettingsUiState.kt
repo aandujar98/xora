@@ -37,6 +37,9 @@ data class SettingsUiState(
     val roots: List<LibraryRoot> = emptyList(),
     val suggestedVolumes: List<StorageVolumeRoot> = emptyList(),
     val gameCount: Int = 0,
+    /** Installed Android apps currently mirrored into the library. */
+    val androidAppCount: Int = 0,
+    val isSyncingApps: Boolean = false,
     val scanProgress: ScanProgress = ScanProgress(),
     val platformChoices: List<PlatformPlayerChoice> = emptyList(),
     val settings: ShellSettings = ShellSettings(),

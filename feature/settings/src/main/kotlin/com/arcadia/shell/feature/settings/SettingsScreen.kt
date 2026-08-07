@@ -993,6 +993,40 @@ fun SettingsScreen(
                         Text(text = "Scan now")
                     }
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("Android apps")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Sync installed apps",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Switch(
+                        checked = state.settings.androidAppSyncEnabled,
+                        onCheckedChange = viewModel::setAndroidAppSyncEnabled,
+                    )
+                }
+                Text(
+                    text = if (state.settings.androidAppSyncEnabled) {
+                        "${state.androidAppCount} apps on the Apps tab. " +
+                            "Syncs automatically when the shell regains focus."
+                    } else {
+                        "Installed apps stay out of the library and the Apps tab."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = viewModel::syncAndroidAppsNow,
+                    enabled = state.settings.androidAppSyncEnabled && !state.isSyncingApps,
+                ) {
+                    Text(text = if (state.isSyncingApps) "Syncing…" else "Sync apps now")
+                }
             }
         }
 
