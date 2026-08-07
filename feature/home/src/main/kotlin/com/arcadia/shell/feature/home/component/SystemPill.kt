@@ -177,7 +177,7 @@ fun SystemPill(
     val glass = rememberGlassTokens(GlassTone.OverMedia)
 
     Column(
-        modifier = modifier.widthIn(max = if (expanded) 360.dp else 300.dp),
+        modifier = modifier.widthIn(max = if (expanded) 360.dp else 270.dp),
         horizontalAlignment = Alignment.End,
     ) {
         // Collapsed RT chrome hides while the panel is open; Back / RT restores it.
@@ -199,18 +199,18 @@ fun SystemPill(
                     .clip(RoundedCornerShape(24.dp))
                     .background(Color.Black.copy(alpha = 0.65f))
                     .border(
-                        width = 2.dp,
+                        width = 1.5.dp,
                         color = Color.White.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(22.dp),
                     )
                     .clickable(onClick = onToggle)
-                    .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                    .padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(28.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.08f)),
                     contentAlignment = Alignment.Center,
@@ -218,20 +218,20 @@ fun SystemPill(
                     WifiGlyph(
                         connected = wifiConnected,
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(18.dp),
                     )
                 }
                 Text(
                     text = "$timeText | $dateShort",
                     style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 18.sp,
-                        lineHeight = 18.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 14.sp,
                         fontFamily = rtPillFontFamily(),
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         shadow = Shadow(
                             color = Color.Black.copy(alpha = 0.55f),
-                            offset = Offset(2f, 2f),
-                            blurRadius = 2f,
+                            offset = Offset(1.5f, 1.5f),
+                            blurRadius = 1.5f,
                         ),
                     ),
                     color = Color.White,
@@ -241,19 +241,19 @@ fun SystemPill(
                     percent = batteryPercent,
                     charging = charging,
                     tint = Color.White.copy(alpha = 0.95f),
-                    modifier = Modifier.size(width = 24.dp, height = 16.dp),
+                    modifier = Modifier.size(width = 20.dp, height = 14.dp),
                 )
                 Text(
                     text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
                     style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 18.sp,
-                        lineHeight = 18.sp,
+                        fontSize = 14.sp,
+                        lineHeight = 14.sp,
                         fontFamily = rtPillFontFamily(),
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         shadow = Shadow(
                             color = Color.Black.copy(alpha = 0.55f),
-                            offset = Offset(2f, 2f),
-                            blurRadius = 2f,
+                            offset = Offset(1.5f, 1.5f),
+                            blurRadius = 1.5f,
                         ),
                     ),
                     color = Color.White,
@@ -262,12 +262,12 @@ fun SystemPill(
                     ProfileAvatar(
                         displayName = profile.displayName,
                         presetId = profile.avatarPresetId,
-                        size = 40.dp,
+                        size = 32.dp,
                         imageModel = avatarImageModel,
                         borderColor = Color.White.copy(alpha = 0.35f),
                         modifier = Modifier
                             .shadow(
-                                elevation = 4.dp,
+                                elevation = 2.dp,
                                 shape = CircleShape,
                                 clip = false,
                             ),
@@ -277,11 +277,6 @@ fun SystemPill(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(top = 1.dp, end = 1.dp),
-                    )
-                    TriggerGlyph(
-                        letter = "RT",
-                        modifier = Modifier
-                            .align(Alignment.BottomStart),
                     )
                 }
             }
