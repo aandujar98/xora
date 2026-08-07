@@ -104,6 +104,8 @@ enum class AvatarSource {
     Local,
     /** RetroAchievements user profile picture. */
     RetroAchievements,
+    /** Linked Discord account's profile picture. */
+    Discord,
 }
 
 /** How XMB ROM rows show the game title next to box art. */
@@ -815,7 +817,7 @@ class ShellPreferences @Inject constructor(
                     it[Keys.PROFILE_AVATAR_FILE] = localFileName
                 }
             }
-            AvatarSource.Default, AvatarSource.RetroAchievements -> {
+            AvatarSource.Default, AvatarSource.RetroAchievements, AvatarSource.Discord -> {
                 it[Keys.PROFILE_AVATAR_FILE] = ""
             }
         }

@@ -116,6 +116,8 @@ data class DiscordPresenceUiState(
     val friends: List<DiscordFriendEntry> = emptyList(),
     /** Linked Discord user snowflake (for isMine on DM messages). */
     val currentUserId: String? = null,
+    /** Discord CDN avatar for the linked account, usable as a shell profile picture. */
+    val currentUserAvatarUrl: String? = null,
     /**
      * True after OAuth UpdateToken succeeded (or a stored token is being restored) but before
      * [DiscordPresenceCapability.Connected] / Ready. Social UI shows “Connecting…” instead of
