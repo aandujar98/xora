@@ -86,7 +86,12 @@ fun hintsForPage(
     displayMode: DisplayMode = DisplayMode.Dual,
     homeHub: HomeHubUiState? = null,
 ): List<Pair<String, String>> = when (page) {
-    HomePage.Home -> XoraXmbHints
+    HomePage.Home -> when {
+        homeHub?.vitaShortcutTrayOpen == true && homeHub.shortcutsEditMode ->
+            VitaShortcutTrayEditHints
+        homeHub?.vitaShortcutTrayOpen == true -> VitaShortcutTrayHints
+        else -> XoraXmbHints
+    }
     HomePage.GameSelector -> if (displayMode == DisplayMode.Single) {
         SingleGameSelectorHints
     } else {
@@ -104,11 +109,32 @@ val XoraXmbHints: List<Pair<String, String>> = listOf(
     "A" to "Select",
     "B" to "Back",
     "X" to "Achievements",
-    "Y" to "Swap screens",
+    "Y" to "Shortcuts",
     "LT" to "Circle",
     "RT" to "Profile / Alerts",
     "Select" to "ROM options",
     "Start" to "Settings",
+    "Start+Select" to "Guide",
+)
+
+/** Vita bubble tray over Home XMB. */
+val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
+    "L/R" to "Shortcut",
+    "A" to "Open",
+    "Select" to "Edit",
+    "Y" to "Close",
+    "B" to "Close",
+    "LT" to "Circle",
+    "RT" to "Profile / Alerts",
+    "Start+Select" to "Guide",
+)
+
+val VitaShortcutTrayEditHints: List<Pair<String, String>> = listOf(
+    "L/R" to "Shortcut",
+    "A" to "Add / Remove",
+    "Select" to "Done",
+    "Y" to "Close",
+    "B" to "Done",
     "Start+Select" to "Guide",
 )
 

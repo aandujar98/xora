@@ -73,6 +73,8 @@ fun AddShortcutSheet(
     onSelectTarget: (Int) -> Unit,
     onConfirmTarget: () -> Unit,
     onCancelTargetPicker: () -> Unit,
+    /** Vita tray: only apps / ROMs — hide picture/GIF pins. */
+    appsAndRomsOnly: Boolean = false,
 ) {
     val glass = rememberGlassTokens(GlassTone.Surface)
     BackHandler(onBack = {
@@ -151,7 +153,7 @@ fun AddShortcutSheet(
                     onClick = { runCatching { onPinRecentGame() } },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(text = "Pin library game")
+                    Text(text = if (appsAndRomsOnly) "Pin a ROM" else "Pin library game")
                 }
                 Button(
                     onClick = { runCatching { onPinAndroidApp() } },
@@ -159,17 +161,19 @@ fun AddShortcutSheet(
                 ) {
                     Text(text = "Pin an Android app")
                 }
-                OutlinedButton(
-                    onClick = { runCatching { onPinPicture() } },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(text = "Pin a picture")
-                }
-                OutlinedButton(
-                    onClick = { runCatching { onPinGif() } },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(text = "Pin a GIF")
+                if (!appsAndRomsOnly) {
+                    OutlinedButton(
+                        onClick = { runCatching { onPinPicture() } },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(text = "Pin a picture")
+                    }
+                    OutlinedButton(
+                        onClick = { runCatching { onPinGif() } },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(text = "Pin a GIF")
+                    }
                 }
                 TextButton(
                     onClick = onDismiss,

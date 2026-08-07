@@ -198,6 +198,10 @@ class HomeViewModel @Inject constructor(
     private val shortcutGridColumns = MutableStateFlow(DEFAULT_HOME_SHORTCUT_GRID_COLUMNS)
     private val shortcutGridRows = MutableStateFlow(DEFAULT_HOME_SHORTCUT_GRID_ROWS)
     private val shortcutCustomizeChrome = MutableStateFlow(ShortcutCustomizeChrome.Tiles)
+    /** Vita bubble tray over the XMB — toggled with Y on Home. */
+    private val vitaShortcutTrayOpen = MutableStateFlow(false)
+    /** Restrict add-shortcut sheet to apps/ROMs and skip tile-size when pinning from the tray. */
+    private val vitaShortcutPinMode = MutableStateFlow(false)
     private val themesOpen = MutableStateFlow(false)
     /** Which Themes sheet tab to show when [themesOpen] becomes true. */
     private val themesSheetTab = MutableStateFlow(ThemesSheetTab.Customize)
@@ -512,11 +516,15 @@ class HomeViewModel @Inject constructor(
             shortcutGridColumns,
             shortcutGridRows,
             shortcutCustomizeChrome,
-        ) { columns, rows, chrome ->
+            vitaShortcutTrayOpen,
+            vitaShortcutPinMode,
+        ) { columns, rows, chrome, trayOpen, pinMode ->
             HomeHubLayout(
                 columns = columns,
                 rows = rows,
                 customizeChrome = chrome,
+                vitaShortcutTrayOpen = trayOpen,
+                vitaShortcutPinMode = pinMode,
             )
         },
     ) { core, layout ->
@@ -528,6 +536,8 @@ class HomeViewModel @Inject constructor(
             gridColumns = layout.columns,
             gridRows = layout.rows,
             customizeChrome = layout.customizeChrome,
+            vitaShortcutTrayOpen = layout.vitaShortcutTrayOpen,
+            vitaShortcutPinMode = layout.vitaShortcutPinMode,
         )
     }
 
@@ -542,6 +552,8 @@ class HomeViewModel @Inject constructor(
         val columns: Int,
         val rows: Int,
         val customizeChrome: ShortcutCustomizeChrome,
+        val vitaShortcutTrayOpen: Boolean,
+        val vitaShortcutPinMode: Boolean,
     )
 
     private data class HomeHubNav(
@@ -552,6 +564,8 @@ class HomeViewModel @Inject constructor(
         val gridColumns: Int,
         val gridRows: Int,
         val customizeChrome: ShortcutCustomizeChrome,
+        val vitaShortcutTrayOpen: Boolean,
+        val vitaShortcutPinMode: Boolean,
     )
 
     private val addShortcutChromeFlow = combine(
@@ -1275,6 +1289,8 @@ class HomeViewModel @Inject constructor(
                 shortcutGridColumns = theme.nav.gridColumns,
                 shortcutGridRows = theme.nav.gridRows,
                 shortcuts = theme.shortcuts,
+                vitaShortcutTrayOpen = theme.nav.vitaShortcutTrayOpen,
+                vitaShortcutPinMode = theme.nav.vitaShortcutPinMode,
                 wallpaperPath = theme.wallpaperPath,
                 customBgmPath = theme.customBgmPath,
                 continueGame = continueGame,
@@ -1798,6 +1814,12 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        // Vita shortcut tray over Home XMB captures pad while open (Y still closes).
+        if (state.homePage == HomePage.Home && state.homeHub.vitaShortcutTrayOpen) {
+            onVitaShortcutTrayNavAction(action, state)
+            return
+        }
+
         // On XOrA XMB home, LB/RB cycle categories. Elsewhere they retain page jumps.
         when (action) {
             NavAction.PreviousPlatform -> {
@@ -1866,12 +1888,89 @@ class HomeViewModel @Inject constructor(
                     toggleFavorite()
                 }
             }
-            NavAction.SwapScreens -> swapScreenRoles()
+            NavAction.SwapScreens -> toggleVitaShortcutTray()
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             NavAction.ToggleSystemPanel -> toggleSystemPanel()
             NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
             else -> Unit
         }
+    }
+
+    /** Y on Home: slide the Vita shortcut tray down over the XMB (or back up to reveal it). */
+    fun toggleVitaShortcutTray() {
+        noteUserActivity()
+        if (vitaShortcutTrayOpen.value) {
+            closeVitaShortcutTray()
+        } else {
+            openVitaShortcutTray()
+        }
+    }
+
+    fun openVitaShortcutTray(edit: Boolean = false) {
+        noteUserActivity()
+        collapseHeroPanels()
+        homePage.value = HomePage.Home
+        vitaShortcutTrayOpen.value = true
+        vitaShortcutPinMode.value = true
+        homeShortcutsEditMode.value = edit
+        shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
+        val count = homeShortcuts.value.size + if (edit || homeShortcuts.value.isEmpty()) 1 else 0
+        homeShortcutIndex.value = homeShortcutIndex.value.coerceIn(0, (count - 1).coerceAtLeast(0))
+    }
+
+    fun closeVitaShortcutTray() {
+        noteUserActivity()
+        vitaShortcutTrayOpen.value = false
+        vitaShortcutPinMode.value = false
+        homeShortcutsEditMode.value = false
+        shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
+        if (addShortcutOpen.value) dismissAddShortcutChooser()
+    }
+
+    private fun onVitaShortcutTrayNavAction(action: NavAction, state: HomeUiState) {
+        val hub = state.homeHub
+        when (action) {
+            NavAction.Left -> moveVitaShortcutFocus(-1, hub)
+            NavAction.Right -> moveVitaShortcutFocus(1, hub)
+            NavAction.Up, NavAction.Down -> Unit
+            NavAction.Confirm -> activateHomeShortcut()
+            NavAction.Cancel -> {
+                if (hub.shortcutsEditMode) {
+                    closeHomeShortcutsCustomize()
+                } else {
+                    closeVitaShortcutTray()
+                }
+            }
+            NavAction.ScrapeMenu, NavAction.Options -> {
+                if (hub.shortcutsEditMode) {
+                    closeHomeShortcutsCustomize()
+                } else {
+                    openVitaShortcutEditMode()
+                }
+            }
+            NavAction.SwapScreens -> closeVitaShortcutTray()
+            NavAction.ToggleAccountPanel -> toggleAccountPanel()
+            NavAction.ToggleSystemPanel -> toggleSystemPanel()
+            NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+            else -> Unit
+        }
+    }
+
+    private fun openVitaShortcutEditMode() {
+        noteUserActivity()
+        homeShortcutsEditMode.value = true
+        shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
+        vitaShortcutPinMode.value = true
+        val count = homeShortcuts.value.size + 1
+        homeShortcutIndex.value = homeShortcutIndex.value.coerceIn(0, (count - 1).coerceAtLeast(0))
+    }
+
+    private fun moveVitaShortcutFocus(delta: Int, hub: HomeHubUiState) {
+        noteUserActivity()
+        val includeAdd = hub.shortcutsEditMode || hub.shortcuts.isEmpty()
+        val count = (hub.shortcuts.size + if (includeAdd) 1 else 0).coerceAtLeast(1)
+        val next = (hub.shortcutIndex + delta).coerceIn(0, count - 1)
+        homeShortcutIndex.value = next
     }
 
     fun selectXoraCategory(index: Int) {
@@ -2292,7 +2391,9 @@ class HomeViewModel @Inject constructor(
 
     fun selectHomeShortcut(index: Int) {
         noteUserActivity()
-        homeHubSection.value = HomeHubSection.Shortcuts
+        if (!vitaShortcutTrayOpen.value) {
+            homeHubSection.value = HomeHubSection.Shortcuts
+        }
         val hub = uiState.value.homeHub
         val count = hub.shortcuts.size + if (hub.shortcutsEditMode || hub.shortcuts.isEmpty()) 1 else 0
         homeShortcutIndex.value = index.coerceIn(0, (count - 1).coerceAtLeast(0))
@@ -2322,6 +2423,9 @@ class HomeViewModel @Inject constructor(
         shortcutTargetPicker.value = null
         pendingShortcutKind.value = null
         pendingShortcutSpan.value = ShortcutSpan.Default
+        if (vitaShortcutTrayOpen.value) {
+            vitaShortcutPinMode.value = true
+        }
         addShortcutOpen.value = true
     }
 
@@ -2330,6 +2434,9 @@ class HomeViewModel @Inject constructor(
         pendingShortcutKind.value = null
         pendingShortcutSpan.value = ShortcutSpan.Default
         addShortcutOpen.value = false
+        if (!vitaShortcutTrayOpen.value) {
+            vitaShortcutPinMode.value = false
+        }
     }
 
     fun beginShortcutSizeStep(kind: PendingShortcutKind) {
@@ -2338,6 +2445,12 @@ class HomeViewModel @Inject constructor(
         pendingShortcutSpan.value = ShortcutSpan.Default
         shortcutTargetPicker.value = null
         addShortcutOpen.value = true
+        // Vita bubbles are fixed circles — skip the Smash tile-size step.
+        if (vitaShortcutPinMode.value &&
+            (kind == PendingShortcutKind.LibraryGame || kind == PendingShortcutKind.AndroidApp)
+        ) {
+            confirmPendingShortcutSpan()
+        }
     }
 
     fun selectPendingShortcutSpan(span: ShortcutSpan) {
@@ -2467,11 +2580,15 @@ class HomeViewModel @Inject constructor(
     fun openShortcutEditorFromThemes() {
         noteUserActivity()
         themesOpen.value = false
-        openHomeShortcutsCustomize()
+        openVitaShortcutTray(edit = true)
     }
 
     fun openHomeShortcutsCustomize() {
         noteUserActivity()
+        if (vitaShortcutTrayOpen.value) {
+            openVitaShortcutEditMode()
+            return
+        }
         homeHubSection.value = HomeHubSection.Shortcuts
         homeShortcutsEditMode.value = true
         shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Columns
@@ -2842,7 +2959,9 @@ class HomeViewModel @Inject constructor(
         preferences.setHomeShortcuts(next)
         homeShortcutsEditMode.value = true
         shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
-        homeHubSection.value = HomeHubSection.Shortcuts
+        if (!vitaShortcutTrayOpen.value) {
+            homeHubSection.value = HomeHubSection.Shortcuts
+        }
         homeShortcutIndex.value = next.lastIndex
     }
 

@@ -411,7 +411,7 @@ private fun GuideFocusRow(
 private fun shortcutLabel(row: GuideRow): String = when (row) {
     GuideRow.Settings -> "Settings"
     GuideRow.Achievements -> "Achievements"
-    GuideRow.SwapScreens -> "Swap screens (Y)"
+    GuideRow.SwapScreens -> "Swap screens"
     GuideRow.SignInRa -> "Sign in to RetroAchievements"
     else -> ""
 }
