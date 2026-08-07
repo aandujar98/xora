@@ -66,6 +66,7 @@ import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
+import com.arcadia.shell.launcher.notifications.AppForegroundTracker
 import com.arcadia.shell.launcher.notifications.FriendNetwork
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
@@ -118,6 +119,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -169,6 +171,7 @@ class HomeViewModel @Inject constructor(
     private val libraryHashScheduler: LibraryHashScheduler,
     private val platformArtRepository: PlatformArtRepository,
     private val platformArtStore: PlatformArtStore,
+    private val appForegroundTracker: AppForegroundTracker,
     private val rssFeedClient: RssFeedClient,
     private val gameInsightRepository: GameInsightRepository,
     private val gameScreenshotRepository: GameScreenshotRepository,
@@ -988,10 +991,16 @@ class HomeViewModel @Inject constructor(
      * diffs after friend refreshes. Discord friend-online + chat banners emit from launcher.
      */
     private fun observeShellNotifications() {
+        // RA has no push channel, so unlocks have to be polled — but only while someone is
+        // actually here. The emulator runs in this same process, so playing still counts as
+        // foreground; a shell asleep in the background stops hitting the network entirely.
         viewModelScope.launch {
-            while (isActive) {
-                pollRetroAchievementUnlocks()
-                delay(RA_UNLOCK_POLL_MS)
+            appForegroundTracker.isForeground.collectLatest { foreground ->
+                if (!foreground) return@collectLatest
+                while (isActive) {
+                    pollRetroAchievementUnlocks()
+                    delay(RA_UNLOCK_POLL_MS)
+                }
             }
         }
 

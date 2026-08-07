@@ -73,6 +73,7 @@ import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.motionMillis
+import com.arcadia.shell.designsystem.rememberAmbientMotionActive
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
@@ -822,16 +823,22 @@ private fun rememberXmbBackdropMotion(
         ),
         label = "xmbParallaxY",
     )
-    val ambientPhase by rememberInfiniteTransition(label = "xmbAmbient").animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 18_000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "xmbAmbientPhase",
-    )
-    val phase = if (reduceMotion) 0f else ambientPhase
+    // The drift moves the wallpaper, hero art and trailer layers, so leaving it running while the
+    // shell is not being looked at redraws the largest surfaces in the app for nothing.
+    val phase = if (rememberAmbientMotionActive()) {
+        val ambientPhase by rememberInfiniteTransition(label = "xmbAmbient").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 18_000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "xmbAmbientPhase",
+        )
+        ambientPhase
+    } else {
+        0f
+    }
     val ambX = sin(phase * PI * 2.0).toFloat() * 12f
     val ambY = cos(phase * PI * 2.0).toFloat() * 8f
     return Modifier.graphicsLayer {

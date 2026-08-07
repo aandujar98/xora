@@ -229,8 +229,10 @@ fun Modifier.liquidGlass(
         )
     }
 
-    val reduceMotion = rememberReduceMotion()
-    val highlightAlpha = if (shimmer && !reduceMotion) {
+    // Several of these plates sit on chrome that is always on screen, so the sheen has to stop
+    // with the rest of the shell rather than redrawing the blur forever.
+    val ambientActive = rememberAmbientMotionActive()
+    val highlightAlpha = if (shimmer && ambientActive) {
         val transition = rememberInfiniteTransition(label = "glassSheen")
         val pulse by transition.animateFloat(
             initialValue = 0.55f,

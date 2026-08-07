@@ -6,8 +6,12 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 
 /** Short, intentional shell motion (~200–350ms). */
 object ArcadiaMotion {
@@ -31,6 +35,26 @@ fun rememberReduceMotion(): Boolean {
     val context = LocalContext.current
     return remember(context) { context.isReduceMotionPreferred() }
 }
+
+/**
+ * True while this composition is actually being looked at.
+ *
+ * XOrA is a home app, so its chrome stays composed long after the player has put the device down.
+ * Anything that repeats on a timer should hang off this rather than running for the life of the
+ * process, which on a handheld shows up as heat, fan noise, and flat batteries.
+ */
+@Composable
+fun rememberShellResumed(): Boolean {
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    return lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
+}
+
+/**
+ * Whether looping shell *decoration* should be running: on screen, and motion not reduced.
+ * Gated loops hold a still frame instead of animating.
+ */
+@Composable
+fun rememberAmbientMotionActive(): Boolean = rememberShellResumed() && !rememberReduceMotion()
 
 fun Context.isReduceMotionPreferred(): Boolean {
     val scale = Settings.Global.getFloat(

@@ -858,13 +858,16 @@ class XoraLibretroActivity : ComponentActivity() {
                     LibretroNative.nativeDrainAudio()?.let { pcm ->
                         audioTrack?.write(pcm, 0, pcm.size)
                     }
+                    val elapsed = System.nanoTime() - start
+                    val sleepMs = ((frameNs - elapsed) / 1_000_000L).coerceAtLeast(0L)
+                    // delay/yield (not Thread.sleep) so serialize / unload can run here too.
+                    if (sleepMs > 0) delay(sleepMs) else yield()
                 } else {
+                    // Nothing is being emulated or drawn, so frame pacing would just wake the CPU
+                    // sixty times a second behind a paused session. Idle RA at a slow tick instead.
                     raSession?.idle()
+                    delay(IDLE_TICK_MS)
                 }
-                val elapsed = System.nanoTime() - start
-                val sleepMs = ((frameNs - elapsed) / 1_000_000L).coerceAtLeast(0L)
-                // delay/yield (not Thread.sleep) so serialize / unload can run on this dispatcher.
-                if (sleepMs > 0) delay(sleepMs) else yield()
             }
         }
     }
@@ -981,6 +984,8 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     companion object {
+        /** Loop tick while paused / backgrounded, where no frames are produced. */
+        private const val IDLE_TICK_MS = 200L
         private val chordKeys = setOf(
             KeyEvent.KEYCODE_BUTTON_SELECT,
             KeyEvent.KEYCODE_BUTTON_START,

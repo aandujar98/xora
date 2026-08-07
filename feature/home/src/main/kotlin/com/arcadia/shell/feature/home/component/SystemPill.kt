@@ -91,6 +91,7 @@ import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.rememberShellResumed
 import com.arcadia.shell.feature.home.SystemPanelRow
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.buildSystemPanelRows
@@ -134,11 +135,16 @@ fun SystemPill(
         buildSystemPanelRows(jumpBackGames.map { it.id })
     }
 
-    LaunchedEffect(Unit) {
+    // The pill only shows hours and minutes, so waking on a fixed short interval bought nothing
+    // but battery drain. Sleep to the next minute boundary instead, and only while on screen.
+    val clockRunning = rememberShellResumed()
+    LaunchedEffect(clockRunning) {
+        if (!clockRunning) return@LaunchedEffect
         while (true) {
             now = Date()
             wifiConnected = isWifiConnected(context)
-            delay(15_000)
+            val untilNextMinute = 60_000L - (System.currentTimeMillis() % 60_000L)
+            delay(untilNextMinute.coerceAtLeast(1_000L))
         }
     }
 

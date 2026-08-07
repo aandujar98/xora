@@ -520,13 +520,27 @@ class DiscordPresenceController @Inject constructor(
             .onFailure { Log.e(TAG, "bridge.destroy failed", it) }
     }
 
+    /**
+     * Pumps the Social SDK. In the foreground it ticks fast enough for chat to feel live; once the
+     * shell is backgrounded it eases off step by step, because a fixed background tick wakes the
+     * CPU thousands of times overnight and shows up as battery drain on a sleeping handheld.
+     * Coming back to the foreground resets the pace immediately.
+     */
     private fun startCallbackLoop() {
         if (callbackJob?.isActive == true) return
         callbackJob = scope.launch {
+            var backgroundInterval = CALLBACK_BACKGROUND_MS
             while (isActive) {
                 runCatching { bridge.runCallbacks() }
                     .onFailure { Log.w(TAG, "runCallbacks failed", it) }
-                delay(if (appInForeground) CALLBACK_FOREGROUND_MS else CALLBACK_BACKGROUND_MS)
+                if (appInForeground) {
+                    backgroundInterval = CALLBACK_BACKGROUND_MS
+                    delay(CALLBACK_FOREGROUND_MS)
+                } else {
+                    delay(backgroundInterval)
+                    backgroundInterval =
+                        (backgroundInterval * 2).coerceAtMost(CALLBACK_BACKGROUND_MAX_MS)
+                }
             }
         }
     }
@@ -790,7 +804,10 @@ class DiscordPresenceController @Inject constructor(
         private const val PUBLISH_DEBOUNCE_MS = 450L
         private const val PUBLISH_MIN_INTERVAL_MS = 2_000L
         private const val CALLBACK_FOREGROUND_MS = 1_000L
+        /** First background tick — keeps an in-flight OAuth / Connect handshake moving. */
         private const val CALLBACK_BACKGROUND_MS = 2_500L
+        /** Where the background backoff settles once the shell has been away a while. */
+        private const val CALLBACK_BACKGROUND_MAX_MS = 60_000L
         private const val DEFERRED_LOG_MIN_INTERVAL_MS = 8_000L
         private const val MAX_FRIENDS_UI = 40
         private const val DM_MESSAGE_LIMIT = 50
