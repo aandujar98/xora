@@ -94,6 +94,7 @@ fun VerticalGameSelectorPane(
     onActivateAccountRow: (Int?) -> Unit,
     onSelectSystemRow: (Int) -> Unit,
     onActivateSystemRow: (Int?) -> Unit,
+    onOpenNotifications: () -> Unit = {},
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
     onRequestLocalAvatar: () -> Unit,
@@ -265,9 +266,11 @@ fun VerticalGameSelectorPane(
                     jumpBackGames = state.quickLaunchGames.take(3),
                     expanded = state.systemPanelExpanded && !state.isLaunching,
                     selectedRowIndex = state.systemPanelSelectedIndex,
+                    notificationUnreadCount = state.notificationUnreadCount,
                     onToggle = onToggleSystemPanel,
                     onSelectRow = onSelectSystemRow,
                     onActivateRow = onActivateSystemRow,
+                    onOpenNotifications = onOpenNotifications,
                 )
             }
 

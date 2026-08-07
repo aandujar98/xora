@@ -167,21 +167,21 @@ fun AccountPill(
 private fun StackedCircleAvatars(members: List<CircleMemberUi>) {
     if (members.isEmpty()) return
     Row(
-        horizontalArrangement = Arrangement.spacedBy((-10).dp),
+        horizontalArrangement = Arrangement.spacedBy((-12).dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         members.forEachIndexed { index, member ->
             Box(
                 modifier = Modifier
                     .zIndex((members.size - index).toFloat())
-                    .size(28.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
                     .border(1.5.dp, Color(0xFF0C1524), CircleShape),
             ) {
                 ProfileAvatar(
                     displayName = member.displayName,
                     presetId = "preset_0",
-                    size = 28.dp,
+                    size = 36.dp,
                     imageModel = member.avatarUrl,
                     borderColor = Color.Transparent,
                 )

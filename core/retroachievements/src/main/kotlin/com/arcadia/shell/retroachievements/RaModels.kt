@@ -67,13 +67,31 @@ data class RaGameProgress(
     val gameId: Int,
     val title: String,
     val consoleName: String,
+    /** Relative path from the API (e.g. `/Images/…png`) or absolute URL. */
+    val imageIconPath: String = "",
     val numAchievements: Int,
     val numAwardedToUser: Int,
     val numAwardedToUserHardcore: Int,
+    /** Distinct players who earned at least one achievement (when the API provides it). */
+    val numDistinctPlayers: Int = 0,
     val achievements: List<RaAchievement>,
 ) {
     val progressLabel: String
         get() = if (numAchievements <= 0) "0/0" else "$numAwardedToUser/$numAchievements"
+
+    val completionFraction: Float
+        get() = if (numAchievements <= 0) {
+            0f
+        } else {
+            (numAwardedToUser.toFloat() / numAchievements).coerceIn(0f, 1f)
+        }
+
+    val imageIconUrl: String
+        get() = when {
+            imageIconPath.isBlank() -> ""
+            imageIconPath.startsWith("http") -> imageIconPath
+            else -> "https://media.retroachievements.org$imageIconPath"
+        }
 }
 
 data class RaRecentUnlock(

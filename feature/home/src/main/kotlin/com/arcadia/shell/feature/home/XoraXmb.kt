@@ -1,6 +1,8 @@
 package com.arcadia.shell.feature.home
 
+import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XmbTitleStyle
+import com.arcadia.shell.datastore.label
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.PlatformSummary
 
@@ -42,6 +44,8 @@ enum class XoraXmbDepth {
     Systems,
     /** Games → All Games → system → ROM list. */
     Roms,
+    /** Games → XOrA Emulator → display / controllers / bezels. */
+    Emulator,
 }
 
 /** One focusable row in the XMB vertical list. */
@@ -67,6 +71,15 @@ sealed interface XoraXmbAction {
     data object OpenRaLibrary : XoraXmbAction
     data object LaunchContinueOrFavorite : XoraXmbAction
     data object DrillAllGames : XoraXmbAction
+    /** Games → XOrA Emulator settings list. */
+    data object DrillXoraEmulator : XoraXmbAction
+    /** In-emulator XMB only — close overlay and keep playing. */
+    data object ResumeGame : XoraXmbAction
+    /** In-emulator XMB only — leave the session and return to the launcher. */
+    data object QuitGame : XoraXmbAction
+    data object SaveGameState : XoraXmbAction
+    data object LoadGameState : XoraXmbAction
+    data object ResetGame : XoraXmbAction
     data object PhotosStub : XoraXmbAction
     data object VideosStub : XoraXmbAction
     data object MusicNowPlayingStub : XoraXmbAction
@@ -78,6 +91,22 @@ sealed interface XoraXmbAction {
     data object OpenNews : XoraXmbAction
     data class DrillSystem(val platformId: String) : XoraXmbAction
     data class LaunchGame(val gameId: String) : XoraXmbAction
+    /** Cycle / toggle a built-in emulator preference from the XMB list. */
+    data class ToggleXoraEmulatorSetting(val setting: XoraEmulatorXmbSetting) : XoraXmbAction
+    /** Jump into full Setup → XOrA Emulator (cores, storage, RA login). */
+    data object OpenFullXoraEmulatorSetup : XoraXmbAction
+}
+
+/** Rows under Games → XOrA Emulator. */
+enum class XoraEmulatorXmbSetting {
+    Aspect,
+    Bezels,
+    BezelOpacity,
+    InternalResolution,
+    ExpandDualDisplay,
+    PreferredController,
+    ClearButtonMappings,
+    Netplay,
 }
 
 data class XoraXmbUiState(
@@ -107,6 +136,11 @@ fun buildXoraCategoryItems(
     gamesSecondarySlot: GamesSecondarySlot,
     continueGame: Game?,
     favoriteGame: Game?,
+    /**
+     * When true (PS3-style in-emulator XMB), include the XOrA Emulator row.
+     * Hidden on the launcher Home XMB — only appears while a game session is open.
+     */
+    showXoraEmulator: Boolean = false,
 ): List<XoraXmbItem> = when (category) {
     XoraXmbCategory.Profiles -> listOf(
         XoraXmbItem(
@@ -196,23 +230,87 @@ fun buildXoraCategoryItems(
                 icon = XmbIcon.Favorite,
             )
         }
-        listOf(
-            XoraXmbItem(
-                id = "ra",
-                title = "Retro Achievements",
-                subtitle = "Progress & hardcore library",
-                action = XoraXmbAction.OpenRaLibrary,
-                icon = XmbIcon.Trophy,
-            ),
-            secondary,
-            XoraXmbItem(
-                id = "all_games",
-                title = "All Games",
-                subtitle = "Browse by system",
-                action = XoraXmbAction.DrillAllGames,
-                icon = XmbIcon.Folder,
-            ),
-        )
+        buildList {
+            if (showXoraEmulator) {
+                // PS3-style in-session Games column — Resume first, then emulator prefs.
+                add(
+                    XoraXmbItem(
+                        id = "resume",
+                        title = "Resume",
+                        subtitle = continueGame?.title ?: "Back to game",
+                        action = XoraXmbAction.ResumeGame,
+                        artPath = continueGame?.boxArtPath ?: continueGame?.heroImagePath,
+                        logoPath = continueGame?.logoImagePath,
+                        icon = XmbIcon.Continue,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "xora_emulator",
+                        title = "XOrA Emulator",
+                        subtitle = "Controllers, bezels & display",
+                        action = XoraXmbAction.DrillXoraEmulator,
+                        icon = XmbIcon.Emulator,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "save_state",
+                        title = "Save state",
+                        subtitle = "Slot 0",
+                        action = XoraXmbAction.SaveGameState,
+                        icon = XmbIcon.Folder,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "load_state",
+                        title = "Load state",
+                        subtitle = "Slot 0",
+                        action = XoraXmbAction.LoadGameState,
+                        icon = XmbIcon.Folder,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "reset_game",
+                        title = "Reset",
+                        subtitle = "Restart the soft session",
+                        action = XoraXmbAction.ResetGame,
+                        icon = XmbIcon.General,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "quit_game",
+                        title = "Quit to XOrA",
+                        subtitle = "Leave this game",
+                        action = XoraXmbAction.QuitGame,
+                        icon = XmbIcon.Settings,
+                    ),
+                )
+            } else {
+                add(
+                    XoraXmbItem(
+                        id = "ra",
+                        title = "Retro Achievements",
+                        subtitle = "Progress & hardcore library",
+                        action = XoraXmbAction.OpenRaLibrary,
+                        icon = XmbIcon.Trophy,
+                    ),
+                )
+                add(secondary)
+                add(
+                    XoraXmbItem(
+                        id = "all_games",
+                        title = "All Games",
+                        subtitle = "Browse by system",
+                        action = XoraXmbAction.DrillAllGames,
+                        icon = XmbIcon.Folder,
+                    ),
+                )
+            }
+        }
     }
     XoraXmbCategory.Media -> listOf(
         XoraXmbItem(
@@ -317,3 +415,83 @@ fun buildXoraRomItems(games: List<Game>): List<XoraXmbItem> =
             icon = XmbIcon.Games,
         )
     }
+
+/** Games → XOrA Emulator — global prefs applied on the next (and live) emulator session. */
+fun buildXoraEmulatorItems(settings: XoraEmulatorSettings): List<XoraXmbItem> {
+    val controllerLabel = settings.preferredControllerName
+        .takeIf { it.isNotBlank() }
+        ?: "Any controller"
+    val mappingLabel = if (settings.buttonMappings.isEmpty()) {
+        "Default"
+    } else {
+        "${settings.buttonMappings.size} custom"
+    }
+    return listOf(
+        XoraXmbItem(
+            id = "emu_aspect",
+            title = "Aspect ratio",
+            subtitle = settings.aspectMode.label(),
+            action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.Aspect),
+            icon = XmbIcon.Display,
+        ),
+        XoraXmbItem(
+            id = "emu_bezels",
+            title = "System bezels",
+            subtitle = if (settings.bezelsEnabled) "On" else "Off",
+            action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.Bezels),
+            icon = XmbIcon.Emulator,
+        ),
+        XoraXmbItem(
+            id = "emu_bezel_opacity",
+            title = "Bezel opacity",
+            subtitle = "${(settings.bezelOpacity * 100f).toInt()}%",
+            action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.BezelOpacity),
+            icon = XmbIcon.Display,
+        ),
+        XoraXmbItem(
+            id = "emu_internal_res",
+            title = "Internal resolution",
+            subtitle = settings.internalResolution.label(),
+            action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.InternalResolution),
+            icon = XmbIcon.Display,
+        ),
+        XoraXmbItem(
+            id = "emu_expand",
+            title = "Expand dual display",
+            subtitle = when {
+                settings.expandDualDisplay -> "On · DS / 3DS top / bottom"
+                else -> "Off"
+            },
+            action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.ExpandDualDisplay),
+            icon = XmbIcon.Display,
+        ),
+        XoraXmbItem(
+            id = "emu_controller",
+            title = "Preferred controller",
+            subtitle = "$controllerLabel · A cycles",
+            action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.PreferredController),
+            icon = XmbIcon.GamePad,
+        ),
+        XoraXmbItem(
+            id = "emu_mappings",
+            title = "Button mappings",
+            subtitle = "$mappingLabel · A clears custom",
+            action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.ClearButtonMappings),
+            icon = XmbIcon.GamePad,
+        ),
+        XoraXmbItem(
+            id = "emu_netplay",
+            title = "Netplay menu",
+            subtitle = if (settings.netplayEnabled) "On" else "Off",
+            action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.Netplay),
+            icon = XmbIcon.Network,
+        ),
+        XoraXmbItem(
+            id = "emu_full_setup",
+            title = "Full Setup",
+            subtitle = "Cores, storage & RetroAchievements login",
+            action = XoraXmbAction.OpenFullXoraEmulatorSetup,
+            icon = XmbIcon.Settings,
+        ),
+    )
+}

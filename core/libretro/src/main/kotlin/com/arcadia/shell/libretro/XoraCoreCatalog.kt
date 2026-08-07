@@ -70,6 +70,9 @@ class XoraCoreCatalog @Inject constructor(
 
         /** Used if assets fail to load so the module still seeds players. */
         val FALLBACK_CORES: List<XoraCoreEntry> = listOf(
+            // FCEUmm first — Mesen has been crashing on some Android/NES boots.
+            XoraCoreEntry("nes", "fceumm", "FCEUmm", "GPLv2"),
+            XoraCoreEntry("nes", "nestopia", "Nestopia UE", "GPLv2"),
             XoraCoreEntry("nes", "mesen", "Mesen", "GPLv2"),
             XoraCoreEntry("snes", "snes9x", "Snes9x", "Non-commercial"),
             // Android buildbot ships GLES variants only (no plain mupen64plus_next).

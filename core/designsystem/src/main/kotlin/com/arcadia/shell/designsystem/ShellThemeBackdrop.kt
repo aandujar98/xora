@@ -1,9 +1,16 @@
 package com.arcadia.shell.designsystem
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -12,6 +19,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import kotlin.math.cos
 import kotlin.math.sin
 
 /**
@@ -156,6 +164,17 @@ private fun MidnightBackdrop(modifier: Modifier = Modifier) {
 
 @Composable
 private fun ClassicXmbBackdrop(modifier: Modifier = Modifier) {
+    val reduceMotion = rememberReduceMotion()
+    val phase by rememberInfiniteTransition(label = "classicXmbWave").animateFloat(
+        initialValue = 0f,
+        targetValue = (Math.PI * 2.0).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 16_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "classicXmbWavePhase",
+    )
+    val drift = if (reduceMotion) 0f else phase
     Canvas(modifier = modifier.fillMaxSize()) {
         drawRect(
             brush = Brush.verticalGradient(
@@ -170,13 +189,14 @@ private fun ClassicXmbBackdrop(modifier: Modifier = Modifier) {
         val waveColor = Color(0xFF5EC8E8)
         for (band in 0 until 5) {
             val baseY = size.height * (0.35f + band * 0.1f)
+            val xShift = cos(drift + band * 0.55f) * (18f + band * 3f)
             val path = Path()
-            path.moveTo(0f, baseY)
-            var x = 0f
-            while (x <= size.width) {
-                val y = baseY + sin((x / size.width) * Math.PI * 2.0 + band).toFloat() *
+            path.moveTo(-48f + xShift, baseY)
+            var x = -48f
+            while (x <= size.width + 48f) {
+                val y = baseY + sin((x / size.width) * Math.PI * 2.0 + band + drift).toFloat() *
                     (18f + band * 4f)
-                path.lineTo(x, y)
+                path.lineTo(x + xShift, y)
                 x += 8f
             }
             drawPath(
