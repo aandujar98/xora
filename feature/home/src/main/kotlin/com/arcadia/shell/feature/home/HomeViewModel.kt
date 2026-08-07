@@ -2641,6 +2641,37 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /** Photo / GIF for the open DM. See [attachToOpenDiscordDm] for why this leaves the shell. */
+    fun requestDiscordAttachment() {
+        noteUserActivity()
+        if (discordRichPresence.dmThread.value.peerUserId == null) return
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.DiscordAttachment) }
+        }
+    }
+
+    /**
+     * Hands the picked file to the Discord app to upload.
+     *
+     * The Social SDK can only send message text — it has no upload endpoint — so a local photo
+     * cannot leave the launcher on its own. Links do work end to end: paste or type an image /
+     * GIF URL and both Discord and the shell render it inline.
+     */
+    fun attachToOpenDiscordDm(uri: Uri) {
+        noteUserActivity()
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = appContext.contentResolver.getType(uri) ?: "image/*"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val toDiscord = Intent(intent).setPackage(DISCORD_PACKAGE)
+        if (runCatching { appContext.startActivity(toDiscord); true }.getOrDefault(false)) return
+        val chooser = Intent.createChooser(intent, "Send with")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (runCatching { appContext.startActivity(chooser); true }.getOrDefault(false)) return
+        emit(HomeEvent.ShowError("No app available to send that file."))
+    }
+
     fun requestSteamOpenId() {
         noteUserActivity()
         viewModelScope.launch {
@@ -5105,6 +5136,7 @@ class HomeViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "HomeViewModel"
+        const val DISCORD_PACKAGE = "com.discord"
         /** Covers profile + hash + gameid + progress; longer than OkHttp call timeout would strand the spinner. */
         const val ACHIEVEMENTS_LOAD_TIMEOUT_MS = 60_000L
         const val GUIDE_QUICK_LAUNCH_RECENT = 5

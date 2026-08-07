@@ -484,6 +484,8 @@ internal class DiscordSocialSdkBridge {
         /**
          * Payload lines (TSV):
          * `messageId\\tauthorId\\trecipientId\\tsentTimestampMs\\tsentFromGame\\tcontent`
+         * optionally followed by `\\textraType\\textraTitle\\textraCount` — older natives stop
+         * after the content field.
          */
         fun parseMessagesPayload(
             payload: String,
@@ -495,21 +497,71 @@ internal class DiscordSocialSdkBridge {
                 .map { it.trimEnd('\r') }
                 .filter { it.isNotEmpty() }
                 .mapNotNull { line ->
-                    val parts = line.split('\t', limit = 6)
+                    val parts = line.split('\t', limit = 9)
                     if (parts.size < 6) return@mapNotNull null
                     val authorId = parts[1]
+                    val content = parts[5]
+                    val extraType = parts.getOrNull(6)?.trim().orEmpty()
                     DiscordDmMessage(
                         messageId = parts[0],
                         authorId = authorId,
                         recipientId = parts[2],
                         sentAtMs = parts[3].toLongOrNull() ?: 0L,
                         sentFromGame = parts[4] == "1" || parts[4].equals("true", ignoreCase = true),
-                        content = parts[5],
+                        content = content,
                         isMine = self.isNotEmpty() && authorId == self,
+                        mediaUrls = extractMediaUrls(content),
+                        attachment = extraType
+                            .takeIf { it.isNotEmpty() && !it.equals("Other", ignoreCase = true) }
+                            ?.let { type ->
+                                DiscordMessageAttachment(
+                                    type = type,
+                                    title = parts.getOrNull(7)?.trim()?.takeIf { it.isNotEmpty() },
+                                    count = parts.getOrNull(8)?.trim()?.toIntOrNull() ?: 1,
+                                )
+                            },
                     )
                 }
                 .toList()
         }
+
+        private val URL_PATTERN = Regex("""https?://\S+""")
+
+        private val IMAGE_HOSTS = setOf(
+            "cdn.discordapp.com",
+            "media.discordapp.net",
+            "media.tenor.com",
+            "tenor.com",
+            "c.tenor.com",
+            "media.giphy.com",
+            "i.giphy.com",
+            "giphy.com",
+            "i.imgur.com",
+            "imgur.com",
+        )
+
+        private val IMAGE_EXTENSIONS = listOf(".gif", ".png", ".jpg", ".jpeg", ".webp", ".apng")
+
+        /**
+         * Picks out links the shell can render as pictures. Extension alone is not enough —
+         * Tenor and Giphy share links have no suffix — so known media hosts count too.
+         */
+        internal fun extractMediaUrls(content: String): List<String> =
+            URL_PATTERN.findAll(content)
+                .map { it.value.trimEnd('.', ',', ')', ']', '>') }
+                .filter { url ->
+                    val withoutQuery = url.substringBefore('?').lowercase()
+                    val host = url.substringAfter("://", "")
+                        .substringBefore('/')
+                        .substringBefore(':')
+                        .lowercase()
+                    IMAGE_EXTENSIONS.any { withoutQuery.endsWith(it) } || host in IMAGE_HOSTS
+                }
+                .distinct()
+                .take(MAX_INLINE_MEDIA)
+                .toList()
+
+        private const val MAX_INLINE_MEDIA = 4
 
         /**
          * Builds a Discord CDN avatar URL.

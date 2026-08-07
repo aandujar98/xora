@@ -81,7 +81,42 @@ data class DiscordDmMessage(
     val sentFromGame: Boolean,
     val content: String,
     val isMine: Boolean = false,
-)
+    /**
+     * Image / GIF links found in [content]. Tenor and Giphy picks, and pasted CDN links, arrive
+     * as plain URLs, so these are the pictures the launcher can actually show inline.
+     */
+    val mediaUrls: List<String> = emptyList(),
+    /**
+     * A real Discord upload the Social SDK will only describe, never hand over: it exposes the
+     * kind, an optional title, and a count, but no URL to fetch. Rendered as a chip so a
+     * photo-only message is not a blank bubble.
+     */
+    val attachment: DiscordMessageAttachment? = null,
+) {
+    /** [content] with the inline media links removed, so a bare GIF link shows just the GIF. */
+    val text: String
+        get() = mediaUrls
+            .fold(content) { acc, url -> acc.replace(url, "") }
+            .trim()
+}
+
+/** Describes an upload the SDK reports without exposing its bytes. */
+data class DiscordMessageAttachment(
+    /** Social SDK `AdditionalContentType` — Attachment, Poll, VoiceMessage, Thread, Other. */
+    val type: String,
+    val title: String?,
+    val count: Int,
+) {
+    val label: String
+        get() = when {
+            !title.isNullOrBlank() -> title
+            type.equals("Attachment", ignoreCase = true) ->
+                if (count > 1) "$count attachments" else "Attachment"
+            type.equals("VoiceMessage", ignoreCase = true) -> "Voice message"
+            type.equals("Poll", ignoreCase = true) -> "Poll"
+            else -> type
+        }
+}
 
 /** Open DM thread state for the Social → Discord chat pane. */
 data class DiscordDmThreadUiState(
