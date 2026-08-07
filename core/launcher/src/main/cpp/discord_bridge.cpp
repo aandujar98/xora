@@ -788,6 +788,31 @@ std::string DiscordBridge::FormatMessageLine(const discordpp::MessageHandle& msg
     line += msg.SentFromGame() ? "1" : "0";
     line += '\t';
     line += EscapeTsvField(msg.Content());
+
+    // Uploads carry no URL through the Social SDK, only a kind/title/count. Passing them along
+    // is what stops a photo-only DM from arriving as an empty bubble.
+    std::string extraType;
+    std::string extraTitle;
+    std::string extraCount;
+    try {
+        auto extra = msg.AdditionalContent();
+        if (extra) {
+            extraType = discordpp::AdditionalContent::TypeToString(extra->Type());
+            auto title = extra->Title();
+            if (title) extraTitle = *title;
+            extraCount = std::to_string(static_cast<int>(extra->Count()));
+        }
+    } catch (...) {
+        extraType.clear();
+        extraTitle.clear();
+        extraCount.clear();
+    }
+    line += '\t';
+    line += EscapeTsvField(extraType);
+    line += '\t';
+    line += EscapeTsvField(extraTitle);
+    line += '\t';
+    line += EscapeTsvField(extraCount);
     return line;
 }
 

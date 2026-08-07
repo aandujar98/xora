@@ -314,6 +314,9 @@ sealed interface HomeMediaPickerRequest {
     data object Wallpaper : HomeMediaPickerRequest
     data object Bgm : HomeMediaPickerRequest
     data object ProfileAvatar : HomeMediaPickerRequest
+
+    /** Photo / GIF to attach to the open Discord DM. */
+    data object DiscordAttachment : HomeMediaPickerRequest
     data class GameBoxArt(val gameId: String) : HomeMediaPickerRequest
     data class GameBackground(val gameId: String) : HomeMediaPickerRequest
     data class GameSoundBite(val gameId: String) : HomeMediaPickerRequest

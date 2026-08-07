@@ -33,11 +33,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
@@ -62,6 +67,7 @@ fun DiscordConversationWindow(
     thread: DiscordDmThreadUiState,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
+    onAttachMedia: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -238,22 +244,43 @@ fun DiscordConversationWindow(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = if (thread.sending) "Sending…" else "A · Send",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = DiscordAccent,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable(enabled = !thread.sending, onClick = onSend)
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = if (thread.sending) "Sending…" else "A · Send",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = DiscordAccent,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable(enabled = !thread.sending, onClick = onSend)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                            Text(
+                                text = "Photo / GIF",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White.copy(alpha = 0.1f))
+                                    .clickable(onClick = onAttachMedia)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                        }
                         Text(
                             text = "B · Back",
                             style = MaterialTheme.typography.labelMedium,
                             color = glass.contentMuted,
                         )
                     }
+                    Text(
+                        text = "Paste an image or GIF link to send it inline. " +
+                            "Files upload through the Discord app.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = glass.contentMuted,
+                    )
                 }
             }
         }
@@ -263,14 +290,14 @@ fun DiscordConversationWindow(
 @Composable
 private fun ConversationBubble(message: DiscordDmMessage) {
     val mine = message.isMine
+    val text = message.text
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
     ) {
-        Text(
-            text = message.content.ifBlank { " " },
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.White,
+        Column(
+            horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .widthIn(max = 420.dp)
                 .clip(RoundedCornerShape(14.dp))
@@ -279,6 +306,54 @@ private fun ConversationBubble(message: DiscordDmMessage) {
                     else Color.White.copy(alpha = 0.12f),
                 )
                 .padding(horizontal = 12.dp, vertical = 9.dp),
-        )
+        ) {
+            message.mediaUrls.forEach { url ->
+                MessageMedia(url = url)
+            }
+            message.attachment?.let { attachment ->
+                AttachmentChip(label = attachment.label)
+            }
+            if (text.isNotEmpty() || (message.mediaUrls.isEmpty() && message.attachment == null)) {
+                Text(
+                    text = text.ifBlank { " " },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White,
+                )
+            }
+        }
     }
+}
+
+/** Inline picture for a linked image or GIF; animates through the shell's animated decoder. */
+@Composable
+private fun MessageMedia(url: String) {
+    AsyncImage(
+        model = ImageRequest.Builder(LocalPlatformContext.current)
+            .data(url)
+            .crossfade(true)
+            .build(),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .widthIn(max = 320.dp)
+            .heightIn(max = 240.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.Black.copy(alpha = 0.25f)),
+    )
+}
+
+/** The Social SDK reports uploads without a URL, so say what arrived rather than showing nothing. */
+@Composable
+private fun AttachmentChip(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = Color.White.copy(alpha = 0.85f),
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Black.copy(alpha = 0.3f))
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+    )
 }

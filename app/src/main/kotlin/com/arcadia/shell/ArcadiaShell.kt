@@ -140,6 +140,12 @@ fun ArcadiaShell(
     ) { uri ->
         if (uri != null) homeViewModel.setLocalAvatar(uri)
     }
+    // GetContent, not PickVisualMedia: photo-picker URIs are not grantable to another app.
+    val discordAttachmentPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) homeViewModel.attachToOpenDiscordDm(uri)
+    }
     val gameBoxArtPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -177,6 +183,8 @@ fun ArcadiaShell(
                     HomeMediaPickerRequest.ProfileAvatar -> profileAvatarPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                     )
+                    HomeMediaPickerRequest.DiscordAttachment ->
+                        discordAttachmentPicker.launch("image/*")
                     is HomeMediaPickerRequest.GameBoxArt -> {
                         pendingGameMediaId = request.gameId
                         gameBoxArtPicker.launch(
@@ -463,6 +471,7 @@ fun ArcadiaShell(
                     thread = state.socialMenu.discordDm,
                     onDraftChange = homeViewModel::updateConversationReplyDraft,
                     onSend = homeViewModel::sendOpenDiscordDm,
+                    onAttachMedia = homeViewModel::requestDiscordAttachment,
                     onDismiss = homeViewModel::closeOpenDiscordDm,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -519,6 +528,7 @@ fun ArcadiaShell(
                                 thread = state.socialMenu.discordDm,
                                 onDraftChange = homeViewModel::updateConversationReplyDraft,
                                 onSend = homeViewModel::sendOpenDiscordDm,
+                                onAttachMedia = homeViewModel::requestDiscordAttachment,
                                 onDismiss = homeViewModel::closeOpenDiscordDm,
                                 modifier = Modifier.fillMaxSize(),
                             )

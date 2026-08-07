@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -190,7 +190,6 @@ fun XoraPlatformPane(
                             x = designX(RULE_X),
                             y = designY(ROW_CENTER_Y - (RULE_THICKNESS / 2f)),
                         )
-                        .width((RULE_WIDTH * unit).dp)
                         .size(
                             width = (RULE_WIDTH * unit).dp,
                             height = (RULE_THICKNESS * unit).dp,
@@ -319,7 +318,8 @@ private fun PlatformHeadline(
             ),
         ),
         color = PlatformTitleInk,
-        modifier = modifier.width((maxWidthDesignUnits * unit).dp),
+        // Sized to the text so the ready tick sits against the name, not out at the rule's end.
+        modifier = modifier.widthIn(max = (maxWidthDesignUnits * unit).dp),
     )
 }
 
