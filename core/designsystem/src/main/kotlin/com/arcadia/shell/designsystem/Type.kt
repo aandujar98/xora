@@ -36,11 +36,11 @@ object XoraFonts {
     )
 
     val Secondary: FontFamily = FontFamily(
-        Font(R.font.fot_newrodin_pro_eb, FontWeight.Normal),
-        Font(R.font.fot_newrodin_pro_eb, FontWeight.Medium),
-        Font(R.font.fot_newrodin_pro_eb, FontWeight.SemiBold),
-        Font(R.font.fot_newrodin_pro_eb, FontWeight.Bold),
-        Font(R.font.fot_newrodin_pro_eb, FontWeight.ExtraBold),
+        Font(R.font.fot_newrodin_pro_eb_extract, FontWeight.Normal),
+        Font(R.font.fot_newrodin_pro_eb_extract, FontWeight.Medium),
+        Font(R.font.fot_newrodin_pro_eb_extract, FontWeight.SemiBold),
+        Font(R.font.fot_newrodin_pro_eb_extract, FontWeight.Bold),
+        Font(R.font.fot_newrodin_pro_eb_extract, FontWeight.ExtraBold),
     )
 
     /** Slight tracking for XOIREQE primary / menu text. */
