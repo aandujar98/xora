@@ -952,21 +952,14 @@ class HomeViewModel @Inject constructor(
 
         @OptIn(ExperimentalCoroutinesApi::class)
         combine(
-            // ROM browsing shows an achievements card for the focused game, so the lookup has to
-            // run there too — not only while the pill is open.
-            combine(
-                achievementsPanelExpanded,
-                uiState.map { it.xoraXmb.depth == XoraXmbDepth.Roms }.distinctUntilChanged(),
-            ) { expanded, browsingRoms -> expanded || browsingRoms },
+            achievementsPanelExpanded,
             uiState.map { it.selectedGame?.id }.distinctUntilChanged(),
             achievementsUi.map { it.tab }.distinctUntilChanged(),
             retroAchievements.credentials,
-        ) { wanted, gameId, tab, creds ->
-            AchievementsLoadRequest(wanted, gameId, tab, creds.isConfigured)
+        ) { expanded, gameId, tab, creds ->
+            AchievementsLoadRequest(expanded, gameId, tab, creds.isConfigured)
         }
             .distinctUntilChanged()
-            // Scrubbing a long ROM list would otherwise fire a lookup per row.
-            .debounce { request -> if (request.expanded) 0L else ACHIEVEMENTS_FOCUS_DEBOUNCE_MS }
             .mapLatest { request ->
                 if (!request.expanded) {
                     // mapLatest cancels an in-flight refresh when the panel closes; clear the
@@ -4448,11 +4441,6 @@ class HomeViewModel @Inject constructor(
 
     fun toggleAchievementsPanel() {
         noteUserActivity()
-        // While browsing ROMs, X belongs to the card the concept puts beside the game.
-        if (uiState.value.xoraXmb.depth == XoraXmbDepth.Roms) {
-            achievementsUi.update { it.copy(romCardVisible = !it.romCardVisible) }
-            return
-        }
         val opening = !achievementsPanelExpanded.value
         achievementsPanelExpanded.value = opening
         if (opening) {
@@ -5193,8 +5181,6 @@ class HomeViewModel @Inject constructor(
         const val DISCORD_PACKAGE = "com.discord"
         /** Covers profile + hash + gameid + progress; longer than OkHttp call timeout would strand the spinner. */
         const val ACHIEVEMENTS_LOAD_TIMEOUT_MS = 60_000L
-        /** Settle time before looking up the ROM the cursor landed on. */
-        const val ACHIEVEMENTS_FOCUS_DEBOUNCE_MS = 450L
         const val GUIDE_QUICK_LAUNCH_RECENT = 5
         const val GUIDE_QUICK_LAUNCH_FAVORITES = 3
         const val INSIGHT_DEBOUNCE_MS = 380L

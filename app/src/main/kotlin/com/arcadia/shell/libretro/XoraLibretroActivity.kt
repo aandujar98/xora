@@ -15,6 +15,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.Toast
@@ -50,6 +51,7 @@ import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.designsystem.ArcadiaTheme
+import com.arcadia.shell.designsystem.LocalArcadiaHaze
 import com.arcadia.shell.display.DisplayTopologyMonitor
 import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.SecondaryDisplayPane
@@ -244,13 +246,17 @@ class XoraLibretroActivity : ComponentActivity() {
         root.addView(banners)
 
         val xmb = ComposeView(this).apply {
+            // Opaque View background under every Compose pixel. Translucent XMB chrome must not
+            // punch a hole through to the window compositor or letterboxes wash grey on Resume.
             setBackgroundColor(AndroidColor.BLACK)
             setLayerType(View.LAYER_TYPE_NONE, null)
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
-            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            // Drop HWUI render nodes the moment the overlay leaves the tree — keeping a disposed
+            // composition around after submenu Resume was one way the milky wash stuck.
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             visibility = View.GONE
         }
         xmbOverlay = xmb
@@ -305,13 +311,17 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
             }
 
+            // Always dark + Haze killed for the whole emulator session. liquidGlass frost over
+            // anything near the framebuffer was the wash left after pause submenus / Resume.
             ArcadiaTheme(
                 darkTheme = true,
                 shellThemeId = settings.shellThemeId,
                 uiTextScale = settings.uiTextScale,
             ) {
-                Box(modifier = Modifier.wrapContentSize(align = Alignment.TopStart)) {
-                    NotificationBannerHost(center = shellNotifications)
+                CompositionLocalProvider(LocalArcadiaHaze provides null) {
+                    Box(modifier = Modifier.wrapContentSize(align = Alignment.TopStart)) {
+                        NotificationBannerHost(center = shellNotifications)
+                    }
                 }
             }
         }
@@ -331,7 +341,10 @@ class XoraLibretroActivity : ComponentActivity() {
                 shellThemeId = settings.shellThemeId,
                 uiTextScale = settings.uiTextScale,
             ) {
-                CompositionLocalProvider(LocalInGameXmbController provides inGameXmbController) {
+                CompositionLocalProvider(
+                    LocalArcadiaHaze provides null,
+                    LocalInGameXmbController provides inGameXmbController,
+                ) {
                     XoraInGameXmbOverlay(
                         frozenFrame = frozenMenuFrame,
                         message = menuMessage,
@@ -696,6 +709,8 @@ class XoraLibretroActivity : ComponentActivity() {
         val overlay = xmbOverlay
         overlay?.visibility = View.GONE
         (overlay?.parent as? ViewGroup)?.removeView(overlay)
+        // Dispose now so translucent XMB layers cannot linger as HWUI nodes over gameplay.
+        runCatching { overlay?.disposeComposition() }
         menuMessageJob?.cancel()
         menuMessage = null
         val stale = frozenMenuFrame
@@ -704,6 +719,9 @@ class XoraLibretroActivity : ComponentActivity() {
         primaryGameView?.visibility = View.VISIBLE
         primaryGameView?.invalidate()
         restoreImmersiveFocus()
+        // Focus / format restores are sometimes applied a frame late after detach — restating on
+        // the next pulse catches the wash that only appears after Settings / XOrA Emulator / Reset.
+        primaryGameView?.post { if (!menuOpen && !isFinishing) restoreImmersiveFocus() }
     }
 
     private fun handleInGameXmbAction(action: XoraXmbAction) {
@@ -819,24 +837,46 @@ class XoraLibretroActivity : ComponentActivity() {
     /**
      * Puts the window back exactly as gameplay needs it.
      *
-     * Anything that takes focus away — a toast, a system dialog, the overlay itself — can leave
-     * the window with a translucent surface format or the system's light contrast scrims back on,
-     * and the result is a washed-out picture with grey letterbox bars instead of black. Re-stating
-     * all of it is cheap, so do it on every return rather than only once at startup.
+     * Opening the in-game XMB (especially Settings / XOrA Emulator depth) can leave the window
+     * with a translucent surface format or the system's light contrast scrims back on. The result
+     * is a washed-out picture with grey letterbox bars instead of black — a full-window lift, not
+     * a tint on the frame alone. Re-stating all of it is cheap, so do it on every return rather
+     * than only once at startup.
      */
     private fun restoreImmersiveFocus() {
         window.setFormat(PixelFormat.OPAQUE)
+        @Suppress("DEPRECATION")
+        window.clearFlags(
+            WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
+                WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION,
+        )
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+        // Re-assert dark edge-to-edge bars. A light nav scrim after overlay dismiss is what made
+        // letterboxes read grey even when the ImageView itself was fine.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
         }
+        @Suppress("DEPRECATION")
+        run {
+            window.statusBarColor = AndroidColor.TRANSPARENT
+            window.navigationBarColor = AndroidColor.TRANSPARENT
+        }
+        window.setBackgroundDrawableResource(android.R.color.black)
+        window.decorView.setBackgroundColor(AndroidColor.BLACK)
         ImmersiveMode.apply(window)
         window.decorView.requestFocus()
         gameRoot?.setBackgroundColor(AndroidColor.BLACK)
         primaryGameView?.apply {
+            setLayerType(View.LAYER_TYPE_NONE, null)
             setBackgroundColor(AndroidColor.BLACK)
             alpha = 1f
             colorFilter = null
+            imageAlpha = 255
             invalidate()
         }
     }

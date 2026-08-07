@@ -156,7 +156,13 @@ fun XoraInGameXmbOverlay(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // Opaque full-bleed plate first. Translucent dims / scaled Image layers alone were enough
+    // for HWUI to leave the emulator window washed after Settings / XOrA Emulator / Resume.
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color(0xFF0B0D12)),
+    ) {
         // Blurred game plate — never a translucent Compose sheet over a live ImageView sibling.
         //
         // The blur is baked into the bitmap the activity hands over rather than applied with
@@ -170,18 +176,13 @@ fun XoraInGameXmbOverlay(
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 filterQuality = FilterQuality.Medium,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = 1.06f
-                        scaleY = 1.06f
-                    },
+                modifier = Modifier.fillMaxSize(),
             )
         }
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0x99060A12)),
+                .background(Color(0xCC060A12)),
         )
 
         AnimatedVisibility(
