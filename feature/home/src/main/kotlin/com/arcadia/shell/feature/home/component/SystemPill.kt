@@ -16,6 +16,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,7 +58,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -70,6 +70,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,10 +87,12 @@ import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
+import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.SystemPanelRow
+import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.buildSystemPanelRows
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.retroachievements.RaRecentUnlock
@@ -173,7 +177,7 @@ fun SystemPill(
     val glass = rememberGlassTokens(GlassTone.OverMedia)
 
     Column(
-        modifier = modifier.widthIn(max = if (expanded) 360.dp else 760.dp),
+        modifier = modifier.widthIn(max = if (expanded) 360.dp else 300.dp),
         horizontalAlignment = Alignment.End,
     ) {
         // Collapsed RT chrome hides while the panel is open; Back / RT restores it.
@@ -192,42 +196,42 @@ fun SystemPill(
         ) {
             Row(
                 modifier = Modifier
-                    .height(96.dp)
-                    .clip(RoundedCornerShape(60.dp))
+                    .clip(RoundedCornerShape(24.dp))
                     .background(Color.Black.copy(alpha = 0.65f))
                     .border(
-                        width = 3.dp,
+                        width = 2.dp,
                         color = Color.White.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(60.dp),
+                        shape = RoundedCornerShape(24.dp),
                     )
                     .clickable(onClick = onToggle)
-                    .padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+                    .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Box(
                     modifier = Modifier
-                        .size(69.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.08f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     WifiGlyph(
                         connected = wifiConnected,
-                        tint = Color.White.copy(alpha = 0.95f),
-                        modifier = Modifier.size(44.dp),
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
                 Text(
                     text = "$timeText | $dateShort",
                     style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 32.sp,
-                        lineHeight = 32.sp,
+                        fontSize = 18.sp,
+                        lineHeight = 18.sp,
+                        fontFamily = rtPillFontFamily(),
                         fontWeight = FontWeight.SemiBold,
                         shadow = Shadow(
                             color = Color.Black.copy(alpha = 0.55f),
-                            offset = Offset(4f, 4f),
-                            blurRadius = 4f,
+                            offset = Offset(2f, 2f),
+                            blurRadius = 2f,
                         ),
                     ),
                     color = Color.White,
@@ -237,18 +241,19 @@ fun SystemPill(
                     percent = batteryPercent,
                     charging = charging,
                     tint = Color.White.copy(alpha = 0.95f),
-                    modifier = Modifier.size(width = 63.dp, height = 45.dp),
+                    modifier = Modifier.size(width = 24.dp, height = 16.dp),
                 )
                 Text(
                     text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
                     style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 32.sp,
-                        lineHeight = 32.sp,
+                        fontSize = 18.sp,
+                        lineHeight = 18.sp,
+                        fontFamily = rtPillFontFamily(),
                         fontWeight = FontWeight.SemiBold,
                         shadow = Shadow(
                             color = Color.Black.copy(alpha = 0.55f),
-                            offset = Offset(4f, 4f),
-                            blurRadius = 4f,
+                            offset = Offset(2f, 2f),
+                            blurRadius = 2f,
                         ),
                     ),
                     color = Color.White,
@@ -257,12 +262,12 @@ fun SystemPill(
                     ProfileAvatar(
                         displayName = profile.displayName,
                         presetId = profile.avatarPresetId,
-                        size = 73.dp,
+                        size = 40.dp,
                         imageModel = avatarImageModel,
-                        borderColor = Color.White.copy(alpha = 0.25f),
+                        borderColor = Color.White.copy(alpha = 0.35f),
                         modifier = Modifier
                             .shadow(
-                                elevation = 8.dp,
+                                elevation = 4.dp,
                                 shape = CircleShape,
                                 clip = false,
                             ),
@@ -272,6 +277,11 @@ fun SystemPill(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(top = 1.dp, end = 1.dp),
+                    )
+                    TriggerGlyph(
+                        letter = "RT",
+                        modifier = Modifier
+                            .align(Alignment.BottomStart),
                     )
                 }
             }
@@ -857,32 +867,30 @@ private fun SettingsRow(
 }
 
 @Composable
+private fun rtPillFontFamily(): FontFamily = XoraFonts.Secondary
+
+@Composable
 private fun WifiGlyph(connected: Boolean, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(16.dp)) {
-        val stroke = Stroke(width = size.minDimension * 0.12f, cap = StrokeCap.Round)
-        val cx = size.width / 2f
-        val cy = size.height * 0.72f
-        val color = if (connected) tint else tint.copy(alpha = 0.35f)
-        drawCircle(color = color, radius = size.minDimension * 0.08f, center = Offset(cx, cy))
-        if (connected) {
-            for (i in 1..3) {
-                val r = size.minDimension * (0.18f + i * 0.18f)
-                drawArc(
-                    color = color.copy(alpha = 1f - i * 0.15f),
-                    startAngle = 210f,
-                    sweepAngle = 120f,
-                    useCenter = false,
-                    topLeft = Offset(cx - r, cy - r),
-                    size = Size(r * 2, r * 2),
-                    style = stroke,
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Image(
+            painter = painterResource(id = R.drawable.rt_wifi_icon),
+            contentDescription = null,
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(6.dp)),
+            alpha = if (connected) 1f else 0.35f,
+        )
+        if (!connected) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val stroke = Stroke(width = size.minDimension * 0.11f, cap = StrokeCap.Round)
+                drawLine(
+                    color = tint.copy(alpha = 0.9f),
+                    start = Offset(size.width * 0.2f, size.height * 0.2f),
+                    end = Offset(size.width * 0.8f, size.height * 0.8f),
+                    strokeWidth = stroke.width,
+                    cap = StrokeCap.Round,
                 )
             }
-        } else {
-            val path = Path().apply {
-                moveTo(size.width * 0.2f, size.height * 0.2f)
-                lineTo(size.width * 0.8f, size.height * 0.8f)
-            }
-            drawPath(path, color = tint.copy(alpha = 0.7f), style = stroke)
         }
     }
 }
