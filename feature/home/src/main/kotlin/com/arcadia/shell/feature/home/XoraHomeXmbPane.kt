@@ -143,13 +143,7 @@ fun XoraHomeXmbPane(
         animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
         label = "xmbLaunchHold",
     )
-    // RT / LT / X panels clear the XMB cross until the panel collapses.
-    val panelHideProgress by animateFloatAsState(
-        targetValue = if (state.anyHeroPanelExpanded) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Medium),
-        label = "xmbPanelHideChrome",
-    )
-    val chromeAlpha = (1f - chromeProgress) * (1f - panelHideProgress)
+    val chromeAlpha = 1f - chromeProgress
     val chromeSlidePx = chromeProgress * 72f
     val artworkScale = 1f + (holdProgress * 0.06f)
     val backdropMotion = rememberXmbBackdropMotion(
@@ -293,12 +287,7 @@ fun XoraXmbHeroDetail(
         animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
         label = "xmbHeroLaunchHold",
     )
-    val panelHideProgress by animateFloatAsState(
-        targetValue = if (state.anyHeroPanelExpanded) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Medium),
-        label = "xmbHeroPanelHideChrome",
-    )
-    val chromeAlpha = (1f - chromeProgress) * (1f - panelHideProgress)
+    val chromeAlpha = 1f - chromeProgress
     val chromeSlidePx = chromeProgress * 72f
     val artworkScale = 1f + (holdProgress * 0.06f)
     val backdropMotion = rememberXmbBackdropMotion(
@@ -1084,82 +1073,63 @@ private fun XoraXmbPillChrome(
     val accountExpanded = state.accountPanelExpanded && !launching
     val systemExpanded = state.systemPanelExpanded && !launching
     val achievementsExpanded = state.achievementsPanelExpanded && !launching
-    val anyExpanded = accountExpanded || systemExpanded || achievementsExpanded
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val paneMaxHeight = this.maxHeight
-        // Sibling pills clear while one panel is open; keep edge anchors so RT stays TopEnd.
-        AnimatedVisibility(
-            visible = !anyExpanded || accountExpanded,
-            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
-            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
+        // Only the expanded pill's own collapsed chrome hides (inside each pill).
+        // Sibling pills and the XMB stay visible.
+        AccountPill(
+            expanded = accountExpanded,
+            socialMenu = state.socialMenu,
+            profile = state.profile,
+            profileAvatarModel = state.profileAvatarModel,
+            accountRows = state.accountPanelRows,
+            selectedRowIndex = state.accountPanelSelectedIndex,
+            onToggle = onToggleAccountPanel,
+            onSelectTab = onSelectSocialTab,
+            onSelectRow = onSelectAccountRow,
+            onActivateRow = onActivateAccountRow,
+            onFriendSearchChange = onFriendSearchChange,
+            onReplyDraftChange = onReplyDraftChange,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .heightIn(max = paneMaxHeight)
+                .heightIn(max = paneMaxHeight - 24.dp)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .graphicsLayer { alpha = if (launching) 0f else 1f },
-        ) {
-            AccountPill(
-                expanded = accountExpanded,
-                socialMenu = state.socialMenu,
-                profile = state.profile,
-                profileAvatarModel = state.profileAvatarModel,
-                accountRows = state.accountPanelRows,
-                selectedRowIndex = state.accountPanelSelectedIndex,
-                onToggle = onToggleAccountPanel,
-                onSelectTab = onSelectSocialTab,
-                onSelectRow = onSelectAccountRow,
-                onActivateRow = onActivateAccountRow,
-                onFriendSearchChange = onFriendSearchChange,
-                onReplyDraftChange = onReplyDraftChange,
-                modifier = Modifier.heightIn(max = paneMaxHeight - 24.dp),
-            )
-        }
-        AnimatedVisibility(
-            visible = !anyExpanded || systemExpanded,
-            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
-            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
+        )
+        SystemPill(
+            profile = state.profile,
+            avatarImageModel = state.profileAvatarModel,
+            raScore = state.achievements.profile?.totalPoints,
+            recentAchievements = state.achievements.recent,
+            jumpBackGames = state.quickLaunchGames.take(3),
+            expanded = systemExpanded,
+            selectedRowIndex = state.systemPanelSelectedIndex,
+            notificationUnreadCount = state.notificationUnreadCount,
+            onToggle = onToggleSystemPanel,
+            onSelectRow = onSelectSystemRow,
+            onActivateRow = onActivateSystemRow,
+            onOpenNotifications = onOpenNotifications,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .heightIn(max = paneMaxHeight)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .graphicsLayer { alpha = if (launching) 0f else 1f },
-        ) {
-            SystemPill(
-                profile = state.profile,
-                avatarImageModel = state.profileAvatarModel,
-                raScore = state.achievements.profile?.totalPoints,
-                recentAchievements = state.achievements.recent,
-                jumpBackGames = state.quickLaunchGames.take(3),
-                expanded = systemExpanded,
-                selectedRowIndex = state.systemPanelSelectedIndex,
-                notificationUnreadCount = state.notificationUnreadCount,
-                onToggle = onToggleSystemPanel,
-                onSelectRow = onSelectSystemRow,
-                onActivateRow = onActivateSystemRow,
-                onOpenNotifications = onOpenNotifications,
-            )
-        }
+        )
 
-        AnimatedVisibility(
-            visible = !anyExpanded || achievementsExpanded,
-            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
-            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
+        AchievementsPill(
+            expanded = achievementsExpanded,
+            state = state.achievements,
+            onToggle = onToggleAchievementsPanel,
+            onSelectTab = onSelectAchievementsTab,
+            onLogin = onLoginRetroAchievements,
+            onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+            onSignOut = onSignOutRetroAchievements,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .graphicsLayer { alpha = if (launching) 0f else 1f },
-        ) {
-            AchievementsPill(
-                expanded = achievementsExpanded,
-                state = state.achievements,
-                onToggle = onToggleAchievementsPanel,
-                onSelectTab = onSelectAchievementsTab,
-                onLogin = onLoginRetroAchievements,
-                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOut = onSignOutRetroAchievements,
-            )
-        }
+        )
 
         if (profileEditing) {
             ProfileEditSheet(
