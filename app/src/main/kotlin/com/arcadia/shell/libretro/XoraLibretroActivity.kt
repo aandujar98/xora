@@ -320,6 +320,9 @@ class XoraLibretroActivity : ComponentActivity() {
             val xora by preferences.xoraEmulatorSettings.collectAsStateWithLifecycle(
                 initialValue = XoraEmulatorSettings(),
             )
+            val raPrefs by preferences.retroAchievementsSettings.collectAsStateWithLifecycle(
+                initialValue = RetroAchievementsSettings(),
+            )
             ArcadiaTheme(
                 darkTheme = true,
                 shellThemeId = settings.shellThemeId,
@@ -331,6 +334,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         gameTitle = gameTitle,
                         profileName = profileName,
                         emulatorSettings = xora,
+                        raHardcore = raPrefs.hardcore,
                         onAction = { handleInGameXmbAction(it) },
                         onDismiss = { closeMenu() },
                     )
@@ -774,6 +778,22 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
                 XoraEmulatorXmbSetting.Netplay ->
                     preferences.setXoraNetplayEnabled(!current.netplayEnabled)
+                XoraEmulatorXmbSetting.RaHardcore -> {
+                    val next = !preferences.retroAchievementsSettings.first().hardcore
+                    preferences.setRaHardcore(next)
+                    raSettings = raSettings.copy(hardcore = next)
+                    // Apply immediately so softcore/hardcore matches the menu without relaunch.
+                    LibretroNative.nativeRaSetHardcore(next)
+                    Toast.makeText(
+                        this@XoraLibretroActivity,
+                        if (next) {
+                            "Hardcore on — save states disabled"
+                        } else {
+                            "Hardcore off — softcore"
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
             }
         }
     }

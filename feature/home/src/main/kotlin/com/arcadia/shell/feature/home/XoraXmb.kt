@@ -107,6 +107,8 @@ enum class XoraEmulatorXmbSetting {
     PreferredController,
     ClearButtonMappings,
     Netplay,
+    /** RetroAchievements hardcore (disables save states; applies live in-session). */
+    RaHardcore,
 }
 
 data class XoraXmbUiState(
@@ -417,7 +419,10 @@ fun buildXoraRomItems(games: List<Game>): List<XoraXmbItem> =
     }
 
 /** Games → XOrA Emulator — global prefs applied on the next (and live) emulator session. */
-fun buildXoraEmulatorItems(settings: XoraEmulatorSettings): List<XoraXmbItem> {
+fun buildXoraEmulatorItems(
+    settings: XoraEmulatorSettings,
+    raHardcore: Boolean = false,
+): List<XoraXmbItem> {
     val controllerLabel = settings.preferredControllerName
         .takeIf { it.isNotBlank() }
         ?: "Any controller"
@@ -485,6 +490,17 @@ fun buildXoraEmulatorItems(settings: XoraEmulatorSettings): List<XoraXmbItem> {
             subtitle = if (settings.netplayEnabled) "On" else "Off",
             action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.Netplay),
             icon = XmbIcon.Network,
+        ),
+        XoraXmbItem(
+            id = "emu_ra_hardcore",
+            title = "Hardcore RetroAchievements",
+            subtitle = if (raHardcore) {
+                "On · save states disabled"
+            } else {
+                "Off · softcore"
+            },
+            action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.RaHardcore),
+            icon = XmbIcon.Trophy,
         ),
         XoraXmbItem(
             id = "emu_full_setup",
