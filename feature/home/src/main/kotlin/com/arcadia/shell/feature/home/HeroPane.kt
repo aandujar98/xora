@@ -1,7 +1,6 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -126,15 +125,7 @@ fun HeroPane(
     val accountExpanded = accountPanelExpanded && !isLaunching
     val systemExpanded = systemPanelExpanded && !isLaunching
     val achievementsExpanded = achievementsPanelExpanded && !isLaunching
-    val anyPanelExpanded = accountExpanded || systemExpanded || achievementsExpanded
-    val panelHideProgress by animateFloatAsState(
-        targetValue = if (anyPanelExpanded) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Medium),
-        label = "heroPanelHideChrome",
-    )
-    val launchChromeAlpha = 1f - chromeProgress
-    // Hero metadata clears while RT/LT/X panels are open; pill hosts keep launchChromeAlpha.
-    val chromeAlpha = launchChromeAlpha * (1f - panelHideProgress)
+    val chromeAlpha = 1f - chromeProgress
     val chromeSlidePx = chromeProgress * 72f
     val artworkScale = 1f + (holdProgress * 0.06f)
     var profileEditing by remember { mutableStateOf(false) }
@@ -213,83 +204,65 @@ fun HeroPane(
             }
         }
 
-        AnimatedVisibility(
-            visible = !anyPanelExpanded || accountExpanded,
-            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
-            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
+        AccountPill(
+            expanded = accountExpanded,
+            socialMenu = socialMenu,
+            profile = profile,
+            profileAvatarModel = profileAvatarModel,
+            accountRows = accountPanelRows,
+            selectedRowIndex = accountPanelSelectedIndex,
+            onToggle = onToggleAccountPanel,
+            onSelectTab = onSelectSocialTab,
+            onSelectRow = onSelectAccountRow,
+            onActivateRow = onActivateAccountRow,
+            onFriendSearchChange = onFriendSearchChange,
+            onReplyDraftChange = onReplyDraftChange,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .graphicsLayer {
-                    alpha = launchChromeAlpha
+                    alpha = chromeAlpha
                     translationY = -chromeSlidePx
                 },
-        ) {
-            AccountPill(
-                expanded = accountExpanded,
-                socialMenu = socialMenu,
-                profile = profile,
-                profileAvatarModel = profileAvatarModel,
-                accountRows = accountPanelRows,
-                selectedRowIndex = accountPanelSelectedIndex,
-                onToggle = onToggleAccountPanel,
-                onSelectTab = onSelectSocialTab,
-                onSelectRow = onSelectAccountRow,
-                onActivateRow = onActivateAccountRow,
-                onFriendSearchChange = onFriendSearchChange,
-                onReplyDraftChange = onReplyDraftChange,
-            )
-        }
-        AnimatedVisibility(
-            visible = !anyPanelExpanded || systemExpanded,
-            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
-            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
+        )
+        SystemPill(
+            profile = profile,
+            avatarImageModel = profileAvatarModel,
+            raScore = achievements.profile?.totalPoints,
+            recentAchievements = achievements.recent,
+            jumpBackGames = quickLaunchGames.take(3),
+            expanded = systemExpanded,
+            selectedRowIndex = systemPanelSelectedIndex,
+            notificationUnreadCount = notificationUnreadCount,
+            onToggle = onToggleSystemPanel,
+            onSelectRow = onSelectSystemRow,
+            onActivateRow = onActivateSystemRow,
+            onOpenNotifications = onOpenNotifications,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .graphicsLayer {
-                    alpha = launchChromeAlpha
+                    alpha = chromeAlpha
                     translationY = -chromeSlidePx
                 },
-        ) {
-            SystemPill(
-                profile = profile,
-                avatarImageModel = profileAvatarModel,
-                raScore = achievements.profile?.totalPoints,
-                recentAchievements = achievements.recent,
-                jumpBackGames = quickLaunchGames.take(3),
-                expanded = systemExpanded,
-                selectedRowIndex = systemPanelSelectedIndex,
-                notificationUnreadCount = notificationUnreadCount,
-                onToggle = onToggleSystemPanel,
-                onSelectRow = onSelectSystemRow,
-                onActivateRow = onActivateSystemRow,
-                onOpenNotifications = onOpenNotifications,
-            )
-        }
+        )
 
-        AnimatedVisibility(
-            visible = !anyPanelExpanded || achievementsExpanded,
-            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
-            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
+        AchievementsPill(
+            expanded = achievementsExpanded,
+            state = achievements,
+            onToggle = onToggleAchievementsPanel,
+            onSelectTab = onSelectAchievementsTab,
+            onLogin = onLoginRetroAchievements,
+            onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+            onSignOut = onSignOutRetroAchievements,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .graphicsLayer {
-                    alpha = launchChromeAlpha
+                    alpha = chromeAlpha
                     translationY = chromeSlidePx
                 },
-        ) {
-            AchievementsPill(
-                expanded = achievementsExpanded,
-                state = achievements,
-                onToggle = onToggleAchievementsPanel,
-                onSelectTab = onSelectAchievementsTab,
-                onLogin = onLoginRetroAchievements,
-                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOut = onSignOutRetroAchievements,
-            )
-        }
+        )
 
         if (profileEditing) {
             ProfileEditSheet(
