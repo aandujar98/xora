@@ -24,6 +24,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -122,6 +123,8 @@ fun XoraHomeXmbPane(
     onSignOutRetroAchievements: () -> Unit = {},
     showPillChrome: Boolean = true,
     modifier: Modifier = Modifier,
+    /** Full-bleed layer above the XMB cross but below the pill chrome. */
+    overlayContent: @Composable BoxScope.() -> Unit = {},
 ) {
     val xmb = state.xoraXmb
     val heroGame = xmb.focusGame?.takeIf {
@@ -211,6 +214,8 @@ fun XoraHomeXmbPane(
                     translationY = chromeSlidePx
                 },
         )
+
+        overlayContent()
 
         if (showPillChrome) {
             XoraXmbPillChrome(
