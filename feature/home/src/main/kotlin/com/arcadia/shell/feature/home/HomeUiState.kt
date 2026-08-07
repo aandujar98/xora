@@ -91,6 +91,16 @@ data class HomeHubUiState(
     /** Preferred visible rows (persisted); fewer → larger tiles. */
     val shortcutGridRows: Int = DEFAULT_HOME_SHORTCUT_GRID_ROWS,
     val shortcuts: List<HomeShortcut> = emptyList(),
+    /**
+     * Vita-style shortcut bubble tray over the XMB (Y toggles).
+     * When open, D-pad/A navigate bubbles; Select edits; Y slides the tray back up.
+     */
+    val vitaShortcutTrayOpen: Boolean = false,
+    /**
+     * When true, [addShortcutOpen] only offers library games / Android apps (no picture/GIF),
+     * and skips the tile-size step — used by the Vita bubble tray.
+     */
+    val vitaShortcutPinMode: Boolean = false,
     /** Absolute path to custom wallpaper, or null for the bundled default. */
     val wallpaperPath: String? = null,
     /** Absolute path to custom BGM, or null for the bundled default. */
