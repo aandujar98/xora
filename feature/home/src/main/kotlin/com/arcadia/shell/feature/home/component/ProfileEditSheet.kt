@@ -48,11 +48,13 @@ fun ProfileEditSheet(
     profile: LocalProfile,
     avatarImageModel: String?,
     raConfigured: Boolean,
+    discordLinked: Boolean,
     onDismiss: () -> Unit,
     onSave: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
     onRequestPhoto: () -> Unit,
     onUseRaAvatar: () -> Unit,
+    onUseDiscordAvatar: () -> Unit,
     onClearAvatar: () -> Unit,
 ) {
     var name by remember(profile.displayName) { mutableStateOf(profile.displayName) }
@@ -111,6 +113,7 @@ fun ProfileEditSheet(
                             AvatarSource.Default -> "Colour preset"
                             AvatarSource.Local -> "Custom photo"
                             AvatarSource.RetroAchievements -> "RetroAchievements"
+                            AvatarSource.Discord -> "Discord"
                         },
                         color = Color.White.copy(alpha = 0.55f),
                     )
@@ -125,23 +128,30 @@ fun ProfileEditSheet(
                 Text(text = "Choose photo")
             }
 
-            if (raConfigured) {
-                OutlinedButton(
-                    onClick = onUseRaAvatar,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(text = "Use RetroAchievements avatar")
-                }
-            } else {
-                OutlinedButton(
-                    onClick = {},
-                    enabled = false,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(text = "Use RetroAchievements avatar")
-                }
+            OutlinedButton(
+                onClick = onUseRaAvatar,
+                enabled = raConfigured,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(text = "Use RetroAchievements avatar")
+            }
+            if (!raConfigured) {
                 Text(
                     text = "Sign in to RetroAchievements (X) to use your RA avatar.",
+                    color = Color.White.copy(alpha = 0.55f),
+                )
+            }
+
+            OutlinedButton(
+                onClick = onUseDiscordAvatar,
+                enabled = discordLinked,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(text = "Use Discord avatar")
+            }
+            if (!discordLinked) {
+                Text(
+                    text = "Link Discord under Social to use your Discord avatar.",
                     color = Color.White.copy(alpha = 0.55f),
                 )
             }

@@ -748,6 +748,7 @@ class DiscordPresenceController @Inject constructor(
                 emptyList()
             },
             currentUserId = currentUserId ?: bridge.currentUserId,
+            currentUserAvatarUrl = bridge.currentUserAvatarUrl,
             connecting = connecting,
             presencePublishing = capability == DiscordPresenceCapability.Connected &&
                 lastPublishOk == true &&

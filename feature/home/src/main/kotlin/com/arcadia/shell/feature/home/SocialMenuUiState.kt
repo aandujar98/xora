@@ -58,6 +58,9 @@ data class DiscordSocialUiState(
     val hasApplicationId: Boolean get() = settings.hasApplicationId
     val friends: List<DiscordFriendEntry>
         get() = presence.friends
+
+    /** The linked account resolved far enough to borrow its profile picture. */
+    val avatarAvailable: Boolean get() = !presence.currentUserAvatarUrl.isNullOrBlank()
 }
 
 /** Resolved pin for the Your Circle strip (Steam or Discord). */

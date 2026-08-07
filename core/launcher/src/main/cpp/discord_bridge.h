@@ -83,6 +83,7 @@ private:
     int64_t appId_;
     JavaVM* javaVm_;
     uint64_t currentUserId_;
+    std::string currentUserAvatarUrl_;
 
     static jclass DiscordSocialSdkBridgeClass_;
     static jmethodID onNativeStatusChangedMethod_;

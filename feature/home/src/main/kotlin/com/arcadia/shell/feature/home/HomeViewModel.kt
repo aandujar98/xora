@@ -318,14 +318,29 @@ class HomeViewModel @Inject constructor(
         refreshTrigger,
     ) { playerName, launching, _ -> playerName to launching }
 
+    /** The stored profile plus the linked Discord avatar it may be pointing at. */
+    private val profileIdentityFlow = combine(
+        preferences.profile,
+        discordRichPresence.state
+            .map { it.currentUserAvatarUrl }
+            .distinctUntilChanged(),
+    ) { profile, discordAvatarUrl -> profile to discordAvatarUrl }
+
     private val panelFlow = combine(
         accountPanelExpanded,
         systemPanelExpanded,
         achievementsPanelExpanded,
-        preferences.profile,
+        profileIdentityFlow,
         achievementsUi,
-    ) { accountOpen, systemOpen, achievementsOpen, profile, achievements ->
-        PanelChrome(accountOpen, systemOpen, achievementsOpen, profile, achievements)
+    ) { accountOpen, systemOpen, achievementsOpen, identity, achievements ->
+        PanelChrome(
+            accountExpanded = accountOpen,
+            systemExpanded = systemOpen,
+            achievementsExpanded = achievementsOpen,
+            profile = identity.first,
+            discordAvatarUrl = identity.second,
+            achievements = achievements,
+        )
     }
 
     private val chromeFlow = combine(
@@ -346,10 +361,11 @@ class HomeViewModel @Inject constructor(
             achievementsPanelExpanded = panels.achievementsExpanded,
             profile = panels.profile,
             profileAvatarModel = resolveAvatarModel(
-                panels.profile,
-                panels.achievements.credentials.username.takeIf {
+                profile = panels.profile,
+                raUsername = panels.achievements.credentials.username.takeIf {
                     panels.achievements.credentials.isConfigured
                 },
+                discordAvatarUrl = panels.discordAvatarUrl,
             ),
             achievements = panels.achievements,
         )
@@ -360,6 +376,7 @@ class HomeViewModel @Inject constructor(
         val systemExpanded: Boolean,
         val achievementsExpanded: Boolean,
         val profile: LocalProfile,
+        val discordAvatarUrl: String?,
         val achievements: AchievementsUiState,
     )
 
@@ -4403,6 +4420,17 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun useDiscordAvatar() {
+        viewModelScope.launch {
+            if (discordRichPresence.state.value.currentUserAvatarUrl.isNullOrBlank()) {
+                emit(HomeEvent.ShowError("Link Discord first, then reopen this screen."))
+                return@launch
+            }
+            preferences.setProfileAvatar(AvatarSource.Discord)
+            avatarStore.clear()
+        }
+    }
+
     fun clearAvatar() {
         viewModelScope.launch {
             preferences.setProfileAvatar(AvatarSource.Default)
@@ -4410,13 +4438,18 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun resolveAvatarModel(profile: LocalProfile, raUsername: String?): String? =
+    private fun resolveAvatarModel(
+        profile: LocalProfile,
+        raUsername: String?,
+        discordAvatarUrl: String?,
+    ): String? =
         when (profile.avatarSource) {
             AvatarSource.Default -> null
             AvatarSource.Local ->
                 avatarStore.resolveFile(profile.localAvatarFileName)?.absolutePath
             AvatarSource.RetroAchievements ->
                 raUsername?.takeIf { it.isNotBlank() }?.let(RaProfile::userPicUrlFor)
+            AvatarSource.Discord -> discordAvatarUrl?.takeIf { it.isNotBlank() }
         }
 
     fun selectAchievementsTab(tab: AchievementsPaneTab) {

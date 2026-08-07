@@ -99,6 +99,7 @@ fun VerticalGameSelectorPane(
     onSelectAvatarPreset: (presetId: String) -> Unit,
     onRequestLocalAvatar: () -> Unit,
     onUseRaAvatar: () -> Unit,
+    onUseDiscordAvatar: () -> Unit,
     onClearAvatar: () -> Unit,
     onFriendSearchChange: (String) -> Unit,
     onReplyDraftChange: (String) -> Unit,
@@ -303,11 +304,13 @@ fun VerticalGameSelectorPane(
                     profile = state.profile,
                     avatarImageModel = state.profileAvatarModel,
                     raConfigured = state.achievements.credentials.isConfigured,
+                    discordLinked = state.socialMenu.discord.avatarAvailable,
                     onDismiss = { profileEditing = false },
                     onSave = onSaveProfile,
                     onSelectAvatarPreset = onSelectAvatarPreset,
                     onRequestPhoto = onRequestLocalAvatar,
                     onUseRaAvatar = onUseRaAvatar,
+                    onUseDiscordAvatar = onUseDiscordAvatar,
                     onClearAvatar = onClearAvatar,
                 )
             }

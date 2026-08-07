@@ -105,7 +105,10 @@ bool DiscordBridge::Init(int64_t appId) {
                         fireReadyFriends = true;
                         friendsPayload = BuildFriendsPayloadUnlocked();
                         if (currentUserId_ != 0) {
+                            // TSV so the avatar can ride along without a JNI signature change.
                             currentUserIdStr = std::to_string(currentUserId_);
+                            currentUserIdStr += '\t';
+                            currentUserIdStr += currentUserAvatarUrl_;
                         }
                     } else if (status == discordpp::Client::Status::Disconnected) {
                         if (ready_) {
@@ -794,7 +797,33 @@ void DiscordBridge::CaptureCurrentUserUnlocked() {
         auto user = client_->GetCurrentUserV2();
         if (user) {
             currentUserId_ = user->Id();
-            LOGI("CaptureCurrentUser: id=%llu", (unsigned long long)currentUserId_);
+            currentUserAvatarUrl_.clear();
+            // Animated avatars come back as .gif, which the shell now decodes, so ask for the
+            // user's real asset before falling back to a constructed CDN path.
+            try {
+                currentUserAvatarUrl_ = user->AvatarUrl(
+                    discordpp::UserHandle::AvatarType::Gif,
+                    discordpp::UserHandle::AvatarType::Png);
+            } catch (...) {
+                currentUserAvatarUrl_.clear();
+            }
+            if (currentUserAvatarUrl_.empty()) {
+                auto hashOpt = user->Avatar();
+                if (hashOpt && !hashOpt->empty()) {
+                    currentUserAvatarUrl_ = "https://cdn.discordapp.com/avatars/";
+                    currentUserAvatarUrl_ += std::to_string(currentUserId_);
+                    currentUserAvatarUrl_ += '/';
+                    currentUserAvatarUrl_ += *hashOpt;
+                    currentUserAvatarUrl_ +=
+                        hashOpt->rfind("a_", 0) == 0 ? ".gif" : ".png";
+                }
+            }
+            for (char& c : currentUserAvatarUrl_) {
+                if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+            }
+            LOGI("CaptureCurrentUser: id=%llu avatar=%s",
+                 (unsigned long long)currentUserId_,
+                 currentUserAvatarUrl_.empty() ? "(none)" : currentUserAvatarUrl_.c_str());
         }
     } catch (const std::exception& e) {
         LOGW("CaptureCurrentUser threw: %s", e.what());
@@ -1089,6 +1118,7 @@ void DiscordBridge::DestroyUnlocked() {
     ready_ = false;
     authorized_ = false;
     currentUserId_ = 0;
+    currentUserAvatarUrl_.clear();
     if (client_) {
         try {
             LOGI("DestroyUnlocked: disconnecting client...");

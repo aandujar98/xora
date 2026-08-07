@@ -71,6 +71,11 @@ internal class DiscordSocialSdkBridge {
     var currentUserId: String? = null
         private set
 
+    /** Discord CDN avatar for the signed-in account; `.gif` when the user has an animated one. */
+    @Volatile
+    var currentUserAvatarUrl: String? = null
+        private set
+
     fun setStatusListener(listener: ((ready: Boolean, authorized: Boolean) -> Unit)?) {
         statusListener = listener
     }
@@ -333,6 +338,7 @@ internal class DiscordSocialSdkBridge {
         isReady = false
         isAuthorized = false
         currentUserId = null
+        currentUserAvatarUrl = null
     }
 
     internal fun applyNativeStatus(statusCode: Int, ready: Boolean, authorized: Boolean) {
@@ -380,11 +386,14 @@ internal class DiscordSocialSdkBridge {
         hopMain { messageSendResultListener?.invoke(ok, error, recipientId, messageId) }
     }
 
-    internal fun applyNativeCurrentUser(userId: String) {
-        val id = userId.trim()
+    /** Payload is `userId` or `userId\tavatarUrl` — older natives send the bare id. */
+    internal fun applyNativeCurrentUser(payload: String) {
+        val parts = payload.split('\t')
+        val id = parts.getOrNull(0)?.trim().orEmpty()
         if (id.isEmpty()) return
         currentUserId = id
-        Log.i(TAG, "currentUserId=$id")
+        currentUserAvatarUrl = parts.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+        Log.i(TAG, "currentUserId=$id avatar=${currentUserAvatarUrl ?: "(none)"}")
         hopMain { currentUserListener?.invoke(id) }
     }
 
