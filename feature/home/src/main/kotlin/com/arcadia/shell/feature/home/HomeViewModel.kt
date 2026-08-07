@@ -1967,29 +1967,42 @@ class HomeViewModel @Inject constructor(
         homeShortcutIndex.value = homeShortcutIndex.value.coerceIn(0, (count - 1).coerceAtLeast(0))
     }
 
+    /** Left/right walks the focused row, then carries over to the same row on the next page. */
     private fun moveVitaShortcutFocusHorizontal(delta: Int, hub: HomeHubUiState) {
         noteUserActivity()
-        val rows = vitaTrayRowsForHub(hub)
-        if (rows.isEmpty()) return
-        val focus = hub.shortcutIndex
-        val rowIndex = rows.indexOfFirst { focus in it }.coerceAtLeast(0)
+        val slotCount = vitaTraySlotCount(hub)
+        val focus = hub.shortcutIndex.coerceIn(0, slotCount - 1)
+        val page = focus / VITA_TRAY_PAGE_SIZE
+        val rows = vitaTrayPageRows(slotCount, page)
+        val rowIndex = rows.indexOfFirst { focus in it }
+        if (rowIndex < 0) return
         val row = rows[rowIndex]
-        val col = row.indexOf(focus).coerceAtLeast(0)
-        val nextCol = (col + delta).coerceIn(0, row.lastIndex)
-        homeShortcutIndex.value = row[nextCol]
+        val nextCol = row.indexOf(focus) + delta
+        if (nextCol in row.indices) {
+            homeShortcutIndex.value = row[nextCol]
+            return
+        }
+        val nextPage = page + delta
+        if (nextPage !in 0 until vitaTrayPageCount(slotCount)) return
+        val nextRows = vitaTrayPageRows(slotCount, nextPage)
+        val landing = nextRows.getOrNull(rowIndex) ?: nextRows.lastOrNull() ?: return
+        homeShortcutIndex.value = if (delta > 0) landing.first() else landing.last()
     }
 
     private fun moveVitaShortcutFocusVertical(delta: Int, hub: HomeHubUiState) {
         noteUserActivity()
-        val rows = vitaTrayRowsForHub(hub)
-        if (rows.isEmpty()) return
-        val focus = hub.shortcutIndex
-        val rowIndex = rows.indexOfFirst { focus in it }.coerceAtLeast(0)
+        val slotCount = vitaTraySlotCount(hub)
+        val focus = hub.shortcutIndex.coerceIn(0, slotCount - 1)
+        val page = focus / VITA_TRAY_PAGE_SIZE
+        val rows = vitaTrayPageRows(slotCount, page)
+        val rowIndex = rows.indexOfFirst { focus in it }
+        if (rowIndex < 0) return
         val targetRowIndex = (rowIndex + delta).coerceIn(0, rows.lastIndex)
         if (targetRowIndex == rowIndex) return
         val sourceRow = rows[rowIndex]
         val targetRow = rows[targetRowIndex]
         val sourceCol = sourceRow.indexOf(focus).coerceAtLeast(0)
+        // Rows are staggered and unequal, so hold the horizontal position proportionally.
         val mappedCol = if (sourceRow.size <= 1 || targetRow.size <= 1) {
             0
         } else {
@@ -1998,24 +2011,9 @@ class HomeViewModel @Inject constructor(
         homeShortcutIndex.value = targetRow[mappedCol]
     }
 
-    private fun vitaTrayRowsForHub(hub: HomeHubUiState): List<List<Int>> {
+    private fun vitaTraySlotCount(hub: HomeHubUiState): Int {
         val includeAdd = hub.shortcutsEditMode || hub.shortcuts.isEmpty()
-        val count = (hub.shortcuts.size + if (includeAdd) 1 else 0).coerceAtLeast(1)
-        val caps = listOf(3, 4, 3)
-        val rows = mutableListOf<List<Int>>()
-        var cursor = 0
-        caps.forEach { cap ->
-            if (cursor >= count) return@forEach
-            val end = (cursor + cap).coerceAtMost(count)
-            rows += (cursor until end).toList()
-            cursor = end
-        }
-        while (cursor < count) {
-            val end = (cursor + 4).coerceAtMost(count)
-            rows += (cursor until end).toList()
-            cursor = end
-        }
-        return rows
+        return (hub.shortcuts.size + if (includeAdd) 1 else 0).coerceAtLeast(1)
     }
 
     fun selectXoraCategory(index: Int) {

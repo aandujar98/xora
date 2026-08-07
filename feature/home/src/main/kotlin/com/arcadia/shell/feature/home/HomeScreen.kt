@@ -567,11 +567,6 @@ fun HomePageContent(
             HomePage.Home -> {
                 Box(modifier = Modifier.fillMaxSize()) {
                     val trayOpen = state.homeHub.vitaShortcutTrayOpen
-                    val xmbSlide by animateFloatAsState(
-                        targetValue = if (trayOpen) 1f else 0f,
-                        animationSpec = arcadiaTween(ArcadiaMotion.Slow),
-                        label = "xmbTraySlide",
-                    )
                     XoraHomeXmbPane(
                         state = state,
                         onSelectCategory = onSelectXoraCategory,
@@ -598,24 +593,21 @@ fun HomePageContent(
                         onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
                         onSignOutRetroAchievements = onSignOutRetroAchievements,
                         // Dual: LT/RT live on the Hero role; Single: chrome sits on the XMB itself.
-                        showPillChrome = state.displayMode == DisplayMode.Single && !trayOpen,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                // Tray slides down from above; XMB eases downward and fades.
-                                translationY = xmbSlide * size.height * 0.18f
-                                alpha = 1f - (xmbSlide * 0.55f)
-                            },
-                    )
-                    VitaShortcutTray(
-                        visible = trayOpen,
-                        shortcuts = state.homeHub.shortcuts,
-                        selectedIndex = state.homeHub.shortcutIndex,
-                        editMode = state.homeHub.shortcutsEditMode,
-                        onSelect = onSelectHomeShortcut,
-                        onActivate = onActivateHomeShortcut,
-                        onAddSlot = onAddHomeShortcut,
+                        showPillChrome = state.displayMode == DisplayMode.Single,
                         modifier = Modifier.fillMaxSize(),
+                        overlayContent = {
+                            VitaShortcutTray(
+                                visible = trayOpen,
+                                shortcuts = state.homeHub.shortcuts,
+                                selectedIndex = state.homeHub.shortcutIndex,
+                                editMode = state.homeHub.shortcutsEditMode,
+                                xmbCategoryIndex = state.xoraXmb.categoryIndex,
+                                onSelect = onSelectHomeShortcut,
+                                onActivate = onActivateHomeShortcut,
+                                onAddSlot = onAddHomeShortcut,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        },
                     )
                     if (state.homeHub.addShortcutOpen) {
                         AddShortcutSheet(
