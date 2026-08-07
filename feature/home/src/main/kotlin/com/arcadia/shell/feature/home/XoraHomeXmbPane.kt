@@ -242,6 +242,7 @@ fun XoraHomeXmbPane(
                     onSelectItem = onSelectItem,
                     onActivateItem = onActivateItem,
                     achievements = state.achievements.focusedGameProgress,
+                    showDetailPanel = state.achievements.romCardVisible,
                     modifier = Modifier.fillMaxSize(),
                 )
                 else -> XmbCross(
@@ -558,7 +559,7 @@ private fun XmbCross(
             val delta = index - catScroll
             val distance = abs(delta)
             val scale = when {
-                distance < 0.5f -> lerp(1.12f, 1.32f, 1f - distance / 0.5f)
+                distance < 0.5f -> lerp(1.12f, CATEGORY_FOCUS_SCALE, 1f - distance / 0.5f)
                 distance < 1.5f -> lerp(0.86f, 1.12f, 1.5f - distance)
                 distance < 2.5f -> lerp(0.72f, 0.86f, 2.5f - distance)
                 else -> 0.58f
@@ -605,20 +606,22 @@ private fun XmbCross(
             xmb.depth == XoraXmbDepth.Emulator -> "XOrA Emulator"
             else -> xmb.category.label
         }
-        val catLabelWidth = 120.dp
+        val catLabelWidth = 160.dp
         AnimatedContent(
             targetState = catLabel,
+            // Cross-fade only: sliding the label sideways pulled it off the icon it names.
             transitionSpec = {
-                (
-                    fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
-                        slideInHorizontally(tween(XMB_SCROLL_MS, easing = FastOutSlowInEasing)) { it / 5 }
-                    ) togetherWith fadeOut(tween(110, easing = FastOutSlowInEasing))
+                fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) togetherWith
+                    fadeOut(tween(110, easing = FastOutSlowInEasing))
             },
             label = "catLabel",
             modifier = Modifier
                 .graphicsLayer {
                     translationX = crossXPx - with(density) { catLabelWidth.toPx() } / 2f
-                    translationY = catYPx + catIconPx / 2f + with(density) { 4.dp.toPx() }
+                    // Clear the focused icon at its enlarged size — half the unscaled height
+                    // left the label sitting on top of it.
+                    translationY = catYPx + (catIconPx * CATEGORY_FOCUS_SCALE / 2f) +
+                        with(density) { CATEGORY_LABEL_GAP.toPx() }
                     alpha = if (atRoot) 0.95f else 0.45f
                 }
                 .width(catLabelWidth),
@@ -1171,19 +1174,23 @@ private fun XoraXmbPillChrome(
                 .graphicsLayer { alpha = if (launching) 0f else 1f },
         )
 
-        AchievementsPill(
-            expanded = achievementsExpanded,
-            state = state.achievements,
-            onToggle = onToggleAchievementsPanel,
-            onSelectTab = onSelectAchievementsTab,
-            onLogin = onLoginRetroAchievements,
-            onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-            onSignOut = onSignOutRetroAchievements,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .graphicsLayer { alpha = if (launching) 0f else 1f },
-        )
+        // ROM browsing has its own achievements card in the same corner, so the pill stands down
+        // there rather than stacking a second RetroAchievements panel on top of it.
+        if (state.xoraXmb.depth != XoraXmbDepth.Roms) {
+            AchievementsPill(
+                expanded = achievementsExpanded,
+                state = state.achievements,
+                onToggle = onToggleAchievementsPanel,
+                onSelectTab = onSelectAchievementsTab,
+                onLogin = onLoginRetroAchievements,
+                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+                onSignOut = onSignOutRetroAchievements,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .graphicsLayer { alpha = if (launching) 0f else 1f },
+            )
+        }
 
         if (profileEditing) {
             ProfileEditSheet(
@@ -1216,6 +1223,9 @@ private const val VISIBLE_ITEM_RADIUS = 4
 private val CATEGORY_PITCH = 96.dp
 private val ITEM_PITCH = 58.dp
 private val CATEGORY_ICON = 52.dp
+/** Focused category icon scale — the label is placed clear of the icon at this size. */
+private const val CATEGORY_FOCUS_SCALE = 1.32f
+private val CATEGORY_LABEL_GAP = 8.dp
 private val ITEM_ICON = 42.dp
 private val ITEM_ROW = 56.dp
 /** Landscape 16:9 ROM box (height = width × [ROM_BOX_ASPECT]). */

@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -132,6 +133,7 @@ fun XoraCardBrowsePane(
     onActivateItem: () -> Unit,
     modifier: Modifier = Modifier,
     achievements: RaGameProgress? = null,
+    showDetailPanel: Boolean = true,
 ) {
     val reduceMotion = rememberReduceMotion()
     val scrollSpec = remember(reduceMotion) {
@@ -207,6 +209,7 @@ fun XoraCardBrowsePane(
                     sizeDesignUnits = TITLE_SIZE,
                     unit = unit,
                     maxWidthDesignUnits = RULE_WIDTH - CHECK_DIAMETER - CHECK_GAP,
+                    fontFamily = XoraFonts.Title,
                 )
                 if (mode == CardBrowseMode.Systems && focused.ready) {
                     ReadyCheck(diameter = (CHECK_DIAMETER * unit).dp)
@@ -235,13 +238,14 @@ fun XoraCardBrowsePane(
                 sizeDesignUnits = SUBTITLE_SIZE,
                 unit = unit,
                 maxWidthDesignUnits = RULE_WIDTH,
+                fontFamily = XoraFonts.Secondary,
                 modifier = Modifier.offset(
                     x = designX(TITLE_X),
                     y = designY(SUBTITLE_CENTER_Y - (SUBTITLE_SIZE / 2f)),
                 ),
             )
 
-            if (mode == CardBrowseMode.Roms) {
+            if (mode == CardBrowseMode.Roms && showDetailPanel) {
                 RomDetailPanel(
                     item = focused,
                     progress = achievements,
@@ -337,6 +341,7 @@ private fun BrowseHeadline(
     sizeDesignUnits: Float,
     unit: Float,
     maxWidthDesignUnits: Float,
+    fontFamily: FontFamily,
     modifier: Modifier = Modifier,
 ) {
     val fontSize = with(LocalDensity.current) { (sizeDesignUnits * unit).dp.toSp() }
@@ -345,7 +350,7 @@ private fun BrowseHeadline(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         style = MaterialTheme.typography.headlineMedium.copy(
-            fontFamily = XoraFonts.Secondary,
+            fontFamily = fontFamily,
             fontSize = fontSize,
             lineHeight = fontSize,
             fontWeight = FontWeight.SemiBold,
@@ -429,7 +434,7 @@ private fun RomDetailPanel(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontFamily = XoraFonts.Secondary,
+                            fontFamily = XoraFonts.Title,
                             fontSize = bodySize,
                             lineHeight = bodySize,
                         ),

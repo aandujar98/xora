@@ -31,6 +31,7 @@ dependencies {
     implementation(project(":core:launcher"))
     implementation(project(":core:scanner"))
     implementation(project(":core:input"))
+    implementation(project(":core:libretro"))
     implementation(project(":core:display"))
     implementation(project(":core:retroachievements"))
     implementation(project(":core:scraper"))
