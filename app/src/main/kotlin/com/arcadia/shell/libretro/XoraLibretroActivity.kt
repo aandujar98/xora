@@ -708,9 +708,9 @@ class XoraLibretroActivity : ComponentActivity() {
         paused = false
         val overlay = xmbOverlay
         overlay?.visibility = View.GONE
+        // removeView triggers DisposeOnDetachedFromWindow — translucent XMB render nodes die with
+        // the composition instead of lingering over the live ImageView.
         (overlay?.parent as? ViewGroup)?.removeView(overlay)
-        // Dispose now so translucent XMB layers cannot linger as HWUI nodes over gameplay.
-        runCatching { overlay?.disposeComposition() }
         menuMessageJob?.cancel()
         menuMessage = null
         val stale = frozenMenuFrame
