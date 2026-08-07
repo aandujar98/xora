@@ -14,10 +14,12 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -234,6 +236,7 @@ fun rememberVitaBubbleMotion(
         var lastFrame = 0L
 
         while (true) {
+            var moving = false
             withFrameNanos { now ->
                 val dt = if (lastFrame == 0L) {
                     0f
@@ -241,7 +244,10 @@ fun rememberVitaBubbleMotion(
                     ((now - lastFrame) / 1_000_000_000f).coerceIn(0f, MAX_FRAME_SECONDS)
                 }
                 lastFrame = now
-                if (dt <= 0f) return@withFrameNanos
+                if (dt <= 0f) {
+                    moving = true
+                    return@withFrameNanos
+                }
 
                 val target = tilt.value
                 for (i in 0 until count) {
@@ -263,9 +269,19 @@ fun rememberVitaBubbleMotion(
                         posY[i] = targetY
                         velX[i] = 0f
                         velY[i] = 0f
+                    } else {
+                        moving = true
                     }
                     motion.setOffset(i, Offset(posX[i], posY[i]))
                 }
+            }
+
+            if (!moving) {
+                // Everything has come to rest. Stop asking for frames — otherwise a tray left open
+                // on a desk would redraw at display rate forever — and wait for the next movement.
+                snapshotFlow { tilt.value }
+                    .first { it.x != 0f || it.y != 0f }
+                lastFrame = 0L
             }
         }
     }

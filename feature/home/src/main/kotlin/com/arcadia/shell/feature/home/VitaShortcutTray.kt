@@ -51,7 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
-import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.rememberAmbientMotionActive
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.launcher.InstalledAppSync
@@ -156,15 +156,16 @@ fun VitaShortcutTray(
             )
             val bubbleDiameter = (BUBBLE_DIAMETER * unit).dp
             val glass = ImageBitmap.imageResource(R.drawable.vita_bubble_glass)
-            val reduceMotion = rememberReduceMotion()
-            val tilt = rememberDeviceTilt(active = visible && !reduceMotion)
+            // Also drops the sensor when the shell is backgrounded with the tray still open.
+            val sway = visible && rememberAmbientMotionActive()
+            val tilt = rememberDeviceTilt(active = sway)
             val motion = rememberVitaBubbleMotion(
                 count = slots.size,
                 tilt = tilt,
                 maxShiftPx = with(LocalDensity.current) {
                     bubbleDiameter.toPx() * TILT_SHIFT_FRACTION
                 },
-                enabled = visible && !reduceMotion,
+                enabled = sway,
             )
 
             rows.forEachIndexed { rowIndex, row ->

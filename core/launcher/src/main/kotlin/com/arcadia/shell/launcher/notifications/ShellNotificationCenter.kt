@@ -98,7 +98,7 @@ class ShellNotificationCenter @Inject constructor(
 
         recordHistory(notification)
 
-        if (foregroundTracker.isForeground) {
+        if (foregroundTracker.isForegroundNow) {
             inbound.trySend(notification)
         } else if (force && !systemNotifier.notificationsEnabled) {
             // Test preview while master toggle is off: briefly allow the system post.

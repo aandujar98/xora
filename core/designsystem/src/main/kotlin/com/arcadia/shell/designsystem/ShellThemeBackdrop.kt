@@ -164,17 +164,21 @@ private fun MidnightBackdrop(modifier: Modifier = Modifier) {
 
 @Composable
 private fun ClassicXmbBackdrop(modifier: Modifier = Modifier) {
-    val reduceMotion = rememberReduceMotion()
-    val phase by rememberInfiniteTransition(label = "classicXmbWave").animateFloat(
-        initialValue = 0f,
-        targetValue = (Math.PI * 2.0).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 16_000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "classicXmbWavePhase",
-    )
-    val drift = if (reduceMotion) 0f else phase
+    val animate = rememberAmbientMotionActive()
+    val drift = if (animate) {
+        val phase by rememberInfiniteTransition(label = "classicXmbWave").animateFloat(
+            initialValue = 0f,
+            targetValue = (Math.PI * 2.0).toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 16_000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "classicXmbWavePhase",
+        )
+        phase
+    } else {
+        0f
+    }
     Canvas(modifier = modifier.fillMaxSize()) {
         drawRect(
             brush = Brush.verticalGradient(
