@@ -110,6 +110,7 @@ fun ArcadiaShell(
     val overlayOpen = dialogOverlayOpen || sheetOverlayOpen
     val context = LocalContext.current
     var pendingGameMediaId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingPlatformBannerId by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Activity Result launchers must live only in this Activity-rooted composition. Home hub /
     // shortcuts also compose under ComposePresentation on dual-screen, where nested Dialog and
@@ -139,6 +140,15 @@ fun ArcadiaShell(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
         if (uri != null) homeViewModel.setLocalAvatar(uri)
+    }
+    val platformBannerPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        val platformId = pendingPlatformBannerId
+        pendingPlatformBannerId = null
+        if (uri != null && platformId != null) {
+            homeViewModel.setPlatformBanner(platformId, uri)
+        }
     }
     // GetContent, not PickVisualMedia: photo-picker URIs are not grantable to another app.
     val discordAttachmentPicker = rememberLauncherForActivityResult(
@@ -185,6 +195,14 @@ fun ArcadiaShell(
                     )
                     HomeMediaPickerRequest.DiscordAttachment ->
                         discordAttachmentPicker.launch("image/*")
+                    is HomeMediaPickerRequest.PlatformBanner -> {
+                        pendingPlatformBannerId = request.platformId
+                        platformBannerPicker.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            ),
+                        )
+                    }
                     is HomeMediaPickerRequest.GameBoxArt -> {
                         pendingGameMediaId = request.gameId
                         gameBoxArtPicker.launch(

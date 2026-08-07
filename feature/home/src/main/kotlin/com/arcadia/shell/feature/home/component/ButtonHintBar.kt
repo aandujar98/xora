@@ -26,6 +26,7 @@ import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.feature.home.HomeHubSection
 import com.arcadia.shell.feature.home.HomeHubUiState
 import com.arcadia.shell.feature.home.HomePage
+import com.arcadia.shell.feature.home.XoraXmbDepth
 
 /**
  * Controller legend along the bottom edge. A controller-first interface has no visible affordances
@@ -85,11 +86,14 @@ fun hintsForPage(
     page: HomePage,
     displayMode: DisplayMode = DisplayMode.Dual,
     homeHub: HomeHubUiState? = null,
+    xmbDepth: XoraXmbDepth? = null,
 ): List<Pair<String, String>> = when (page) {
     HomePage.Home -> when {
         homeHub?.vitaShortcutTrayOpen == true && homeHub.shortcutsEditMode ->
             VitaShortcutTrayEditHints
         homeHub?.vitaShortcutTrayOpen == true -> VitaShortcutTrayHints
+        xmbDepth == XoraXmbDepth.Systems -> XoraSystemBrowseHints
+        xmbDepth == XoraXmbDepth.Roms -> XoraRomBrowseHints
         else -> XoraXmbHints
     }
     HomePage.GameSelector -> if (displayMode == DisplayMode.Single) {
@@ -115,6 +119,30 @@ val XoraXmbHints: List<Pair<String, String>> = listOf(
     "Select" to "ROM options",
     "Start" to "Settings",
     "Start+Select" to "Guide",
+)
+
+/** All Games → pick a console. */
+val XoraSystemBrowseHints: List<Pair<String, String>> = listOf(
+    "U/D" to "System",
+    "A" to "Open",
+    "B" to "Back",
+    "Select" to "Console art",
+    "LT" to "Circle",
+    "RT" to "Profile / Alerts",
+    "Start" to "Settings",
+)
+
+/** A console's ROM list. */
+val XoraRomBrowseHints: List<Pair<String, String>> = listOf(
+    "U/D" to "Game",
+    "A" to "Play",
+    "B" to "Systems",
+    "X" to "Achievements",
+    "Y" to "Favourite",
+    "Select" to "ROM options",
+    "LT" to "Circle",
+    "RT" to "Profile / Alerts",
+    "Start" to "Settings",
 )
 
 /** Vita bubble tray over Home XMB. */

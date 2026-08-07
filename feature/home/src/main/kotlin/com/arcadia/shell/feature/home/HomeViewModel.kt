@@ -28,6 +28,7 @@ import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_ROWS
+import com.arcadia.shell.datastore.PlatformArtStore
 import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.PlatformEmulatorChoice
 import com.arcadia.shell.datastore.RetroAchievementsSettings
@@ -167,6 +168,7 @@ class HomeViewModel @Inject constructor(
     private val scraperScheduler: ScraperScheduler,
     private val libraryHashScheduler: LibraryHashScheduler,
     private val platformArtRepository: PlatformArtRepository,
+    private val platformArtStore: PlatformArtStore,
     private val rssFeedClient: RssFeedClient,
     private val gameInsightRepository: GameInsightRepository,
     private val gameScreenshotRepository: GameScreenshotRepository,
@@ -692,10 +694,12 @@ class HomeViewModel @Inject constructor(
 
     private val platformChromeFlow = combine(
         platformArtRepository.artByPlatformId,
+        platformArtStore.bannerByPlatformId,
         playerRepository.observePlatformSettings(),
-    ) { art, settings ->
+    ) { scraped, custom, settings ->
         PlatformChrome(
-            artByPlatformId = art,
+            // A banner the player picked themselves always beats the scraped system media.
+            artByPlatformId = scraped + custom,
             readyPlatformIds = settings
                 .filter { !it.selectedPlayerId.isNullOrBlank() }
                 .map { it.platformId }
@@ -1919,6 +1923,12 @@ class HomeViewModel @Inject constructor(
                 }
             }
             NavAction.ScrapeMenu -> {
+                if (xmb.depth == XoraXmbDepth.Systems) {
+                    (xmb.selectedItem?.action as? XoraXmbAction.DrillSystem)?.let {
+                        requestPlatformBanner(it.platformId)
+                    }
+                    return
+                }
                 val game = when {
                     xmb.depth == XoraXmbDepth.Roms -> xmb.focusGame ?: state.selectedGame
                     xmb.focusGame != null &&
@@ -2646,6 +2656,27 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         viewModelScope.launch {
             runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.ProfileAvatar) }
+        }
+    }
+
+    /** Select on a system card: choose your own banner for that console. */
+    fun requestPlatformBanner(platformId: String) {
+        noteUserActivity()
+        if (platformId.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                mediaPickerRequests.send(HomeMediaPickerRequest.PlatformBanner(platformId))
+            }
+        }
+    }
+
+    fun setPlatformBanner(platformId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching { platformArtStore.import(platformId, uri) }
+                .onSuccess { emit(HomeEvent.ShowMessage("Console art updated.")) }
+                .onFailure { error ->
+                    emit(HomeEvent.ShowError(error.message ?: "Could not import that image."))
+                }
         }
     }
 
