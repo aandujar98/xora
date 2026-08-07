@@ -2,7 +2,6 @@ package com.arcadia.shell.feature.home
 
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
 import com.arcadia.shell.retroachievements.RaGameLookup
-import com.arcadia.shell.retroachievements.RaGameProgress
 import com.arcadia.shell.retroachievements.RaProfile
 import com.arcadia.shell.retroachievements.RaRecentUnlock
 
@@ -23,10 +22,4 @@ data class AchievementsUiState(
      */
     val pendingWebApiUsername: String? = null,
     val error: String? = null,
-    /** The card beside the focused ROM while browsing a system. Shown by default; X hides it. */
-    val romCardVisible: Boolean = true,
-) {
-    /** Progress for whichever game the lookup last resolved, or null when unmatched. */
-    val focusedGameProgress: RaGameProgress?
-        get() = (gameLookup as? RaGameLookup.Matched)?.progress
-}
+)

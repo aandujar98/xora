@@ -241,9 +241,8 @@ fun XoraHomeXmbPane(
                     },
                     onSelectItem = onSelectItem,
                     onActivateItem = onActivateItem,
-                    achievements = state.achievements.focusedGameProgress,
-                    showDetailPanel = state.achievements.romCardVisible,
                     modifier = Modifier.fillMaxSize(),
+                    titleStyle = xmb.titleStyle,
                 )
                 else -> XmbCross(
                     xmb = xmb,
@@ -1174,23 +1173,19 @@ private fun XoraXmbPillChrome(
                 .graphicsLayer { alpha = if (launching) 0f else 1f },
         )
 
-        // ROM browsing has its own achievements card in the same corner, so the pill stands down
-        // there rather than stacking a second RetroAchievements panel on top of it.
-        if (state.xoraXmb.depth != XoraXmbDepth.Roms) {
-            AchievementsPill(
-                expanded = achievementsExpanded,
-                state = state.achievements,
-                onToggle = onToggleAchievementsPanel,
-                onSelectTab = onSelectAchievementsTab,
-                onLogin = onLoginRetroAchievements,
-                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOut = onSignOutRetroAchievements,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .graphicsLayer { alpha = if (launching) 0f else 1f },
-            )
-        }
+        AchievementsPill(
+            expanded = achievementsExpanded,
+            state = state.achievements,
+            onToggle = onToggleAchievementsPanel,
+            onSelectTab = onSelectAchievementsTab,
+            onLogin = onLoginRetroAchievements,
+            onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+            onSignOut = onSignOutRetroAchievements,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .graphicsLayer { alpha = if (launching) 0f else 1f },
+        )
 
         if (profileEditing) {
             ProfileEditSheet(

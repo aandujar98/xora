@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,12 +47,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.xmb.drawableResForPlatformId
-import com.arcadia.shell.retroachievements.RaGameProgress
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.sign
@@ -82,28 +83,10 @@ private const val ARROW_SIZE = 32f
 private const val SHADOW_ELEVATION = 15f
 private const val VISIBLE_CARD_RADIUS = 5f
 
-// Achievements panel (ROM browsing only).
-private const val PANEL_LEFT = 1161f
-private const val PANEL_TOP = 736f
-private const val PANEL_WIDTH = 741f
-private const val PANEL_HEIGHT = 326f
-private const val PANEL_RADIUS = 30f
-private const val PANEL_BORDER = 3f
-private const val PANEL_ART = 96f
-private const val PANEL_BADGE = 76f
-private const val PANEL_BADGE_PITCH = 81f
-private const val PANEL_TEXT = 32f
-private const val PANEL_BAR_WIDTH = 437f
-private const val PANEL_BAR_HEIGHT = 29f
 
 private val PlatformTitleInk = Color(0xFFEBEBEB)
 private val CardFill = Color(0xFF101B24)
 private val ReadyGreen = Color(0xFF4DDB3A)
-private val PanelFill = Color(0xA6000000)
-private val PanelBorder = Color(0x59FFFFFF)
-private val PanelGlow = Color(0x80FFFFFF)
-private val BadgeEarned = Color(0xFFEFBD17)
-private val BadgeLocked = Color(0x40FFFFFF)
 
 private const val CARD_SCROLL_MS = 260
 
@@ -119,7 +102,7 @@ enum class CardBrowseMode {
 /**
  * The card-browse rung of the XMB: a vertical band of cards with the focused one blown up at the
  * centre, its name and detail line beside it. Used for both the system picker and the ROM list,
- * which the design draws identically apart from the copy and the achievements panel.
+ * which the design draws identically apart from the copy (and ROM title icons vs text).
  *
  * Deliberately transparent — it sits over whatever the XMB is already painting, so the wallpaper
  * and the focused ROM's hero art stay visible behind it.
@@ -132,8 +115,8 @@ fun XoraCardBrowsePane(
     onSelectItem: (Int) -> Unit,
     onActivateItem: () -> Unit,
     modifier: Modifier = Modifier,
-    achievements: RaGameProgress? = null,
-    showDetailPanel: Boolean = true,
+    /** ROM rows honour the shell's title preference: clear-logo art or plain text. */
+    titleStyle: XmbTitleStyle = XmbTitleStyle.TitleIcons,
 ) {
     val reduceMotion = rememberReduceMotion()
     val scrollSpec = remember(reduceMotion) {
@@ -204,13 +187,28 @@ fun XoraCardBrowsePane(
                     y = designY(TITLE_CENTER_Y - (TITLE_SIZE / 2f)),
                 ),
             ) {
-                BrowseHeadline(
-                    text = focused.title,
-                    sizeDesignUnits = TITLE_SIZE,
-                    unit = unit,
-                    maxWidthDesignUnits = RULE_WIDTH - CHECK_DIAMETER - CHECK_GAP,
-                    fontFamily = XoraFonts.Title,
-                )
+                val logoPath = focused.logoPath
+                    ?.takeIf { mode == CardBrowseMode.Roms && titleStyle == XmbTitleStyle.TitleIcons }
+                if (logoPath != null) {
+                    ArtworkImage(
+                        path = logoPath,
+                        contentDescription = focused.title,
+                        fallbackText = focused.title,
+                        contentScale = ContentScale.Fit,
+                        decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
+                        modifier = Modifier
+                            .height((TITLE_SIZE * 1.6f * unit).dp)
+                            .widthIn(max = (RULE_WIDTH * 0.6f * unit).dp),
+                    )
+                } else {
+                    BrowseHeadline(
+                        text = focused.title,
+                        sizeDesignUnits = TITLE_SIZE,
+                        unit = unit,
+                        maxWidthDesignUnits = RULE_WIDTH - CHECK_DIAMETER - CHECK_GAP,
+                        fontFamily = XoraFonts.Title,
+                    )
+                }
                 if (mode == CardBrowseMode.Systems && focused.ready) {
                     ReadyCheck(diameter = (CHECK_DIAMETER * unit).dp)
                 }
@@ -245,14 +243,6 @@ fun XoraCardBrowsePane(
                 ),
             )
 
-            if (mode == CardBrowseMode.Roms && showDetailPanel) {
-                RomDetailPanel(
-                    item = focused,
-                    progress = achievements,
-                    unit = unit,
-                    modifier = Modifier.offset(x = designX(PANEL_LEFT), y = designY(PANEL_TOP)),
-                )
-            }
         }
     }
 }
@@ -366,198 +356,9 @@ private fun BrowseHeadline(
     )
 }
 
-/**
- * The focused ROM's RetroAchievements card. Falls back to just the box art, title and platform
- * when the game is unmatched or the player is signed out.
- */
-@Composable
-private fun RomDetailPanel(
-    item: XoraXmbItem,
-    progress: RaGameProgress?,
-    unit: Float,
-    modifier: Modifier = Modifier,
-) {
-    val shape = RoundedCornerShape((PANEL_RADIUS * unit).dp)
-    val bodySize = with(LocalDensity.current) { (PANEL_TEXT * unit).dp.toSp() }
-    Box(
-        modifier = modifier
-            .size(width = (PANEL_WIDTH * unit).dp, height = (PANEL_HEIGHT * unit).dp)
-            .clip(shape)
-            .background(PanelFill)
-            .drawBehind {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to PanelGlow,
-                            0.4f to Color.Transparent,
-                            0.6f to Color.Transparent,
-                            1f to PanelGlow,
-                        ),
-                    ),
-                )
-            }
-            .border(width = (PANEL_BORDER * unit).dp, color = PanelBorder, shape = shape)
-            .padding((20f * unit).dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy((16f * unit).dp)) {
-            Box(
-                modifier = Modifier
-                    .size((PANEL_ART * unit).dp)
-                    .clip(RoundedCornerShape((10f * unit).dp))
-                    .background(CardFill)
-                    .border(
-                        width = (PANEL_BORDER * unit).dp,
-                        color = PanelBorder,
-                        shape = RoundedCornerShape((10f * unit).dp),
-                    ),
-            ) {
-                ArtworkImage(
-                    path = item.artPath,
-                    contentDescription = null,
-                    fallbackText = item.title.take(2).uppercase(),
-                    contentScale = ContentScale.Crop,
-                    decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            Column(
-                verticalArrangement = Arrangement.spacedBy((10f * unit).dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy((12f * unit).dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = item.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontFamily = XoraFonts.Title,
-                            fontSize = bodySize,
-                            lineHeight = bodySize,
-                        ),
-                        color = PlatformTitleInk,
-                        modifier = Modifier.widthIn(max = (420f * unit).dp),
-                    )
-                    item.platformLabel?.let { label ->
-                        Text(
-                            text = label,
-                            maxLines = 1,
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontFamily = XoraFonts.Title,
-                                fontSize = with(LocalDensity.current) { (20f * unit).dp.toSp() },
-                            ),
-                            color = Color.White,
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.18f))
-                                .padding(
-                                    horizontal = (14f * unit).dp,
-                                    vertical = (4f * unit).dp,
-                                ),
-                        )
-                    }
-                }
 
-                if (progress != null && progress.numAchievements > 0) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy((12f * unit).dp),
-                    ) {
-                        Text(
-                            text = progress.progressLabel,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontFamily = XoraFonts.Secondary,
-                                fontSize = bodySize,
-                            ),
-                            color = PlatformTitleInk,
-                        )
-                        AchievementProgressBar(
-                            fraction = progress.completionFraction,
-                            unit = unit,
-                        )
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(
-                            ((PANEL_BADGE_PITCH - PANEL_BADGE) * unit).dp,
-                        ),
-                    ) {
-                        progress.achievements
-                            .sortedByDescending { it.earned }
-                            .take(MAX_PANEL_BADGES)
-                            .forEach { achievement ->
-                                AchievementBadgeThumb(
-                                    url = achievement.badgeUrl,
-                                    earned = achievement.earned,
-                                    unit = unit,
-                                )
-                            }
-                    }
-                } else {
-                    Text(
-                        text = "No RetroAchievements data for this title.",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = XoraFonts.Secondary,
-                            fontSize = with(LocalDensity.current) { (22f * unit).dp.toSp() },
-                        ),
-                        color = PlatformTitleInk.copy(alpha = 0.7f),
-                    )
-                }
-            }
-        }
-    }
-}
 
-private const val MAX_PANEL_BADGES = 7
 
-@Composable
-private fun AchievementBadgeThumb(url: String, earned: Boolean, unit: Float) {
-    val shape = RoundedCornerShape((5f * unit).dp)
-    ArtworkImage(
-        path = url,
-        contentDescription = null,
-        fallbackText = "",
-        contentScale = ContentScale.Crop,
-        decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
-        modifier = Modifier
-            .size((PANEL_BADGE * unit).dp)
-            .clip(shape)
-            .border(
-                width = (2f * unit).dp,
-                color = if (earned) BadgeEarned else BadgeLocked,
-                shape = shape,
-            ),
-    )
-}
-
-@Composable
-private fun AchievementProgressBar(fraction: Float, unit: Float) {
-    val shape = CircleShape
-    Box(
-        modifier = Modifier
-            .size(
-                width = (PANEL_BAR_WIDTH * unit).dp,
-                height = (PANEL_BAR_HEIGHT * unit).dp,
-            )
-            .clip(shape)
-            .background(Color.White.copy(alpha = 0.18f))
-            .border(width = (2f * unit).dp, color = Color.Black.copy(alpha = 0.25f), shape = shape),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                .size(height = (PANEL_BAR_HEIGHT * unit).dp, width = (PANEL_BAR_WIDTH * unit).dp)
-                .clip(shape)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(Color(0x40989CB3), Color(0x804D4655)),
-                    ),
-                ),
-        )
-    }
-}
 
 /** Green tick beside the platform name: an emulator is assigned, so this system is ready to play. */
 @Composable

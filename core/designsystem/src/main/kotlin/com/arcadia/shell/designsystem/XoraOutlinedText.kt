@@ -3,6 +3,7 @@ package com.arcadia.shell.designsystem
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeJoin
@@ -50,7 +51,16 @@ fun XoraOutlinedText(
         fontSize = scaledSize,
         letterSpacing = letterSpacing,
     )
-    Box(modifier = modifier) {
+    // [modifier] sizes this Box, but the two Text layers only ever measure to their content, so
+    // textAlign alone cannot move them — a centred label in a fixed-width box would sit hard
+    // against its left edge. Align the layers in the Box instead; they stay exactly on top of
+    // each other because both measure identically.
+    val alignment = when (textAlign) {
+        TextAlign.Center -> Alignment.TopCenter
+        TextAlign.End, TextAlign.Right -> Alignment.TopEnd
+        else -> Alignment.TopStart
+    }
+    Box(modifier = modifier, contentAlignment = alignment) {
         Text(
             text = text,
             maxLines = maxLines,
