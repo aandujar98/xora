@@ -9,6 +9,8 @@ captures/
 .cxx/
 *.apk
 *.aab
+# Sideload builds published under releases/ (see README).
+!releases/*.apk
 *.keystore
 !debug.keystore
 *.jks
