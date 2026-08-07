@@ -64,6 +64,8 @@ data class XoraXmbItem(
     val gameCount: Int = 0,
     /** System rows: an emulator is assigned, so the platform can actually be played. */
     val ready: Boolean = false,
+    /** Short console name for ROM rows, shown as a chip on the detail panel. */
+    val platformLabel: String? = null,
     /** Vector glyph when [artPath] is null. */
     val icon: XmbIcon = XmbIcon.System,
 )
@@ -421,6 +423,7 @@ fun buildXoraRomItems(games: List<Game>): List<XoraXmbItem> =
             artPath = game.boxArtPath ?: game.heroImagePath,
             logoPath = game.logoImagePath,
             playTimeMs = game.playTimeMs,
+            platformLabel = game.platform.shortName,
             icon = XmbIcon.Games,
         )
     }

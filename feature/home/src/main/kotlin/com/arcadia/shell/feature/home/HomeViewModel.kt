@@ -118,6 +118,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
@@ -942,14 +943,21 @@ class HomeViewModel @Inject constructor(
 
         @OptIn(ExperimentalCoroutinesApi::class)
         combine(
-            achievementsPanelExpanded,
+            // ROM browsing shows an achievements card for the focused game, so the lookup has to
+            // run there too — not only while the pill is open.
+            combine(
+                achievementsPanelExpanded,
+                uiState.map { it.xoraXmb.depth == XoraXmbDepth.Roms }.distinctUntilChanged(),
+            ) { expanded, browsingRoms -> expanded || browsingRoms },
             uiState.map { it.selectedGame?.id }.distinctUntilChanged(),
             achievementsUi.map { it.tab }.distinctUntilChanged(),
             retroAchievements.credentials,
-        ) { expanded, gameId, tab, creds ->
-            AchievementsLoadRequest(expanded, gameId, tab, creds.isConfigured)
+        ) { wanted, gameId, tab, creds ->
+            AchievementsLoadRequest(wanted, gameId, tab, creds.isConfigured)
         }
             .distinctUntilChanged()
+            // Scrubbing a long ROM list would otherwise fire a lookup per row.
+            .debounce { request -> if (request.expanded) 0L else ACHIEVEMENTS_FOCUS_DEBOUNCE_MS }
             .mapLatest { request ->
                 if (!request.expanded) {
                     // mapLatest cancels an in-flight refresh when the panel closes; clear the
@@ -5139,6 +5147,8 @@ class HomeViewModel @Inject constructor(
         const val DISCORD_PACKAGE = "com.discord"
         /** Covers profile + hash + gameid + progress; longer than OkHttp call timeout would strand the spinner. */
         const val ACHIEVEMENTS_LOAD_TIMEOUT_MS = 60_000L
+        /** Settle time before looking up the ROM the cursor landed on. */
+        const val ACHIEVEMENTS_FOCUS_DEBOUNCE_MS = 450L
         const val GUIDE_QUICK_LAUNCH_RECENT = 5
         const val GUIDE_QUICK_LAUNCH_FAVORITES = 3
         const val INSIGHT_DEBOUNCE_MS = 380L
