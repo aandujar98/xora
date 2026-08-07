@@ -460,6 +460,7 @@ fun HomeScreen(
                                     page = state.homePage,
                                     displayMode = state.displayMode,
                                     homeHub = state.homeHub,
+                                    xmbDepth = state.xoraXmb.depth,
                                 )
                             },
                             modifier = Modifier
