@@ -177,7 +177,7 @@ fun SystemPill(
     val glass = rememberGlassTokens(GlassTone.OverMedia)
 
     Column(
-        modifier = modifier.widthIn(max = if (expanded) 360.dp else 270.dp),
+        modifier = modifier.widthIn(max = if (expanded) 360.dp else 360.dp),
         horizontalAlignment = Alignment.End,
     ) {
         // Collapsed RT chrome hides while the panel is open; Back / RT restores it.
@@ -196,15 +196,20 @@ fun SystemPill(
         ) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.Black.copy(alpha = 0.65f))
+                    .widthIn(min = 320.dp)
+                    .liquidGlass(
+                        shape = RoundedCornerShape(22.dp),
+                        tone = GlassTone.OverMedia,
+                        intensity = GlassIntensity.Standard,
+                        shimmer = true,
+                    )
                     .border(
                         width = 1.5.dp,
                         color = Color.White.copy(alpha = 0.35f),
                         shape = RoundedCornerShape(22.dp),
                     )
                     .clickable(onClick = onToggle)
-                    .padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                    .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -236,6 +241,8 @@ fun SystemPill(
                     ),
                     color = Color.White,
                     textAlign = TextAlign.Center,
+                    softWrap = false,
+                    maxLines = 1,
                 )
                 BatteryGlyph(
                     percent = batteryPercent,
@@ -257,6 +264,8 @@ fun SystemPill(
                         ),
                     ),
                     color = Color.White,
+                    softWrap = false,
+                    maxLines = 1,
                 )
                 Box {
                     ProfileAvatar(

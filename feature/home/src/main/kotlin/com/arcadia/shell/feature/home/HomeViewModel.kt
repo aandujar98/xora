@@ -133,6 +133,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlin.math.roundToInt
 import java.util.UUID
 import javax.inject.Inject
 
@@ -1930,9 +1931,10 @@ class HomeViewModel @Inject constructor(
     private fun onVitaShortcutTrayNavAction(action: NavAction, state: HomeUiState) {
         val hub = state.homeHub
         when (action) {
-            NavAction.Left -> moveVitaShortcutFocus(-1, hub)
-            NavAction.Right -> moveVitaShortcutFocus(1, hub)
-            NavAction.Up, NavAction.Down -> Unit
+            NavAction.Left -> moveVitaShortcutFocusHorizontal(-1, hub)
+            NavAction.Right -> moveVitaShortcutFocusHorizontal(1, hub)
+            NavAction.Up -> moveVitaShortcutFocusVertical(-1, hub)
+            NavAction.Down -> moveVitaShortcutFocusVertical(1, hub)
             NavAction.Confirm -> activateHomeShortcut()
             NavAction.Cancel -> {
                 if (hub.shortcutsEditMode) {
@@ -1965,12 +1967,55 @@ class HomeViewModel @Inject constructor(
         homeShortcutIndex.value = homeShortcutIndex.value.coerceIn(0, (count - 1).coerceAtLeast(0))
     }
 
-    private fun moveVitaShortcutFocus(delta: Int, hub: HomeHubUiState) {
+    private fun moveVitaShortcutFocusHorizontal(delta: Int, hub: HomeHubUiState) {
         noteUserActivity()
+        val rows = vitaTrayRowsForHub(hub)
+        if (rows.isEmpty()) return
+        val focus = hub.shortcutIndex
+        val rowIndex = rows.indexOfFirst { focus in it }.coerceAtLeast(0)
+        val row = rows[rowIndex]
+        val col = row.indexOf(focus).coerceAtLeast(0)
+        val nextCol = (col + delta).coerceIn(0, row.lastIndex)
+        homeShortcutIndex.value = row[nextCol]
+    }
+
+    private fun moveVitaShortcutFocusVertical(delta: Int, hub: HomeHubUiState) {
+        noteUserActivity()
+        val rows = vitaTrayRowsForHub(hub)
+        if (rows.isEmpty()) return
+        val focus = hub.shortcutIndex
+        val rowIndex = rows.indexOfFirst { focus in it }.coerceAtLeast(0)
+        val targetRowIndex = (rowIndex + delta).coerceIn(0, rows.lastIndex)
+        if (targetRowIndex == rowIndex) return
+        val sourceRow = rows[rowIndex]
+        val targetRow = rows[targetRowIndex]
+        val sourceCol = sourceRow.indexOf(focus).coerceAtLeast(0)
+        val mappedCol = if (sourceRow.size <= 1 || targetRow.size <= 1) {
+            0
+        } else {
+            ((sourceCol.toFloat() / (sourceRow.size - 1)) * (targetRow.size - 1)).roundToInt()
+        }.coerceIn(0, targetRow.lastIndex)
+        homeShortcutIndex.value = targetRow[mappedCol]
+    }
+
+    private fun vitaTrayRowsForHub(hub: HomeHubUiState): List<List<Int>> {
         val includeAdd = hub.shortcutsEditMode || hub.shortcuts.isEmpty()
         val count = (hub.shortcuts.size + if (includeAdd) 1 else 0).coerceAtLeast(1)
-        val next = (hub.shortcutIndex + delta).coerceIn(0, count - 1)
-        homeShortcutIndex.value = next
+        val caps = listOf(3, 4, 3)
+        val rows = mutableListOf<List<Int>>()
+        var cursor = 0
+        caps.forEach { cap ->
+            if (cursor >= count) return@forEach
+            val end = (cursor + cap).coerceAtMost(count)
+            rows += (cursor until end).toList()
+            cursor = end
+        }
+        while (cursor < count) {
+            val end = (cursor + 4).coerceAtMost(count)
+            rows += (cursor until end).toList()
+            cursor = end
+        }
+        return rows
     }
 
     fun selectXoraCategory(index: Int) {
