@@ -67,6 +67,7 @@ import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.AppForegroundTracker
+import com.arcadia.shell.libretro.XoraCoreCatalog
 import com.arcadia.shell.launcher.notifications.FriendNetwork
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
@@ -172,6 +173,7 @@ class HomeViewModel @Inject constructor(
     private val platformArtRepository: PlatformArtRepository,
     private val platformArtStore: PlatformArtStore,
     private val appForegroundTracker: AppForegroundTracker,
+    private val xoraCoreCatalog: XoraCoreCatalog,
     private val rssFeedClient: RssFeedClient,
     private val gameInsightRepository: GameInsightRepository,
     private val gameScreenshotRepository: GameScreenshotRepository,
@@ -689,24 +691,24 @@ class HomeViewModel @Inject constructor(
         val social: SocialChrome,
     )
 
-    /** Scraped banner art plus which platforms have an emulator assigned, for the system picker. */
+    /** Banner art plus which systems XOrA can emulate itself, for the system picker. */
     private data class PlatformChrome(
         val artByPlatformId: Map<String, String> = emptyMap(),
         val readyPlatformIds: Set<String> = emptySet(),
     )
 
+    /** Systems the built-in emulator ships a core for — the tick on a console card. */
+    private val xoraEmulatedPlatformIds: Set<String> =
+        xoraCoreCatalog.all.mapTo(mutableSetOf()) { it.platformId }
+
     private val platformChromeFlow = combine(
         platformArtRepository.artByPlatformId,
         platformArtStore.bannerByPlatformId,
-        playerRepository.observePlatformSettings(),
-    ) { scraped, custom, settings ->
+    ) { scraped, custom ->
         PlatformChrome(
             // A banner the player picked themselves always beats the scraped system media.
             artByPlatformId = scraped + custom,
-            readyPlatformIds = settings
-                .filter { !it.selectedPlayerId.isNullOrBlank() }
-                .map { it.platformId }
-                .toSet(),
+            readyPlatformIds = xoraEmulatedPlatformIds,
         )
     }
 
@@ -1276,9 +1278,8 @@ class HomeViewModel @Inject constructor(
         val xoraItems = when (theme.xora.depth) {
             XoraXmbDepth.Category -> buildXoraCategoryItems(
                 category = xoraCategory,
-                profileName = chrome.resolvedPlayerName
-                    ?.takeIf { it.isNotBlank() }
-                    ?: chrome.profile.displayName,
+                profileName = chrome.profile.displayName,
+                profileAvatarPath = chrome.profileAvatarModel,
                 gamesSecondarySlot = gamesSecondarySlot,
                 continueGame = continueGame,
                 favoriteGame = favoriteGame,
@@ -4447,6 +4448,11 @@ class HomeViewModel @Inject constructor(
 
     fun toggleAchievementsPanel() {
         noteUserActivity()
+        // While browsing ROMs, X belongs to the card the concept puts beside the game.
+        if (uiState.value.xoraXmb.depth == XoraXmbDepth.Roms) {
+            achievementsUi.update { it.copy(romCardVisible = !it.romCardVisible) }
+            return
+        }
         val opening = !achievementsPanelExpanded.value
         achievementsPanelExpanded.value = opening
         if (opening) {

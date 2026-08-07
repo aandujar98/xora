@@ -140,7 +140,10 @@ data class XoraXmbUiState(
 
 fun buildXoraCategoryItems(
     category: XoraXmbCategory,
+    /** The player's own display name — not whichever emulator would launch the selected game. */
     profileName: String,
+    /** Local path or CDN url for the player's avatar, shown on the profile row. */
+    profileAvatarPath: String? = null,
     gamesSecondarySlot: GamesSecondarySlot,
     continueGame: Game?,
     favoriteGame: Game?,
@@ -156,6 +159,7 @@ fun buildXoraCategoryItems(
             title = profileName.ifBlank { "Player" },
             subtitle = "Edit name & avatar",
             action = XoraXmbAction.OpenProfile,
+            artPath = profileAvatarPath,
             icon = XmbIcon.User,
         ),
         XoraXmbItem(

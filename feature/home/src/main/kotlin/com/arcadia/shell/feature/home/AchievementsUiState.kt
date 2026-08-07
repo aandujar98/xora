@@ -23,6 +23,8 @@ data class AchievementsUiState(
      */
     val pendingWebApiUsername: String? = null,
     val error: String? = null,
+    /** The card beside the focused ROM while browsing a system. Shown by default; X hides it. */
+    val romCardVisible: Boolean = true,
 ) {
     /** Progress for whichever game the lookup last resolved, or null when unmatched. */
     val focusedGameProgress: RaGameProgress?
