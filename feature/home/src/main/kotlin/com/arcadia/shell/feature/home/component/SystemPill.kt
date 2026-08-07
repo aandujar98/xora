@@ -56,11 +56,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -68,9 +71,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
@@ -168,11 +173,10 @@ fun SystemPill(
     val glass = rememberGlassTokens(GlassTone.OverMedia)
 
     Column(
-        modifier = modifier.widthIn(max = if (expanded) 360.dp else 300.dp),
+        modifier = modifier.widthIn(max = if (expanded) 360.dp else 760.dp),
         horizontalAlignment = Alignment.End,
     ) {
         // Collapsed RT chrome hides while the panel is open; Back / RT restores it.
-        // Soft rounded bar (not 50% PillShape) so the in-pill circle isn't clipped oval.
         AnimatedVisibility(
             visible = !expanded,
             enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
@@ -188,76 +192,86 @@ fun SystemPill(
         ) {
             Row(
                 modifier = Modifier
-                    .liquidGlass(
-                        shape = RoundedCornerShape(20.dp),
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Standard,
+                    .height(96.dp)
+                    .clip(RoundedCornerShape(60.dp))
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .border(
+                        width = 3.dp,
+                        color = Color.White.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(60.dp),
                     )
                     .clickable(onClick = onToggle)
-                    .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                    .padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                WifiGlyph(connected = wifiConnected, tint = glass.content)
-                Text(
-                    text = timeText,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = glass.content,
-                )
                 Box(
                     modifier = Modifier
-                        .width(1.dp)
-                        .height(14.dp)
-                        .background(glass.contentMuted.copy(alpha = 0.35f)),
-                )
+                        .size(69.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.08f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    WifiGlyph(
+                        connected = wifiConnected,
+                        tint = Color.White.copy(alpha = 0.95f),
+                        modifier = Modifier.size(44.dp),
+                    )
+                }
                 Text(
-                    text = dateShort,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = glass.contentMuted,
+                    text = "$timeText | $dateShort",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 32.sp,
+                        lineHeight = 32.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        shadow = Shadow(
+                            color = Color.Black.copy(alpha = 0.55f),
+                            offset = Offset(4f, 4f),
+                            blurRadius = 4f,
+                        ),
+                    ),
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
                 )
                 BatteryGlyph(
                     percent = batteryPercent,
                     charging = charging,
-                    tint = glass.content,
+                    tint = Color.White.copy(alpha = 0.95f),
+                    modifier = Modifier.size(width = 63.dp, height = 45.dp),
                 )
                 Text(
                     text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = glass.contentMuted,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 32.sp,
+                        lineHeight = 32.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        shadow = Shadow(
+                            color = Color.Black.copy(alpha = 0.55f),
+                            offset = Offset(4f, 4f),
+                            blurRadius = 4f,
+                        ),
+                    ),
+                    color = Color.White,
                 )
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onOpenNotifications),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    BellIcon(
-                        tint = Color(0xFFFFC857),
-                        showBadge = notificationUnreadCount > 0,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
                 Box {
                     ProfileAvatar(
                         displayName = profile.displayName,
                         presetId = profile.avatarPresetId,
-                        size = 40.dp,
+                        size = 73.dp,
                         imageModel = avatarImageModel,
-                        borderColor = Color.White.copy(alpha = 0.45f),
+                        borderColor = Color.White.copy(alpha = 0.25f),
+                        modifier = Modifier
+                            .shadow(
+                                elevation = 8.dp,
+                                shape = CircleShape,
+                                clip = false,
+                            ),
                     )
                     NotificationDot(
                         visible = notificationUnreadCount > 0,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(top = 1.dp, end = 1.dp),
-                    )
-                    TriggerGlyph(
-                        letter = "RT",
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(bottom = 0.dp),
                     )
                 }
             }
