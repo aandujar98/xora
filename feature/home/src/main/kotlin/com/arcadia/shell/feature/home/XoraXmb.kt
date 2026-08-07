@@ -60,6 +60,10 @@ data class XoraXmbItem(
     val logoPath: String? = null,
     /** Accumulated play time for ROM rows ([Game.playTimeMs]). */
     val playTimeMs: Long = 0,
+    /** Library size for system rows, shown by the platform picker. */
+    val gameCount: Int = 0,
+    /** System rows: an emulator is assigned, so the platform can actually be played. */
+    val ready: Boolean = false,
     /** Vector glyph when [artPath] is null. */
     val icon: XmbIcon = XmbIcon.System,
 )
@@ -388,6 +392,7 @@ fun buildXoraCategoryItems(
 fun buildXoraSystemItems(
     summaries: List<PlatformSummary>,
     artByPlatformId: Map<String, String> = emptyMap(),
+    readyPlatformIds: Set<String> = emptySet(),
 ): List<XoraXmbItem> =
     summaries
         .filter { it.gameCount > 0 && it.platform.id != "android" }
@@ -400,6 +405,8 @@ fun buildXoraSystemItems(
                 subtitle = "${summary.gameCount} game${if (summary.gameCount == 1) "" else "s"}",
                 action = XoraXmbAction.DrillSystem(platformId),
                 artPath = artByPlatformId[platformId],
+                gameCount = summary.gameCount,
+                ready = platformId in readyPlatformIds,
                 icon = XmbIcon.GamePad,
             )
         }

@@ -81,6 +81,8 @@ private const val XMB_ROW_BOTTOM = 1047.8f
 /** How far a bubble may sway from its slot when the device is tilted. */
 private const val TILT_SHIFT_FRACTION = 0.115f
 
+private val VitaSkyTop = Color(0xFF2ACBFD)
+private val VitaSkyBottom = Color(0xFFDEF9FF)
 private val RingGradientTop = Color.White
 private val RingGradientBottom = Color(0xFFB5EFFF)
 private val SelectionHalo = Color(0xB3E4FAFF)
@@ -141,11 +143,16 @@ fun VitaShortcutTray(
         modifier = modifier,
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            VitaTraySky(modifier = Modifier.fillMaxSize())
+            WaveSky(
+                topColor = VitaSkyTop,
+                bottomColor = VitaSkyBottom,
+                field = VitaWaveField,
+                modifier = Modifier.fillMaxSize(),
+            )
 
             val unit = min(
-                maxWidth.value / VITA_DESIGN_WIDTH,
-                maxHeight.value / VITA_DESIGN_HEIGHT,
+                maxWidth.value / XORA_DESIGN_WIDTH,
+                maxHeight.value / XORA_DESIGN_HEIGHT,
             )
             val bubbleDiameter = (BUBBLE_DIAMETER * unit).dp
             val glass = ImageBitmap.imageResource(R.drawable.vita_bubble_glass)
@@ -215,7 +222,7 @@ fun VitaShortcutTray(
                 unit = unit,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = ((VITA_DESIGN_HEIGHT - XMB_ROW_BOTTOM) * unit).dp),
+                    .padding(bottom = ((XORA_DESIGN_HEIGHT - XMB_ROW_BOTTOM) * unit).dp),
             )
         }
     }
