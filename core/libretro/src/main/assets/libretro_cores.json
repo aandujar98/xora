@@ -1,9 +1,9 @@
 {
   "repoBaseUrl": "https://buildbot.libretro.com/nightly/android/latest",
   "cores": [
-    { "platformId": "nes", "core": "mesen", "label": "Mesen", "license": "GPLv2" },
     { "platformId": "nes", "core": "fceumm", "label": "FCEUmm", "license": "GPLv2" },
     { "platformId": "nes", "core": "nestopia", "label": "Nestopia UE", "license": "GPLv2" },
+    { "platformId": "nes", "core": "mesen", "label": "Mesen", "license": "GPLv2" },
     { "platformId": "snes", "core": "snes9x", "label": "Snes9x", "license": "Non-commercial" },
     { "platformId": "snes", "core": "snes9x2010", "label": "Snes9x 2010", "license": "Non-commercial" },
     { "platformId": "snes", "core": "bsnes", "label": "bsnes", "license": "GPLv3" },

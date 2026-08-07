@@ -429,10 +429,14 @@ class RetroAchievementsClient @Inject constructor(
             gameId = gameId,
             title = obj.string("Title").orEmpty(),
             consoleName = obj.string("ConsoleName").orEmpty(),
+            imageIconPath = obj.string("ImageIcon").orEmpty(),
             numAchievements = obj.int("NumAchievements") ?: achievements.size,
             numAwardedToUser = obj.int("NumAwardedToUser") ?: achievements.count { it.earned },
             numAwardedToUserHardcore = obj.int("NumAwardedToUserHardcore")
                 ?: achievements.count { it.earnedHardcore },
+            numDistinctPlayers = obj.int("NumDistinctPlayersCasual")
+                ?: obj.int("NumDistinctPlayers")
+                ?: 0,
             achievements = achievements,
         )
     }

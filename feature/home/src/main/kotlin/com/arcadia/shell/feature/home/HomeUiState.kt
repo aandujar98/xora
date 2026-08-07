@@ -234,6 +234,12 @@ data class HomeUiState(
     val systemPanelExpanded: Boolean = false,
     /** Focus index inside the RT system menu while [systemPanelExpanded]. */
     val systemPanelSelectedIndex: Int = 0,
+    /** RT bell notification history overlay. */
+    val notificationHistoryOpen: Boolean = false,
+    val notificationHistory: List<com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem> =
+        emptyList(),
+    val notificationUnreadCount: Int = 0,
+    val notificationHistorySelectedIndex: Int = 0,
     val achievementsPanelExpanded: Boolean = false,
     val achievements: AchievementsUiState = AchievementsUiState(),
     val trailer: HeroTrailerState = HeroTrailerState(),

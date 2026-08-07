@@ -7,10 +7,16 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,8 +27,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -76,8 +80,12 @@ import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sign
+import kotlin.math.sin
 
 /**
  * PSP / PS3-style Cross Media Bar.
@@ -100,6 +108,7 @@ fun XoraHomeXmbPane(
     onActivateAccountRow: (Int?) -> Unit = {},
     onSelectSystemRow: (Int) -> Unit = {},
     onActivateSystemRow: (Int?) -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit = { _, _ -> },
     onSelectAvatarPreset: (presetId: String) -> Unit = {},
     onRequestLocalAvatar: () -> Unit = {},
@@ -137,6 +146,11 @@ fun XoraHomeXmbPane(
     val chromeAlpha = 1f - chromeProgress
     val chromeSlidePx = chromeProgress * 72f
     val artworkScale = 1f + (holdProgress * 0.06f)
+    val backdropMotion = rememberXmbBackdropMotion(
+        categoryIndex = xmb.categoryIndex,
+        itemIndex = xmb.itemIndex,
+        launchScale = artworkScale,
+    )
 
     Box(modifier = modifier.fillMaxSize()) {
         // Theme / custom wallpaper must remain the base plate.
@@ -145,10 +159,7 @@ fun XoraHomeXmbPane(
             dim = false,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = artworkScale
-                    scaleY = artworkScale
-                },
+                .then(backdropMotion),
         )
         // Soft readability wash — dim theme / wallpaper slightly under the XMB.
         Box(
@@ -170,20 +181,14 @@ fun XoraHomeXmbPane(
             game = heroGame,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = artworkScale
-                    scaleY = artworkScale
-                },
+                .then(backdropMotion),
         )
 
         HeroTrailerLayer(
             state = state.trailer,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = artworkScale
-                    scaleY = artworkScale
-                },
+                .then(backdropMotion),
         )
 
         if (fullTrailer) {
@@ -218,6 +223,7 @@ fun XoraHomeXmbPane(
                 onActivateAccountRow = onActivateAccountRow,
                 onSelectSystemRow = onSelectSystemRow,
                 onActivateSystemRow = onActivateSystemRow,
+                onOpenNotifications = onOpenNotifications,
                 onSaveProfile = onSaveProfile,
                 onSelectAvatarPreset = onSelectAvatarPreset,
                 onRequestLocalAvatar = onRequestLocalAvatar,
@@ -246,6 +252,7 @@ fun XoraXmbHeroDetail(
     onActivateAccountRow: (Int?) -> Unit = {},
     onSelectSystemRow: (Int) -> Unit = {},
     onActivateSystemRow: (Int?) -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit = { _, _ -> },
     onSelectAvatarPreset: (presetId: String) -> Unit = {},
     onRequestLocalAvatar: () -> Unit = {},
@@ -264,10 +271,11 @@ fun XoraXmbHeroDetail(
     val heroGame = xmb.focusGame
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
-    val titleEnter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) +
-        scaleIn(arcadiaTween(ArcadiaMotion.Medium), initialScale = 0.96f)
-    val titleExit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) +
-        scaleOut(arcadiaTween(ArcadiaMotion.Fast), targetScale = 1.02f)
+    val titleEnter = fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
+        slideInHorizontally(tween(ArcadiaMotion.Slow, easing = FastOutSlowInEasing)) { it / 5 } +
+        scaleIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing), initialScale = 0.97f)
+    val titleExit = fadeOut(tween(120, easing = FastOutSlowInEasing)) +
+        slideOutHorizontally(tween(120, easing = FastOutSlowInEasing)) { -it / 14 }
 
     val chromeProgress by animateFloatAsState(
         targetValue = if (state.isLaunching) 1f else 0f,
@@ -282,6 +290,11 @@ fun XoraXmbHeroDetail(
     val chromeAlpha = 1f - chromeProgress
     val chromeSlidePx = chromeProgress * 72f
     val artworkScale = 1f + (holdProgress * 0.06f)
+    val backdropMotion = rememberXmbBackdropMotion(
+        categoryIndex = xmb.categoryIndex,
+        itemIndex = xmb.itemIndex,
+        launchScale = artworkScale,
+    )
 
     Box(modifier = modifier.fillMaxSize()) {
         HomeWallpaper(
@@ -289,10 +302,7 @@ fun XoraXmbHeroDetail(
             dim = false,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = artworkScale
-                    scaleY = artworkScale
-                },
+                .then(backdropMotion),
         )
         Box(
             modifier = Modifier
@@ -315,19 +325,13 @@ fun XoraXmbHeroDetail(
             },
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = artworkScale
-                    scaleY = artworkScale
-                },
+                .then(backdropMotion),
         )
         HeroTrailerLayer(
             state = state.trailer,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = artworkScale
-                    scaleY = artworkScale
-                },
+                .then(backdropMotion),
         )
 
         AnimatedContent(
@@ -391,6 +395,7 @@ fun XoraXmbHeroDetail(
                 onActivateAccountRow = onActivateAccountRow,
                 onSelectSystemRow = onSelectSystemRow,
                 onActivateSystemRow = onActivateSystemRow,
+                onOpenNotifications = onOpenNotifications,
                 onSaveProfile = onSaveProfile,
                 onSelectAvatarPreset = onSelectAvatarPreset,
                 onRequestLocalAvatar = onRequestLocalAvatar,
@@ -416,12 +421,12 @@ private fun XmbCross(
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = rememberReduceMotion()
-    // Short tween — springs + per-row animate*AsState were stacking and looking choppy.
+    // Ease-out slide (~PS3 XMB / reference clip) — one shared cursor, no nested springs.
     val scrollSpec = remember(reduceMotion) {
         if (reduceMotion) {
             tween(0)
         } else {
-            tween<Float>(durationMillis = 160, easing = FastOutSlowInEasing)
+            tween<Float>(durationMillis = XMB_SCROLL_MS, easing = FastOutSlowInEasing)
         }
     }
 
@@ -446,8 +451,8 @@ private fun XmbCross(
             listEnterAlpha.snapTo(1f)
             return@LaunchedEffect
         }
-        listEnterAlpha.snapTo(0.35f)
-        listEnterAlpha.animateTo(1f, tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing))
+        listEnterAlpha.snapTo(0.28f)
+        listEnterAlpha.animateTo(1f, tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing))
     }
 
     BoxWithConstraints(modifier = modifier) {
@@ -506,15 +511,15 @@ private fun XmbCross(
             val delta = index - catScroll
             val distance = abs(delta)
             val scale = when {
-                distance < 0.5f -> lerp(1.05f, 1.18f, 1f - distance / 0.5f)
-                distance < 1.5f -> lerp(0.82f, 1.05f, 1.5f - distance)
-                distance < 2.5f -> lerp(0.68f, 0.82f, 2.5f - distance)
-                else -> 0.55f
+                distance < 0.5f -> lerp(1.12f, 1.32f, 1f - distance / 0.5f)
+                distance < 1.5f -> lerp(0.86f, 1.12f, 1.5f - distance)
+                distance < 2.5f -> lerp(0.72f, 0.86f, 2.5f - distance)
+                else -> 0.58f
             }
             val alpha = when {
                 distance < 0.5f -> if (atRoot) 1f else 0.35f
-                distance < 1.5f -> if (atRoot) 0.55f else 0.18f
-                distance < 2.5f -> if (atRoot) 0.32f else 0.1f
+                distance < 1.5f -> if (atRoot) 0.58f else 0.18f
+                distance < 2.5f -> if (atRoot) 0.34f else 0.1f
                 else -> 0.08f
             }
             val xPx = crossXPx - catIconPx / 2f + categoryPitchPx * delta
@@ -550,13 +555,17 @@ private fun XmbCross(
             atRoot -> xmb.category.label
             xmb.depth == XoraXmbDepth.Systems -> "All Games"
             xmb.depth == XoraXmbDepth.Roms -> "Games"
+            xmb.depth == XoraXmbDepth.Emulator -> "XOrA Emulator"
             else -> xmb.category.label
         }
         val catLabelWidth = 120.dp
         AnimatedContent(
             targetState = catLabel,
             transitionSpec = {
-                fadeIn(tween(ArcadiaMotion.Fast)) togetherWith fadeOut(tween(ArcadiaMotion.Fast))
+                (
+                    fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
+                        slideInHorizontally(tween(XMB_SCROLL_MS, easing = FastOutSlowInEasing)) { it / 5 }
+                    ) togetherWith fadeOut(tween(110, easing = FastOutSlowInEasing))
             },
             label = "catLabel",
             modifier = Modifier
@@ -577,8 +586,7 @@ private fun XmbCross(
             )
         }
 
-        // ——— Vertical items ———
-        // Fixed glyph slot width keeps every icon column and every title column on one X.
+        // ——— Vertical items (glyphs slide through a fixed focus slot) ———
         if (items.isEmpty()) {
             XoraSecondaryText(
                 text = "Nothing here yet",
@@ -601,16 +609,20 @@ private fun XmbCross(
                 val focus = (1f - distance).coerceIn(0f, 1f)
                 val selected = index == xmb.itemIndex
                 val scale = when {
-                    distance < 0.5f -> if (browsingBoxes) lerp(1f, 1.08f, focus) else lerp(1f, 1.05f, focus)
-                    distance < 1.5f -> 0.92f
-                    distance < 2.5f -> 0.84f
-                    else -> 0.76f
+                    distance < 0.5f -> if (browsingBoxes) {
+                        lerp(1f, 1.22f, focus)
+                    } else {
+                        lerp(1f, 1.48f, focus)
+                    }
+                    distance < 1.5f -> if (browsingBoxes) 0.9f else 0.88f
+                    distance < 2.5f -> if (browsingBoxes) 0.8f else 0.78f
+                    else -> 0.7f
                 }
                 val alpha = when {
                     distance < 0.5f -> 1f
-                    distance < 1.5f -> 0.62f
-                    distance < 2.5f -> 0.38f
-                    distance < 3.5f -> 0.22f
+                    distance < 1.5f -> 0.72f
+                    distance < 2.5f -> 0.42f
+                    distance < 3.5f -> 0.24f
                     else -> 0.1f
                 }
                 val boxWidth = if (browsingBoxes) {
@@ -619,19 +631,23 @@ private fun XmbCross(
                     itemIcon
                 }
                 val boxHeight = if (browsingBoxes) boxWidth * boxAspect else boxWidth
-                val yPx = itemFocusYPx - itemRowPx / 2f + itemPitchPx * delta
+                // Expand spacing around the focus slot so the selected glyph can breathe.
+                val yPx = itemFocusYPx - itemRowPx / 2f + xmbItemOffsetY(delta, itemPitchPx)
                 val xPx = crossXPx - glyphSlotPx / 2f
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .graphicsLayer {
                             translationX = xPx
                             translationY = yPx
                             this.alpha = alpha * enterAlpha
+                            scaleX = scale
+                            scaleY = scale
+                            transformOrigin = TransformOrigin.Center
                         }
+                        .width(glyphSlot)
                         .height(itemRow)
-                        .widthIn(max = if (browsingBoxes) 560.dp else 460.dp)
                         .clickable(
                             interactionSource = remember(item.id) { MutableInteractionSource() },
                             indication = null,
@@ -639,59 +655,84 @@ private fun XmbCross(
                             if (selected) onActivateItem() else onSelectItem(index)
                         },
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .width(glyphSlot)
-                            .height(itemRow)
-                            .graphicsLayer {
-                                scaleX = scale
-                                scaleY = scale
-                                transformOrigin = TransformOrigin.Center
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        XmbItemGlyph(
-                            title = item.title,
-                            artPath = item.artPath,
-                            icon = item.icon,
-                            selected = selected,
-                            width = boxWidth,
-                            height = boxHeight,
-                            boxArt = browsingBoxes,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(glyphGap))
-                    if (browsingRoms) {
-                        Box(
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp)
-                                .width(1.5.dp)
-                                .fillMaxHeight(0.7f)
-                                .align(Alignment.CenterVertically)
-                                .background(Color.White.copy(alpha = 0.35f)),
-                        )
-                        XmbRomTitle(
-                            title = item.title,
-                            logoPath = item.logoPath,
-                            subtitle = item.subtitle,
-                            selected = selected,
-                            titleStyle = xmb.titleStyle,
-                            playTimeMs = item.playTimeMs,
-                        )
-                    } else {
-                        Column(modifier = Modifier.widthIn(max = 360.dp)) {
-                            XoraTitleText(
-                                text = item.title,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                fontSize = if (selected) 18.sp else 14.sp,
-                                maxLines = 1,
+                    XmbItemGlyph(
+                        title = item.title,
+                        artPath = item.artPath,
+                        icon = item.icon,
+                        selected = selected,
+                        width = boxWidth,
+                        height = boxHeight,
+                        boxArt = browsingBoxes,
+                    )
+                }
+            }
+
+            // Title / metadata stay in the focus slot — fade out old, slide in new from the right.
+            val focusItem = items.getOrNull(xmb.itemIndex)
+            if (focusItem != null) {
+                val detailX = crossXPx + glyphSlotPx / 2f + glyphGapPx
+                AnimatedContent(
+                    targetState = FocusDetail(
+                        id = focusItem.id,
+                        title = focusItem.title,
+                        subtitle = focusItem.subtitle,
+                        logoPath = focusItem.logoPath,
+                        playTimeMs = focusItem.playTimeMs,
+                        browsingRoms = browsingRoms,
+                        titleStyle = xmb.titleStyle,
+                    ),
+                    transitionSpec = {
+                        (
+                            fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
+                                slideInHorizontally(
+                                    tween(XMB_SCROLL_MS, easing = FastOutSlowInEasing),
+                                ) { it / 5 }
+                            ) togetherWith fadeOut(tween(110, easing = FastOutSlowInEasing))
+                    },
+                    contentKey = { it.id },
+                    label = "xmbFocusDetail",
+                    modifier = Modifier
+                        .graphicsLayer {
+                            translationX = detailX
+                            translationY = itemFocusYPx - with(density) { 28.dp.toPx() }
+                            alpha = enterAlpha
+                        }
+                        .widthIn(max = if (browsingBoxes) 420.dp else 360.dp),
+                ) { detail ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (detail.browsingRoms) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(end = 12.dp)
+                                    .width(1.5.dp)
+                                    .height(72.dp)
+                                    .background(Color.White.copy(alpha = 0.35f)),
                             )
-                            if (selected && !item.subtitle.isNullOrBlank()) {
-                                XoraSecondaryText(
-                                    text = item.subtitle,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
+                        }
+                        if (detail.browsingRoms) {
+                            XmbRomTitle(
+                                title = detail.title,
+                                logoPath = detail.logoPath,
+                                subtitle = detail.subtitle,
+                                selected = true,
+                                titleStyle = detail.titleStyle,
+                                playTimeMs = detail.playTimeMs,
+                            )
+                        } else {
+                            Column(modifier = Modifier.widthIn(max = 360.dp)) {
+                                XoraTitleText(
+                                    text = detail.title,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 20.sp,
+                                    maxLines = 2,
                                 )
+                                if (!detail.subtitle.isNullOrBlank()) {
+                                    XoraSecondaryText(
+                                        text = detail.subtitle,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                    )
+                                }
                             }
                         }
                     }
@@ -699,6 +740,73 @@ private fun XmbCross(
             }
         }
     }
+}
+
+private data class FocusDetail(
+    val id: String,
+    val title: String,
+    val subtitle: String?,
+    val logoPath: String?,
+    val playTimeMs: Long,
+    val browsingRoms: Boolean,
+    val titleStyle: XmbTitleStyle,
+)
+
+/** Ambient drift + selection parallax for wallpaper / hero plates. */
+@Composable
+private fun rememberXmbBackdropMotion(
+    categoryIndex: Int,
+    itemIndex: Int,
+    launchScale: Float,
+): Modifier {
+    val reduceMotion = rememberReduceMotion()
+    val parallaxX by animateFloatAsState(
+        targetValue = if (reduceMotion) 0f else categoryIndex * 14f,
+        animationSpec = tween(
+            durationMillis = if (reduceMotion) 0 else XMB_SCROLL_MS,
+            easing = FastOutSlowInEasing,
+        ),
+        label = "xmbParallaxX",
+    )
+    val parallaxY by animateFloatAsState(
+        targetValue = if (reduceMotion) 0f else itemIndex * 10f,
+        animationSpec = tween(
+            durationMillis = if (reduceMotion) 0 else XMB_SCROLL_MS,
+            easing = FastOutSlowInEasing,
+        ),
+        label = "xmbParallaxY",
+    )
+    val ambientPhase by rememberInfiniteTransition(label = "xmbAmbient").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 18_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "xmbAmbientPhase",
+    )
+    val phase = if (reduceMotion) 0f else ambientPhase
+    val ambX = sin(phase * PI * 2.0).toFloat() * 12f
+    val ambY = cos(phase * PI * 2.0).toFloat() * 8f
+    return Modifier.graphicsLayer {
+        val base = 1.045f * launchScale
+        scaleX = base
+        scaleY = base
+        translationX = -parallaxX + ambX
+        translationY = -parallaxY * 0.55f + ambY
+    }
+}
+
+/** Vertical distance from focus with extra breathing room around the selected slot. */
+private fun xmbItemOffsetY(delta: Float, pitchPx: Float): Float {
+    val absDelta = abs(delta)
+    val expand = 0.32f
+    val shaped = if (absDelta <= 1f) {
+        absDelta * (1f + expand)
+    } else {
+        (1f + expand) + (absDelta - 1f)
+    }
+    return sign(delta) * shaped * pitchPx
 }
 
 private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)
@@ -780,19 +888,21 @@ private fun XmbItemGlyph(
     val cornerPx = 16.dp
     val glow = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
     val rim = Color.White.copy(alpha = 0.95f)
+    val isVectorIcon = artPath.isNullOrBlank() && !boxArt
     Box(
         modifier = modifier
             .width(width)
             .height(height)
             .then(
-                if (boxArt) {
-                    Modifier
+                when {
+                    boxArt -> Modifier
                         .graphicsLayer {
-                            shadowElevation = if (selected) 20f else 12f
+                            // Soft drop only — no mirror / oval reflection under the tile.
+                            shadowElevation = if (selected) 14f else 8f
                             this.shape = shape
                             clip = false
-                            ambientShadowColor = Color.Black.copy(alpha = 0.55f)
-                            spotShadowColor = Color.Black.copy(alpha = 0.72f)
+                            ambientShadowColor = Color.Black.copy(alpha = 0.45f)
+                            spotShadowColor = Color.Black.copy(alpha = 0.55f)
                         }
                         .drawWithContent {
                             drawContent()
@@ -822,13 +932,21 @@ private fun XmbItemGlyph(
                             color = if (selected) rim else Color.Transparent,
                             shape = shape,
                         )
-                } else {
-                    Modifier.clip(shape)
+                    isVectorIcon -> Modifier
+                        .clip(shape)
+                        .border(
+                            width = if (selected) 2.dp else 1.5.dp,
+                            color = Color.Black,
+                            shape = shape,
+                        )
+                    else -> Modifier.clip(shape)
                 },
             )
             .background(
                 when {
                     !artPath.isNullOrBlank() -> Color.Black.copy(alpha = 0.35f)
+                    // Solid plate — no frosted / translucent circle behind vector glyphs.
+                    isVectorIcon -> if (selected) Color(0xFF1A1D24) else Color(0xFF101218)
                     selected -> Color.White.copy(alpha = 0.16f)
                     else -> Color.White.copy(alpha = 0.08f)
                 },
@@ -848,8 +966,9 @@ private fun XmbItemGlyph(
         } else {
             XmbVectorIcon(
                 icon = icon,
-                tint = Color.White.copy(alpha = if (selected) 1f else 0.85f),
+                tint = Color.White,
                 size = minOf(width, height) * 0.5f,
+                outlined = true,
             )
         }
     }
@@ -933,6 +1052,7 @@ private fun XoraXmbPillChrome(
     onActivateAccountRow: (Int?) -> Unit,
     onSelectSystemRow: (Int) -> Unit,
     onActivateSystemRow: (Int?) -> Unit,
+    onOpenNotifications: () -> Unit,
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
     onRequestLocalAvatar: () -> Unit,
@@ -986,9 +1106,11 @@ private fun XoraXmbPillChrome(
                 jumpBackGames = state.quickLaunchGames.take(3),
                 expanded = state.systemPanelExpanded && !launching,
                 selectedRowIndex = state.systemPanelSelectedIndex,
+                notificationUnreadCount = state.notificationUnreadCount,
                 onToggle = onToggleSystemPanel,
                 onSelectRow = onSelectSystemRow,
                 onActivateRow = onActivateSystemRow,
+                onOpenNotifications = onOpenNotifications,
             )
         }
 
@@ -1025,26 +1147,27 @@ private fun XoraXmbPillChrome(
 private const val CROSS_X_FRACTION = 0.28f
 /** Category strip sits in the upper third (PS3 XMB). */
 private const val CATEGORY_Y_FRACTION = 0.30f
+/** Ease-out slide duration for category / item cursors and focus titles. */
+private const val XMB_SCROLL_MS = 340
 /** Focused item center sits below the category strip + label. */
 private val CATEGORY_TO_ITEM_GAP = 110.dp
 private const val VISIBLE_ITEM_RADIUS = 4
-private const val ITEM_SLOT_COUNT = VISIBLE_ITEM_RADIUS * 2 + 1
-private val CATEGORY_PITCH = 88.dp
-private val ITEM_PITCH = 52.dp
+private val CATEGORY_PITCH = 96.dp
+private val ITEM_PITCH = 58.dp
 private val CATEGORY_ICON = 52.dp
 private val ITEM_ICON = 42.dp
-private val ITEM_ROW = 50.dp
+private val ITEM_ROW = 56.dp
 /** Landscape 16:9 ROM box (height = width × [ROM_BOX_ASPECT]). */
 private val ROM_BOX_WIDTH = 128.dp
-private val ROM_BOX_WIDTH_FOCUS = 168.dp
+private val ROM_BOX_WIDTH_FOCUS = 176.dp
 private const val ROM_BOX_ASPECT = 9f / 16f
-private val ROM_ITEM_ROW = 108.dp
-private val ROM_ITEM_PITCH = 96.dp
+private val ROM_ITEM_ROW = 118.dp
+private val ROM_ITEM_PITCH = 104.dp
 private val ROM_LOGO_HEIGHT = 42.dp
 private val ROM_LOGO_HEIGHT_FOCUS = 64.dp
 /** Console product art (ScreenScraper illustration/photo) — near-square card. */
 private val SYSTEM_BOX_WIDTH = 96.dp
-private val SYSTEM_BOX_WIDTH_FOCUS = 124.dp
+private val SYSTEM_BOX_WIDTH_FOCUS = 132.dp
 private const val SYSTEM_BOX_ASPECT = 1.05f
-private val SYSTEM_ITEM_ROW = 148.dp
-private val SYSTEM_ITEM_PITCH = 132.dp
+private val SYSTEM_ITEM_ROW = 156.dp
+private val SYSTEM_ITEM_PITCH = 140.dp

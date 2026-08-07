@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -47,6 +48,7 @@ enum class XmbIcon {
     News,
     System,
     GamePad,
+    Emulator,
 }
 
 fun XoraXmbCategory.toXmbIcon(): XmbIcon = when (this) {
@@ -64,6 +66,8 @@ fun XmbVectorIcon(
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
     size: Dp = 28.dp,
+    /** Soft black halo so glyphs stay readable over bright hero art (no glass / reflection). */
+    outlined: Boolean = true,
 ) {
     Canvas(modifier = modifier.size(size)) {
         val stroke = Stroke(
@@ -71,37 +75,62 @@ fun XmbVectorIcon(
             cap = StrokeCap.Round,
             join = StrokeJoin.Round,
         )
-        when (icon) {
-            XmbIcon.Profiles -> drawProfiles(tint, stroke)
-            XmbIcon.Settings -> drawSettingsToolbox(tint, stroke)
-            XmbIcon.Games -> drawController(tint, stroke)
-            XmbIcon.Media -> drawCamera(tint, stroke)
-            XmbIcon.Music -> drawNote(tint, stroke)
-            XmbIcon.Network -> drawGlobe(tint, stroke)
-            XmbIcon.User -> drawUser(tint, stroke)
-            XmbIcon.Guest -> drawGuest(tint, stroke)
-            XmbIcon.General -> drawGear(tint, stroke)
-            XmbIcon.Display -> drawMonitor(tint, stroke)
-            XmbIcon.Themes -> drawPalette(tint, stroke)
-            XmbIcon.Sound -> drawSpeaker(tint, stroke)
-            XmbIcon.Scrape -> drawScrape(tint, stroke)
-            XmbIcon.Social -> drawChat(tint, stroke)
-            XmbIcon.Notifications -> drawBell(tint, stroke)
-            XmbIcon.Trophy -> drawTrophy(tint, stroke)
-            XmbIcon.Continue -> drawPlay(tint, stroke)
-            XmbIcon.Favorite -> drawStar(tint, stroke)
-            XmbIcon.Folder -> drawFolder(tint, stroke)
-            XmbIcon.Photo -> drawCamera(tint, stroke)
-            XmbIcon.Video -> drawFilm(tint, stroke)
-            XmbIcon.NowPlaying -> drawNote(tint, stroke)
-            XmbIcon.Playlist -> drawList(tint, stroke)
-            XmbIcon.Dsp -> drawWave(tint, stroke)
-            XmbIcon.Friends -> drawFriends(tint, stroke)
-            XmbIcon.Store -> drawBag(tint, stroke)
-            XmbIcon.News -> drawNews(tint, stroke)
-            XmbIcon.System -> drawSystemCube(tint, stroke)
-            XmbIcon.GamePad -> drawController(tint, stroke)
+        if (outlined) {
+            val outline = size.toPx() * 0.055f
+            val ink = Color.Black
+            // 8-direction outline so strokes and fills both get a solid black edge.
+            val offsets = arrayOf(
+                Offset(-outline, 0f),
+                Offset(outline, 0f),
+                Offset(0f, -outline),
+                Offset(0f, outline),
+                Offset(-outline, -outline),
+                Offset(outline, -outline),
+                Offset(-outline, outline),
+                Offset(outline, outline),
+            )
+            for (o in offsets) {
+                translate(o.x, o.y) {
+                    drawXmbIconContent(icon, ink, stroke)
+                }
+            }
         }
+        drawXmbIconContent(icon, tint, stroke)
+    }
+}
+
+private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Stroke) {
+    when (icon) {
+        XmbIcon.Profiles -> drawProfiles(tint, stroke)
+        XmbIcon.Settings -> drawSettingsToolbox(tint, stroke)
+        XmbIcon.Games -> drawController(tint, stroke)
+        XmbIcon.Media -> drawCamera(tint, stroke)
+        XmbIcon.Music -> drawNote(tint, stroke)
+        XmbIcon.Network -> drawGlobe(tint, stroke)
+        XmbIcon.User -> drawUser(tint, stroke)
+        XmbIcon.Guest -> drawGuest(tint, stroke)
+        XmbIcon.General -> drawGear(tint, stroke)
+        XmbIcon.Display -> drawMonitor(tint, stroke)
+        XmbIcon.Themes -> drawPalette(tint, stroke)
+        XmbIcon.Sound -> drawSpeaker(tint, stroke)
+        XmbIcon.Scrape -> drawScrape(tint, stroke)
+        XmbIcon.Social -> drawChat(tint, stroke)
+        XmbIcon.Notifications -> drawBell(tint, stroke)
+        XmbIcon.Trophy -> drawTrophy(tint, stroke)
+        XmbIcon.Emulator -> drawController(tint, stroke)
+        XmbIcon.Continue -> drawPlay(tint, stroke)
+        XmbIcon.Favorite -> drawStar(tint, stroke)
+        XmbIcon.Folder -> drawFolder(tint, stroke)
+        XmbIcon.Photo -> drawCamera(tint, stroke)
+        XmbIcon.Video -> drawFilm(tint, stroke)
+        XmbIcon.NowPlaying -> drawNote(tint, stroke)
+        XmbIcon.Playlist -> drawList(tint, stroke)
+        XmbIcon.Dsp -> drawWave(tint, stroke)
+        XmbIcon.Friends -> drawFriends(tint, stroke)
+        XmbIcon.Store -> drawBag(tint, stroke)
+        XmbIcon.News -> drawNews(tint, stroke)
+        XmbIcon.System -> drawSystemCube(tint, stroke)
+        XmbIcon.GamePad -> drawController(tint, stroke)
     }
 }
 

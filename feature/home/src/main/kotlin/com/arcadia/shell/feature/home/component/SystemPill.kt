@@ -101,9 +101,11 @@ fun SystemPill(
     jumpBackGames: List<Game>,
     expanded: Boolean,
     selectedRowIndex: Int,
+    notificationUnreadCount: Int = 0,
     onToggle: () -> Unit,
     onSelectRow: (Int) -> Unit,
     onActivateRow: (Int?) -> Unit,
+    onOpenNotifications: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -166,16 +168,18 @@ fun SystemPill(
         modifier = modifier.widthIn(max = if (expanded) 360.dp else 300.dp),
         horizontalAlignment = Alignment.End,
     ) {
-        // Collapsed status pill: Wi‑Fi · time · date · battery · PFP
+        // Collapsed status pill: Wi‑Fi · time · date · battery · bell · PFP
+        // Use a soft rounded bar (not 50% PillShape stadium) so the in-pill circle
+        // isn't clipped into an oval by the round end caps.
         Row(
             modifier = Modifier
                 .liquidGlass(
-                    shape = ArcadiaGlass.PillShape,
+                    shape = RoundedCornerShape(20.dp),
                     tone = GlassTone.OverMedia,
                     intensity = GlassIntensity.Standard,
                 )
                 .clickable(onClick = onToggle)
-                .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -207,19 +211,38 @@ fun SystemPill(
                 style = MaterialTheme.typography.labelMedium,
                 color = glass.contentMuted,
             )
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onOpenNotifications),
+                contentAlignment = Alignment.Center,
+            ) {
+                BellIcon(
+                    tint = Color(0xFFFFC857),
+                    showBadge = notificationUnreadCount > 0,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
             Box {
                 ProfileAvatar(
                     displayName = profile.displayName,
                     presetId = profile.avatarPresetId,
-                    size = 30.dp,
+                    size = 40.dp,
                     imageModel = avatarImageModel,
                     borderColor = Color.White.copy(alpha = 0.45f),
                 )
-                TriggerGlyph(
-                    letter = "R",
+                NotificationDot(
+                    visible = notificationUnreadCount > 0,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = 0.dp),
+                        .padding(top = 1.dp, end = 1.dp),
+                )
+                TriggerGlyph(
+                    letter = "RT",
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(bottom = 0.dp),
                 )
             }
         }
@@ -255,6 +278,7 @@ fun SystemPill(
                     profile = profile,
                     avatarImageModel = avatarImageModel,
                     raScore = raScore,
+                    showNotificationDot = notificationUnreadCount > 0,
                     editSelected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.EditProfile,
                     onEditProfile = {
                         val idx = systemRows.indexOfFirst { it is SystemPanelRow.EditProfile }
@@ -263,6 +287,7 @@ fun SystemPill(
                             onActivateRow(idx)
                         }
                     },
+                    onOpenNotifications = onOpenNotifications,
                     glassContent = glass.content,
                     glassMuted = glass.contentMuted,
                 )
@@ -306,6 +331,57 @@ fun SystemPill(
                     ) { index, row ->
                         val selected = index == selectedRowIndex
                         when (row) {
+                            SystemPanelRow.Notifications -> {
+                                val shape = RoundedCornerShape(14.dp)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(shape)
+                                        .then(
+                                            if (selected) {
+                                                Modifier
+                                                    .background(Color.White.copy(alpha = 0.16f))
+                                                    .border(
+                                                        1.5.dp,
+                                                        FocusRing.copy(alpha = 0.85f),
+                                                        shape,
+                                                    )
+                                            } else {
+                                                Modifier.background(Color.White.copy(alpha = 0.06f))
+                                            },
+                                        )
+                                        .clickable {
+                                            onSelectRow(index)
+                                            onActivateRow(index)
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    BellIcon(
+                                        tint = Color(0xFFFFC857),
+                                        showBadge = notificationUnreadCount > 0,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Notifications",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = glass.content,
+                                        )
+                                        Text(
+                                            text = if (notificationUnreadCount > 0) {
+                                                "$notificationUnreadCount unread"
+                                            } else {
+                                                "History"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = glass.contentMuted,
+                                        )
+                                    }
+                                }
+                            }
                             SystemPanelRow.EditProfile -> Unit // header button handles this
                             is SystemPanelRow.JumpBack -> {
                                 val game = jumpBackGames.firstOrNull { it.id == row.gameId }
@@ -416,8 +492,10 @@ private fun SystemProfileHeader(
     profile: LocalProfile,
     avatarImageModel: String?,
     raScore: Int?,
+    showNotificationDot: Boolean,
     editSelected: Boolean,
     onEditProfile: () -> Unit,
+    onOpenNotifications: () -> Unit,
     glassContent: Color,
     glassMuted: Color,
 ) {
@@ -426,13 +504,35 @@ private fun SystemProfileHeader(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        ProfileAvatar(
-            displayName = profile.displayName,
-            presetId = profile.avatarPresetId,
-            size = 56.dp,
-            imageModel = avatarImageModel,
-            borderColor = Color.White.copy(alpha = 0.4f),
-        )
+        Box {
+            ProfileAvatar(
+                displayName = profile.displayName,
+                presetId = profile.avatarPresetId,
+                size = 72.dp,
+                imageModel = avatarImageModel,
+                borderColor = Color.White.copy(alpha = 0.4f),
+            )
+            NotificationDot(
+                visible = showNotificationDot,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 2.dp, end = 2.dp),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.08f))
+                .clickable(onClick = onOpenNotifications),
+            contentAlignment = Alignment.Center,
+        ) {
+            BellIcon(
+                tint = Color(0xFFFFC857),
+                showBadge = showNotificationDot,
+                modifier = Modifier.size(20.dp),
+            )
+        }
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),

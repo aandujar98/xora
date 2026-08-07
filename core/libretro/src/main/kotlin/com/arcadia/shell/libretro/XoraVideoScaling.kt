@@ -1,5 +1,6 @@
 package com.arcadia.shell.libretro
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -30,10 +31,14 @@ fun XoraScaledGameFrame(
     val h = contentHeightPx.coerceAtLeast(1)
     when (mode) {
         XoraAspectMode.Stretch -> {
-            content(ContentScale.FillBounds)
+            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                content(ContentScale.FillBounds)
+            }
         }
         XoraAspectMode.Core -> {
-            content(ContentScale.Fit)
+            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                content(ContentScale.Fit)
+            }
         }
         XoraAspectMode.Integer -> {
             BoxWithConstraints(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -46,7 +51,7 @@ fun XoraScaledGameFrame(
                 val scale = capped.coerceAtLeast(1)
                 val boxW = with(density) { (w * scale).toDp() }
                 val boxH = with(density) { (h * scale).toDp() }
-                androidx.compose.foundation.layout.Box(
+                Box(
                     modifier = Modifier.size(DpSize(boxW, boxH)),
                     contentAlignment = Alignment.Center,
                 ) {

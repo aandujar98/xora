@@ -39,6 +39,9 @@ import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UI_TEXT_SCALE_PRESETS
 import com.arcadia.shell.datastore.UiFitMode
 import com.arcadia.shell.datastore.XmbTitleStyle
+import com.arcadia.shell.datastore.XoraAspectMode
+import com.arcadia.shell.datastore.XoraEmulatorSettings
+import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.isReduceMotionPreferred
@@ -229,6 +232,8 @@ class HomeViewModel @Inject constructor(
     private val profileEditRequest = MutableStateFlow(0)
     private val systemPanelExpanded = MutableStateFlow(false)
     private val systemPanelSelectedIndex = MutableStateFlow(0)
+    private val notificationHistoryOpen = MutableStateFlow(false)
+    private val notificationHistorySelectedIndex = MutableStateFlow(0)
     private val achievementsPanelExpanded = MutableStateFlow(false)
     private val achievementsUi = MutableStateFlow(AchievementsUiState())
     private val raLibraryUi = MutableStateFlow(RaLibraryUiState())
@@ -239,6 +244,7 @@ class HomeViewModel @Inject constructor(
     private val startSettingsCategory = MutableStateFlow(StartSettingsCategory.Display)
     private val startSettingsRowIndex = MutableStateFlow(0)
     private val raSettingsState = MutableStateFlow(RetroAchievementsSettings())
+    private val xoraEmulatorSettingsState = MutableStateFlow(XoraEmulatorSettings())
     private val welcomeBackOpen = MutableStateFlow(false)
     private val isScraping = MutableStateFlow(false)
     private val lastInputAt = MutableStateFlow(SystemClock.elapsedRealtime())
@@ -466,12 +472,12 @@ class HomeViewModel @Inject constructor(
     )
 
     private val overlayFlow = combine(
-        homePage,
-        rssUi,
-        raLibraryUi,
+        combine(homePage, rssUi, raLibraryUi, ::Triple),
         guideFlow,
         socialFlow,
-    ) { page, rss, ra, guide, social ->
+        xoraEmulatorSettingsState,
+    ) { pageRssRa, guide, social, xoraEmulator ->
+        val (page, rss, ra) = pageRssRa
         OverlayChrome(
             homePage = page,
             rss = rss,
@@ -483,6 +489,7 @@ class HomeViewModel @Inject constructor(
             startSettingsRowIndex = guide.startSettingsRowIndex,
             isScraping = guide.isScraping,
             raSettings = guide.raSettings,
+            xoraEmulator = xoraEmulator,
             social = social,
         )
     }
@@ -640,6 +647,7 @@ class HomeViewModel @Inject constructor(
         val startSettingsRowIndex: Int,
         val isScraping: Boolean,
         val raSettings: RetroAchievementsSettings,
+        val xoraEmulator: XoraEmulatorSettings,
         val social: SocialChrome,
     )
 
@@ -665,6 +673,7 @@ class HomeViewModel @Inject constructor(
             startSettingsRowIndex = overlay.startSettingsRowIndex,
             isScraping = overlay.isScraping,
             raSettings = overlay.raSettings,
+            xoraEmulator = overlay.xoraEmulator,
             social = overlay.social,
             theme = theme,
             platformArtById = platformArt,
@@ -677,18 +686,40 @@ class HomeViewModel @Inject constructor(
         initialValue = HomeUiState(),
     )
 
+    private val notificationChrome = combine(
+        notificationHistoryOpen,
+        notificationHistorySelectedIndex,
+        shellNotifications.history,
+        shellNotifications.unreadCount,
+    ) { open, selected, history, unread ->
+        NotificationChrome(open, selected, history, unread)
+    }
+
+    private data class NotificationChrome(
+        val open: Boolean,
+        val selectedIndex: Int,
+        val history: List<com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem>,
+        val unreadCount: Int,
+    )
+
     val uiState: StateFlow<HomeUiState> = combine(
         libraryUiState,
         trailerPlayback,
         insightUi,
         systemPanelSelectedIndex,
-        welcomeBackOpen,
-    ) { base, trailer, insight, systemIndex, welcomeBack ->
+        combine(welcomeBackOpen, notificationChrome) { welcome, notif -> welcome to notif },
+    ) { base, trailer, insight, systemIndex, welcomeAndNotif ->
+        val (welcomeBack, notif) = welcomeAndNotif
         base.copy(
             trailer = trailer,
             insight = insight,
             systemPanelSelectedIndex = systemIndex,
             welcomeBackOpen = welcomeBack,
+            notificationHistoryOpen = notif.open,
+            notificationHistory = notif.history,
+            notificationUnreadCount = notif.unreadCount,
+            notificationHistorySelectedIndex = notif.selectedIndex
+                .coerceIn(0, (notif.history.size - 1).coerceAtLeast(0)),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -733,6 +764,10 @@ class HomeViewModel @Inject constructor(
 
         preferences.retroAchievementsSettings
             .onEach { raSettingsState.value = it }
+            .launchIn(viewModelScope)
+
+        preferences.xoraEmulatorSettings
+            .onEach { xoraEmulatorSettingsState.value = it }
             .launchIn(viewModelScope)
 
         gamepadDispatcher.actions
@@ -830,8 +865,10 @@ class HomeViewModel @Inject constructor(
                 if (open) {
                     conversationRepository.refreshListenerEnabled()
                 } else {
+                    // Android notification-listener reply draft lives in the Social pill.
+                    // Discord DMs use DiscordConversationWindow — do NOT closeDm() here or
+                    // collapsing Social on open immediately kills the conversation.
                     conversationReply.value = ConversationReplyUiState()
-                    discordRichPresence.closeDm()
                 }
             }
             .launchIn(viewModelScope)
@@ -1121,6 +1158,7 @@ class HomeViewModel @Inject constructor(
         startSettingsRowIndex: Int,
         isScraping: Boolean,
         raSettings: RetroAchievementsSettings,
+        xoraEmulator: XoraEmulatorSettings,
         social: SocialChrome,
         theme: HomeThemeChrome,
         platformArtById: Map<String, String> = emptyMap(),
@@ -1179,6 +1217,7 @@ class HomeViewModel @Inject constructor(
                     allGames.filter { !it.isAndroidApp && it.platformId == platformId },
                 )
             }
+            XoraXmbDepth.Emulator -> buildXoraEmulatorItems(xoraEmulator)
         }
         val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
         val xoraSelected = xoraItems.getOrNull(xoraItemIndex)
@@ -1720,6 +1759,18 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        // Discord conversation window owns A/B while a DM thread is open.
+        if (discordRichPresence.dmThread.value.peerUserId != null) {
+            onDiscordConversationNavAction(action)
+            return
+        }
+
+        // RT notification history overlay.
+        if (state.notificationHistoryOpen) {
+            onNotificationHistoryNavAction(action)
+            return
+        }
+
         // Expanded account panel captures U/D/A/B (LT still toggles via ToggleAccountPanel).
         if (state.accountPanelExpanded) {
             onAccountPanelNavAction(action)
@@ -1861,6 +1912,22 @@ class HomeViewModel @Inject constructor(
                 xoraItemIndex.value = 0
                 xoraDrilledPlatformId.value = null
             }
+            XoraXmbAction.DrillXoraEmulator -> {
+                xoraDepth.value = XoraXmbDepth.Emulator
+                xoraItemIndex.value = 0
+                xoraDrilledPlatformId.value = null
+            }
+            is XoraXmbAction.ToggleXoraEmulatorSetting ->
+                toggleXoraEmulatorSetting(action.setting)
+            XoraXmbAction.OpenFullXoraEmulatorSetup ->
+                emit(HomeEvent.OpenSettings)
+            // In-emulator XMB actions — only handled inside XoraLibretroActivity.
+            XoraXmbAction.ResumeGame,
+            XoraXmbAction.QuitGame,
+            XoraXmbAction.SaveGameState,
+            XoraXmbAction.LoadGameState,
+            XoraXmbAction.ResetGame,
+            -> Unit
             XoraXmbAction.PhotosStub ->
                 emit(HomeEvent.ShowMessage("Photos — coming soon."))
             XoraXmbAction.VideosStub ->
@@ -1917,6 +1984,51 @@ class HomeViewModel @Inject constructor(
         launchGame(target)
     }
 
+    private fun toggleXoraEmulatorSetting(setting: XoraEmulatorXmbSetting) {
+        viewModelScope.launch {
+            val current = preferences.xoraEmulatorSettings.first()
+            when (setting) {
+                XoraEmulatorXmbSetting.Aspect -> {
+                    val next = when (current.aspectMode) {
+                        XoraAspectMode.Core -> XoraAspectMode.Integer
+                        XoraAspectMode.Integer -> XoraAspectMode.Stretch
+                        XoraAspectMode.Stretch -> XoraAspectMode.Core
+                    }
+                    preferences.setXoraAspectMode(next)
+                }
+                XoraEmulatorXmbSetting.Bezels ->
+                    preferences.setXoraBezelsEnabled(!current.bezelsEnabled)
+                XoraEmulatorXmbSetting.BezelOpacity -> {
+                    val stepped = ((current.bezelOpacity * 100f).toInt() + 10).let { raw ->
+                        if (raw > 100) 40 else raw
+                    }
+                    preferences.setXoraBezelOpacity(stepped / 100f)
+                }
+                XoraEmulatorXmbSetting.InternalResolution -> {
+                    val values = XoraInternalResolution.entries
+                    val i = values.indexOf(current.internalResolution).coerceAtLeast(0)
+                    preferences.setXoraInternalResolution(values[(i + 1) % values.size])
+                }
+                XoraEmulatorXmbSetting.ExpandDualDisplay ->
+                    preferences.setXoraExpandDualDisplay(!current.expandDualDisplay)
+                XoraEmulatorXmbSetting.PreferredController -> {
+                    val names = listOf("") +
+                        com.arcadia.shell.libretro.LibretroPad.connectedControllerNames()
+                    val idx = names.indexOf(current.preferredControllerName).let {
+                        if (it >= 0) it else 0
+                    }
+                    preferences.setXoraPreferredControllerName(names[(idx + 1) % names.size])
+                }
+                XoraEmulatorXmbSetting.ClearButtonMappings -> {
+                    preferences.clearXoraButtonMappings()
+                    emit(HomeEvent.ShowMessage("Custom button mappings cleared."))
+                }
+                XoraEmulatorXmbSetting.Netplay ->
+                    preferences.setXoraNetplayEnabled(!current.netplayEnabled)
+            }
+        }
+    }
+
     private fun drillOutXora() {
         noteUserActivity()
         when (xoraDepth.value) {
@@ -1925,7 +2037,9 @@ class HomeViewModel @Inject constructor(
                 xoraItemIndex.value = 0
                 xoraDrilledPlatformId.value = null
             }
-            XoraXmbDepth.Systems -> {
+            XoraXmbDepth.Systems,
+            XoraXmbDepth.Emulator,
+            -> {
                 xoraDepth.value = XoraXmbDepth.Category
                 xoraItemIndex.value = 0
                 xoraDrilledPlatformId.value = null
@@ -2730,12 +2844,10 @@ class HomeViewModel @Inject constructor(
         when (action) {
             NavAction.Left, NavAction.PreviousPlatform -> {
                 clearConversationReply()
-                discordRichPresence.closeDm()
                 cycleSocialMenuTab(-1)
             }
             NavAction.Right, NavAction.NextPlatform -> {
                 clearConversationReply()
-                discordRichPresence.closeDm()
                 cycleSocialMenuTab(1)
             }
             NavAction.Up -> moveAccountPanelSelection(-1)
@@ -2790,6 +2902,7 @@ class HomeViewModel @Inject constructor(
             systemPanelSelectedIndex.value = index.coerceIn(0, rows.lastIndex)
         }
         when (val row = rows.getOrNull(rowIndex)) {
+            SystemPanelRow.Notifications -> openNotificationHistory()
             SystemPanelRow.EditProfile -> profileEditRequest.update { it + 1 }
             is SystemPanelRow.JumpBack -> {
                 val game = uiState.value.quickLaunchGames.firstOrNull { it.id == row.gameId } ?: return
@@ -2801,6 +2914,60 @@ class HomeViewModel @Inject constructor(
             SystemPanelRow.Bluetooth -> openSystemSettings(Settings.ACTION_BLUETOOTH_SETTINGS)
             SystemPanelRow.AllSettings -> openSystemSettings(Settings.ACTION_SETTINGS)
             null -> Unit
+        }
+    }
+
+    fun openNotificationHistory() {
+        noteUserActivity()
+        systemPanelExpanded.value = false
+        accountPanelExpanded.value = false
+        achievementsPanelExpanded.value = false
+        notificationHistorySelectedIndex.value = 0
+        notificationHistoryOpen.value = true
+        shellNotifications.markAllRead()
+    }
+
+    fun closeNotificationHistory() {
+        noteUserActivity()
+        notificationHistoryOpen.value = false
+    }
+
+    fun selectNotificationHistoryIndex(index: Int) {
+        noteUserActivity()
+        val last = (uiState.value.notificationHistory.size - 1).coerceAtLeast(0)
+        notificationHistorySelectedIndex.value = index.coerceIn(0, last)
+    }
+
+    fun clearNotificationHistory() {
+        noteUserActivity()
+        shellNotifications.clearHistory()
+        notificationHistorySelectedIndex.value = 0
+    }
+
+    private fun onNotificationHistoryNavAction(action: NavAction) {
+        when (action) {
+            NavAction.Up -> {
+                val last = (uiState.value.notificationHistory.size - 1).coerceAtLeast(0)
+                notificationHistorySelectedIndex.update { (it - 1).coerceIn(0, last) }
+            }
+            NavAction.Down -> {
+                val last = (uiState.value.notificationHistory.size - 1).coerceAtLeast(0)
+                notificationHistorySelectedIndex.update { (it + 1).coerceIn(0, last) }
+            }
+            NavAction.Cancel, NavAction.ToggleSystemPanel -> closeNotificationHistory()
+            NavAction.Confirm -> Unit
+            else -> Unit
+        }
+    }
+
+    private fun onDiscordConversationNavAction(action: NavAction) {
+        when (action) {
+            NavAction.Confirm -> {
+                viewModelScope.launch { discordRichPresence.sendDm() }
+            }
+            NavAction.Cancel -> handleDiscordDmBack()
+            NavAction.ToggleAccountPanel -> toggleAccountPanel()
+            else -> Unit
         }
     }
 
@@ -2819,7 +2986,6 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         if (socialMenuTab.value == tab) return
         clearConversationReply()
-        discordRichPresence.closeDm()
         socialMenuTab.value = tab
         accountPanelSelectedIndex.value = 0
         conversationRepository.refreshListenerEnabled()
@@ -2965,9 +3131,19 @@ class HomeViewModel @Inject constructor(
         if (thread.draft.isNotBlank()) {
             discordRichPresence.updateDmDraft("")
         } else {
-            discordRichPresence.closeDm()
-            accountPanelSelectedIndex.value = 0
+            closeOpenDiscordDm()
         }
+    }
+
+    fun sendOpenDiscordDm() {
+        noteUserActivity()
+        viewModelScope.launch { discordRichPresence.sendDm() }
+    }
+
+    fun closeOpenDiscordDm() {
+        noteUserActivity()
+        discordRichPresence.closeDm()
+        accountPanelSelectedIndex.value = 0
     }
 
     private fun clearConversationReply() {
@@ -3079,27 +3255,15 @@ class HomeViewModel @Inject constructor(
         if (sdkReady) {
             socialMenuTab.value = SocialMenuTab.Discord
             managingCircle.value = false
+            // Open the DM first, then collapse Social. Chat lives in DiscordConversationWindow
+            // (not inside the pill), so collapsing must never call closeDm().
             discordRichPresence.openDm(
                 userId = userId,
                 displayName = friend?.displayName ?: userId,
                 avatarUrl = friend?.avatarUrl,
             )
-            val rows = buildAccountPanelRows(
-                tab = SocialMenuTab.Discord,
-                steam = social.steam,
-                discord = social.discord,
-                conversations = social.conversations,
-                reply = social.reply,
-                discordDm = DiscordDmThreadUiState(peerUserId = userId),
-                circlePins = social.circlePins,
-                managingCircle = false,
-                friendSearchQuery = social.friendSearchQuery,
-            )
-            val sendIndex = rows.indexOfFirst { it is AccountPanelRow.DiscordDmSend }
-            if (sendIndex >= 0) {
-                accountPanelSelectedIndex.value = sendIndex
-            }
-            emit(HomeEvent.ShowMessage("Type a message, then press A on Send."))
+            accountPanelExpanded.value = false
+            emit(HomeEvent.ShowMessage("Conversation open · A send · B close"))
             return
         }
         val matchingConvo = social.conversations.discordConversations.firstOrNull { convo ->
@@ -3968,11 +4132,16 @@ class HomeViewModel @Inject constructor(
 
     fun toggleSystemPanel() {
         noteUserActivity()
+        if (notificationHistoryOpen.value) {
+            closeNotificationHistory()
+            return
+        }
         val opening = !systemPanelExpanded.value
         systemPanelExpanded.value = opening
         if (opening) {
             accountPanelExpanded.value = false
             achievementsPanelExpanded.value = false
+            // Focus the Notifications (bell) row first.
             systemPanelSelectedIndex.value = 0
             refreshSystemPanelRaChrome()
         }
@@ -3993,6 +4162,7 @@ class HomeViewModel @Inject constructor(
         accountPanelExpanded.value = false
         systemPanelExpanded.value = false
         achievementsPanelExpanded.value = false
+        notificationHistoryOpen.value = false
     }
 
     fun saveProfile(displayName: String, avatarPresetId: String) {
