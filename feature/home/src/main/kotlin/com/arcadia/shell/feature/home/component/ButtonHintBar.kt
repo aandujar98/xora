@@ -94,6 +94,7 @@ fun hintsForPage(
         homeHub?.vitaShortcutTrayOpen == true -> VitaShortcutTrayHints
         xmbDepth == XoraXmbDepth.Systems -> XoraSystemBrowseHints
         xmbDepth == XoraXmbDepth.Roms -> XoraRomBrowseHints
+        xmbDepth == XoraXmbDepth.DspAccounts -> XoraDspBrowseHints
         else -> XoraXmbHints
     }
     HomePage.GameSelector -> if (displayMode == DisplayMode.Single) {
@@ -127,6 +128,16 @@ val XoraSystemBrowseHints: List<Pair<String, String>> = listOf(
     "A" to "Open",
     "B" to "Back",
     "Select" to "Console art",
+    "LT" to "Circle",
+    "RT" to "Profile / Alerts",
+    "Start" to "Settings",
+)
+
+/** Music → Link DSP Accounts. */
+val XoraDspBrowseHints: List<Pair<String, String>> = listOf(
+    "U/D" to "Service",
+    "A" to "Link",
+    "B" to "Back",
     "LT" to "Circle",
     "RT" to "Profile / Alerts",
     "Start" to "Settings",

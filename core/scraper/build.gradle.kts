@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.serialization)
@@ -5,12 +7,24 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+val spotifyClientId = localProperties.getProperty("spotify.client.id", "").orEmpty()
+
 android {
     namespace = "com.arcadia.shell.scraper"
     compileSdk = 37
 
     defaultConfig {
         minSdk = 29
+        // Public Spotify app Client ID (no secret). Set spotify.client.id in local.properties.
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"${spotifyClientId.replace("\"", "\\\"")}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
