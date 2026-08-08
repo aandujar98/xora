@@ -15,6 +15,14 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Where a rung's music comes from. */
+enum class MusicSource {
+    /** MediaStore audio on this device. */
+    Device,
+    /** A linked Spotify account, played through Spotify's own player. */
+    Spotify,
+}
+
 /** An album or playlist rung in the Music browser. */
 data class MusicAlbum(
     val id: String,
@@ -24,6 +32,9 @@ data class MusicAlbum(
     val artUri: String?,
     val trackCount: Int,
     val isPlaylist: Boolean = false,
+    val source: MusicSource = MusicSource.Device,
+    /** Playback context for remote sources, e.g. `spotify:playlist:…`. */
+    val remoteUri: String? = null,
 )
 
 /** One song under an album or playlist. */
@@ -36,6 +47,9 @@ data class MusicTrack(
     val durationMs: Long,
     /** Playable content uri — used once the media player lands. */
     val contentUri: String,
+    val source: MusicSource = MusicSource.Device,
+    /** Playback context this track belongs to, so Spotify can keep queue order. */
+    val contextUri: String? = null,
 )
 
 /**
