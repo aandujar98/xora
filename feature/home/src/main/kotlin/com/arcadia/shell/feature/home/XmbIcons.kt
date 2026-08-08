@@ -43,6 +43,9 @@ enum class XmbIcon {
     NowPlaying,
     Playlist,
     Dsp,
+    Spotify,
+    AppleMusic,
+    YoutubeMusic,
     Friends,
     Store,
     News,
@@ -126,6 +129,9 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.NowPlaying -> drawNote(tint, stroke)
         XmbIcon.Playlist -> drawList(tint, stroke)
         XmbIcon.Dsp -> drawWave(tint, stroke)
+        XmbIcon.Spotify -> drawSpotify(tint, stroke)
+        XmbIcon.AppleMusic -> drawAppleMusic(tint, stroke)
+        XmbIcon.YoutubeMusic -> drawYoutubeMusic(tint, stroke)
         XmbIcon.Friends -> drawFriends(tint, stroke)
         XmbIcon.Store -> drawBag(tint, stroke)
         XmbIcon.News -> drawNews(tint, stroke)
@@ -521,4 +527,74 @@ private fun DrawScope.drawSystemCube(tint: Color, stroke: Stroke) {
         strokeWidth = stroke.width,
         cap = StrokeCap.Round,
     )
+}
+
+/** Circle with three arcs — recognisable as Spotify without brand fill. */
+private fun DrawScope.drawSpotify(tint: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    drawCircle(tint, radius = w * 0.36f, center = Offset(w * 0.5f, h * 0.5f), style = stroke)
+    drawArc(
+        color = tint,
+        startAngle = 200f,
+        sweepAngle = 140f,
+        useCenter = false,
+        topLeft = Offset(w * 0.28f, h * 0.32f),
+        size = Size(w * 0.44f, h * 0.28f),
+        style = stroke,
+    )
+    drawArc(
+        color = tint,
+        startAngle = 200f,
+        sweepAngle = 140f,
+        useCenter = false,
+        topLeft = Offset(w * 0.32f, h * 0.44f),
+        size = Size(w * 0.36f, h * 0.22f),
+        style = stroke,
+    )
+    drawArc(
+        color = tint,
+        startAngle = 200f,
+        sweepAngle = 140f,
+        useCenter = false,
+        topLeft = Offset(w * 0.36f, h * 0.54f),
+        size = Size(w * 0.28f, h * 0.18f),
+        style = stroke,
+    )
+}
+
+/** Note with a simple apple-leaf curl. */
+private fun DrawScope.drawAppleMusic(tint: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    drawNote(tint, stroke)
+    drawArc(
+        color = tint,
+        startAngle = 210f,
+        sweepAngle = 120f,
+        useCenter = false,
+        topLeft = Offset(w * 0.52f, h * 0.12f),
+        size = Size(w * 0.22f, h * 0.18f),
+        style = stroke,
+    )
+}
+
+/** Play triangle in a rounded rectangle. */
+private fun DrawScope.drawYoutubeMusic(tint: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    drawRoundRect(
+        tint,
+        Offset(w * 0.18f, h * 0.28f),
+        Size(w * 0.64f, h * 0.44f),
+        CornerRadius(w * 0.12f),
+        style = stroke,
+    )
+    val play = Path().apply {
+        moveTo(w * 0.42f, h * 0.38f)
+        lineTo(w * 0.66f, h * 0.5f)
+        lineTo(w * 0.42f, h * 0.62f)
+        close()
+    }
+    drawPath(play, tint, style = stroke)
 }

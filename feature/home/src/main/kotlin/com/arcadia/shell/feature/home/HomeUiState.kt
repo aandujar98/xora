@@ -331,4 +331,6 @@ sealed interface HomeMediaPickerRequest {
  */
 sealed interface HomeExternalAuthRequest {
     data object SteamOpenId : HomeExternalAuthRequest
+    /** Spotify Authorization Code + PKCE (Custom Tab → sora://spotify-auth). */
+    data class SpotifyOAuth(val authorizeUrl: String) : HomeExternalAuthRequest
 }

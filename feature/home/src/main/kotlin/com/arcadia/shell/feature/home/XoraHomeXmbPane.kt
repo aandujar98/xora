@@ -231,13 +231,13 @@ fun XoraHomeXmbPane(
                 },
         ) { depth ->
             when (depth) {
-                XoraXmbDepth.Systems, XoraXmbDepth.Roms -> XoraCardBrowsePane(
+                XoraXmbDepth.Systems, XoraXmbDepth.Roms, XoraXmbDepth.DspAccounts -> XoraCardBrowsePane(
                     items = xmb.items,
                     selectedIndex = xmb.itemIndex,
-                    mode = if (depth == XoraXmbDepth.Systems) {
-                        CardBrowseMode.Systems
-                    } else {
-                        CardBrowseMode.Roms
+                    mode = when (depth) {
+                        XoraXmbDepth.Systems -> CardBrowseMode.Systems
+                        XoraXmbDepth.Roms -> CardBrowseMode.Roms
+                        else -> CardBrowseMode.DspAccounts
                     },
                     onSelectItem = onSelectItem,
                     onActivateItem = onActivateItem,
@@ -603,9 +603,10 @@ private fun XmbCross(
             xmb.depth == XoraXmbDepth.Systems -> "All Games"
             xmb.depth == XoraXmbDepth.Roms -> "Games"
             xmb.depth == XoraXmbDepth.Emulator -> "XOrA Emulator"
+            xmb.depth == XoraXmbDepth.DspAccounts -> "Link DSP Accounts"
             else -> xmb.category.label
         }
-        val catLabelWidth = 160.dp
+        val catLabelWidth = if (xmb.depth == XoraXmbDepth.DspAccounts) 220.dp else 160.dp
         AnimatedContent(
             targetState = catLabel,
             // Cross-fade only: sliding the label sideways pulled it off the icon it names.

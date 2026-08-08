@@ -97,6 +97,9 @@ enum class CardBrowseMode {
 
     /** A system's ROM list. */
     Roms,
+
+    /** Music → Link DSP Accounts → Spotify / Apple Music / YouTube Music. */
+    DspAccounts,
 }
 
 /**
@@ -209,7 +212,10 @@ fun XoraCardBrowsePane(
                         fontFamily = XoraFonts.Title,
                     )
                 }
-                if (mode == CardBrowseMode.Systems && focused.ready) {
+                // Systems: core ready. DSP: account linked.
+                if ((mode == CardBrowseMode.Systems || mode == CardBrowseMode.DspAccounts) &&
+                    focused.ready
+                ) {
                     ReadyCheck(diameter = (CHECK_DIAMETER * unit).dp)
                 }
             }
@@ -232,6 +238,7 @@ fun XoraCardBrowsePane(
                 text = when (mode) {
                     CardBrowseMode.Systems -> "Total Games: ${focused.gameCount}"
                     CardBrowseMode.Roms -> "Playtime: ${formatXmbPlaytime(focused.playTimeMs)}"
+                    CardBrowseMode.DspAccounts -> focused.subtitle.orEmpty()
                 },
                 sizeDesignUnits = SUBTITLE_SIZE,
                 unit = unit,

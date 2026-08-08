@@ -31,6 +31,7 @@ import com.arcadia.shell.feature.home.HomeViewModel
 import com.arcadia.shell.home.ShellViewModel
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
+import com.arcadia.shell.scraper.SpotifyAuth
 import com.arcadia.shell.scraper.SteamOpenId
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -61,7 +62,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         ImmersiveMode.apply(window)
         discordRichPresence.attachHostActivity(this)
-        handleSteamOpenIdIntent(intent)
+        handleExternalAuthIntent(intent)
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -107,13 +108,15 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleSteamOpenIdIntent(intent)
+        handleExternalAuthIntent(intent)
     }
 
-    private fun handleSteamOpenIdIntent(intent: Intent?) {
+    private fun handleExternalAuthIntent(intent: Intent?) {
         val uri = intent?.data ?: return
-        if (!SteamOpenId.isReturnUri(uri)) return
-        homeViewModel.applySteamOpenIdReturn(uri)
+        when {
+            SteamOpenId.isReturnUri(uri) -> homeViewModel.applySteamOpenIdReturn(uri)
+            SpotifyAuth.isReturnUri(uri) -> homeViewModel.applySpotifyAuthReturn(uri)
+        }
     }
 
     /**

@@ -119,6 +119,15 @@
                     android:host="steam-auth"
                     android:scheme="sora" />
             </intent-filter>
+            <!-- Spotify OAuth PKCE return (Custom Tab → sora://spotify-auth). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="spotify-auth"
+                    android:scheme="sora" />
+            </intent-filter>
         </activity>
 
         <!--

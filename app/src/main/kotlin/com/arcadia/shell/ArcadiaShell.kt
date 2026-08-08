@@ -233,6 +233,14 @@ fun ArcadiaShell(
                         snackbarHostState.showSnackbar("Could not open Steam sign-in.")
                     }
                 }
+                is HomeExternalAuthRequest.SpotifyOAuth -> {
+                    val tabs = CustomTabsIntent.Builder().setShowTitle(true).build()
+                    runCatching {
+                        tabs.launchUrl(context, Uri.parse(request.authorizeUrl))
+                    }.onFailure {
+                        snackbarHostState.showSnackbar("Could not open Spotify sign-in.")
+                    }
+                }
             }
         }
     }

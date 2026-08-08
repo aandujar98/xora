@@ -97,6 +97,9 @@ import com.arcadia.shell.scraper.PlatformArtRepository
 import com.arcadia.shell.scraper.ScraperPreference
 import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.ScraperScheduler
+import com.arcadia.shell.scraper.SpotifyAuth
+import com.arcadia.shell.scraper.SpotifyLinkResult
+import com.arcadia.shell.scraper.SpotifyTokenStore
 import com.arcadia.shell.scraper.SteamOpenId
 import com.arcadia.shell.scraper.SteamWebApiClient
 import com.arcadia.shell.scraper.TrailerResolver
@@ -107,12 +110,14 @@ import com.arcadia.shell.scraper.insight.InsightSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -178,6 +183,8 @@ class HomeViewModel @Inject constructor(
     private val gameInsightRepository: GameInsightRepository,
     private val gameScreenshotRepository: GameScreenshotRepository,
     private val steamWebApiClient: SteamWebApiClient,
+    private val spotifyAuth: SpotifyAuth,
+    private val spotifyTokenStore: SpotifyTokenStore,
     private val conversationRepository: ConversationRepository,
     private val discordRichPresence: DiscordRichPresence,
     val shellNotifications: ShellNotificationCenter,
@@ -691,10 +698,11 @@ class HomeViewModel @Inject constructor(
         val social: SocialChrome,
     )
 
-    /** Banner art plus which systems XOrA can emulate itself, for the system picker. */
+    /** Banner art, built-in cores, and DSP link state for XMB card rungs. */
     private data class PlatformChrome(
         val artByPlatformId: Map<String, String> = emptyMap(),
         val readyPlatformIds: Set<String> = emptySet(),
+        val spotifyLinked: Boolean = false,
     )
 
     /** Systems the built-in emulator ships a core for — the tick on a console card. */
@@ -704,11 +712,13 @@ class HomeViewModel @Inject constructor(
     private val platformChromeFlow = combine(
         platformArtRepository.artByPlatformId,
         platformArtStore.bannerByPlatformId,
-    ) { scraped, custom ->
+        spotifyTokenStore.linked,
+    ) { scraped, custom, spotifyLinked ->
         PlatformChrome(
             // A banner the player picked themselves always beats the scraped system media.
             artByPlatformId = scraped + custom,
             readyPlatformIds = xoraEmulatedPlatformIds,
+            spotifyLinked = spotifyLinked,
         )
     }
 
@@ -1291,6 +1301,9 @@ class HomeViewModel @Inject constructor(
             XoraXmbDepth.Emulator -> buildXoraEmulatorItems(
                 settings = xoraEmulator,
                 raHardcore = raSettings.hardcore,
+            )
+            XoraXmbDepth.DspAccounts -> buildXoraDspItems(
+                spotifyLinked = platformChrome.spotifyLinked,
             )
         }
         val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
@@ -2145,8 +2158,12 @@ class HomeViewModel @Inject constructor(
                 emit(HomeEvent.ShowMessage("Playlist — coming soon."))
             XoraXmbAction.MusicAllStub ->
                 emit(HomeEvent.ShowMessage("Music library — coming soon."))
-            XoraXmbAction.MusicDspStub ->
-                emit(HomeEvent.ShowMessage("DSP Integration (Spotify & Apple Music) — coming soon."))
+            XoraXmbAction.DrillDspAccounts -> {
+                xoraDepth.value = XoraXmbDepth.DspAccounts
+                xoraItemIndex.value = 0
+                xoraDrilledPlatformId.value = null
+            }
+            is XoraXmbAction.LinkDspAccount -> linkDspAccount(action.provider)
             XoraXmbAction.OpenFriends -> {
                 if (!accountPanelExpanded.value) toggleAccountPanel()
             }
@@ -2259,6 +2276,7 @@ class HomeViewModel @Inject constructor(
             }
             XoraXmbDepth.Systems,
             XoraXmbDepth.Emulator,
+            XoraXmbDepth.DspAccounts,
             -> {
                 xoraDepth.value = XoraXmbDepth.Category
                 xoraItemIndex.value = 0
@@ -2266,6 +2284,54 @@ class HomeViewModel @Inject constructor(
             }
             XoraXmbDepth.Category -> {
                 if (uiState.value.anyHeroPanelExpanded) collapseHeroPanels()
+            }
+        }
+    }
+
+    private fun linkDspAccount(provider: DspProvider) {
+        when (provider) {
+            DspProvider.Spotify -> {
+                if (spotifyTokenStore.isLinked()) {
+                    emit(HomeEvent.ShowMessage("Spotify linked"))
+                    return
+                }
+                if (!spotifyAuth.isConfigured()) {
+                    emit(
+                        HomeEvent.ShowMessage(
+                            "Add spotify.client.id to local.properties to enable Spotify linking",
+                        ),
+                    )
+                    return
+                }
+                val url = spotifyAuth.beginAuthorization()
+                if (url.isNullOrBlank()) {
+                    emit(HomeEvent.ShowMessage("Could not start Spotify sign-in"))
+                    return
+                }
+                viewModelScope.launch {
+                    runCatching {
+                        externalAuthRequests.send(HomeExternalAuthRequest.SpotifyOAuth(url))
+                    }
+                }
+            }
+            DspProvider.AppleMusic ->
+                emit(HomeEvent.ShowMessage("Apple Music — coming soon."))
+            DspProvider.YoutubeMusic ->
+                emit(HomeEvent.ShowMessage("YouTube Music — coming soon."))
+        }
+    }
+
+    fun applySpotifyAuthReturn(uri: android.net.Uri) {
+        if (!spotifyAuth.isReturnUri(uri)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            when (val result = spotifyAuth.exchangeReturnUri(uri)) {
+                SpotifyLinkResult.Ignored -> Unit
+                SpotifyLinkResult.Linked -> withContext(Dispatchers.Main.immediate) {
+                    emit(HomeEvent.ShowMessage("Spotify linked"))
+                }
+                is SpotifyLinkResult.Failed -> withContext(Dispatchers.Main.immediate) {
+                    emit(HomeEvent.ShowMessage("Spotify: ${result.message}"))
+                }
             }
         }
     }

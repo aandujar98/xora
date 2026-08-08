@@ -46,6 +46,8 @@ enum class XoraXmbDepth {
     Roms,
     /** Games → XOrA Emulator → display / controllers / bezels. */
     Emulator,
+    /** Music → Link DSP Accounts → Spotify / Apple Music / YouTube Music. */
+    DspAccounts,
 }
 
 /** One focusable row in the XMB vertical list. */
@@ -91,7 +93,10 @@ sealed interface XoraXmbAction {
     data object MusicNowPlayingStub : XoraXmbAction
     data object MusicPlaylistStub : XoraXmbAction
     data object MusicAllStub : XoraXmbAction
-    data object MusicDspStub : XoraXmbAction
+    /** Music → Link DSP Accounts card rung. */
+    data object DrillDspAccounts : XoraXmbAction
+    /** DSP provider card — start OAuth / show linked state. */
+    data class LinkDspAccount(val provider: DspProvider) : XoraXmbAction
     data object OpenFriends : XoraXmbAction
     data object StoreStub : XoraXmbAction
     data object OpenNews : XoraXmbAction
@@ -101,6 +106,13 @@ sealed interface XoraXmbAction {
     data class ToggleXoraEmulatorSetting(val setting: XoraEmulatorXmbSetting) : XoraXmbAction
     /** Jump into full Setup → XOrA Emulator (cores, storage, RA login). */
     data object OpenFullXoraEmulatorSetup : XoraXmbAction
+}
+
+/** Digital service providers under Music → Link DSP Accounts. */
+enum class DspProvider {
+    Spotify,
+    AppleMusic,
+    YoutubeMusic,
 }
 
 /** Rows under Games → XOrA Emulator. */
@@ -364,9 +376,9 @@ fun buildXoraCategoryItems(
         ),
         XoraXmbItem(
             id = "dsp",
-            title = "DSP Integration",
-            subtitle = "Spotify & Apple Music — coming soon",
-            action = XoraXmbAction.MusicDspStub,
+            title = "Link DSP Accounts",
+            subtitle = "Spotify, Apple Music & YouTube Music",
+            action = XoraXmbAction.DrillDspAccounts,
             icon = XmbIcon.Dsp,
         ),
     )
@@ -394,6 +406,34 @@ fun buildXoraCategoryItems(
         ),
     )
 }
+
+/** Music → Link DSP Accounts — provider cards; [ready] means the account is linked. */
+fun buildXoraDspItems(spotifyLinked: Boolean): List<XoraXmbItem> = listOf(
+    XoraXmbItem(
+        id = "dsp_spotify",
+        title = "Spotify",
+        subtitle = if (spotifyLinked) "Linked" else "Tap to connect",
+        action = XoraXmbAction.LinkDspAccount(DspProvider.Spotify),
+        ready = spotifyLinked,
+        icon = XmbIcon.Spotify,
+    ),
+    XoraXmbItem(
+        id = "dsp_apple",
+        title = "Apple Music",
+        subtitle = "Coming soon",
+        action = XoraXmbAction.LinkDspAccount(DspProvider.AppleMusic),
+        ready = false,
+        icon = XmbIcon.AppleMusic,
+    ),
+    XoraXmbItem(
+        id = "dsp_youtube",
+        title = "YouTube Music",
+        subtitle = "Coming soon",
+        action = XoraXmbAction.LinkDspAccount(DspProvider.YoutubeMusic),
+        ready = false,
+        icon = XmbIcon.YoutubeMusic,
+    ),
+)
 
 fun buildXoraSystemItems(
     summaries: List<PlatformSummary>,
