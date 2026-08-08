@@ -100,6 +100,12 @@ enum class CardBrowseMode {
 
     /** Music → Link DSP Accounts → Spotify / Apple Music / YouTube Music. */
     DspAccounts,
+
+    /** Music → Playlist → album / playlist cards. */
+    MusicAlbums,
+
+    /** Music → an album's songs, or All music. */
+    MusicTracks,
 }
 
 /**
@@ -239,6 +245,8 @@ fun XoraCardBrowsePane(
                     CardBrowseMode.Systems -> "Total Games: ${focused.gameCount}"
                     CardBrowseMode.Roms -> "Playtime: ${formatXmbPlaytime(focused.playTimeMs)}"
                     CardBrowseMode.DspAccounts -> focused.subtitle.orEmpty()
+                    CardBrowseMode.MusicAlbums -> "Total Tracks: ${focused.gameCount}"
+                    CardBrowseMode.MusicTracks -> focused.subtitle.orEmpty()
                 },
                 sizeDesignUnits = SUBTITLE_SIZE,
                 unit = unit,

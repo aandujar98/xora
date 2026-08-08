@@ -3,6 +3,8 @@ package com.arcadia.shell.feature.home
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.datastore.label
+import com.arcadia.shell.launcher.music.MusicAlbum
+import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.PlatformSummary
 
@@ -48,6 +50,12 @@ enum class XoraXmbDepth {
     Emulator,
     /** Music → Link DSP Accounts → Spotify / Apple Music / YouTube Music. */
     DspAccounts,
+    /** Music → Playlist → album / playlist cards. */
+    MusicAlbums,
+    /** Music → an album's songs (or All music). */
+    MusicTracks,
+    /** Music → Now Playing — full-bleed player over the cover art. */
+    NowPlaying,
 }
 
 /** One focusable row in the XMB vertical list. */
@@ -90,9 +98,16 @@ sealed interface XoraXmbAction {
     data object ResetGame : XoraXmbAction
     data object PhotosStub : XoraXmbAction
     data object VideosStub : XoraXmbAction
-    data object MusicNowPlayingStub : XoraXmbAction
-    data object MusicPlaylistStub : XoraXmbAction
-    data object MusicAllStub : XoraXmbAction
+    /** Music → Now Playing page. */
+    data object OpenNowPlaying : XoraXmbAction
+    /** Music → Playlist → album / playlist cards. */
+    data object DrillMusicAlbums : XoraXmbAction
+    /** Music → All music → every song as cards. */
+    data object DrillAllSongs : XoraXmbAction
+    /** An album card → its songs. */
+    data class DrillMusicAlbum(val albumId: String) : XoraXmbAction
+    /** A song card → becomes Now Playing. */
+    data class PlayMusicTrack(val trackId: String) : XoraXmbAction
     /** Music → Link DSP Accounts card rung. */
     data object DrillDspAccounts : XoraXmbAction
     /** DSP provider card — start OAuth / show linked state. */
@@ -164,6 +179,10 @@ fun buildXoraCategoryItems(
      * Hidden on the launcher Home XMB — only appears while a game session is open.
      */
     showXoraEmulator: Boolean = false,
+    /** "Title — Artist" for the Music → Now Playing row. */
+    nowPlayingLabel: String? = null,
+    /** Cover art for the Music → Now Playing row. */
+    nowPlayingArtPath: String? = null,
 ): List<XoraXmbItem> = when (category) {
     XoraXmbCategory.Profiles -> listOf(
         XoraXmbItem(
@@ -356,22 +375,23 @@ fun buildXoraCategoryItems(
         XoraXmbItem(
             id = "now",
             title = "Now Playing",
-            subtitle = "Coming soon",
-            action = XoraXmbAction.MusicNowPlayingStub,
+            subtitle = nowPlayingLabel ?: "Nothing playing yet",
+            action = XoraXmbAction.OpenNowPlaying,
+            artPath = nowPlayingArtPath,
             icon = XmbIcon.NowPlaying,
         ),
         XoraXmbItem(
             id = "playlist",
             title = "Playlist",
-            subtitle = "Coming soon",
-            action = XoraXmbAction.MusicPlaylistStub,
+            subtitle = "Albums & playlists",
+            action = XoraXmbAction.DrillMusicAlbums,
             icon = XmbIcon.Playlist,
         ),
         XoraXmbItem(
             id = "all_music",
             title = "All music",
-            subtitle = "Coming soon",
-            action = XoraXmbAction.MusicAllStub,
+            subtitle = "Every song on this device",
+            action = XoraXmbAction.DrillAllSongs,
             icon = XmbIcon.Music,
         ),
         XoraXmbItem(
@@ -406,6 +426,35 @@ fun buildXoraCategoryItems(
         ),
     )
 }
+
+/** Music → Playlist — album / playlist cards, browsed like the system picker. */
+fun buildXoraMusicAlbumItems(albums: List<MusicAlbum>): List<XoraXmbItem> =
+    albums.map { album ->
+        XoraXmbItem(
+            id = "album_${album.id}",
+            title = album.title,
+            subtitle = album.artist,
+            action = XoraXmbAction.DrillMusicAlbum(album.id),
+            artPath = album.artUri,
+            gameCount = album.trackCount,
+            icon = if (album.isPlaylist) XmbIcon.Playlist else XmbIcon.Music,
+        )
+    }
+
+/** Music → an album's songs, or every song under All music. */
+fun buildXoraMusicTrackItems(tracks: List<MusicTrack>): List<XoraXmbItem> =
+    tracks.map { track ->
+        XoraXmbItem(
+            id = "track_${track.id}",
+            title = track.title,
+            subtitle = track.artist,
+            action = XoraXmbAction.PlayMusicTrack(track.id),
+            artPath = track.albumArtUri,
+            playTimeMs = track.durationMs,
+            platformLabel = track.albumTitle.takeIf { it.isNotBlank() },
+            icon = XmbIcon.Music,
+        )
+    }
 
 /** Music → Link DSP Accounts — provider cards; [ready] means the account is linked. */
 fun buildXoraDspItems(spotifyLinked: Boolean): List<XoraXmbItem> = listOf(

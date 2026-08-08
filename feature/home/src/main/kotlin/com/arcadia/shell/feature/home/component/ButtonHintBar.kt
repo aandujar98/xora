@@ -95,6 +95,9 @@ fun hintsForPage(
         xmbDepth == XoraXmbDepth.Systems -> XoraSystemBrowseHints
         xmbDepth == XoraXmbDepth.Roms -> XoraRomBrowseHints
         xmbDepth == XoraXmbDepth.DspAccounts -> XoraDspBrowseHints
+        xmbDepth == XoraXmbDepth.MusicAlbums ||
+            xmbDepth == XoraXmbDepth.MusicTracks -> XoraMusicBrowseHints
+        xmbDepth == XoraXmbDepth.NowPlaying -> XoraNowPlayingHints
         else -> XoraXmbHints
     }
     HomePage.GameSelector -> if (displayMode == DisplayMode.Single) {
@@ -128,6 +131,25 @@ val XoraSystemBrowseHints: List<Pair<String, String>> = listOf(
     "A" to "Open",
     "B" to "Back",
     "Select" to "Console art",
+    "LT" to "Circle",
+    "RT" to "Profile / Alerts",
+    "Start" to "Settings",
+)
+
+/** Music → albums / playlists / songs. */
+val XoraMusicBrowseHints: List<Pair<String, String>> = listOf(
+    "U/D" to "Browse",
+    "A" to "Open",
+    "B" to "Back",
+    "LT" to "Circle",
+    "RT" to "Profile / Alerts",
+    "Start" to "Settings",
+)
+
+/** Music → Now Playing. */
+val XoraNowPlayingHints: List<Pair<String, String>> = listOf(
+    "A" to "Play / Pause",
+    "B" to "Back",
     "LT" to "Circle",
     "RT" to "Profile / Alerts",
     "Start" to "Settings",

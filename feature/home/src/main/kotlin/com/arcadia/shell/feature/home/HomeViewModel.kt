@@ -62,6 +62,8 @@ import com.arcadia.shell.launcher.conversations.ConversationRepository
 import com.arcadia.shell.launcher.conversations.ConversationSource
 import com.arcadia.shell.launcher.conversations.ConversationsUiState
 import com.arcadia.shell.launcher.conversations.NotificationConversation
+import com.arcadia.shell.launcher.music.MusicLibrary
+import com.arcadia.shell.launcher.music.NowPlayingController
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
@@ -185,6 +187,8 @@ class HomeViewModel @Inject constructor(
     private val steamWebApiClient: SteamWebApiClient,
     private val spotifyAuth: SpotifyAuth,
     private val spotifyTokenStore: SpotifyTokenStore,
+    private val musicLibrary: MusicLibrary,
+    private val nowPlayingController: NowPlayingController,
     private val conversationRepository: ConversationRepository,
     private val discordRichPresence: DiscordRichPresence,
     val shellNotifications: ShellNotificationCenter,
@@ -698,12 +702,21 @@ class HomeViewModel @Inject constructor(
         val social: SocialChrome,
     )
 
-    /** Banner art, built-in cores, and DSP link state for XMB card rungs. */
+    /** Banner art, built-in cores, DSP link state and music for XMB card rungs. */
     private data class PlatformChrome(
         val artByPlatformId: Map<String, String> = emptyMap(),
         val readyPlatformIds: Set<String> = emptySet(),
         val spotifyLinked: Boolean = false,
+        val music: MusicUiState = MusicUiState(),
     )
+
+    /** Music browse rungs; the Now Playing state is owned by the shared controller. */
+    private val musicUi = MutableStateFlow(MusicUiState())
+
+    private val musicFlow = combine(
+        musicUi,
+        nowPlayingController.state,
+    ) { music, nowPlaying -> music.copy(nowPlaying = nowPlaying) }
 
     /** Systems the built-in emulator ships a core for — the tick on a console card. */
     private val xoraEmulatedPlatformIds: Set<String> =
@@ -713,12 +726,14 @@ class HomeViewModel @Inject constructor(
         platformArtRepository.artByPlatformId,
         platformArtStore.bannerByPlatformId,
         spotifyTokenStore.linked,
-    ) { scraped, custom, spotifyLinked ->
+        musicFlow,
+    ) { scraped, custom, spotifyLinked, music ->
         PlatformChrome(
             // A banner the player picked themselves always beats the scraped system media.
             artByPlatformId = scraped + custom,
             readyPlatformIds = xoraEmulatedPlatformIds,
             spotifyLinked = spotifyLinked,
+            music = music,
         )
     }
 
@@ -1286,6 +1301,10 @@ class HomeViewModel @Inject constructor(
                 gamesSecondarySlot = gamesSecondarySlot,
                 continueGame = continueGame,
                 favoriteGame = favoriteGame,
+                nowPlayingLabel = platformChrome.music.nowPlaying.track?.let { track ->
+                    "${track.title} — ${track.artist}"
+                },
+                nowPlayingArtPath = platformChrome.music.nowPlayingArtPath,
             )
             XoraXmbDepth.Systems -> buildXoraSystemItems(
                 summaries = summaries,
@@ -1305,6 +1324,10 @@ class HomeViewModel @Inject constructor(
             XoraXmbDepth.DspAccounts -> buildXoraDspItems(
                 spotifyLinked = platformChrome.spotifyLinked,
             )
+            XoraXmbDepth.MusicAlbums -> buildXoraMusicAlbumItems(platformChrome.music.albums)
+            XoraXmbDepth.MusicTracks -> buildXoraMusicTrackItems(platformChrome.music.tracks)
+            // The player page draws itself; the rung carries no list.
+            XoraXmbDepth.NowPlaying -> emptyList()
         }
         val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
         val xoraSelected = xoraItems.getOrNull(xoraItemIndex)
@@ -1401,6 +1424,7 @@ class HomeViewModel @Inject constructor(
             systemPanelExpanded = chrome.systemPanelExpanded,
             achievementsPanelExpanded = chrome.achievementsPanelExpanded,
             achievements = chrome.achievements,
+            music = platformChrome.music,
             rss = rss.copy(selectedIndex = rssIndex),
             guide = GuideUiState(
                 open = guideOpen,
@@ -1930,7 +1954,12 @@ class HomeViewModel @Inject constructor(
             }
             NavAction.Up -> moveXoraItem(-1)
             NavAction.Down -> moveXoraItem(1)
-            NavAction.Confirm -> activateXoraSelection()
+            // The player page has no list, so Confirm is the transport key there.
+            NavAction.Confirm -> if (xmb.depth == XoraXmbDepth.NowPlaying) {
+                toggleNowPlaying()
+            } else {
+                activateXoraSelection()
+            }
             NavAction.Cancel -> drillOutXora()
             NavAction.Options -> {
                 if (xmb.depth == XoraXmbDepth.Roms) {
@@ -2152,12 +2181,26 @@ class HomeViewModel @Inject constructor(
                 emit(HomeEvent.ShowMessage("Photos — coming soon."))
             XoraXmbAction.VideosStub ->
                 emit(HomeEvent.ShowMessage("Videos — coming soon."))
-            XoraXmbAction.MusicNowPlayingStub ->
-                emit(HomeEvent.ShowMessage("Now Playing — coming soon."))
-            XoraXmbAction.MusicPlaylistStub ->
-                emit(HomeEvent.ShowMessage("Playlist — coming soon."))
-            XoraXmbAction.MusicAllStub ->
-                emit(HomeEvent.ShowMessage("Music library — coming soon."))
+            XoraXmbAction.OpenNowPlaying -> {
+                if (!nowPlayingController.state.value.hasTrack) {
+                    emit(HomeEvent.ShowMessage("Nothing playing yet — pick a song from Music."))
+                    return
+                }
+                xoraDepth.value = XoraXmbDepth.NowPlaying
+                xoraItemIndex.value = 0
+            }
+            XoraXmbAction.DrillMusicAlbums -> openMusicRung(XoraXmbDepth.MusicAlbums)
+            XoraXmbAction.DrillAllSongs -> openMusicRung(XoraXmbDepth.MusicTracks)
+            is XoraXmbAction.DrillMusicAlbum -> openMusicRung(
+                depth = XoraXmbDepth.MusicTracks,
+                albumId = action.albumId,
+            )
+            is XoraXmbAction.PlayMusicTrack -> {
+                val track = musicUi.value.tracks.firstOrNull { it.id == action.trackId } ?: return
+                nowPlayingController.setTrack(track)
+                xoraDepth.value = XoraXmbDepth.NowPlaying
+                xoraItemIndex.value = 0
+            }
             XoraXmbAction.DrillDspAccounts -> {
                 xoraDepth.value = XoraXmbDepth.DspAccounts
                 xoraItemIndex.value = 0
@@ -2274,9 +2317,23 @@ class HomeViewModel @Inject constructor(
                 xoraItemIndex.value = 0
                 xoraDrilledPlatformId.value = null
             }
+            // A song rung reached from an album pops back to that album list, not to the category.
+            XoraXmbDepth.MusicTracks -> {
+                if (musicUi.value.drilledAlbumId != null) {
+                    openMusicRung(XoraXmbDepth.MusicAlbums)
+                } else {
+                    xoraDepth.value = XoraXmbDepth.Category
+                    xoraItemIndex.value = 0
+                }
+            }
+            XoraXmbDepth.NowPlaying -> {
+                xoraDepth.value = XoraXmbDepth.Category
+                xoraItemIndex.value = 0
+            }
             XoraXmbDepth.Systems,
             XoraXmbDepth.Emulator,
             XoraXmbDepth.DspAccounts,
+            XoraXmbDepth.MusicAlbums,
             -> {
                 xoraDepth.value = XoraXmbDepth.Category
                 xoraItemIndex.value = 0
@@ -2287,6 +2344,60 @@ class HomeViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Slides into a music rung and loads it.
+     *
+     * MediaStore is queried per drill rather than up front: the Music category is rarely the first
+     * thing opened, and the shell should not pay for an audio scan it may never show.
+     */
+    private fun openMusicRung(depth: XoraXmbDepth, albumId: String? = null) {
+        xoraDepth.value = depth
+        xoraItemIndex.value = 0
+        val hasAccess = musicLibrary.hasAudioAccess()
+        musicUi.update {
+            it.copy(
+                drilledAlbumId = albumId,
+                isLoading = hasAccess,
+                hasAudioAccess = hasAccess,
+            )
+        }
+        if (!hasAccess) {
+            emit(HomeEvent.RequestAudioAccess(musicLibrary.audioPermission()))
+            return
+        }
+        viewModelScope.launch {
+            when (depth) {
+                XoraXmbDepth.MusicAlbums -> {
+                    val albums = musicLibrary.albums()
+                    musicUi.update { it.copy(albums = albums, isLoading = false) }
+                }
+                else -> {
+                    val tracks = if (albumId != null) {
+                        musicLibrary.tracks(albumId)
+                    } else {
+                        musicLibrary.allTracks()
+                    }
+                    musicUi.update { it.copy(tracks = tracks, isLoading = false) }
+                }
+            }
+        }
+    }
+
+    /** Re-runs the pending music rung once the audio permission dialog is answered. */
+    fun onAudioAccessResult(granted: Boolean) {
+        musicUi.update { it.copy(hasAudioAccess = granted) }
+        if (!granted) {
+            emit(HomeEvent.ShowMessage("Music needs audio access to read songs on this device."))
+            return
+        }
+        val depth = xoraDepth.value
+        if (depth == XoraXmbDepth.MusicAlbums || depth == XoraXmbDepth.MusicTracks) {
+            openMusicRung(depth, musicUi.value.drilledAlbumId)
+        }
+    }
+
+    fun toggleNowPlaying() = nowPlayingController.togglePlayPause()
 
     private fun linkDspAccount(provider: DspProvider) {
         when (provider) {

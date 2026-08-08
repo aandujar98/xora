@@ -80,6 +80,7 @@ import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.HeroTrailerLayer
+import com.arcadia.shell.feature.home.component.NowPlayingPill
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.model.Game
@@ -136,6 +137,14 @@ fun XoraHomeXmbPane(
             xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
             xmb.selectedItem?.action is XoraXmbAction.LaunchGame
     }
+    // Browsing music paints the focused album / song art; Now Playing paints the playing cover.
+    val musicArtPath = when (xmb.depth) {
+        XoraXmbDepth.MusicAlbums, XoraXmbDepth.MusicTracks -> xmb.selectedItem?.artPath
+        XoraXmbDepth.NowPlaying -> state.music.nowPlaying.track?.albumArtUri
+        else -> null
+    }
+    val backdropArtPath = musicArtPath
+        ?: heroGame?.heroImagePath ?: heroGame?.boxArtPath ?: heroGame?.logoImagePath
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
 
@@ -185,7 +194,7 @@ fun XoraHomeXmbPane(
 
         // Keep mounted so focus / back / cancel always crossfade (never unmount-snap).
         XoraRomHeroBackdrop(
-            game = heroGame,
+            artPath = backdropArtPath,
             modifier = Modifier
                 .fillMaxSize()
                 .then(backdropMotion),
@@ -231,12 +240,23 @@ fun XoraHomeXmbPane(
                 },
         ) { depth ->
             when (depth) {
-                XoraXmbDepth.Systems, XoraXmbDepth.Roms, XoraXmbDepth.DspAccounts -> XoraCardBrowsePane(
+                XoraXmbDepth.NowPlaying -> XoraNowPlayingPane(
+                    state = state.music.nowPlaying,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                XoraXmbDepth.Systems,
+                XoraXmbDepth.Roms,
+                XoraXmbDepth.DspAccounts,
+                XoraXmbDepth.MusicAlbums,
+                XoraXmbDepth.MusicTracks,
+                -> XoraCardBrowsePane(
                     items = xmb.items,
                     selectedIndex = xmb.itemIndex,
                     mode = when (depth) {
                         XoraXmbDepth.Systems -> CardBrowseMode.Systems
                         XoraXmbDepth.Roms -> CardBrowseMode.Roms
+                        XoraXmbDepth.MusicAlbums -> CardBrowseMode.MusicAlbums
+                        XoraXmbDepth.MusicTracks -> CardBrowseMode.MusicTracks
                         else -> CardBrowseMode.DspAccounts
                     },
                     onSelectItem = onSelectItem,
@@ -364,11 +384,11 @@ fun XoraXmbHeroDetail(
                 ),
         )
         XoraRomHeroBackdrop(
-            game = heroGame?.takeIf {
+            artPath = heroGame?.takeIf {
                 xmb.depth == XoraXmbDepth.Roms ||
                     xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
                     xmb.selectedItem?.action is XoraXmbAction.LaunchGame
-            },
+            }?.let { it.heroImagePath ?: it.boxArtPath ?: it.logoImagePath },
             modifier = Modifier
                 .fillMaxSize()
                 .then(backdropMotion),
@@ -604,6 +624,9 @@ private fun XmbCross(
             xmb.depth == XoraXmbDepth.Roms -> "Games"
             xmb.depth == XoraXmbDepth.Emulator -> "XOrA Emulator"
             xmb.depth == XoraXmbDepth.DspAccounts -> "Link DSP Accounts"
+            xmb.depth == XoraXmbDepth.MusicAlbums -> "Playlist"
+            xmb.depth == XoraXmbDepth.MusicTracks -> "Songs"
+            xmb.depth == XoraXmbDepth.NowPlaying -> "Now Playing"
             else -> xmb.category.label
         }
         val catLabelWidth = if (xmb.depth == XoraXmbDepth.DspAccounts) 220.dp else 160.dp
@@ -1043,10 +1066,9 @@ internal fun formatXmbPlaytime(millis: Long): String {
 
 @Composable
 private fun XoraRomHeroBackdrop(
-    game: Game?,
+    artPath: String?,
     modifier: Modifier = Modifier,
 ) {
-    val artPath = game?.heroImagePath ?: game?.boxArtPath ?: game?.logoImagePath
     val reduceMotion = rememberReduceMotion()
     // Crossfade (not AnimatedContent): empty ↔ art and art ↔ art always fade,
     // including when focus clears on B / cancel / leaving Games.
@@ -1174,19 +1196,32 @@ private fun XoraXmbPillChrome(
                 .graphicsLayer { alpha = if (launching) 0f else 1f },
         )
 
-        AchievementsPill(
-            expanded = achievementsExpanded,
-            state = state.achievements,
-            onToggle = onToggleAchievementsPanel,
-            onSelectTab = onSelectAchievementsTab,
-            onLogin = onLoginRetroAchievements,
-            onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-            onSignOut = onSignOutRetroAchievements,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .graphicsLayer { alpha = if (launching) 0f else 1f },
-        )
+        // Music owns this corner while it is focused: the concept puts "what's playing" where the
+        // RetroAchievements pill normally sits, and hands the slot back on leaving the category.
+        val musicFocused = state.xoraXmb.category == XoraXmbCategory.Music
+        if (musicFocused) {
+            NowPlayingPill(
+                state = state.music.nowPlaying,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .graphicsLayer { alpha = if (launching) 0f else 1f },
+            )
+        } else {
+            AchievementsPill(
+                expanded = achievementsExpanded,
+                state = state.achievements,
+                onToggle = onToggleAchievementsPanel,
+                onSelectTab = onSelectAchievementsTab,
+                onLogin = onLoginRetroAchievements,
+                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+                onSignOut = onSignOutRetroAchievements,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .graphicsLayer { alpha = if (launching) 0f else 1f },
+            )
+        }
 
         if (profileEditing) {
             ProfileEditSheet(
