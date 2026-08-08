@@ -2206,7 +2206,8 @@ class HomeViewModel @Inject constructor(
                 if (track.source == MusicSource.Spotify) {
                     playSpotifyTrack(track)
                 } else {
-                    nowPlayingController.setTrack(track)
+                    // Starts MediaPlayer against the MediaStore content uri.
+                    nowPlayingController.setTrack(track, playing = true)
                 }
                 xoraDepth.value = XoraXmbDepth.NowPlaying
                 xoraItemIndex.value = 0
@@ -2445,21 +2446,22 @@ class HomeViewModel @Inject constructor(
         nowPlayingController.setTrack(track, playing = true)
         viewModelScope.launch {
             when (val result = spotifyWebApi.play(track.contentUri, track.contextUri)) {
-                SpotifyPlaybackResult.Started -> Unit
+                SpotifyPlaybackResult.Started -> nowPlayingController.setRemotePlaying(true)
                 SpotifyPlaybackResult.NoActiveDevice -> {
-                    nowPlayingController.setTrack(track, playing = false)
+                    nowPlayingController.setRemotePlaying(false)
                     emit(
                         HomeEvent.ShowMessage(
-                            "Open Spotify on a device first — XOrA plays through it.",
+                            "Open the Spotify app on a phone, PC, or speaker first — " +
+                                "XOrA starts playback there.",
                         ),
                     )
                 }
                 SpotifyPlaybackResult.NeedsPremium -> {
-                    nowPlayingController.setTrack(track, playing = false)
+                    nowPlayingController.setRemotePlaying(false)
                     emit(HomeEvent.ShowMessage("Spotify Premium is required to start playback."))
                 }
                 is SpotifyPlaybackResult.Failed -> {
-                    nowPlayingController.setTrack(track, playing = false)
+                    nowPlayingController.setRemotePlaying(false)
                     emit(HomeEvent.ShowMessage(result.message))
                 }
             }
@@ -2482,14 +2484,32 @@ class HomeViewModel @Inject constructor(
     fun toggleNowPlaying() {
         val current = nowPlayingController.state.value
         val track = current.track ?: return
+        // Device: MediaPlayer pause/resume. Spotify: flip UI then mirror to Web API.
         nowPlayingController.togglePlayPause()
         if (track.source != MusicSource.Spotify) return
-        // Mirror the transport onto Spotify's player, which owns the audio for linked accounts.
         viewModelScope.launch {
             if (current.isPlaying) {
                 spotifyWebApi.pause()
             } else {
-                spotifyWebApi.play(track.contentUri, track.contextUri)
+                when (val result = spotifyWebApi.play(track.contentUri, track.contextUri)) {
+                    SpotifyPlaybackResult.Started -> Unit
+                    SpotifyPlaybackResult.NoActiveDevice -> {
+                        nowPlayingController.setRemotePlaying(false)
+                        emit(
+                            HomeEvent.ShowMessage(
+                                "Open the Spotify app on a device first — XOrA plays through it.",
+                            ),
+                        )
+                    }
+                    SpotifyPlaybackResult.NeedsPremium -> {
+                        nowPlayingController.setRemotePlaying(false)
+                        emit(HomeEvent.ShowMessage("Spotify Premium is required to start playback."))
+                    }
+                    is SpotifyPlaybackResult.Failed -> {
+                        nowPlayingController.setRemotePlaying(false)
+                        emit(HomeEvent.ShowMessage(result.message))
+                    }
+                }
             }
         }
     }

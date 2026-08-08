@@ -81,6 +81,10 @@ class MainActivity : ComponentActivity() {
                 backgroundMusic.setTrailerDucked(homeState.trailer.active)
             }
 
+            LaunchedEffect(homeState.music.nowPlaying.isPlaying) {
+                backgroundMusic.setLibraryMusicActive(homeState.music.nowPlaying.isPlaying)
+            }
+
             LaunchedEffect(shellState.prefsReady, shellState.showOnboarding) {
                 val holdShellBgm = !shellState.prefsReady || shellState.showOnboarding
                 backgroundMusic.setOnboardingActive(holdShellBgm)

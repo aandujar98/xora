@@ -3,6 +3,7 @@ package com.arcadia.shell.scraper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -36,6 +37,15 @@ data class SpotifyTrack(
     val albumArtUrl: String?,
     val durationMs: Long,
     val uri: String,
+)
+
+/** A Connect / desktop / phone target Spotify can stream to. */
+data class SpotifyDevice(
+    val id: String,
+    val name: String,
+    val type: String,
+    val isActive: Boolean,
+    val isRestricted: Boolean,
 )
 
 /** Why a playback request could not be honoured, in words the shell can show. */
@@ -116,41 +126,94 @@ class SpotifyWebApi @Inject constructor(
         }.getOrDefault(emptyList())
     }
 
+    suspend fun devices(): List<SpotifyDevice> = withContext(Dispatchers.IO) {
+        val token = auth.accessToken() ?: return@withContext emptyList()
+        runCatching {
+            val body = get("$BASE/me/player/devices", token) ?: return@runCatching emptyList()
+            json.parseToJsonElement(body).jsonObject["devices"]?.jsonArray.orEmpty().mapNotNull { item ->
+                val obj = item.jsonObject
+                val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                SpotifyDevice(
+                    id = id,
+                    name = obj["name"]?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { "Spotify" },
+                    type = obj["type"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    isActive = obj["is_active"]?.jsonPrimitive?.booleanOrNull == true,
+                    isRestricted = obj["is_restricted"]?.jsonPrimitive?.booleanOrNull == true,
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
     /**
-     * Starts a track (optionally inside its playlist context) on the active Spotify device.
+     * Starts a track (optionally inside its playlist context) on a Spotify Connect device.
      *
-     * Spotify streams from the device it considers active rather than from this process, so a
-     * missing device is an ordinary outcome the caller reports, not an error.
+     * When nothing is active, transfers to the first unrestricted available device and retries.
+     * Audio still streams from Spotify's player — not from this process.
      */
     suspend fun play(trackUri: String, contextUri: String? = null): SpotifyPlaybackResult =
         withContext(Dispatchers.IO) {
             val token = auth.accessToken() ?: return@withContext SpotifyPlaybackResult.Failed(
                 "Spotify is not linked",
             )
-            val payload = if (contextUri != null) {
-                """{"context_uri":"$contextUri","offset":{"uri":"$trackUri"}}"""
-            } else {
-                """{"uris":["$trackUri"]}"""
-            }
-            runCatching {
-                val request = Request.Builder()
-                    .url("$BASE/me/player/play")
-                    .put(payload.toRequestBody(JSON_MEDIA_TYPE))
-                    .header("Authorization", "Bearer $token")
-                    .build()
-                okHttpClient.newCall(request).execute().use { response ->
-                    when (response.code) {
-                        // 202/204 both mean the command was accepted.
-                        200, 202, 204 -> SpotifyPlaybackResult.Started
-                        403 -> SpotifyPlaybackResult.NeedsPremium
-                        404 -> SpotifyPlaybackResult.NoActiveDevice
-                        else -> SpotifyPlaybackResult.Failed("Spotify playback failed (${response.code})")
-                    }
-                }
-            }.getOrElse { error ->
-                SpotifyPlaybackResult.Failed(error.message ?: "Spotify playback failed")
-            }
+            val first = putPlay(token, trackUri, contextUri)
+            if (first != SpotifyPlaybackResult.NoActiveDevice) return@withContext first
+
+            val deviceId = devices()
+                .firstOrNull { !it.isRestricted }
+                ?.id
+                ?: return@withContext SpotifyPlaybackResult.NoActiveDevice
+            transferPlayback(token, deviceId)
+            // Connect needs a beat before /me/player/play accepts the new device.
+            kotlinx.coroutines.delay(TRANSFER_SETTLE_MS)
+            putPlay(token, trackUri, contextUri, deviceId)
         }
+
+    private fun putPlay(
+        token: String,
+        trackUri: String,
+        contextUri: String?,
+        deviceId: String? = null,
+    ): SpotifyPlaybackResult {
+        val payload = if (contextUri != null) {
+            """{"context_uri":"$contextUri","offset":{"uri":"$trackUri"}}"""
+        } else {
+            """{"uris":["$trackUri"]}"""
+        }
+        val url = buildString {
+            append("$BASE/me/player/play")
+            if (!deviceId.isNullOrBlank()) append("?device_id=").append(deviceId)
+        }
+        return runCatching {
+            val request = Request.Builder()
+                .url(url)
+                .put(payload.toRequestBody(JSON_MEDIA_TYPE))
+                .header("Authorization", "Bearer $token")
+                .build()
+            okHttpClient.newCall(request).execute().use { response ->
+                when (response.code) {
+                    // 202/204 both mean the command was accepted.
+                    200, 202, 204 -> SpotifyPlaybackResult.Started
+                    403 -> SpotifyPlaybackResult.NeedsPremium
+                    404 -> SpotifyPlaybackResult.NoActiveDevice
+                    else -> SpotifyPlaybackResult.Failed("Spotify playback failed (${response.code})")
+                }
+            }
+        }.getOrElse { error ->
+            SpotifyPlaybackResult.Failed(error.message ?: "Spotify playback failed")
+        }
+    }
+
+    private fun transferPlayback(token: String, deviceId: String): Boolean {
+        val payload = """{"device_ids":["$deviceId"],"play":true}"""
+        return runCatching {
+            val request = Request.Builder()
+                .url("$BASE/me/player")
+                .put(payload.toRequestBody(JSON_MEDIA_TYPE))
+                .header("Authorization", "Bearer $token")
+                .build()
+            okHttpClient.newCall(request).execute().use { it.isSuccessful || it.code == 204 }
+        }.getOrDefault(false)
+    }
 
     suspend fun pause(): Boolean = withContext(Dispatchers.IO) {
         val token = auth.accessToken() ?: return@withContext false
@@ -178,6 +241,7 @@ class SpotifyWebApi @Inject constructor(
         private const val BASE = "https://api.spotify.com/v1"
         private const val PLAYLIST_LIMIT = 50
         private const val TRACK_LIMIT = 100
+        private const val TRANSFER_SETTLE_MS = 400L
         private const val EMPTY_JSON = "{}"
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
     }
