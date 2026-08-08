@@ -5,6 +5,9 @@ import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.datastore.TrailerDisplayMode
+import com.arcadia.shell.launcher.music.MusicAlbum
+import com.arcadia.shell.launcher.music.MusicTrack
+import com.arcadia.shell.launcher.music.NowPlayingState
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.PlatformSummary
@@ -252,6 +255,8 @@ data class HomeUiState(
     val notificationHistorySelectedIndex: Int = 0,
     val achievementsPanelExpanded: Boolean = false,
     val achievements: AchievementsUiState = AchievementsUiState(),
+    /** What the Music category is browsing and what is playing. */
+    val music: MusicUiState = MusicUiState(),
     val trailer: HeroTrailerState = HeroTrailerState(),
     val rss: RssUiState = RssUiState(),
     val guide: GuideUiState = GuideUiState(),
@@ -296,6 +301,8 @@ sealed interface HomeEvent {
     data object OpenSettings : HomeEvent
     /** Start Discord Social SDK account linking (needs a foreground Activity). */
     data object LinkDiscordAccount : HomeEvent
+    /** Music browsing needs the runtime audio permission before MediaStore returns anything. */
+    data class RequestAudioAccess(val permission: String) : HomeEvent
     data class OpenGameOptions(val gameId: String) : HomeEvent
     /** Select button: ROM options (customize + saves + scrape) for [gameId]. */
     data class OpenScrapeMenu(val gameId: String) : HomeEvent
@@ -329,6 +336,21 @@ sealed interface HomeMediaPickerRequest {
  * External browser / Custom Tab launches that must start from the primary Activity (not a
  * Presentation). Same hoist pattern as [HomeMediaPickerRequest].
  */
+/** Music browsing plus the shared Now Playing state behind the pill and the player page. */
+data class MusicUiState(
+    val albums: List<MusicAlbum> = emptyList(),
+    /** Songs for the drilled album, or every song under All music. */
+    val tracks: List<MusicTrack> = emptyList(),
+    val drilledAlbumId: String? = null,
+    val isLoading: Boolean = false,
+    /** False until the user grants audio access; the browse rungs stay empty until then. */
+    val hasAudioAccess: Boolean = true,
+    val nowPlaying: NowPlayingState = NowPlayingState(),
+) {
+    /** Cover art for whichever music rung is focused, used as the XMB backdrop. */
+    val nowPlayingArtPath: String? get() = nowPlaying.track?.albumArtUri
+}
+
 sealed interface HomeExternalAuthRequest {
     data object SteamOpenId : HomeExternalAuthRequest
     /** Spotify Authorization Code + PKCE (Custom Tab → sora://spotify-auth). */

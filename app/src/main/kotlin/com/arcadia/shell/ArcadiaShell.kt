@@ -156,6 +156,12 @@ fun ArcadiaShell(
     ) { uri ->
         if (uri != null) homeViewModel.attachToOpenDiscordDm(uri)
     }
+    // Music browses MediaStore, which stays empty until audio access is granted.
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        homeViewModel.onAudioAccessResult(granted)
+    }
     val gameBoxArtPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -295,6 +301,7 @@ fun ArcadiaShell(
                         snackbarHostState.showSnackbar("Could not start Discord linking.")
                     }
                 }
+                is HomeEvent.RequestAudioAccess -> audioPermissionLauncher.launch(event.permission)
                 is HomeEvent.OpenGameOptions -> optionsGameId = event.gameId
                 is HomeEvent.OpenScrapeMenu -> scrapeMenuGameId = event.gameId
                 HomeEvent.BringShellToFront -> bringShellToFront(context)

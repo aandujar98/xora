@@ -46,6 +46,12 @@ enum class XmbIcon {
     Spotify,
     AppleMusic,
     YoutubeMusic,
+    Shuffle,
+    Repeat,
+    PreviousTrack,
+    NextTrack,
+    Play,
+    Pause,
     Friends,
     Store,
     News,
@@ -132,6 +138,12 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Spotify -> drawSpotify(tint, stroke)
         XmbIcon.AppleMusic -> drawAppleMusic(tint, stroke)
         XmbIcon.YoutubeMusic -> drawYoutubeMusic(tint, stroke)
+        XmbIcon.Shuffle -> drawShuffle(tint, stroke)
+        XmbIcon.Repeat -> drawRepeat(tint, stroke)
+        XmbIcon.PreviousTrack -> drawSkip(tint, stroke, forward = false)
+        XmbIcon.NextTrack -> drawSkip(tint, stroke, forward = true)
+        XmbIcon.Play -> drawPlay(tint, stroke)
+        XmbIcon.Pause -> drawPause(tint, stroke)
         XmbIcon.Friends -> drawFriends(tint, stroke)
         XmbIcon.Store -> drawBag(tint, stroke)
         XmbIcon.News -> drawNews(tint, stroke)
@@ -527,6 +539,98 @@ private fun DrawScope.drawSystemCube(tint: Color, stroke: Stroke) {
         strokeWidth = stroke.width,
         cap = StrokeCap.Round,
     )
+}
+
+private fun DrawScope.drawShuffle(tint: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    val upper = Path().apply {
+        moveTo(w * 0.18f, h * 0.34f)
+        lineTo(w * 0.36f, h * 0.34f)
+        lineTo(w * 0.7f, h * 0.68f)
+        lineTo(w * 0.84f, h * 0.68f)
+    }
+    val lower = Path().apply {
+        moveTo(w * 0.18f, h * 0.68f)
+        lineTo(w * 0.36f, h * 0.68f)
+        lineTo(w * 0.7f, h * 0.34f)
+        lineTo(w * 0.84f, h * 0.34f)
+    }
+    drawPath(upper, tint, style = stroke)
+    drawPath(lower, tint, style = stroke)
+    drawArrowHead(w * 0.84f, h * 0.34f, w * 0.08f, tint, stroke)
+    drawArrowHead(w * 0.84f, h * 0.68f, w * 0.08f, tint, stroke)
+}
+
+private fun DrawScope.drawRepeat(tint: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    val loop = Path().apply {
+        moveTo(w * 0.3f, h * 0.3f)
+        lineTo(w * 0.74f, h * 0.3f)
+        lineTo(w * 0.74f, h * 0.7f)
+        lineTo(w * 0.26f, h * 0.7f)
+        lineTo(w * 0.26f, h * 0.3f)
+    }
+    drawPath(loop, tint, style = stroke)
+    drawArrowHead(w * 0.3f, h * 0.3f, w * 0.08f, tint, stroke)
+}
+
+private fun DrawScope.drawSkip(tint: Color, stroke: Stroke, forward: Boolean) {
+    val w = size.width
+    val h = size.height
+    val dir = if (forward) 1f else -1f
+    val centerX = w * 0.5f
+    val triangle = Path().apply {
+        moveTo(centerX - (dir * w * 0.2f), h * 0.3f)
+        lineTo(centerX + (dir * w * 0.16f), h * 0.5f)
+        lineTo(centerX - (dir * w * 0.2f), h * 0.7f)
+        close()
+    }
+    drawPath(triangle, tint, style = stroke)
+    val barX = centerX + (dir * w * 0.24f)
+    drawLine(
+        tint,
+        Offset(barX, h * 0.3f),
+        Offset(barX, h * 0.7f),
+        strokeWidth = stroke.width,
+        cap = StrokeCap.Round,
+    )
+}
+
+private fun DrawScope.drawPause(tint: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    drawLine(
+        tint,
+        Offset(w * 0.4f, h * 0.28f),
+        Offset(w * 0.4f, h * 0.72f),
+        strokeWidth = stroke.width * 1.6f,
+        cap = StrokeCap.Round,
+    )
+    drawLine(
+        tint,
+        Offset(w * 0.6f, h * 0.28f),
+        Offset(w * 0.6f, h * 0.72f),
+        strokeWidth = stroke.width * 1.6f,
+        cap = StrokeCap.Round,
+    )
+}
+
+/** Small chevron used as the head of the shuffle / repeat strokes. */
+private fun DrawScope.drawArrowHead(
+    x: Float,
+    y: Float,
+    length: Float,
+    tint: Color,
+    stroke: Stroke,
+) {
+    val head = Path().apply {
+        moveTo(x - length, y - length)
+        lineTo(x, y)
+        lineTo(x - length, y + length)
+    }
+    drawPath(head, tint, style = stroke)
 }
 
 /** Circle with three arcs — recognisable as Spotify without brand fill. */
