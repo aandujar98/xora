@@ -11,7 +11,12 @@ val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use(::load)
 }
-val spotifyClientId = localProperties.getProperty("spotify.client.id", "").orEmpty()
+// Public Spotify app Client ID (no secret) — same idea as Discord's application id.
+// local.properties can override with spotify.client.id=...
+val spotifyClientId = localProperties.getProperty(
+    "spotify.client.id",
+    "a5770d1ecf1e4edc9bc9c8adbf7a629f",
+).orEmpty().trim()
 
 android {
     namespace = "com.arcadia.shell.scraper"
@@ -19,7 +24,6 @@ android {
 
     defaultConfig {
         minSdk = 29
-        // Public Spotify app Client ID (no secret). Set spotify.client.id in local.properties.
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"${spotifyClientId.replace("\"", "\\\"")}\"")
     }
 
