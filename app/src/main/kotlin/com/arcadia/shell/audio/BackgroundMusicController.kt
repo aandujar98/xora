@@ -60,6 +60,8 @@ class BackgroundMusicController @Inject constructor(
     private var loadedKey: String = KEY_UNLOADED
     /** When true, shell BGM stays paused so onboarding music can own the soundtrack. */
     private var onboardingActive: Boolean = false
+    /** When true, shell BGM stays paused so Music / Now Playing owns the soundtrack. */
+    private var libraryMusicActive: Boolean = false
     private var crossfadeJob: Job? = null
     /** Outgoing player during a soft mix; released when the fade completes or is cancelled. */
     private var fadingOutPlayer: MediaPlayer? = null
@@ -122,6 +124,13 @@ class BackgroundMusicController @Inject constructor(
         syncPlayback()
     }
 
+    /** Pause shell BGM while a Music track is playing (device MediaPlayer or Spotify remote). */
+    fun setLibraryMusicActive(active: Boolean) {
+        if (libraryMusicActive == active) return
+        libraryMusicActive = active
+        syncPlayback()
+    }
+
     fun onForeground() {
         foreground = true
         syncPlayback()
@@ -146,7 +155,7 @@ class BackgroundMusicController @Inject constructor(
     }
 
     private fun syncPlayback() {
-        if (!foreground || volume <= 0f || onboardingActive) {
+        if (!foreground || volume <= 0f || onboardingActive || libraryMusicActive) {
             runCatching { player?.pause() }
             if (!foreground) abandonAudioFocus()
             return

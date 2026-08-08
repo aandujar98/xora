@@ -55,9 +55,9 @@ data class MusicTrack(
 /**
  * On-device music read through MediaStore.
  *
- * Deliberately read-only: the Music category browses albums, playlists and songs today, and the
- * player that consumes [MusicTrack.contentUri] arrives later. Queries return empty rather than
- * throwing when audio access has not been granted, so the XMB still opens.
+ * Browse-only here — [NowPlayingController] consumes [MusicTrack.contentUri] for playback.
+ * Queries return empty rather than throwing when audio access has not been granted, so the XMB
+ * still opens.
  */
 @Singleton
 class MusicLibrary @Inject constructor(

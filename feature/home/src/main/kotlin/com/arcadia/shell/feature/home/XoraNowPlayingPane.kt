@@ -49,7 +49,7 @@ private const val ART_TOP = 853f
  * Music → Now Playing, drawn over the track's cover art (the pane's backdrop supplies the art).
  *
  * Transport controls are laid out here but inert until the audio engine lands; the state they
- * render comes from [NowPlayingState] so wiring the player later is a data change, not a redesign.
+ * render comes from [NowPlayingState]; local MediaPlayer / Spotify Web API drive [NowPlayingState.isPlaying].
  */
 @Composable
 fun XoraNowPlayingPane(
