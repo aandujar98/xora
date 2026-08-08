@@ -122,6 +122,50 @@ class SpotifyAuth @Inject constructor(
         }
     }
 
+    /**
+     * A usable access token, refreshing first when the stored one has expired.
+     * Returns null when the account is not linked or the refresh was rejected.
+     */
+    fun accessToken(): String? {
+        val tokens = tokenStore.read() ?: return null
+        if (tokens.hasAccess && !tokens.isExpired) return tokens.accessToken
+        val refresh = tokens.refreshToken.takeIf { it.isNotBlank() } ?: return null
+        return refreshAccessToken(refresh)
+    }
+
+    private fun refreshAccessToken(refreshToken: String): String? {
+        val id = clientId().takeIf { it.isNotBlank() } ?: return null
+        return runCatching {
+            val body = FormBody.Builder()
+                .add("grant_type", "refresh_token")
+                .add("refresh_token", refreshToken)
+                .add("client_id", id)
+                .build()
+            val request = Request.Builder()
+                .url(TOKEN_ENDPOINT)
+                .post(body)
+                .build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    // A refused refresh means the grant is gone; make the card show unlinked.
+                    if (response.code == 400 || response.code == 401) tokenStore.clear()
+                    return null
+                }
+                val tokens = json.decodeFromString(
+                    SpotifyTokenResponse.serializer(),
+                    response.body.string(),
+                )
+                tokenStore.save(
+                    accessToken = tokens.accessToken,
+                    // Spotify only returns a new refresh token sometimes; keep the old one otherwise.
+                    refreshToken = tokens.refreshToken?.takeIf { it.isNotBlank() } ?: refreshToken,
+                    expiresInSeconds = tokens.expiresIn,
+                )
+                tokens.accessToken
+            }
+        }.getOrNull()
+    }
+
     private fun clearPendingVerifier() {
         pendingVerifier = null
         tokenStore.clearPendingVerifier()

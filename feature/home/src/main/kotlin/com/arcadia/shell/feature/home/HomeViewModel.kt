@@ -62,7 +62,10 @@ import com.arcadia.shell.launcher.conversations.ConversationRepository
 import com.arcadia.shell.launcher.conversations.ConversationSource
 import com.arcadia.shell.launcher.conversations.ConversationsUiState
 import com.arcadia.shell.launcher.conversations.NotificationConversation
+import com.arcadia.shell.launcher.music.MusicAlbum
 import com.arcadia.shell.launcher.music.MusicLibrary
+import com.arcadia.shell.launcher.music.MusicSource
+import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.launcher.music.NowPlayingController
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
@@ -101,7 +104,9 @@ import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.ScraperScheduler
 import com.arcadia.shell.scraper.SpotifyAuth
 import com.arcadia.shell.scraper.SpotifyLinkResult
+import com.arcadia.shell.scraper.SpotifyPlaybackResult
 import com.arcadia.shell.scraper.SpotifyTokenStore
+import com.arcadia.shell.scraper.SpotifyWebApi
 import com.arcadia.shell.scraper.SteamOpenId
 import com.arcadia.shell.scraper.SteamWebApiClient
 import com.arcadia.shell.scraper.TrailerResolver
@@ -187,6 +192,7 @@ class HomeViewModel @Inject constructor(
     private val steamWebApiClient: SteamWebApiClient,
     private val spotifyAuth: SpotifyAuth,
     private val spotifyTokenStore: SpotifyTokenStore,
+    private val spotifyWebApi: SpotifyWebApi,
     private val musicLibrary: MusicLibrary,
     private val nowPlayingController: NowPlayingController,
     private val conversationRepository: ConversationRepository,
@@ -2197,7 +2203,11 @@ class HomeViewModel @Inject constructor(
             )
             is XoraXmbAction.PlayMusicTrack -> {
                 val track = musicUi.value.tracks.firstOrNull { it.id == action.trackId } ?: return
-                nowPlayingController.setTrack(track)
+                if (track.source == MusicSource.Spotify) {
+                    playSpotifyTrack(track)
+                } else {
+                    nowPlayingController.setTrack(track)
+                }
                 xoraDepth.value = XoraXmbDepth.NowPlaying
                 xoraItemIndex.value = 0
             }
@@ -2358,27 +2368,99 @@ class HomeViewModel @Inject constructor(
         musicUi.update {
             it.copy(
                 drilledAlbumId = albumId,
-                isLoading = hasAccess,
+                isLoading = true,
                 hasAudioAccess = hasAccess,
             )
         }
-        if (!hasAccess) {
+        // A linked Spotify account still fills these rungs without on-device audio access, so only
+        // ask for the permission when the device library is the only possible source.
+        val spotifyOnly = spotifyTokenStore.isLinked() &&
+            (albumId?.startsWith(SPOTIFY_ALBUM_PREFIX) == true)
+        if (!hasAccess && !spotifyOnly && !spotifyTokenStore.isLinked()) {
+            musicUi.update { it.copy(isLoading = false) }
             emit(HomeEvent.RequestAudioAccess(musicLibrary.audioPermission()))
             return
         }
         viewModelScope.launch {
             when (depth) {
                 XoraXmbDepth.MusicAlbums -> {
+                    // Linked Spotify playlists sit above on-device albums in the same rung.
+                    val playlists = spotifyPlaylistAlbums()
                     val albums = musicLibrary.albums()
-                    musicUi.update { it.copy(albums = albums, isLoading = false) }
+                    musicUi.update {
+                        it.copy(albums = playlists + albums, isLoading = false)
+                    }
                 }
                 else -> {
-                    val tracks = if (albumId != null) {
-                        musicLibrary.tracks(albumId)
-                    } else {
-                        musicLibrary.allTracks()
+                    val tracks = when {
+                        albumId == null -> musicLibrary.allTracks()
+                        albumId.startsWith(SPOTIFY_ALBUM_PREFIX) ->
+                            spotifyPlaylistTracks(albumId.removePrefix(SPOTIFY_ALBUM_PREFIX))
+                        else -> musicLibrary.tracks(albumId)
                     }
                     musicUi.update { it.copy(tracks = tracks, isLoading = false) }
+                }
+            }
+        }
+    }
+
+    private suspend fun spotifyPlaylistAlbums(): List<MusicAlbum> {
+        if (!spotifyTokenStore.isLinked()) return emptyList()
+        return spotifyWebApi.playlists().map { playlist ->
+            MusicAlbum(
+                id = "$SPOTIFY_ALBUM_PREFIX${playlist.id}",
+                title = playlist.name,
+                artist = playlist.ownerName,
+                artUri = playlist.imageUrl,
+                trackCount = playlist.trackCount,
+                isPlaylist = true,
+                source = MusicSource.Spotify,
+                remoteUri = playlist.uri,
+            )
+        }
+    }
+
+    private suspend fun spotifyPlaylistTracks(playlistId: String): List<MusicTrack> {
+        val contextUri = "spotify:playlist:$playlistId"
+        return spotifyWebApi.playlistTracks(playlistId).map { track ->
+            MusicTrack(
+                id = "$SPOTIFY_ALBUM_PREFIX${track.id}",
+                title = track.title,
+                artist = track.artist,
+                albumTitle = track.albumName,
+                albumArtUri = track.albumArtUrl,
+                durationMs = track.durationMs,
+                contentUri = track.uri,
+                source = MusicSource.Spotify,
+                contextUri = contextUri,
+            )
+        }
+    }
+
+    /**
+     * Spotify streams from its own player, so XOrA asks Spotify to start the track and mirrors
+     * the metadata locally. A missing device or a free account is reported rather than swallowed.
+     */
+    private fun playSpotifyTrack(track: MusicTrack) {
+        nowPlayingController.setTrack(track, playing = true)
+        viewModelScope.launch {
+            when (val result = spotifyWebApi.play(track.contentUri, track.contextUri)) {
+                SpotifyPlaybackResult.Started -> Unit
+                SpotifyPlaybackResult.NoActiveDevice -> {
+                    nowPlayingController.setTrack(track, playing = false)
+                    emit(
+                        HomeEvent.ShowMessage(
+                            "Open Spotify on a device first — XOrA plays through it.",
+                        ),
+                    )
+                }
+                SpotifyPlaybackResult.NeedsPremium -> {
+                    nowPlayingController.setTrack(track, playing = false)
+                    emit(HomeEvent.ShowMessage("Spotify Premium is required to start playback."))
+                }
+                is SpotifyPlaybackResult.Failed -> {
+                    nowPlayingController.setTrack(track, playing = false)
+                    emit(HomeEvent.ShowMessage(result.message))
                 }
             }
         }
@@ -2397,7 +2479,20 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun toggleNowPlaying() = nowPlayingController.togglePlayPause()
+    fun toggleNowPlaying() {
+        val current = nowPlayingController.state.value
+        val track = current.track ?: return
+        nowPlayingController.togglePlayPause()
+        if (track.source != MusicSource.Spotify) return
+        // Mirror the transport onto Spotify's player, which owns the audio for linked accounts.
+        viewModelScope.launch {
+            if (current.isPlaying) {
+                spotifyWebApi.pause()
+            } else {
+                spotifyWebApi.play(track.contentUri, track.contextUri)
+            }
+        }
+    }
 
     private fun linkDspAccount(provider: DspProvider) {
         when (provider) {
@@ -5356,6 +5451,8 @@ class HomeViewModel @Inject constructor(
     private companion object {
         const val TAG = "HomeViewModel"
         const val DISCORD_PACKAGE = "com.discord"
+        /** Marks Spotify ids inside the shared music rung so drilling knows which source to ask. */
+        private const val SPOTIFY_ALBUM_PREFIX = "spotify:"
         /** Covers profile + hash + gameid + progress; longer than OkHttp call timeout would strand the spinner. */
         const val ACHIEVEMENTS_LOAD_TIMEOUT_MS = 60_000L
         const val GUIDE_QUICK_LAUNCH_RECENT = 5
