@@ -1,0 +1,8 @@
+---
+description: Never attribute commits or PRs to Cursor Agent
+alwaysApply: true
+---
+
+Never add `Made-with: Cursor`, `Co-authored-by: Cursor`, `Co-authored-by: Cursor Agent`, or any Cursor attribution trailer to commits, pull requests, or code comments.
+
+Commit author should remain the human owner (`iprinceangel` / `aandujar98`), not `Cursor Agent <cursoragent@cursor.com>`.
