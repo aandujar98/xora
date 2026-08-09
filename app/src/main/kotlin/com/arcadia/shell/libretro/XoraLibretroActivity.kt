@@ -584,7 +584,16 @@ class XoraLibretroActivity : ComponentActivity() {
                 libraryRepository = libraryRepository,
                 notifications = shellNotifications,
                 gameTitle = gameTitle,
+                appContext = applicationContext,
+                coreName = coreName,
                 raSettings = prefs,
+                onEmulatorResetRequested = {
+                    lifecycleScope.launch(emuDispatcher) {
+                        LibretroNative.nativeReset()
+                        LibretroNative.nativeRaReset()
+                        raSession?.onEmulatorReset()
+                    }
+                },
             )
             raSession = session
             session.start(romPath = romPath, platformId = platformId, gameId = gameId)
@@ -820,15 +829,24 @@ class XoraLibretroActivity : ComponentActivity() {
                     val next = !preferences.retroAchievementsSettings.first().hardcore
                     preferences.setRaHardcore(next)
                     raSettings = raSettings.copy(hardcore = next)
-                    // Apply immediately so softcore/hardcore matches the menu without relaunch.
+                    // Enabling hardcore mid-session must reset the console (RA compliance).
                     LibretroNative.nativeRaSetHardcore(next)
-                    showMenuMessage(
-                        if (next) {
-                            "Hardcore on — save states disabled"
-                        } else {
-                            "Hardcore off — softcore"
-                        },
-                    )
+                    if (next && gameLoaded) {
+                        withContext(emuDispatcher) {
+                            LibretroNative.nativeReset()
+                            LibretroNative.nativeRaReset()
+                        }
+                        raSession?.onEmulatorReset()
+                        showMenuMessage("Hardcore on — game reset, save states disabled")
+                    } else {
+                        showMenuMessage(
+                            if (next) {
+                                "Hardcore on — save states disabled"
+                            } else {
+                                "Hardcore off — softcore"
+                            },
+                        )
+                    }
                 }
             }
         }

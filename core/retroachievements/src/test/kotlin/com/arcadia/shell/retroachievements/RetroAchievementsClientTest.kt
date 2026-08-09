@@ -99,5 +99,13 @@ class RetroAchievementsClientTest {
     @Test
     fun `user agent identifies XOrA`() {
         assertTrue(RetroAchievementsClient.USER_AGENT.startsWith("XOrA/"))
+        assertTrue(RetroAchievementsClient.USER_AGENT.contains("rcheevos/"))
+    }
+
+    @Test
+    fun `core clause normalizes libretro suffix`() {
+        assertEquals("mupen64plus_next_libretro", RaUserAgent.coreClause("mupen64plus_next"))
+        assertEquals("mupen64plus_next_libretro", RaUserAgent.coreClause("mupen64plus_next_libretro.so"))
+        assertEquals(null, RaUserAgent.coreClause(null))
     }
 }

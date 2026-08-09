@@ -1,6 +1,8 @@
 package com.arcadia.shell.retroachievements
 
+import android.content.Context
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -24,13 +26,20 @@ import javax.inject.Singleton
 class RetroAchievementsClient @Inject constructor(
     httpClient: OkHttpClient,
     private val json: Json,
+    @ApplicationContext context: Context,
 ) {
+    /**
+     * Stable launcher UA (no core clause). Emulator sessions attach a core-specific UA via
+     * [LibretroRaBridge] so RA can attribute multi-core play correctly once XOrA is approved.
+     */
+    val userAgent: String = RaUserAgent.forApp(context)
+
     /** Dedicated client so every RA call (Connect + Web API) carries a valid User-Agent. */
     private val httpClient: OkHttpClient = httpClient.newBuilder()
         .addInterceptor(Interceptor { chain ->
             val original = chain.request()
             val withUa = original.newBuilder()
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", userAgent)
                 .header("Accept", "application/json")
                 .build()
             chain.proceed(withUa)
@@ -497,18 +506,17 @@ class RetroAchievementsClient @Inject constructor(
         const val SITE_BASE = "https://retroachievements.org"
         const val API_BASE = "$SITE_BASE/API"
         /**
-         * Connect API requires a non-empty UA (`IntegrationName/Version`). Cloudflare/nginx 403s
-         * bare OkHttp defaults on dorequest.php. Keep this aligned with the shipped app name —
-         * blocked/legacy names can make `gameid` return Success:false + GameID:0.
-         */
-        const val USER_AGENT = "XOrA/1.0.0"
-
-        /**
          * `l=` on Connect `startsession` — must match the vendored rcheevos [RCHEEVOS_VERSION_STRING].
          * Kept as a Kotlin constant so the emulator can prefetch the session without linking native.
+         * Matches vendored rcheevos when patch==0 → "major.minor".
          */
-        /** Matches vendored rcheevos when patch==0 → "major.minor". */
         const val RCHEEVOS_CLIENT_VERSION = "11.6"
+
+        /**
+         * Fallback UA for tests / call sites that cannot resolve [android.content.Context].
+         * Production traffic uses the instance [userAgent] (versioned via PackageManager).
+         */
+        const val USER_AGENT = "XOrA/0.0.0 rcheevos/$RCHEEVOS_CLIENT_VERSION"
 
         /** Roughly one year — enough for a browseable “all recent” list without dumping history. */
         const val RECENT_WINDOW_MINUTES = 525_600

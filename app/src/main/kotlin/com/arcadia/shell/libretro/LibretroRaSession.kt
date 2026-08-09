@@ -1,5 +1,6 @@
 package com.arcadia.shell.libretro
 
+import android.content.Context
 import android.util.Log
 import com.arcadia.shell.database.repository.LibraryRepository
 import com.arcadia.shell.datastore.RetroAchievementsSettings
@@ -7,6 +8,7 @@ import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.retroachievements.RaConsoleIds
+import com.arcadia.shell.retroachievements.RaUserAgent
 import com.arcadia.shell.retroachievements.RetroAchievementsRepository
 import com.arcadia.shell.scraper.RomHasher
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +37,10 @@ class LibretroRaSession(
     private val libraryRepository: LibraryRepository,
     private val notifications: ShellNotificationCenter,
     private val gameTitle: String,
+    private val appContext: Context,
+    private val coreName: String,
     private val raSettings: RetroAchievementsSettings = RetroAchievementsSettings(),
+    private val onEmulatorResetRequested: () -> Unit = {},
 ) {
     private val _status = MutableStateFlow<String?>(null)
     val status: StateFlow<String?> = _status.asStateFlow()
@@ -51,9 +56,20 @@ class LibretroRaSession(
             return
         }
 
+        val userAgent = RaUserAgent.forApp(appContext, coreName)
+        Log.i(TAG, "RA User-Agent: $userAgent")
+
         val raBridge = LibretroRaBridge(
             httpClient = okHttpClient,
+            userAgent = userAgent,
             onUnlocked = { id, title, description, points, badgeUrl, hardcore ->
+                // Server-side "Unknown Emulator" / compliance warnings use synthetic ids.
+                if (id >= WARNING_ACHIEVEMENT_ID_MIN) {
+                    val detail = description.takeIf { it.isNotBlank() }
+                        ?: "Hardcore unlocks need RetroAchievements to approve XOrA."
+                    _status.value = "RA: ${title.ifBlank { "Unknown emulator" }} — $detail"
+                    return@LibretroRaBridge
+                }
                 if (raSettings.unlockNotifications) {
                     notifications.emit(
                         ShellNotification.AchievementUnlocked(
@@ -73,6 +89,7 @@ class LibretroRaSession(
             onStatusChanged = { message ->
                 _status.value = message
             },
+            requestReset = onEmulatorResetRequested,
         )
         bridge = raBridge
         LibretroNative.nativeRaAttach(raBridge)
@@ -221,5 +238,7 @@ class LibretroRaSession(
 
     private companion object {
         const val TAG = "LibretroRaSession"
+        /** rcheevos / RAWeb synthetic warnings (Unknown Emulator, outdated client, …). */
+        const val WARNING_ACHIEVEMENT_ID_MIN = 101_000_001
     }
 }

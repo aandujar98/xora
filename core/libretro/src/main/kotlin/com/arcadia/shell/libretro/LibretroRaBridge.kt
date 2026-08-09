@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit
  */
 class LibretroRaBridge(
     httpClient: OkHttpClient,
+    private val userAgent: String,
     private val onUnlocked: (
         id: Int,
         title: String,
@@ -23,6 +24,7 @@ class LibretroRaBridge(
         hardcore: Boolean,
     ) -> Unit,
     private val onStatusChanged: (String) -> Unit,
+    private val requestReset: () -> Unit = {},
 ) {
     private val http = httpClient.newBuilder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -31,7 +33,7 @@ class LibretroRaBridge(
         .addInterceptor { chain ->
             chain.proceed(
                 chain.request().newBuilder()
-                    .header("User-Agent", USER_AGENT)
+                    .header("User-Agent", userAgent)
                     .build(),
             )
         }
@@ -43,7 +45,7 @@ class LibretroRaBridge(
             val builder = Request.Builder()
                 .url(url)
                 // Must match launcher RA client — Cloudflare 403s unknown/empty UAs on dorequest.php.
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", userAgent)
                 .header("Accept", "application/json")
             if (postData != null) {
                 val media = (contentType ?: "application/x-www-form-urlencoded")
@@ -103,10 +105,14 @@ class LibretroRaBridge(
         if (!message.isNullOrBlank()) onStatusChanged(message)
     }
 
+    /** Raised when enabling hardcore mid-session — the emulated system must reset. */
+    @Keep
+    fun onRequestReset() {
+        requestReset.invoke()
+    }
+
     private companion object {
         const val TAG = "LibretroRA"
-        /** Same UA as [com.arcadia.shell.retroachievements.RetroAchievementsClient]. */
-        const val USER_AGENT = "XOrA/1.0.0"
 
         fun looksLikeHtml(body: String): Boolean {
             val trimmed = body.trimStart('\uFEFF', ' ', '\t', '\r', '\n')

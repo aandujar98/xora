@@ -633,7 +633,9 @@ fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(text = "Hardcore mode", style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            text = "Disables save states in XOrA Emulator while a session runs.",
+                            text = "Disables save-state loads in XOrA Emulator. Server-side " +
+                                "hardcore unlocks need RetroAchievements to approve the XOrA " +
+                                "client — until then they demote to softcore (“Unknown Emulator”).",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -32,6 +32,7 @@ jobject g_bridge = nullptr;  // GlobalRef to LibretroRaBridge
 jmethodID g_mid_http = nullptr;
 jmethodID g_mid_unlock = nullptr;
 jmethodID g_mid_status = nullptr;
+jmethodID g_mid_reset = nullptr;
 bool g_logged_in = false;
 bool g_game_loaded = false;
 bool g_hardcore_wanted = false;
@@ -245,6 +246,15 @@ void event_handler(const rc_client_event_t* event, rc_client_t*) {
                 notify_status(event->server_error->error_message);
             }
             break;
+        case RC_CLIENT_EVENT_RESET:
+            // Enabling hardcore mid-session requires a full console reset before RA resumes.
+            ALOGI("RA requested emulator reset (hardcore enable)");
+            notify_status("RA: resetting for hardcore…");
+            if (g_bridge && g_mid_reset) {
+                JNIEnv* env = env_for_current_thread();
+                if (env) env->CallVoidMethod(g_bridge, g_mid_reset);
+            }
+            break;
         default:
             break;
     }
@@ -383,6 +393,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRaAttach(
         "(ILjava/lang/String;Ljava/lang/String;ILjava/lang/String;Z)V"
     );
     g_mid_status = env->GetMethodID(cls, "onStatus", "(Ljava/lang/String;)V");
+    g_mid_reset = env->GetMethodID(cls, "onRequestReset", "()V");
     env->DeleteLocalRef(cls);
     ensure_client_unlocked();
 }
@@ -403,6 +414,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRaDetach(JNIEnv* env, jclas
     g_mid_http = nullptr;
     g_mid_unlock = nullptr;
     g_mid_status = nullptr;
+    g_mid_reset = nullptr;
 }
 
 extern "C" JNIEXPORT void JNICALL
