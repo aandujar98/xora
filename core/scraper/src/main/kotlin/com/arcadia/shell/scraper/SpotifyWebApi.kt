@@ -227,6 +227,22 @@ class SpotifyWebApi @Inject constructor(
         }.getOrDefault(false)
     }
 
+    suspend fun skipToNext(): Boolean = playerCommand("next")
+
+    suspend fun skipToPrevious(): Boolean = playerCommand("previous")
+
+    private suspend fun playerCommand(command: String): Boolean = withContext(Dispatchers.IO) {
+        val token = auth.accessToken() ?: return@withContext false
+        runCatching {
+            val request = Request.Builder()
+                .url("$BASE/me/player/$command")
+                .post(EMPTY_JSON.toRequestBody(JSON_MEDIA_TYPE))
+                .header("Authorization", "Bearer $token")
+                .build()
+            okHttpClient.newCall(request).execute().use { it.isSuccessful || it.code == 204 }
+        }.getOrDefault(false)
+    }
+
     private fun get(url: String, token: String): String? {
         val request = Request.Builder()
             .url(url)

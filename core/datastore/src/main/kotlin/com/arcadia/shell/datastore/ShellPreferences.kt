@@ -196,6 +196,11 @@ data class ShellSettings(
      */
     val customBgmPath: String? = null,
     /**
+     * Absolute path to the Music category's on-device library folder. Null / blank means
+     * "all device music" via MediaStore.
+     */
+    val musicLibraryPath: String? = null,
+    /**
      * Active launcher theme pack id ([com.arcadia.shell.designsystem.ShellThemeId.id]).
      * Defaults to `"default"`.
      */
@@ -364,6 +369,7 @@ class ShellPreferences @Inject constructor(
                 .coerceIn(5, 60),
             homeWallpaperPath = prefs[Keys.HOME_WALLPAPER_PATH]?.takeIf { it.isNotBlank() },
             customBgmPath = prefs[Keys.CUSTOM_BGM_PATH]?.takeIf { it.isNotBlank() },
+            musicLibraryPath = prefs[Keys.MUSIC_LIBRARY_PATH]?.takeIf { it.isNotBlank() },
             shellThemeId = prefs[Keys.SHELL_THEME_ID]?.takeIf { it.isNotBlank() }
                 ?: DEFAULT_SHELL_THEME_ID,
             notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true,
@@ -606,6 +612,11 @@ class ShellPreferences @Inject constructor(
     suspend fun setCustomBgmPath(path: String?) = edit {
         if (path.isNullOrBlank()) it.remove(Keys.CUSTOM_BGM_PATH)
         else it[Keys.CUSTOM_BGM_PATH] = path
+    }
+
+    suspend fun setMusicLibraryPath(path: String?) = edit {
+        if (path.isNullOrBlank()) it.remove(Keys.MUSIC_LIBRARY_PATH)
+        else it[Keys.MUSIC_LIBRARY_PATH] = path
     }
 
     suspend fun setShellThemeId(themeId: String) = edit {
@@ -1009,6 +1020,7 @@ class ShellPreferences @Inject constructor(
         val CIRCLE_PINS = stringPreferencesKey("circle_pins")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
         val CUSTOM_BGM_PATH = stringPreferencesKey("custom_bgm_path")
+        val MUSIC_LIBRARY_PATH = stringPreferencesKey("music_library_path")
         val SHELL_THEME_ID = stringPreferencesKey("shell_theme_id")
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         val NOTIFICATION_SOUND_ENABLED = booleanPreferencesKey("notification_sound_enabled")

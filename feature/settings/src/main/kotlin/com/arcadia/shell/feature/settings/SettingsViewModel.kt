@@ -581,6 +581,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setBgmVolume(volume) }
     }
 
+    fun setMusicLibraryPath(path: String?) {
+        viewModelScope.launch { preferences.setMusicLibraryPath(path) }
+    }
+
     fun setUiSfxVolume(volume: Float) {
         viewModelScope.launch { preferences.setUiSfxVolume(volume) }
     }

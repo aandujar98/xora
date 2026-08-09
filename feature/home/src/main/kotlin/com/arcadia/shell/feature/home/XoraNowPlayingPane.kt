@@ -1,6 +1,7 @@
 package com.arcadia.shell.feature.home
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,15 +16,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
@@ -48,12 +51,16 @@ private const val ART_TOP = 853f
 /**
  * Music → Now Playing, drawn over the track's cover art (the pane's backdrop supplies the art).
  *
- * Transport controls are laid out here but inert until the audio engine lands; the state they
- * render comes from [NowPlayingState]; local MediaPlayer / Spotify Web API drive [NowPlayingState.isPlaying].
+ * Transport glyphs are live: shuffle / previous / play-pause / next / repeat.
  */
 @Composable
 fun XoraNowPlayingPane(
     state: NowPlayingState,
+    onTogglePlayPause: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onSkipNext: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    onToggleRepeat: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -141,7 +148,15 @@ fun XoraNowPlayingPane(
                     unit = unit,
                 )
             }
-            TransportRow(state = state, unit = unit)
+            TransportRow(
+                state = state,
+                unit = unit,
+                onTogglePlayPause = onTogglePlayPause,
+                onSkipPrevious = onSkipPrevious,
+                onSkipNext = onSkipNext,
+                onToggleShuffle = onToggleShuffle,
+                onToggleRepeat = onToggleRepeat,
+            )
         }
     }
 }
@@ -160,7 +175,15 @@ private fun TimeLabel(text: String, unit: Float) {
 
 /** Shuffle / previous / play / next / repeat, spaced as the concept lays them out. */
 @Composable
-private fun TransportRow(state: NowPlayingState, unit: Float) {
+private fun TransportRow(
+    state: NowPlayingState,
+    unit: Float,
+    onTogglePlayPause: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onSkipNext: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    onToggleRepeat: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .padding(top = (8f * unit).dp)
@@ -168,15 +191,34 @@ private fun TransportRow(state: NowPlayingState, unit: Float) {
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TransportGlyph(XmbIcon.Shuffle, unit, active = state.shuffle)
-        TransportGlyph(XmbIcon.PreviousTrack, unit)
+        TransportGlyph(
+            icon = XmbIcon.Shuffle,
+            unit = unit,
+            active = state.shuffle,
+            onClick = onToggleShuffle,
+        )
+        TransportGlyph(
+            icon = XmbIcon.PreviousTrack,
+            unit = unit,
+            onClick = onSkipPrevious,
+        )
         TransportGlyph(
             icon = if (state.isPlaying) XmbIcon.Pause else XmbIcon.Play,
             unit = unit,
             size = 46f,
+            onClick = onTogglePlayPause,
         )
-        TransportGlyph(XmbIcon.NextTrack, unit)
-        TransportGlyph(XmbIcon.Repeat, unit, active = state.repeat)
+        TransportGlyph(
+            icon = XmbIcon.NextTrack,
+            unit = unit,
+            onClick = onSkipNext,
+        )
+        TransportGlyph(
+            icon = XmbIcon.Repeat,
+            unit = unit,
+            active = state.repeat,
+            onClick = onToggleRepeat,
+        )
     }
 }
 
@@ -184,15 +226,29 @@ private fun TransportRow(state: NowPlayingState, unit: Float) {
 private fun TransportGlyph(
     icon: XmbIcon,
     unit: Float,
+    onClick: () -> Unit,
     active: Boolean = false,
     size: Float = 34f,
 ) {
-    XmbVectorIcon(
-        icon = icon,
-        tint = if (active) Color.White else NowPlayingInk.copy(alpha = 0.9f),
-        size = (size * unit).dp,
-        outlined = false,
-    )
+    val hit = ((size + 16f) * unit).dp
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(hit)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(bounded = false, radius = hit / 2),
+                role = Role.Button,
+                onClick = onClick,
+            ),
+    ) {
+        XmbVectorIcon(
+            icon = icon,
+            tint = if (active) Color.White else NowPlayingInk.copy(alpha = 0.9f),
+            size = (size * unit).dp,
+            outlined = false,
+        )
+    }
 }
 
 private val NowPlayingInk = Color(0xFFEDEDED)

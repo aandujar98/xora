@@ -93,6 +93,7 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showFolderPicker by remember { mutableStateOf(false) }
+    var showMusicFolderPicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     BackHandler(onBack = onBack)
@@ -124,6 +125,18 @@ fun SettingsScreen(
             onPick = { path ->
                 viewModel.addFilesystemRoot(path)
                 showFolderPicker = false
+            },
+        )
+    }
+
+    if (showMusicFolderPicker) {
+        FolderPickerDialog(
+            volumes = state.suggestedVolumes,
+            listDirectories = viewModel::listDirectories,
+            onDismiss = { showMusicFolderPicker = false },
+            onPick = { path ->
+                viewModel.setMusicLibraryPath(path)
+                showMusicFolderPicker = false
             },
         )
     }
@@ -409,6 +422,41 @@ fun SettingsScreen(
                     valueRange = 0f..1f,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("Music library folder")
+                Text(
+                    text = "Where Music → Playlist / All music look for on-device songs. " +
+                        "Leave empty to use all music indexed on this device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = state.settings.musicLibraryPath?.takeIf { it.isNotBlank() }
+                        ?: "All device music",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = { showMusicFolderPicker = true },
+                        enabled = state.hasStorageAccess,
+                    ) {
+                        Text(text = "Choose folder")
+                    }
+                    if (!state.settings.musicLibraryPath.isNullOrBlank()) {
+                        OutlinedButton(onClick = { viewModel.setMusicLibraryPath(null) }) {
+                            Text(text = "Use all device music")
+                        }
+                    }
+                }
+                if (!state.hasStorageAccess) {
+                    Text(
+                        text = "Grant all-files access under Storage / Library to pick a folder.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 

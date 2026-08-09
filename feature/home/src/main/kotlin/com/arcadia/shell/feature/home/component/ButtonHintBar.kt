@@ -149,9 +149,9 @@ val XoraMusicBrowseHints: List<Pair<String, String>> = listOf(
 /** Music → Now Playing. */
 val XoraNowPlayingHints: List<Pair<String, String>> = listOf(
     "A" to "Play / Pause",
+    "L/R" to "Prev / Next",
+    "U/D" to "Shuffle / Repeat",
     "B" to "Back",
-    "LT" to "Circle",
-    "RT" to "Profile / Alerts",
     "Start" to "Settings",
 )
 
