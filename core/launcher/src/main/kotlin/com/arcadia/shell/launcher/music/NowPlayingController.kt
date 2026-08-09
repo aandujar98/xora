@@ -21,6 +21,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.random.Random
 
 /** What the Now Playing pill and page show. */
 data class NowPlayingState(
@@ -42,11 +43,11 @@ data class NowPlayingState(
 }
 
 /**
- * Now Playing state plus on-device audio.
+ * Now Playing state plus on-device audio and a play queue for skip / auto-advance.
  *
  * Device tracks stream from [MusicTrack.contentUri] through [MediaPlayer]. Spotify tracks only
  * update metadata here — Home asks Spotify's Web API to play on the linked account's active
- * device.
+ * device, then mirrors transport onto that player.
  */
 @Singleton
 class NowPlayingController @Inject constructor(
@@ -63,6 +64,13 @@ class NowPlayingController @Inject constructor(
     private var positionJob: Job? = null
     private var focusGranted: Boolean = false
     private var focusRequest: AudioFocusRequest? = null
+
+    private var queue: List<MusicTrack> = emptyList()
+    private var playOrder: List<Int> = emptyList()
+    private var orderPos: Int = -1
+
+    /** Fired after a queue skip so Home can mirror Spotify Web API play when needed. */
+    var onTrackAdvanced: ((MusicTrack) -> Unit)? = null
 
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
@@ -88,6 +96,16 @@ class NowPlayingController @Inject constructor(
                 runCatching { player?.setVolume(0.35f, 0.35f) }
             }
         }
+    }
+
+    /**
+     * Sets the browse queue used by previous / next / auto-advance, then starts [track].
+     */
+    fun play(track: MusicTrack, queueTracks: List<MusicTrack> = listOf(track)) {
+        val resolved = queueTracks.ifEmpty { listOf(track) }
+        queue = resolved
+        rebuildPlayOrder(preferredId = track.id)
+        setTrack(track, playing = true)
     }
 
     /**
@@ -137,13 +155,79 @@ class NowPlayingController @Inject constructor(
         }
     }
 
-    fun toggleShuffle() = stateFlow.update { it.copy(shuffle = !it.shuffle) }
+    fun toggleShuffle() {
+        val currentId = stateFlow.value.track?.id
+        stateFlow.update { it.copy(shuffle = !it.shuffle) }
+        rebuildPlayOrder(preferredId = currentId)
+    }
 
     fun toggleRepeat() = stateFlow.update { it.copy(repeat = !it.repeat) }
 
+    /**
+     * Skips to the next queue entry. When [shuffle] is on, follows the shuffled order.
+     * Returns the track that began, or null if the queue cannot advance.
+     */
+    fun skipNext(): MusicTrack? {
+        if (queue.isEmpty()) return null
+        if (playOrder.isEmpty()) rebuildPlayOrder(preferredId = stateFlow.value.track?.id)
+        val nextPos = orderPos + 1
+        if (nextPos >= playOrder.size) {
+            if (stateFlow.value.repeat && playOrder.isNotEmpty()) {
+                orderPos = 0
+            } else {
+                return null
+            }
+        } else {
+            orderPos = nextPos
+        }
+        val track = queue.getOrNull(playOrder[orderPos]) ?: return null
+        setTrack(track, playing = true)
+        onTrackAdvanced?.invoke(track)
+        return track
+    }
+
+    /**
+     * Restarts the current track when more than a few seconds in; otherwise goes to previous.
+     */
+    fun skipPrevious(): MusicTrack? {
+        if (currentPositionMs() > RESTART_THRESHOLD_MS) {
+            val track = stateFlow.value.track ?: return null
+            setTrack(track, playing = true)
+            onTrackAdvanced?.invoke(track)
+            return track
+        }
+        if (queue.isEmpty()) return null
+        if (playOrder.isEmpty()) rebuildPlayOrder(preferredId = stateFlow.value.track?.id)
+        val prevPos = (orderPos - 1).coerceAtLeast(0)
+        orderPos = prevPos
+        val track = queue.getOrNull(playOrder[orderPos]) ?: return null
+        setTrack(track, playing = true)
+        onTrackAdvanced?.invoke(track)
+        return track
+    }
+
     fun clear() {
         stopLocalPlayback(keepTrack = null)
+        queue = emptyList()
+        playOrder = emptyList()
+        orderPos = -1
         stateFlow.value = NowPlayingState()
+    }
+
+    private fun rebuildPlayOrder(preferredId: String?) {
+        if (queue.isEmpty()) {
+            playOrder = emptyList()
+            orderPos = -1
+            return
+        }
+        val indices = queue.indices.toMutableList()
+        if (stateFlow.value.shuffle) {
+            indices.shuffle(Random.Default)
+        }
+        playOrder = indices
+        orderPos = preferredId?.let { id ->
+            playOrder.indexOfFirst { queue[it].id == id }
+        }?.takeIf { it >= 0 } ?: 0
     }
 
     private fun playDevice(track: MusicTrack) {
@@ -165,9 +249,12 @@ class NowPlayingController @Inject constructor(
                 }
                 return
             }
-            runCatching { player?.start() }
+            runCatching {
+                player?.seekTo(0)
+                player?.start()
+            }
             stateFlow.update {
-                it.copy(track = track, isPlaying = true)
+                it.copy(track = track, isPlaying = true, positionMs = 0)
             }
             startPositionTicker()
             return
@@ -205,8 +292,13 @@ class NowPlayingController @Inject constructor(
                         stateFlow.update { it.copy(isPlaying = true, positionMs = 0) }
                         startPositionTicker()
                     } else {
-                        stopPositionTicker()
-                        stateFlow.update { it.copy(isPlaying = false, positionMs = track.durationMs) }
+                        val advanced = skipNext()
+                        if (advanced == null) {
+                            stopPositionTicker()
+                            stateFlow.update {
+                                it.copy(isPlaying = false, positionMs = track.durationMs)
+                            }
+                        }
                     }
                 }
                 setOnErrorListener { _, _, _ ->
@@ -330,5 +422,6 @@ class NowPlayingController @Inject constructor(
 
     companion object {
         private const val POSITION_TICK_MS = 250L
+        private const val RESTART_THRESHOLD_MS = 3_000L
     }
 }

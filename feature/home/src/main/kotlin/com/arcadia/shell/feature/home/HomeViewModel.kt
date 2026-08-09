@@ -1952,14 +1952,26 @@ class HomeViewModel @Inject constructor(
     private fun onXoraXmbNavAction(action: NavAction, state: HomeUiState) {
         val xmb = state.xoraXmb
         when (action) {
-            NavAction.Left -> {
-                if (xmb.depth == XoraXmbDepth.Category) cycleXoraCategory(-1)
+            NavAction.Left -> when (xmb.depth) {
+                XoraXmbDepth.NowPlaying -> skipPreviousTrack()
+                XoraXmbDepth.Category -> cycleXoraCategory(-1)
+                else -> Unit
             }
-            NavAction.Right -> {
-                if (xmb.depth == XoraXmbDepth.Category) cycleXoraCategory(1)
+            NavAction.Right -> when (xmb.depth) {
+                XoraXmbDepth.NowPlaying -> skipNextTrack()
+                XoraXmbDepth.Category -> cycleXoraCategory(1)
+                else -> Unit
             }
-            NavAction.Up -> moveXoraItem(-1)
-            NavAction.Down -> moveXoraItem(1)
+            NavAction.Up -> if (xmb.depth == XoraXmbDepth.NowPlaying) {
+                toggleShuffle()
+            } else {
+                moveXoraItem(-1)
+            }
+            NavAction.Down -> if (xmb.depth == XoraXmbDepth.NowPlaying) {
+                toggleRepeat()
+            } else {
+                moveXoraItem(1)
+            }
             // The player page has no list, so Confirm is the transport key there.
             NavAction.Confirm -> if (xmb.depth == XoraXmbDepth.NowPlaying) {
                 toggleNowPlaying()
@@ -2202,12 +2214,12 @@ class HomeViewModel @Inject constructor(
                 albumId = action.albumId,
             )
             is XoraXmbAction.PlayMusicTrack -> {
-                val track = musicUi.value.tracks.firstOrNull { it.id == action.trackId } ?: return
+                val tracks = musicUi.value.tracks
+                val track = tracks.firstOrNull { it.id == action.trackId } ?: return
+                // Queue the visible rung so previous / next / auto-advance have somewhere to go.
+                nowPlayingController.play(track, tracks)
                 if (track.source == MusicSource.Spotify) {
-                    playSpotifyTrack(track)
-                } else {
-                    // Starts MediaPlayer against the MediaStore content uri.
-                    nowPlayingController.setTrack(track, playing = true)
+                    playSpotifyTrack(track, alreadyQueued = true)
                 }
                 xoraDepth.value = XoraXmbDepth.NowPlaying
                 xoraItemIndex.value = 0
@@ -2373,16 +2385,17 @@ class HomeViewModel @Inject constructor(
                 hasAudioAccess = hasAccess,
             )
         }
-        // A linked Spotify account still fills these rungs without on-device audio access, so only
-        // ask for the permission when the device library is the only possible source.
-        val spotifyOnly = spotifyTokenStore.isLinked() &&
-            (albumId?.startsWith(SPOTIFY_ALBUM_PREFIX) == true)
-        if (!hasAccess && !spotifyOnly && !spotifyTokenStore.isLinked()) {
-            musicUi.update { it.copy(isLoading = false) }
-            emit(HomeEvent.RequestAudioAccess(musicLibrary.audioPermission()))
-            return
-        }
         viewModelScope.launch {
+            val folderPath = preferences.settings.first().musicLibraryPath
+            val hasFolder = !folderPath.isNullOrBlank()
+            // Spotify, a Settings music folder, or MediaStore permission can each fill the rung.
+            val spotifyOnly = spotifyTokenStore.isLinked() &&
+                (albumId?.startsWith(SPOTIFY_ALBUM_PREFIX) == true)
+            if (!hasAccess && !hasFolder && !spotifyOnly && !spotifyTokenStore.isLinked()) {
+                musicUi.update { it.copy(isLoading = false) }
+                emit(HomeEvent.RequestAudioAccess(musicLibrary.audioPermission()))
+                return@launch
+            }
             when (depth) {
                 XoraXmbDepth.MusicAlbums -> {
                     // Linked Spotify playlists sit above on-device albums in the same rung.
@@ -2442,8 +2455,12 @@ class HomeViewModel @Inject constructor(
      * Spotify streams from its own player, so XOrA asks Spotify to start the track and mirrors
      * the metadata locally. A missing device or a free account is reported rather than swallowed.
      */
-    private fun playSpotifyTrack(track: MusicTrack) {
-        nowPlayingController.setTrack(track, playing = true)
+    private fun playSpotifyTrack(track: MusicTrack, alreadyQueued: Boolean = false) {
+        if (!alreadyQueued) {
+            nowPlayingController.setTrack(track, playing = true)
+        } else {
+            nowPlayingController.setRemotePlaying(true)
+        }
         viewModelScope.launch {
             when (val result = spotifyWebApi.play(track.contentUri, track.contextUri)) {
                 SpotifyPlaybackResult.Started -> nowPlayingController.setRemotePlaying(true)
@@ -2511,6 +2528,28 @@ class HomeViewModel @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    fun toggleShuffle() {
+        nowPlayingController.toggleShuffle()
+    }
+
+    fun toggleRepeat() {
+        nowPlayingController.toggleRepeat()
+    }
+
+    fun skipNextTrack() {
+        val track = nowPlayingController.skipNext() ?: return
+        if (track.source == MusicSource.Spotify) {
+            playSpotifyTrack(track, alreadyQueued = true)
+        }
+    }
+
+    fun skipPreviousTrack() {
+        val track = nowPlayingController.skipPrevious() ?: return
+        if (track.source == MusicSource.Spotify) {
+            playSpotifyTrack(track, alreadyQueued = true)
         }
     }
 

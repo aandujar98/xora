@@ -126,6 +126,11 @@ fun XoraHomeXmbPane(
     onLoginRetroAchievements: (username: String, password: String) -> Unit = { _, _ -> },
     onLoginRetroAchievementsWithApiKey: (username: String, apiKey: String) -> Unit = { _, _ -> },
     onSignOutRetroAchievements: () -> Unit = {},
+    onToggleNowPlaying: () -> Unit = {},
+    onSkipPreviousTrack: () -> Unit = {},
+    onSkipNextTrack: () -> Unit = {},
+    onToggleShuffle: () -> Unit = {},
+    onToggleRepeat: () -> Unit = {},
     showPillChrome: Boolean = true,
     modifier: Modifier = Modifier,
     /** Full-bleed layer above the XMB cross but below the pill chrome. */
@@ -242,6 +247,11 @@ fun XoraHomeXmbPane(
             when (depth) {
                 XoraXmbDepth.NowPlaying -> XoraNowPlayingPane(
                     state = state.music.nowPlaying,
+                    onTogglePlayPause = onToggleNowPlaying,
+                    onSkipPrevious = onSkipPreviousTrack,
+                    onSkipNext = onSkipNextTrack,
+                    onToggleShuffle = onToggleShuffle,
+                    onToggleRepeat = onToggleRepeat,
                     modifier = Modifier.fillMaxSize(),
                 )
                 XoraXmbDepth.Systems,
@@ -1196,10 +1206,11 @@ private fun XoraXmbPillChrome(
                 .graphicsLayer { alpha = if (launching) 0f else 1f },
         )
 
-        // Music owns this corner while it is focused: the concept puts "what's playing" where the
-        // RetroAchievements pill normally sits, and hands the slot back on leaving the category.
+        // Music owns this corner while browsing; the full Now Playing page already has transport,
+        // so the mini player hides there and comes back on exit.
         val musicFocused = state.xoraXmb.category == XoraXmbCategory.Music
-        if (musicFocused) {
+        val showMiniPlayer = musicFocused && state.xoraXmb.depth != XoraXmbDepth.NowPlaying
+        if (showMiniPlayer) {
             NowPlayingPill(
                 state = state.music.nowPlaying,
                 modifier = Modifier
@@ -1207,7 +1218,7 @@ private fun XoraXmbPillChrome(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .graphicsLayer { alpha = if (launching) 0f else 1f },
             )
-        } else {
+        } else if (!musicFocused) {
             AchievementsPill(
                 expanded = achievementsExpanded,
                 state = state.achievements,
