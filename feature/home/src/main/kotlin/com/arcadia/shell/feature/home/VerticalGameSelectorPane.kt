@@ -104,7 +104,6 @@ fun VerticalGameSelectorPane(
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit,
     onLoginRetroAchievements: (username: String, password: String) -> Unit,
     onLoginRetroAchievementsWithApiKey: (username: String, apiKey: String) -> Unit,
-    onSignOutRetroAchievements: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val launchProgress by animateFloatAsState(
@@ -278,7 +277,6 @@ fun VerticalGameSelectorPane(
                 onSelectTab = onSelectAchievementsTab,
                 onLogin = onLoginRetroAchievements,
                 onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOut = onSignOutRetroAchievements,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(
