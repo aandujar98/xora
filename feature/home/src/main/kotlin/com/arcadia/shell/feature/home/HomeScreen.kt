@@ -116,7 +116,6 @@ fun HomeScreen(
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit,
     onLoginRetroAchievements: (username: String, password: String) -> Unit,
     onLoginRetroAchievementsWithApiKey: (username: String, apiKey: String) -> Unit,
-    onSignOutRetroAchievements: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val contentTween = arcadiaTween<Float>(ArcadiaMotion.Medium)
@@ -199,7 +198,6 @@ fun HomeScreen(
                                 onLoginRetroAchievements = onLoginRetroAchievements,
                                 onLoginRetroAchievementsWithApiKey =
                                     onLoginRetroAchievementsWithApiKey,
-                                onSignOutRetroAchievements = onSignOutRetroAchievements,
                                 onRequestWallpaper = onRequestWallpaper,
                                 onClearWallpaper = onClearWallpaper,
                                 onRequestBgm = onRequestBgm,
@@ -277,7 +275,6 @@ fun HomeScreen(
                                 onLoginRetroAchievements = onLoginRetroAchievements,
                                 onLoginRetroAchievementsWithApiKey =
                                     onLoginRetroAchievementsWithApiKey,
-                                onSignOutRetroAchievements = onSignOutRetroAchievements,
                                 onRequestWallpaper = onRequestWallpaper,
                                 onClearWallpaper = onClearWallpaper,
                                 onRequestBgm = onRequestBgm,
@@ -332,7 +329,6 @@ fun HomeScreen(
                             onSelectAchievementsTab = onSelectAchievementsTab,
                             onLoginRetroAchievements = onLoginRetroAchievements,
                             onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                            onSignOutRetroAchievements = onSignOutRetroAchievements,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f),
@@ -378,7 +374,6 @@ fun HomeScreen(
                             onSelectAchievementsTab = onSelectAchievementsTab,
                             onLoginRetroAchievements = onLoginRetroAchievements,
                             onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                            onSignOutRetroAchievements = onSignOutRetroAchievements,
                             modifier = Modifier.fillMaxWidth().weight(HERO_WEIGHT),
                         )
 
@@ -512,7 +507,6 @@ fun HomePageContent(
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit = {},
     onLoginRetroAchievements: (username: String, password: String) -> Unit = { _, _ -> },
     onLoginRetroAchievementsWithApiKey: (username: String, apiKey: String) -> Unit = { _, _ -> },
-    onSignOutRetroAchievements: () -> Unit = {},
     onRequestWallpaper: () -> Unit = {},
     onClearWallpaper: () -> Unit = {},
     onRequestBgm: () -> Unit = {},
@@ -583,7 +577,6 @@ fun HomePageContent(
                         onSelectAchievementsTab = onSelectAchievementsTab,
                         onLoginRetroAchievements = onLoginRetroAchievements,
                         onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                        onSignOutRetroAchievements = onSignOutRetroAchievements,
                         // Dual: LT/RT live on the Hero role; Single: chrome sits on the XMB itself.
                         showPillChrome = state.displayMode == DisplayMode.Single,
                         modifier = Modifier.fillMaxSize(),
