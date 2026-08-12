@@ -13,17 +13,16 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.min
 
 /**
- * Shared drop shadow for XMB foreground assets (icons, box art, plates).
+ * Tight hover drop shadow for XMB foreground assets (icons, box art, plates).
  *
- * Figma: X 10px, Y 10px, Spread 15px, Opacity 50%. Blur is 0 — only spread inflates the
- * silhouette, so every asset casts the same hard offset shadow.
+ * Stays against the silhouette: a couple of pixels down/right, soft blur, no spread.
  */
 object XoraForegroundShadow {
-    val OffsetX: Dp = 10.dp
-    val OffsetY: Dp = 10.dp
-    val Spread: Dp = 15.dp
-    val Blur: Dp = 0.dp
-    const val Alpha: Float = 0.5f
+    val OffsetX: Dp = 2.dp
+    val OffsetY: Dp = 3.dp
+    val Spread: Dp = 0.dp
+    val Blur: Dp = 8.dp
+    const val Alpha: Float = 0.35f
     val Ink: Color = Color.Black
 }
 
@@ -40,8 +39,8 @@ fun Modifier.xoraForegroundShadow(shape: Shape): Modifier = dropShadow(shape) {
 }
 
 /**
- * Draws a silhouette pass for vector glyphs: offset by X/Y, inflated by spread, 50% black.
- * Callers then draw the real asset on top. Draws outside the current size on purpose.
+ * Silhouette pass for vector glyphs using the same offset / spread as the tile shadow.
+ * Callers draw the real asset on top. Draws outside the current size on purpose.
  */
 fun DrawScope.drawXoraForegroundSilhouette(drawGlyph: DrawScope.() -> Unit) {
     val ox = XoraForegroundShadow.OffsetX.toPx()
