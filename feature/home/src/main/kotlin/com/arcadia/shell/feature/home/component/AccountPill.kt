@@ -56,13 +56,13 @@ private val NotificationRed = Color(0xFFFF3B30)
 
 /**
  * Figma LT (`56:160`): 73px discs on a 37px pitch inside a 207×96 pill.
- * Sized a step under that 2× mapping so the chrome hugs the stack.
+ * Mapped at ~2× so the stack stays overlapped without the capsule going wide.
  */
-private val AvatarSize = 28.dp
+private val AvatarSize = 32.dp
 /** Center-to-center step; half of [AvatarSize] so each friend covers half the previous disc. */
-private val AvatarPitch = 14.dp
-private val PillPad = 4.dp
-private val BadgeSize = 18.dp
+private val AvatarPitch = 16.dp
+private val PillPad = 5.dp
+private val BadgeSize = 20.dp
 
 @Composable
 fun AccountPill(
@@ -97,7 +97,7 @@ fun AccountPill(
 
     BoxWithConstraints(
         modifier = modifier
-            .widthIn(max = if (expanded) 400.dp else 160.dp)
+            .widthIn(max = if (expanded) 400.dp else 180.dp)
             .heightIn(max = windowCap + 56.dp),
     ) {
         // Cap against parent constraints and the real window so Auto UI-fit cannot clip LT.
@@ -131,7 +131,8 @@ fun AccountPill(
                             .liquidGlass(
                                 shape = ArcadiaGlass.PillShape,
                                 tone = GlassTone.OverMedia,
-                                intensity = GlassIntensity.Standard,
+                                intensity = GlassIntensity.Strong,
+                                shimmer = true,
                             )
                             .clickable(onClick = onToggle)
                             .padding(PillPad),

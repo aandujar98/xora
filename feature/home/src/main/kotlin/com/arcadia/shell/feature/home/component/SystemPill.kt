@@ -57,7 +57,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
@@ -77,11 +76,12 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.arcadiaTween
-import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.SystemFavoriteGame
 import com.arcadia.shell.feature.home.SystemPanelRow
@@ -101,11 +101,8 @@ private val OnlineGreen = Color(0xFF37D6A0)
 private val FocusRing = Color(0xFF4AE39A)
 private val BadgeBorder = Color(0xFFF0A030)
 
-/** RT card frame + fill, matching the XOrA profile-card concept. */
-private val CardEdge = Color(0xFFAEE3F7)
-private val CardTop = Color(0xFF5C6C78)
-private val CardMid = Color(0xFF456F79)
-private val CardBottom = Color(0xFF2C8288)
+/** Frosted plate rim, matching the expanded RetroAchievements card. */
+private val CardEdge = Color.White.copy(alpha = 0.25f)
 private val OutlineInk = Color(0xFF10202A)
 private val BubbleFill = Color(0xFFE8EAEA)
 private val BubbleInk = Color(0xFF4A4F52)
@@ -193,7 +190,6 @@ fun SystemPill(
         android.text.format.DateFormat.format("MM/dd/yy", now).toString()
     }
 
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
     val presetColor = avatarPreset(profile.avatarPresetId).color
     val usernameAccent = rememberAvatarAccentColor(
         imageModel = avatarImageModel,
@@ -244,15 +240,14 @@ fun SystemPill(
                     .padding(top = 8.dp)
                     .widthIn(max = 380.dp)
                     .heightIn(max = maxPanelHeight)
-                    .clip(cardShape)
-                    .background(
-                        Brush.verticalGradient(
-                            0f to CardTop,
-                            0.55f to CardMid,
-                            1f to CardBottom,
-                        ),
+                    .xoraForegroundShadow(cardShape)
+                    .liquidGlass(
+                        shape = cardShape,
+                        tone = GlassTone.OverMedia,
+                        intensity = GlassIntensity.Strong,
+                        shimmer = true,
                     )
-                    .border(2.5.dp, CardEdge, cardShape)
+                    .border(1.5.dp, CardEdge, cardShape)
                     .padding(horizontal = 18.dp, vertical = 16.dp)
                     .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(16.dp),

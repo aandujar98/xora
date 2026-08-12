@@ -59,6 +59,7 @@ import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.AccountPanelRow
 import com.arcadia.shell.feature.home.ConversationReplyUiState
 import com.arcadia.shell.feature.home.R
@@ -89,6 +90,8 @@ private val MessagesBadge = Color(0xFFFF8A4C)
 private val SkyGlass = Color(0xFF7EC8E8)
 private val NotificationRed = Color(0xFFFF3B30)
 
+/** Frosted plate rim, matching the expanded RetroAchievements card. */
+private val GlassEdge = Color.White.copy(alpha = 0.25f)
 /** LT card frame + display type, shared with the RT profile card. */
 private val CardEdge = Color(0xFFAEE3F7)
 private val OutlineInk = Color(0xFF10202A)
@@ -116,13 +119,14 @@ fun SocialMenuPanel(
     val cardShape = RoundedCornerShape(30.dp)
     Column(
         modifier = modifier
+            .xoraForegroundShadow(cardShape)
             .liquidGlass(
                 shape = cardShape,
                 tone = GlassTone.OverMedia,
                 intensity = GlassIntensity.Strong,
                 shimmer = true,
             )
-            .border(2.5.dp, CardEdge, cardShape)
+            .border(1.5.dp, GlassEdge, cardShape)
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
