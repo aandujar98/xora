@@ -100,9 +100,10 @@ import com.arcadia.shell.retroachievements.RetroAchievementsRepository
 import com.arcadia.shell.scanner.LibraryRootManager
 import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scanner.StorageAccess
+import com.arcadia.shell.scraper.LibraryHashScheduler
+import com.arcadia.shell.scraper.MusicArtRepository
 import com.arcadia.shell.scraper.PlatformArtRepository
 import com.arcadia.shell.scraper.ScraperPreference
-import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.ScraperScheduler
 import com.arcadia.shell.scraper.SpotifyAuth
 import com.arcadia.shell.scraper.SpotifyLinkResult
@@ -196,6 +197,7 @@ class HomeViewModel @Inject constructor(
     private val spotifyTokenStore: SpotifyTokenStore,
     private val spotifyWebApi: SpotifyWebApi,
     private val musicLibrary: MusicLibrary,
+    private val musicArtRepository: MusicArtRepository,
     private val nowPlayingController: NowPlayingController,
     private val conversationRepository: ConversationRepository,
     private val discordRichPresence: DiscordRichPresence,
@@ -2447,6 +2449,7 @@ class HomeViewModel @Inject constructor(
                     musicUi.update {
                         it.copy(albums = playlists + albums, isLoading = false)
                     }
+                    fillMissingAlbumArt(albums)
                 }
                 else -> {
                     val tracks = when {
@@ -2456,6 +2459,64 @@ class HomeViewModel @Inject constructor(
                         else -> musicLibrary.tracks(albumId)
                     }
                     musicUi.update { it.copy(tracks = tracks, isLoading = false) }
+                    fillMissingTrackArt(tracks)
+                }
+            }
+        }
+    }
+
+    /**
+     * Fills album tiles that have no local cover (embedded tag, folder `cover.jpg`, or MediaStore).
+     * iTunes / Deezer / Cover Art Archive need no extra keys; game-scraper credentials are a
+     * fallback for OSTs named after the game.
+     */
+    private fun fillMissingAlbumArt(albums: List<MusicAlbum>) {
+        val missing = albums.filter { album ->
+            album.source != MusicSource.Spotify && album.artUri.isNullOrBlank()
+        }
+        if (missing.isEmpty()) return
+        viewModelScope.launch {
+            for (album in missing) {
+                val path = runCatching {
+                    musicArtRepository.ensureArt(album.title, album.artist)
+                }.getOrNull() ?: continue
+                musicUi.update { ui ->
+                    ui.copy(
+                        albums = ui.albums.map { row ->
+                            if (row.id == album.id) row.copy(artUri = path) else row
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    private fun fillMissingTrackArt(tracks: List<MusicTrack>) {
+        val missing = tracks.filter { track ->
+            track.source != MusicSource.Spotify && track.albumArtUri.isNullOrBlank()
+        }
+        if (missing.isEmpty()) return
+        viewModelScope.launch {
+            val albums = missing
+                .groupBy { "${it.albumTitle}\u0000${it.artist}" }
+                .map { (_, songs) -> songs.first() }
+            for (sample in albums) {
+                val path = runCatching {
+                    musicArtRepository.ensureArt(sample.albumTitle, sample.artist)
+                }.getOrNull() ?: continue
+                musicUi.update { ui ->
+                    ui.copy(
+                        tracks = ui.tracks.map { track ->
+                            if (track.source != MusicSource.Spotify &&
+                                track.albumArtUri.isNullOrBlank() &&
+                                track.albumTitle.equals(sample.albumTitle, ignoreCase = true)
+                            ) {
+                                track.copy(albumArtUri = path)
+                            } else {
+                                track
+                            }
+                        },
+                    )
                 }
             }
         }

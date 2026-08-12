@@ -427,8 +427,10 @@ fun SettingsScreen(
 
                 SettingsFieldLabel("Music library folder")
                 Text(
-                    text = "Where Music → Playlist / All music look for on-device songs. " +
-                        "Leave empty to use all music indexed on this device.",
+                    text = "Where Music → Playlist / All music look for on-device songs " +
+                        "(mp3, wav, flac, and similar). Leave empty to use all music indexed " +
+                        "on this device. Album artwork is filled automatically from embedded " +
+                        "tags, a cover.jpg in the folder, or an online lookup.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

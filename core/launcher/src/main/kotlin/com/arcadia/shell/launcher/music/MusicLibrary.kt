@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -68,6 +69,8 @@ class MusicLibrary @Inject constructor(
     @ApplicationContext private val context: Context,
     private val preferences: ShellPreferences,
 ) {
+    private val embeddedArtRoot = File(context.filesDir, "music_art/embedded")
+    private val folderCoverCache = mutableMapOf<String, String?>()
     fun hasAudioAccess(): Boolean = ContextCompat.checkSelfPermission(
         context,
         audioPermission(),
@@ -106,7 +109,7 @@ class MusicLibrary @Inject constructor(
                     id = id.toString(),
                     title = cursor.getString(titleCol)?.takeIf { it.isNotBlank() } ?: "Unknown album",
                     artist = cursor.getString(artistCol)?.takeIf { it.isNotBlank() } ?: "Unknown artist",
-                    artUri = albumArtUri(id),
+                    artUri = albumArtUriIfPresent(id),
                     trackCount = cursor.getInt(countCol),
                 )
             }
@@ -182,7 +185,7 @@ class MusicLibrary @Inject constructor(
                     artist = songs.map { it.artist }.distinct()
                         .singleOrNull()
                         ?: "Various artists",
-                    artUri = first.albumArtUri,
+                    artUri = songs.firstNotNullOfOrNull { it.albumArtUri },
                     trackCount = songs.size,
                 )
             }
@@ -192,6 +195,7 @@ class MusicLibrary @Inject constructor(
     private fun folderTracks(rootPath: String): List<MusicTrack> {
         val root = File(rootPath)
         if (!root.isDirectory) return emptyList()
+        folderCoverCache.clear()
         return root.walkTopDown()
             .filter { it.isFile && it.extension.lowercase() in AUDIO_EXTENSIONS }
             .mapNotNull { file -> readFileTrack(file) }
@@ -216,12 +220,14 @@ class MusicLibrary @Inject constructor(
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
                 ?: 0L
+            val embedded = retriever.embeddedPicture?.let { bytes -> cacheEmbeddedArt(file, bytes) }
+            val folderCover = file.parentFile?.let { coverForDirectory(it) }
             MusicTrack(
                 id = "file:${file.absolutePath}",
                 title = title,
                 artist = artist,
                 albumTitle = album,
-                albumArtUri = null,
+                albumArtUri = embedded ?: folderCover,
                 durationMs = duration,
                 contentUri = Uri.fromFile(file).toString(),
             )
@@ -230,6 +236,29 @@ class MusicLibrary @Inject constructor(
         } finally {
             runCatching { retriever.release() }
         }
+    }
+
+    private fun coverForDirectory(dir: File): String? {
+        val key = dir.absolutePath
+        if (key in folderCoverCache) return folderCoverCache[key]
+        val found = MusicFolderArt.findCover(dir)
+        folderCoverCache[key] = found
+        return found
+    }
+
+    private fun cacheEmbeddedArt(file: File, bytes: ByteArray): String? {
+        if (bytes.size < 64) return null
+        val digest = MessageDigest.getInstance("SHA-1")
+            .digest("${file.absolutePath}:${file.lastModified()}:${bytes.size}".toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val extension = MusicFolderArt.extensionForImage(bytes)
+        val target = File(embeddedArtRoot, "${digest.take(2)}/$digest.$extension")
+        if (target.isFile && target.length() > 0L) return target.absolutePath
+        return runCatching {
+            target.parentFile?.mkdirs()
+            target.writeBytes(bytes)
+            target.absolutePath
+        }.getOrNull()
     }
 
     private fun albumKey(track: MusicTrack): String =
@@ -248,7 +277,7 @@ class MusicLibrary @Inject constructor(
             title = getString(titleCol)?.takeIf { it.isNotBlank() } ?: "Unknown track",
             artist = getString(artistCol)?.takeIf { it.isNotBlank() } ?: "Unknown artist",
             albumTitle = getString(albumCol).orEmpty(),
-            albumArtUri = albumArtUri(getLong(albumIdCol)),
+            albumArtUri = albumArtUriIfPresent(getLong(albumIdCol)),
             durationMs = getLong(durationCol),
             contentUri = ContentUris.withAppendedId(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
@@ -257,8 +286,21 @@ class MusicLibrary @Inject constructor(
         )
     }
 
-    private fun albumArtUri(albumId: Long): String =
-        ContentUris.withAppendedId(ALBUM_ART_BASE, albumId).toString()
+    /**
+     * MediaStore always mints an album-art URI, even when no image exists. Opening the stream
+     * is the only reliable check — a missing cover would otherwise paint a broken tile and skip
+     * the network scrape that could fill it.
+     */
+    private fun albumArtUriIfPresent(albumId: Long): String? {
+        val uri = ContentUris.withAppendedId(ALBUM_ART_BASE, albumId)
+        val readable = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val header = ByteArray(4)
+                stream.read(header) >= 2
+            } == true
+        }.getOrDefault(false)
+        return uri.toString().takeIf { readable }
+    }
 
     private inline fun <T> Cursor?.useRows(read: (Cursor) -> T): List<T> {
         this ?: return emptyList()
