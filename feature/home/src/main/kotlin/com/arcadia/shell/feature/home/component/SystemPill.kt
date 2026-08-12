@@ -39,7 +39,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
@@ -80,6 +80,7 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
@@ -96,10 +97,21 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-private val ScoreAmber = Color(0xFFFFC24B)
+private val ScoreAmber = Color(0xFFFFA22B)
 private val OnlineGreen = Color(0xFF37D6A0)
 private val FocusRing = Color(0xFF4AE39A)
-private val BadgeBorder = Color(0xFFFF9A3C)
+private val BadgeBorder = Color(0xFFF0A030)
+
+/** RT card frame + fill, matching the XOrA profile-card concept. */
+private val CardEdge = Color(0xFFAEE3F7)
+private val CardTop = Color(0xFF5C6C78)
+private val CardMid = Color(0xFF456F79)
+private val CardBottom = Color(0xFF2C8288)
+private val OutlineInk = Color(0xFF10202A)
+private val BubbleFill = Color(0xFFE8EAEA)
+private val BubbleInk = Color(0xFF4A4F52)
+private val PlaytimeGreen = Color(0xFF5FE06A)
+private val FooterInk = Color(0xFF9FB0B8)
 
 @Composable
 fun SystemPill(
@@ -112,11 +124,9 @@ fun SystemPill(
     systemProfile: SystemProfileCardState,
     expanded: Boolean,
     selectedRowIndex: Int,
-    notificationUnreadCount: Int = 0,
     onToggle: () -> Unit,
     onSelectRow: (Int) -> Unit,
     onActivateRow: (Int?) -> Unit,
-    onOpenNotifications: () -> Unit = {},
     onStatusDraftChange: (String) -> Unit,
     onSaveCustomStatus: () -> Unit,
     onClearCustomStatus: () -> Unit,
@@ -258,20 +268,24 @@ fun SystemPill(
                 animationSpec = arcadiaTween<IntSize>(ArcadiaMotion.Fast),
             ),
         ) {
+            val cardShape = RoundedCornerShape(30.dp)
             Column(
                 modifier = Modifier
                     .padding(top = 8.dp)
                     .widthIn(max = 380.dp)
                     .heightIn(max = maxPanelHeight)
-                    .liquidGlass(
-                        shape = RoundedCornerShape(28.dp),
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                        shimmer = true,
+                    .clip(cardShape)
+                    .background(
+                        Brush.verticalGradient(
+                            0f to CardTop,
+                            0.55f to CardMid,
+                            1f to CardBottom,
+                        ),
                     )
-                    .padding(16.dp)
+                    .border(2.5.dp, CardEdge, cardShape)
+                    .padding(horizontal = 18.dp, vertical = 16.dp)
                     .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 if (systemProfile.favoritePickerOpen) {
                     FavoritePickerPanel(
@@ -288,7 +302,6 @@ fun SystemPill(
                         profile = profile,
                         avatarImageModel = avatarImageModel,
                         raScore = raScore,
-                        notificationUnreadCount = notificationUnreadCount,
                         systemProfile = systemProfile,
                         statusSelected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.Status,
                         editSelected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.EditProfile,
@@ -310,7 +323,6 @@ fun SystemPill(
                                 onActivateRow(idx)
                             }
                         },
-                        onOpenNotifications = onOpenNotifications,
                         onStatusDraftChange = onStatusDraftChange,
                         onSaveCustomStatus = onSaveCustomStatus,
                         onClearCustomStatus = onClearCustomStatus,
@@ -331,8 +343,6 @@ fun SystemPill(
                     )
                 }
 
-                HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
-
                 ProfileCardFooter(
                     wifiConnected = wifiConnected,
                     timeText = timeText,
@@ -352,14 +362,12 @@ private fun ProfileCardHeader(
     profile: LocalProfile,
     avatarImageModel: String?,
     raScore: Int?,
-    notificationUnreadCount: Int,
     systemProfile: SystemProfileCardState,
     statusSelected: Boolean,
     editSelected: Boolean,
     onSelectStatus: () -> Unit,
     onActivateStatus: () -> Unit,
     onEditProfile: () -> Unit,
-    onOpenNotifications: () -> Unit,
     onStatusDraftChange: (String) -> Unit,
     onSaveCustomStatus: () -> Unit,
     onClearCustomStatus: () -> Unit,
@@ -372,35 +380,24 @@ private fun ProfileCardHeader(
         ProfileAvatar(
             displayName = profile.displayName,
             presetId = profile.avatarPresetId,
-            size = 72.dp,
+            size = 78.dp,
             imageModel = avatarImageModel,
-            borderColor = Color.White.copy(alpha = 0.55f),
+            borderColor = Color.White.copy(alpha = 0.85f),
             onClick = onEditProfile,
             modifier = Modifier
                 .then(
                     if (editSelected) {
-                        Modifier.border(2.dp, FocusRing, CircleShape)
+                        Modifier.border(2.5.dp, FocusRing, CircleShape)
                     } else {
                         Modifier
                     },
                 ),
         )
-        TextButton(onClick = onOpenNotifications) {
-            Text(
-                text = if (notificationUnreadCount > 0) {
-                    "Notifications ($notificationUnreadCount)"
-                } else {
-                    "Notifications"
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.78f),
-                maxLines = 1,
-            )
-        }
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.Start,
         ) {
             StatusBubble(
                 text = systemProfile.statusLine,
@@ -417,51 +414,87 @@ private fun ProfileCardHeader(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 Box(
                     modifier = Modifier
-                        .size(8.dp)
+                        .size(13.dp)
                         .clip(CircleShape)
-                        .background(OnlineGreen),
+                        .background(OnlineGreen)
+                        .border(1.5.dp, OutlineInk.copy(alpha = 0.55f), CircleShape),
                 )
-                Text(
+                XoraOutlinedText(
                     text = displayName,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontFamily = XoraFonts.Title,
-                        letterSpacing = XoraFonts.TitleLetterSpacing,
-                    ),
+                    fontFamily = XoraFonts.Title,
                     fontWeight = FontWeight.Bold,
-                    color = usernameAccent,
+                    fontSize = 26.sp,
+                    fillColor = usernameAccent,
+                    outlineColor = OutlineInk,
+                    letterSpacing = XoraFonts.TitleLetterSpacing,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickable(onClick = onEditProfile),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .clickable(onClick = onEditProfile),
                 )
             }
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                TrophyMiniGlyph(tint = Color.White.copy(alpha = 0.9f))
-                Text(
+                TrophyMiniGlyph(tint = Color.White, modifier = Modifier.size(20.dp))
+                XoraOutlinedText(
                     text = "POINTS",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = XoraFonts.Title,
-                        letterSpacing = 0.08.sp,
-                    ),
-                    color = Color.White.copy(alpha = 0.72f),
-                )
-                Text(
-                    text = formatPoints(raScore),
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontFamily = XoraFonts.Title,
-                    ),
+                    fontFamily = XoraFonts.Title,
                     fontWeight = FontWeight.Bold,
-                    color = ScoreAmber,
+                    fontSize = 17.sp,
+                    fillColor = Color.White,
+                    outlineColor = OutlineInk,
+                    letterSpacing = XoraFonts.TitleLetterSpacing,
+                    maxLines = 1,
+                )
+                XoraOutlinedText(
+                    text = formatPoints(raScore),
+                    fontFamily = XoraFonts.Title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 24.sp,
+                    fillColor = ScoreAmber,
+                    outlineColor = OutlineInk,
+                    letterSpacing = XoraFonts.TitleLetterSpacing,
+                    maxLines = 1,
                 )
             }
         }
+    }
+}
+
+/** Section label — blocky white with the XOrA dark outline. */
+@Composable
+private fun CardSectionLabel(text: String) {
+    XoraOutlinedText(
+        text = text,
+        fontFamily = XoraFonts.Title,
+        fontWeight = FontWeight.Bold,
+        fontSize = 15.sp,
+        fillColor = Color.White,
+        outlineColor = OutlineInk,
+        letterSpacing = XoraFonts.TitleLetterSpacing,
+        maxLines = 1,
+    )
+}
+
+/** Tail under the status bubble, pointing back down toward the avatar. */
+@Composable
+private fun BubbleTail(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(width = 18.dp, height = 10.dp)) {
+        val path = Path().apply {
+            moveTo(size.width * 0.15f, 0f)
+            lineTo(size.width, 0f)
+            lineTo(0f, size.height)
+            close()
+        }
+        drawPath(path, color = BubbleFill)
     }
 }
 
@@ -478,82 +511,81 @@ private fun StatusBubble(
     onSave: () -> Unit,
     onClear: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(14.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(Color.White.copy(alpha = if (selected) 0.16f else 0.10f))
-            .then(
-                if (selected) Modifier.border(1.5.dp, FocusRing.copy(alpha = 0.85f), shape)
-                else Modifier.border(1.dp, Color.White.copy(alpha = 0.08f), shape),
-            )
-            .clickable {
-                onSelect()
-                if (!editing) onActivate()
-            }
-            .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        if (editing) {
-            BasicTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                singleLine = true,
-                textStyle = MaterialTheme.typography.labelMedium.copy(color = Color.White),
-                cursorBrush = SolidColor(FocusRing),
-                modifier = Modifier.fillMaxWidth(),
-                decorationBox = { inner ->
-                    Box {
-                        if (draft.isBlank()) {
-                            Text(
-                                text = "Custom status…",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color.White.copy(alpha = 0.4f),
-                            )
+    val shape = RoundedCornerShape(16.dp)
+    Column(horizontalAlignment = Alignment.Start) {
+        Column(
+            modifier = Modifier
+                .clip(shape)
+                .background(BubbleFill)
+                .then(
+                    if (selected) {
+                        Modifier.border(2.dp, FocusRing, shape)
+                    } else {
+                        Modifier
+                    },
+                )
+                .clickable {
+                    onSelect()
+                    if (!editing) onActivate()
+                }
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (editing) {
+                BasicTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = BubbleInk),
+                    cursorBrush = SolidColor(BubbleInk),
+                    modifier = Modifier.widthIn(min = 160.dp),
+                    decorationBox = { inner ->
+                        Box {
+                            if (draft.isBlank()) {
+                                Text(
+                                    text = "Custom status…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = BubbleInk.copy(alpha = 0.5f),
+                                )
+                            }
+                            inner()
                         }
-                        inner()
+                    },
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onSave) {
+                        Text("Save", color = BubbleInk, fontWeight = FontWeight.Bold)
                     }
-                },
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onSave) {
-                    Text("Save", color = OnlineGreen)
-                }
-                if (isCustom || draft.isNotBlank()) {
-                    TextButton(onClick = onClear) {
-                        Text("Clear", color = Color.White.copy(alpha = 0.7f))
+                    if (isCustom || draft.isNotBlank()) {
+                        TextButton(onClick = onClear) {
+                            Text("Clear", color = BubbleInk.copy(alpha = 0.7f))
+                        }
                     }
                 }
+            } else {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = BubbleInk,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-        } else {
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.82f),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
+        BubbleTail(modifier = Modifier.padding(start = 14.dp))
     }
 }
 
 @Composable
 private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = "RECENTLY EARNED",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = XoraFonts.Title,
-                letterSpacing = 0.08.sp,
-            ),
-            color = Color.White.copy(alpha = 0.78f),
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        CardSectionLabel("RECENTLY EARNED")
         if (unlocks.isEmpty()) {
             Text(
                 text = "No recent unlocks yet",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.45f),
+                color = Color.White.copy(alpha = 0.55f),
             )
         } else {
             val scroll = rememberScrollState()
@@ -561,7 +593,7 @@ private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(scroll),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 unlocks.take(8).forEach { unlock ->
                     AchievementBadge(unlock = unlock)
@@ -574,12 +606,13 @@ private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
 @Composable
 private fun AchievementBadge(unlock: RaRecentUnlock) {
     val platformContext = LocalPlatformContext.current
+    val shape = RoundedCornerShape(10.dp)
     Box(
         modifier = Modifier
-            .size(52.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.White.copy(alpha = 0.08f))
-            .border(1.5.dp, BadgeBorder.copy(alpha = 0.9f), RoundedCornerShape(12.dp)),
+            .size(56.dp)
+            .clip(shape)
+            .background(Color.Black.copy(alpha = 0.25f))
+            .border(2.dp, BadgeBorder, shape),
     ) {
         AsyncImage(
             model = ImageRequest.Builder(platformContext)
@@ -588,7 +621,10 @@ private fun AchievementBadge(unlock: RaRecentUnlock) {
                 .build(),
             contentDescription = unlock.title,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(11.dp)),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(2.dp)
+                .clip(RoundedCornerShape(8.dp)),
         )
     }
 }
@@ -599,111 +635,95 @@ private fun FavoriteGameSection(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = "FAVORITE GAME",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = XoraFonts.Title,
-                letterSpacing = 0.08.sp,
-            ),
-            color = Color.White.copy(alpha = 0.78f),
-        )
-        val shape = RoundedCornerShape(16.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        CardSectionLabel("FAVORITE GAME")
+        val artShape = RoundedCornerShape(10.dp)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(shape)
-                .background(Color.White.copy(alpha = if (selected) 0.14f else 0.06f))
+                .clip(RoundedCornerShape(14.dp))
                 .then(
-                    if (selected) Modifier.border(1.5.dp, FocusRing.copy(alpha = 0.85f), shape)
-                    else Modifier,
+                    if (selected) {
+                        Modifier.border(2.dp, FocusRing, RoundedCornerShape(14.dp))
+                    } else {
+                        Modifier
+                    },
                 )
                 .clickable(onClick = onClick)
-                .padding(10.dp),
+                .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            if (favorite == null) {
-                Box(
-                    modifier = Modifier
-                        .size(width = 108.dp, height = 60.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.08f))
-                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 150.dp, height = 88.dp)
+                    .clip(artShape)
+                    .background(Color.Black.copy(alpha = 0.3f))
+                    .border(1.5.dp, Color.White.copy(alpha = 0.55f), artShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (favorite != null && favorite.imageIconUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = favorite.imageIconUrl,
+                        contentDescription = favorite.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(artShape),
+                    )
+                } else {
                     Text(
                         text = "+",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = Color.White.copy(alpha = 0.55f),
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = Color.White.copy(alpha = 0.65f),
                     )
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = "Add favorite",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
-                    )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = favorite?.title ?: "Add favorite",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = XoraFonts.Secondary,
+                    ),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (favorite == null) {
                     Text(
                         text = "Pick from your RetroAchievements list",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.5f),
+                        color = Color.White.copy(alpha = 0.6f),
                     )
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(width = 108.dp, height = 60.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.08f)),
-                ) {
-                    if (favorite.imageIconUrl.isNotBlank()) {
-                        AsyncImage(
-                            model = favorite.imageIconUrl,
-                            contentDescription = favorite.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        text = favorite.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                } else {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
-                        ClockMiniGlyph(tint = Color.White.copy(alpha = 0.75f))
+                        ClockMiniGlyph(tint = Color.White, modifier = Modifier.size(18.dp))
                         val hours = TimeUnit.MILLISECONDS.toHours(favorite.playTimeMs)
-                        Text(
-                            text = if (favorite.playTimeMs >= 60_000L) {
-                                "$hours"
-                            } else {
-                                "—"
-                            },
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontFamily = XoraFonts.Title,
-                            ),
+                        XoraOutlinedText(
+                            text = if (favorite.playTimeMs >= 60_000L) "$hours" else "—",
+                            fontFamily = XoraFonts.Title,
                             fontWeight = FontWeight.Bold,
-                            color = OnlineGreen,
+                            fontSize = 24.sp,
+                            fillColor = PlaytimeGreen,
+                            outlineColor = OutlineInk,
+                            letterSpacing = XoraFonts.TitleLetterSpacing,
+                            maxLines = 1,
                         )
                         if (favorite.playTimeMs >= 60_000L) {
-                            Text(
+                            XoraOutlinedText(
                                 text = "HR",
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontFamily = XoraFonts.Title,
-                                ),
-                                color = Color.White.copy(alpha = 0.75f),
+                                fontFamily = XoraFonts.Title,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                fillColor = Color.White,
+                                outlineColor = OutlineInk,
+                                letterSpacing = XoraFonts.TitleLetterSpacing,
+                                maxLines = 1,
                             )
                         }
                     }
@@ -911,44 +931,49 @@ private fun ProfileCardFooter(
     charging: Boolean,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        WifiGlyph(connected = wifiConnected, tint = Color.White.copy(alpha = 0.85f))
+        WifiGlyph(
+            connected = wifiConnected,
+            tint = FooterInk,
+            modifier = Modifier.size(22.dp),
+        )
         Text(
             text = timeText,
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.85f),
+            style = MaterialTheme.typography.titleMedium.copy(fontFamily = XoraFonts.Secondary),
+            color = FooterInk,
         )
         Box(
             modifier = Modifier
-                .width(1.dp)
-                .height(12.dp)
-                .background(Color.White.copy(alpha = 0.25f)),
+                .width(1.5.dp)
+                .height(18.dp)
+                .background(FooterInk.copy(alpha = 0.45f)),
         )
         Text(
             text = dateText,
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.titleMedium.copy(fontFamily = XoraFonts.Secondary),
+            color = FooterInk,
         )
         Spacer(modifier = Modifier.weight(1f))
         BatteryGlyph(
             percent = batteryPercent,
             charging = charging,
-            tint = Color.White.copy(alpha = 0.85f),
+            tint = FooterInk,
+            modifier = Modifier.size(width = 26.dp, height = 15.dp),
         )
         Text(
             text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.titleMedium.copy(fontFamily = XoraFonts.Secondary),
+            color = FooterInk,
         )
     }
 }
 
 @Composable
-private fun TrophyMiniGlyph(tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(14.dp)) {
+private fun TrophyMiniGlyph(tint: Color, modifier: Modifier = Modifier.size(14.dp)) {
+    Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
         val cup = Path().apply {
@@ -976,8 +1001,8 @@ private fun TrophyMiniGlyph(tint: Color, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ClockMiniGlyph(tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(12.dp)) {
+private fun ClockMiniGlyph(tint: Color, modifier: Modifier = Modifier.size(12.dp)) {
+    Canvas(modifier = modifier) {
         val stroke = Stroke(width = size.minDimension * 0.12f, cap = StrokeCap.Round)
         drawCircle(
             color = tint,
@@ -1002,8 +1027,8 @@ private fun ClockMiniGlyph(tint: Color, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun WifiGlyph(connected: Boolean, tint: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(16.dp)) {
+private fun WifiGlyph(connected: Boolean, tint: Color, modifier: Modifier = Modifier.size(16.dp)) {
+    Canvas(modifier = modifier) {
         val stroke = Stroke(width = size.minDimension * 0.12f, cap = StrokeCap.Round)
         val cx = size.width / 2f
         val cy = size.height * 0.72f
@@ -1037,9 +1062,9 @@ private fun BatteryGlyph(
     percent: Int,
     charging: Boolean,
     tint: Color,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier.size(width = 20.dp, height = 12.dp),
 ) {
-    Canvas(modifier = modifier.size(width = 20.dp, height = 12.dp)) {
+    Canvas(modifier = modifier) {
         val bodyW = size.width * 0.82f
         val bodyH = size.height * 0.78f
         val top = (size.height - bodyH) / 2f
