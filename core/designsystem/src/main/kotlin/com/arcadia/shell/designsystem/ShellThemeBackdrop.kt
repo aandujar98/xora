@@ -19,17 +19,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import kotlin.math.cos
 import kotlin.math.sin
 
-private val FlowSkyTop = Color(0xFF2ACBFD)
-private val FlowSkyBottom = Color.White
-
-// Long, unequal cycles so the two bands never line back up into an obvious loop.
-private const val FRONT_WAVE_CYCLE_MS = 96_000
-private const val BACK_WAVE_CYCLE_MS = 138_000
-private const val FRONT_WAVE_TRAVEL = 74f
-private const val BACK_WAVE_TRAVEL = 52f
-private const val WAVE_RISE = 20f
-private const val TWO_PI = (Math.PI * 2).toFloat()
-
 /**
  * Full-bleed theme backdrop when no custom wallpaper file is set.
  * Patterns are original geometric treatments — not ripped game UI.
@@ -45,59 +34,6 @@ fun ShellThemeBackdrop(
         ShellWallpaperStyle.MidnightGradient -> MidnightBackdrop(modifier)
         ShellWallpaperStyle.ClassicXmbWave -> ClassicXmbBackdrop(modifier)
         ShellWallpaperStyle.WarmArcadeGlow -> WarmArcadeBackdrop(modifier)
-    }
-}
-
-/**
- * Default shell wallpaper: the authored HOME bands over a `#2ACBFD` → white sky.
- *
- * The two bands travel on separate long cycles, so the crossing point drifts instead of the whole
- * picture sliding as one slab. Both cycles are full sine periods, which start and end at zero
- * travel — the loop can restart forever with no seam. Amplitudes stay well inside the slack the
- * artwork has beyond the artboard, so an edge can never swim into frame.
- */
-@Composable
-private fun XoraFlowBackdrop(modifier: Modifier = Modifier) {
-    val drift = rememberWaveDrift()
-    WaveSky(
-        topColor = FlowSkyTop,
-        bottomColor = FlowSkyBottom,
-        field = HomeWaveField,
-        modifier = modifier.fillMaxSize(),
-        layerDrift = drift,
-        driftMargin = maxOf(FRONT_WAVE_TRAVEL, BACK_WAVE_TRAVEL, WAVE_RISE) + 8f,
-    )
-}
-
-@Composable
-private fun rememberWaveDrift(): (Int) -> Offset {
-    if (!rememberAmbientMotionActive()) return { Offset.Zero }
-    val transition = rememberInfiniteTransition(label = "xoraFlowWave")
-    val front by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = TWO_PI,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = FRONT_WAVE_CYCLE_MS, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "xoraFlowFront",
-    )
-    val back by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = TWO_PI,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = BACK_WAVE_CYCLE_MS, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "xoraFlowBack",
-    )
-    return { index ->
-        val phase = if (index == 0) back else front
-        val amplitude = if (index == 0) BACK_WAVE_TRAVEL else FRONT_WAVE_TRAVEL
-        Offset(
-            x = sin(phase) * amplitude,
-            y = cos(phase) * WAVE_RISE,
-        )
     }
 }
 

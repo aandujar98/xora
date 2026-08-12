@@ -48,8 +48,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.datastore.XmbTitleStyle
-import com.arcadia.shell.designsystem.XORA_DESIGN_HEIGHT
-import com.arcadia.shell.designsystem.XORA_DESIGN_WIDTH
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.component.ArtworkImage
