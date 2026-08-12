@@ -18,10 +18,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,13 +54,13 @@ private val NotificationRed = Color(0xFFFF3B30)
 
 /**
  * Figma LT (`56:160`): 73px discs on a 37px pitch inside a 207×96 pill.
- * Mapped at ~2× so the stack stays overlapped without the capsule going wide.
+ * 2× mapping with half-cover stacking so the capsule stays compact.
  */
-private val AvatarSize = 32.dp
+private val AvatarSize = 36.dp
 /** Center-to-center step; half of [AvatarSize] so each friend covers half the previous disc. */
-private val AvatarPitch = 16.dp
-private val PillPad = 5.dp
-private val BadgeSize = 20.dp
+private val AvatarPitch = 18.dp
+private val PillPad = 6.dp
+private val BadgeSize = 22.dp
 
 @Composable
 fun AccountPill(
@@ -92,17 +90,17 @@ fun AccountPill(
     val windowCap = remember(view, density) {
         val heightPx = view.rootView.height.takeIf { it > 0 }
             ?: view.resources.displayMetrics.heightPixels
-        with(density) { (heightPx * 0.72f).toDp() }
+        with(density) { (heightPx * 0.90f).toDp() }
     }
 
     BoxWithConstraints(
         modifier = modifier
-            .widthIn(max = if (expanded) 400.dp else 180.dp)
-            .heightIn(max = windowCap + 56.dp),
+            .widthIn(max = if (expanded) 400.dp else 200.dp)
+            .heightIn(max = windowCap + 24.dp),
     ) {
         // Cap against parent constraints and the real window so Auto UI-fit cannot clip LT.
         val panelCap = if (maxHeight.value.isFinite()) {
-            min(windowCap, (maxHeight - 56.dp).coerceAtLeast(120.dp))
+            min(windowCap, (maxHeight - 8.dp).coerceAtLeast(160.dp))
         } else {
             windowCap
         }
@@ -197,11 +195,10 @@ fun AccountPill(
                     onActivateRow = onActivateRow,
                     onFriendSearchChange = onFriendSearchChange,
                     onReplyDraftChange = onReplyDraftChange,
+                    maxHeight = panelCap,
                     modifier = Modifier
                         .padding(top = 8.dp)
-                        .fillMaxWidth()
-                        .heightIn(max = panelCap)
-                        .verticalScroll(rememberScrollState()),
+                        .fillMaxWidth(),
                 )
             }
         }

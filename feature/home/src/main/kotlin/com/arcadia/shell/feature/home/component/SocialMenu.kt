@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -112,13 +113,16 @@ fun SocialMenuPanel(
     onActivateRow: (Int?) -> Unit,
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
+    maxHeight: Dp = 520.dp,
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
+    val bodyScroll = rememberScrollState()
 
     val cardShape = RoundedCornerShape(30.dp)
     Column(
         modifier = modifier
+            .heightIn(max = maxHeight)
             .xoraForegroundShadow(cardShape)
             .liquidGlass(
                 shape = cardShape,
@@ -141,15 +145,22 @@ fun SocialMenuPanel(
         )
 
         if (social.notificationsOpen) {
-            NotificationCenterPanel(
-                social = social,
-                accountRows = accountRows,
-                selectedRowIndex = selectedRowIndex,
-                glassContent = glass.content,
-                glassMuted = glass.contentMuted,
-                onActivateRow = onActivateRow,
-                onReplyDraftChange = onReplyDraftChange,
-            )
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(bodyScroll),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                NotificationCenterPanel(
+                    social = social,
+                    accountRows = accountRows,
+                    selectedRowIndex = selectedRowIndex,
+                    glassContent = glass.content,
+                    glassMuted = glass.contentMuted,
+                    onActivateRow = onActivateRow,
+                    onReplyDraftChange = onReplyDraftChange,
+                )
+            }
         } else {
             val showSearch = social.tab != SocialMenuTab.XoraNetwork && !social.isDiscordDmOpen
             SocialTabSearchBar(
@@ -161,30 +172,37 @@ fun SocialMenuPanel(
                 showSearch = showSearch,
             )
 
-            when (social.tab) {
-                SocialMenuTab.Discord -> DiscordTabContent(
-                    social = social,
-                    accountRows = accountRows,
-                    selectedRowIndex = selectedRowIndex,
-                    glassMuted = glass.contentMuted,
-                    onActivateRow = onActivateRow,
-                    onDmDraftChange = onReplyDraftChange,
-                )
-                SocialMenuTab.Steam -> SteamTabContent(
-                    social = social,
-                    accountRows = accountRows,
-                    selectedRowIndex = selectedRowIndex,
-                    glassMuted = glass.contentMuted,
-                    onActivateRow = onActivateRow,
-                )
-                SocialMenuTab.XoraNetwork -> XoraNetworkTabContent(
-                    social = social,
-                    accountRows = accountRows,
-                    selectedRowIndex = selectedRowIndex,
-                    glassMuted = glass.contentMuted,
-                    onActivateRow = onActivateRow,
-                    onReplyDraftChange = onReplyDraftChange,
-                )
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(bodyScroll),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                when (social.tab) {
+                    SocialMenuTab.Discord -> DiscordTabContent(
+                        social = social,
+                        accountRows = accountRows,
+                        selectedRowIndex = selectedRowIndex,
+                        glassMuted = glass.contentMuted,
+                        onActivateRow = onActivateRow,
+                        onDmDraftChange = onReplyDraftChange,
+                    )
+                    SocialMenuTab.Steam -> SteamTabContent(
+                        social = social,
+                        accountRows = accountRows,
+                        selectedRowIndex = selectedRowIndex,
+                        glassMuted = glass.contentMuted,
+                        onActivateRow = onActivateRow,
+                    )
+                    SocialMenuTab.XoraNetwork -> XoraNetworkTabContent(
+                        social = social,
+                        accountRows = accountRows,
+                        selectedRowIndex = selectedRowIndex,
+                        glassMuted = glass.contentMuted,
+                        onActivateRow = onActivateRow,
+                        onReplyDraftChange = onReplyDraftChange,
+                    )
+                }
             }
         }
 

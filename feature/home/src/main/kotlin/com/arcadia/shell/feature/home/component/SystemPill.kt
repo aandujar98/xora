@@ -35,10 +35,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -140,7 +143,7 @@ fun SystemPill(
     var charging by remember { mutableStateOf(isCharging(context)) }
     var wifiConnected by remember { mutableStateOf(isWifiConnected(context)) }
     val listState = rememberLazyListState()
-    val maxPanelHeight = LocalConfiguration.current.screenHeightDp.dp * 0.82f
+    val maxPanelHeight = LocalConfiguration.current.screenHeightDp.dp * 0.90f
 
     val systemRows = remember(
         systemProfile.favoritePickerOpen,
@@ -235,6 +238,7 @@ fun SystemPill(
             ),
         ) {
             val cardShape = RoundedCornerShape(30.dp)
+            val cardScroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .padding(top = 8.dp)
@@ -248,10 +252,16 @@ fun SystemPill(
                         shimmer = true,
                     )
                     .border(1.5.dp, CardEdge, cardShape)
-                    .padding(horizontal = 18.dp, vertical = 16.dp)
                     .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(cardScroll)
+                        .padding(horizontal = 18.dp, vertical = 16.dp)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                 if (systemProfile.favoritePickerOpen) {
                     FavoritePickerPanel(
                         state = systemProfile,
@@ -315,6 +325,7 @@ fun SystemPill(
                     batteryPercent = batteryPercent,
                     charging = charging,
                 )
+                }
             }
         }
     }
@@ -477,9 +488,17 @@ private fun StatusBubble(
     onClear: () -> Unit,
 ) {
     val shape = RoundedCornerShape(16.dp)
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(selected) {
+        if (selected) {
+            delay(16)
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
     Column(horizontalAlignment = Alignment.Start) {
         Column(
             modifier = Modifier
+                .bringIntoViewRequester(bringIntoViewRequester)
                 .clip(shape)
                 .background(BubbleFill)
                 .then(
@@ -600,12 +619,20 @@ private fun FavoriteGameSection(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(selected) {
+        if (selected) {
+            delay(16)
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         CardSectionLabel("FAVORITE GAME")
         val artShape = RoundedCornerShape(10.dp)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .bringIntoViewRequester(bringIntoViewRequester)
                 .clip(RoundedCornerShape(14.dp))
                 .then(
                     if (selected) {
