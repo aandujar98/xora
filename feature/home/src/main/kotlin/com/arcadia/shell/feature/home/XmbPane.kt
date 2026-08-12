@@ -84,7 +84,7 @@ fun XmbPane(
     Box(modifier = modifier.fillMaxSize()) {
         HomeWallpaper(
             customPath = state.homeHub.wallpaperPath,
-            dim = true,
+            dim = false,
             modifier = Modifier.fillMaxSize(),
         )
         Column(modifier = Modifier.fillMaxSize()) {
