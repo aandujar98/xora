@@ -396,7 +396,6 @@ fun ArcadiaShell(
                     onLoginRetroAchievements = homeViewModel::loginRetroAchievements,
                     onLoginRetroAchievementsWithApiKey =
                         homeViewModel::loginRetroAchievementsWithApiKey,
-                    onSignOutRetroAchievements = homeViewModel::signOutRetroAchievements,
                 )
             }
 
@@ -748,7 +747,6 @@ private fun PaneForRole(
                         onLoginRetroAchievements = homeViewModel::loginRetroAchievements,
                         onLoginRetroAchievementsWithApiKey =
                             homeViewModel::loginRetroAchievementsWithApiKey,
-                        onSignOutRetroAchievements = homeViewModel::signOutRetroAchievements,
                         showPillChrome = true,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -794,7 +792,6 @@ private fun PaneForRole(
                         onLoginRetroAchievements = homeViewModel::loginRetroAchievements,
                         onLoginRetroAchievementsWithApiKey =
                             homeViewModel::loginRetroAchievementsWithApiKey,
-                        onSignOutRetroAchievements = homeViewModel::signOutRetroAchievements,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -852,7 +849,6 @@ private fun PaneForRole(
                     onLoginRetroAchievements = homeViewModel::loginRetroAchievements,
                     onLoginRetroAchievementsWithApiKey =
                         homeViewModel::loginRetroAchievementsWithApiKey,
-                    onSignOutRetroAchievements = homeViewModel::signOutRetroAchievements,
                     onRequestWallpaper = homeViewModel::requestWallpaperPicker,
                     onClearWallpaper = homeViewModel::clearHomeWallpaper,
                     onRequestBgm = homeViewModel::requestBgmPicker,

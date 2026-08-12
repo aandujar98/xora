@@ -106,7 +106,6 @@ fun HeroPane(
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit,
     onLoginRetroAchievements: (username: String, password: String) -> Unit,
     onLoginRetroAchievementsWithApiKey: (username: String, apiKey: String) -> Unit,
-    onSignOutRetroAchievements: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Chrome exits quickly; artwork eases over the full cinematic hold.
@@ -246,7 +245,6 @@ fun HeroPane(
             onSelectTab = onSelectAchievementsTab,
             onLogin = onLoginRetroAchievements,
             onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-            onSignOut = onSignOutRetroAchievements,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(horizontal = 16.dp, vertical = 12.dp)

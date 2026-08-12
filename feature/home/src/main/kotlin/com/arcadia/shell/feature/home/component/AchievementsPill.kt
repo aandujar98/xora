@@ -77,7 +77,6 @@ fun AchievementsPill(
     onSelectTab: (AchievementsPaneTab) -> Unit,
     onLogin: (username: String, password: String) -> Unit,
     onLoginWithApiKey: (username: String, apiKey: String) -> Unit,
-    onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
@@ -156,7 +155,6 @@ fun AchievementsPill(
                     else -> LoggedInContent(
                         state = state,
                         onSelectTab = onSelectTab,
-                        onSignOut = onSignOut,
                     )
                 }
             }
@@ -298,29 +296,21 @@ private fun LoginForm(
 private fun LoggedInContent(
     state: AchievementsUiState,
     onSelectTab: (AchievementsPaneTab) -> Unit,
-    onSignOut: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column {
+    Column {
+        Text(
+            text = state.profile?.username ?: state.credentials.username,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+        )
+        state.profile?.let { profile ->
             Text(
-                text = state.profile?.username ?: state.credentials.username,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+                text = "${profile.totalPoints} pts",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.6f),
             )
-            state.profile?.let { profile ->
-                Text(
-                    text = "${profile.totalPoints} pts",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.6f),
-                )
-            }
         }
-        TextButton(onClick = onSignOut) { Text("Sign out") }
     }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

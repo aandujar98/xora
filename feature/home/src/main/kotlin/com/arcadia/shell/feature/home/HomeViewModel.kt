@@ -4141,13 +4141,6 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun signOutRetroAchievements() {
-        viewModelScope.launch {
-            retroAchievements.clearCredentials()
-            achievementsUi.value = AchievementsUiState(needsLogin = true)
-        }
-    }
-
     /**
      * Loads RA profile points + recent unlocks for the RT profile menu without opening the X pill.
      */

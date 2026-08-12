@@ -110,7 +110,6 @@ fun XoraHomeXmbPane(
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit = {},
     onLoginRetroAchievements: (username: String, password: String) -> Unit = { _, _ -> },
     onLoginRetroAchievementsWithApiKey: (username: String, apiKey: String) -> Unit = { _, _ -> },
-    onSignOutRetroAchievements: () -> Unit = {},
     showPillChrome: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
@@ -228,7 +227,6 @@ fun XoraHomeXmbPane(
                 onSelectAchievementsTab = onSelectAchievementsTab,
                 onLoginRetroAchievements = onLoginRetroAchievements,
                 onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOutRetroAchievements = onSignOutRetroAchievements,
             )
         }
     }
@@ -256,7 +254,6 @@ fun XoraXmbHeroDetail(
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit = {},
     onLoginRetroAchievements: (username: String, password: String) -> Unit = { _, _ -> },
     onLoginRetroAchievementsWithApiKey: (username: String, apiKey: String) -> Unit = { _, _ -> },
-    onSignOutRetroAchievements: () -> Unit = {},
     showPillChrome: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
@@ -401,7 +398,6 @@ fun XoraXmbHeroDetail(
                 onSelectAchievementsTab = onSelectAchievementsTab,
                 onLoginRetroAchievements = onLoginRetroAchievements,
                 onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOutRetroAchievements = onSignOutRetroAchievements,
             )
         }
     }
@@ -943,7 +939,6 @@ private fun XoraXmbPillChrome(
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit,
     onLoginRetroAchievements: (username: String, password: String) -> Unit,
     onLoginRetroAchievementsWithApiKey: (username: String, apiKey: String) -> Unit,
-    onSignOutRetroAchievements: () -> Unit,
 ) {
     var profileEditing by remember { mutableStateOf(false) }
     LaunchedEffect(state.profileEditRequest) {
@@ -999,7 +994,6 @@ private fun XoraXmbPillChrome(
             onSelectTab = onSelectAchievementsTab,
             onLogin = onLoginRetroAchievements,
             onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-            onSignOut = onSignOutRetroAchievements,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
