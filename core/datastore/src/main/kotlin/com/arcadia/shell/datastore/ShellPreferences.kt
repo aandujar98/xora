@@ -239,6 +239,20 @@ data class LocalProfile(
     val avatarSource: AvatarSource = AvatarSource.Default,
     /** Relative file name under [ProfileAvatarStore.DIR_NAME] when [avatarSource] is [AvatarSource.Local]. */
     val localAvatarFileName: String? = null,
+    /**
+     * Optional custom RT-card status. Blank/null falls back to live activity
+     * (“Browsing XOrA”, “Playing …”).
+     */
+    val customStatus: String? = null,
+    /** Pinned RetroAchievements game shown under Favorite Game on the RT card. */
+    val favoriteRaGame: ProfileFavoriteRaGame? = null,
+)
+
+/** Favorite game pinned on the RT profile card (from the user’s RA completion list). */
+data class ProfileFavoriteRaGame(
+    val gameId: Int,
+    val title: String,
+    val imageIconUrl: String = "",
 )
 
 data class ScraperCredentials(
@@ -459,6 +473,8 @@ class ShellPreferences @Inject constructor(
     }
 
     val profile: Flow<LocalProfile> = dataStore.data.map { prefs ->
+        val favoriteId = prefs[Keys.PROFILE_FAVORITE_RA_GAME_ID] ?: 0
+        val favoriteTitle = prefs[Keys.PROFILE_FAVORITE_RA_GAME_TITLE].orEmpty()
         LocalProfile(
             displayName = prefs[Keys.PROFILE_NAME]?.takeIf { it.isNotBlank() } ?: "Player",
             avatarPresetId = prefs[Keys.PROFILE_AVATAR]?.takeIf { it.isNotBlank() } ?: "preset_0",
@@ -466,6 +482,16 @@ class ShellPreferences @Inject constructor(
                 ?.let { name -> runCatching { AvatarSource.valueOf(name) }.getOrNull() }
                 ?: AvatarSource.Default,
             localAvatarFileName = prefs[Keys.PROFILE_AVATAR_FILE]?.takeIf { it.isNotBlank() },
+            customStatus = prefs[Keys.PROFILE_CUSTOM_STATUS]?.takeIf { it.isNotBlank() },
+            favoriteRaGame = if (favoriteId > 0 && favoriteTitle.isNotBlank()) {
+                ProfileFavoriteRaGame(
+                    gameId = favoriteId,
+                    title = favoriteTitle,
+                    imageIconUrl = prefs[Keys.PROFILE_FAVORITE_RA_GAME_ICON].orEmpty(),
+                )
+            } else {
+                null
+            },
         )
     }
 
@@ -823,6 +849,27 @@ class ShellPreferences @Inject constructor(
         it[Keys.PROFILE_AVATAR] = avatarPresetId.ifBlank { "preset_0" }
     }
 
+    suspend fun setProfileCustomStatus(status: String?) = edit {
+        val trimmed = status?.trim().orEmpty()
+        if (trimmed.isBlank()) {
+            it.remove(Keys.PROFILE_CUSTOM_STATUS)
+        } else {
+            it[Keys.PROFILE_CUSTOM_STATUS] = trimmed.take(80)
+        }
+    }
+
+    suspend fun setProfileFavoriteRaGame(game: ProfileFavoriteRaGame?) = edit {
+        if (game == null || game.gameId <= 0 || game.title.isBlank()) {
+            it.remove(Keys.PROFILE_FAVORITE_RA_GAME_ID)
+            it.remove(Keys.PROFILE_FAVORITE_RA_GAME_TITLE)
+            it.remove(Keys.PROFILE_FAVORITE_RA_GAME_ICON)
+        } else {
+            it[Keys.PROFILE_FAVORITE_RA_GAME_ID] = game.gameId
+            it[Keys.PROFILE_FAVORITE_RA_GAME_TITLE] = game.title.trim()
+            it[Keys.PROFILE_FAVORITE_RA_GAME_ICON] = game.imageIconUrl.trim()
+        }
+    }
+
     suspend fun setProfileAvatar(
         source: AvatarSource,
         presetId: String? = null,
@@ -1008,6 +1055,10 @@ class ShellPreferences @Inject constructor(
         val PROFILE_AVATAR = stringPreferencesKey("profile_avatar_preset")
         val PROFILE_AVATAR_SOURCE = stringPreferencesKey("profile_avatar_source")
         val PROFILE_AVATAR_FILE = stringPreferencesKey("profile_avatar_file")
+        val PROFILE_CUSTOM_STATUS = stringPreferencesKey("profile_custom_status")
+        val PROFILE_FAVORITE_RA_GAME_ID = intPreferencesKey("profile_favorite_ra_game_id")
+        val PROFILE_FAVORITE_RA_GAME_TITLE = stringPreferencesKey("profile_favorite_ra_game_title")
+        val PROFILE_FAVORITE_RA_GAME_ICON = stringPreferencesKey("profile_favorite_ra_game_icon")
         val RA_USER = stringPreferencesKey("retroachievements_user")
         val RA_API_KEY = stringPreferencesKey("retroachievements_api_key")
         val RA_CONNECT_TOKEN = stringPreferencesKey("retroachievements_connect_token")

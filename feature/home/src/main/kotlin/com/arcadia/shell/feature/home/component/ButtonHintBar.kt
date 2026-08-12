@@ -299,8 +299,8 @@ val SocialMenuHints: List<Pair<String, String>> = listOf(
 
 val SystemMenuHints: List<Pair<String, String>> = listOf(
     "U/D" to "Move",
-    "A" to "Activate",
-    "B" to "Close",
+    "A" to "Edit / Pick",
+    "B" to "Back",
     "RT" to "Close",
 )
 

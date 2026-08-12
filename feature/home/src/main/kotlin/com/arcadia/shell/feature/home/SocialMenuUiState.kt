@@ -217,24 +217,49 @@ fun discordFriendActivity(friend: DiscordFriendEntry?): String? = when (friend?.
 }
 
 /**
- * Focusable rows inside the expanded RT profile / quick-settings menu.
+ * Focusable rows inside the expanded RT profile card.
  */
 sealed interface SystemPanelRow {
+    /** RT bell notification history. */
     data object Notifications : SystemPanelRow
+    /** Activity / custom status bubble. */
+    data object Status : SystemPanelRow
+    /** Favorite RetroAchievements game (plus placeholder when unset). */
+    data object FavoriteGame : SystemPanelRow
     data object EditProfile : SystemPanelRow
+    /** Recently played title shown in the expanded RT card. */
     data class JumpBack(val gameId: String) : SystemPanelRow
+    /** Quick settings rows retained from the master shell. */
     data object Brightness : SystemPanelRow
     data object Wifi : SystemPanelRow
     data object Bluetooth : SystemPanelRow
     data object AllSettings : SystemPanelRow
+    /** Clear the pinned favorite (only while the favorite picker is open). */
+    data object ClearFavorite : SystemPanelRow
+    /** One RetroAchievements completion-progress game in the favorite picker. */
+    data class RaFavoritePick(val gameId: Int) : SystemPanelRow
 }
 
-fun buildSystemPanelRows(jumpBackGames: List<String>): List<SystemPanelRow> = buildList {
-    add(SystemPanelRow.Notifications)
-    add(SystemPanelRow.EditProfile)
-    jumpBackGames.take(3).forEach { add(SystemPanelRow.JumpBack(it)) }
-    add(SystemPanelRow.Brightness)
-    add(SystemPanelRow.Wifi)
-    add(SystemPanelRow.Bluetooth)
-    add(SystemPanelRow.AllSettings)
-}
+fun buildSystemPanelRows(
+    jumpBackGames: List<String> = emptyList(),
+    favoritePickerOpen: Boolean = false,
+    favoritePickerGameIds: List<Int> = emptyList(),
+): List<SystemPanelRow> =
+    if (favoritePickerOpen) {
+        buildList {
+            add(SystemPanelRow.ClearFavorite)
+            favoritePickerGameIds.forEach { add(SystemPanelRow.RaFavoritePick(it)) }
+        }
+    } else {
+        buildList {
+            add(SystemPanelRow.Status)
+            add(SystemPanelRow.FavoriteGame)
+            add(SystemPanelRow.EditProfile)
+            add(SystemPanelRow.Notifications)
+            jumpBackGames.take(3).forEach { add(SystemPanelRow.JumpBack(it)) }
+            add(SystemPanelRow.Brightness)
+            add(SystemPanelRow.Wifi)
+            add(SystemPanelRow.Bluetooth)
+            add(SystemPanelRow.AllSettings)
+        }
+    }

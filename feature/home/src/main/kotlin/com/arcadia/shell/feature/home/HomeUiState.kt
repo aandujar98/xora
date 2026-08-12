@@ -253,6 +253,8 @@ data class HomeUiState(
         emptyList(),
     val notificationUnreadCount: Int = 0,
     val notificationHistorySelectedIndex: Int = 0,
+    /** RT profile card chrome (status, favorite game, pickers). */
+    val systemProfile: SystemProfileCardState = SystemProfileCardState(),
     val achievementsPanelExpanded: Boolean = false,
     val achievements: AchievementsUiState = AchievementsUiState(),
     /** What the Music category is browsing and what is playing. */
