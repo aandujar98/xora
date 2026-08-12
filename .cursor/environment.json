@@ -1,0 +1,4 @@
+{
+  "name": "XOrA (Android)",
+  "install": "bash .cursor/install.sh"
+}
