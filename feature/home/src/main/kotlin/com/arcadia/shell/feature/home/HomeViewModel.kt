@@ -30,6 +30,7 @@ import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.PlatformEmulatorChoice
+import com.arcadia.shell.datastore.ProfileFavoriteRaGame
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
@@ -82,6 +83,7 @@ import com.arcadia.shell.retroachievements.RaConsoleIds
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
 import com.arcadia.shell.retroachievements.RaProfile
 import com.arcadia.shell.retroachievements.RaRecentUnlock
+import com.arcadia.shell.retroachievements.RaCompletionGame
 import com.arcadia.shell.retroachievements.RetroAchievementsClient
 import com.arcadia.shell.retroachievements.RetroAchievementsRepository
 import com.arcadia.shell.scanner.LibraryRootManager
@@ -229,6 +231,12 @@ class HomeViewModel @Inject constructor(
     private val profileEditRequest = MutableStateFlow(0)
     private val systemPanelExpanded = MutableStateFlow(false)
     private val systemPanelSelectedIndex = MutableStateFlow(0)
+    private val systemStatusEditorOpen = MutableStateFlow(false)
+    private val systemStatusDraft = MutableStateFlow("")
+    private val systemFavoritePickerOpen = MutableStateFlow(false)
+    private val systemFavoritePickerLoading = MutableStateFlow(false)
+    private val systemFavoritePickerGames = MutableStateFlow<List<RaCompletionGame>>(emptyList())
+    private val systemFavoritePickerError = MutableStateFlow<String?>(null)
     private val achievementsPanelExpanded = MutableStateFlow(false)
     private val achievementsUi = MutableStateFlow(AchievementsUiState())
     private val raLibraryUi = MutableStateFlow(RaLibraryUiState())
@@ -678,17 +686,20 @@ class HomeViewModel @Inject constructor(
     )
 
     val uiState: StateFlow<HomeUiState> = combine(
-        libraryUiState,
-        trailerPlayback,
-        insightUi,
-        systemPanelSelectedIndex,
-        welcomeBackOpen,
-    ) { base, trailer, insight, systemIndex, welcomeBack ->
-        base.copy(
-            trailer = trailer,
-            insight = insight,
-            systemPanelSelectedIndex = systemIndex,
-            welcomeBackOpen = welcomeBack,
+        combine(libraryUiState, trailerPlayback, insightUi) { base, trailer, insight ->
+            Triple(base, trailer, insight)
+        },
+        combine(systemPanelSelectedIndex, welcomeBackOpen, systemProfileChromeFlow()) {
+                systemIndex, welcomeBack, systemProfile ->
+            Triple(systemIndex, welcomeBack, systemProfile)
+        },
+    ) { core, system ->
+        core.first.copy(
+            trailer = core.second,
+            insight = core.third,
+            systemPanelSelectedIndex = system.first,
+            welcomeBackOpen = system.second,
+            systemProfile = system.third,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -2759,7 +2770,13 @@ class HomeViewModel @Inject constructor(
             NavAction.Up -> moveSystemPanelSelection(-1)
             NavAction.Down -> moveSystemPanelSelection(1)
             NavAction.Confirm -> activateSystemPanelSelection()
-            NavAction.Cancel -> collapseHeroPanels()
+            NavAction.Cancel -> {
+                when {
+                    systemFavoritePickerOpen.value -> closeFavoritePicker()
+                    systemStatusEditorOpen.value -> closeStatusEditor()
+                    else -> collapseHeroPanels()
+                }
+            }
             NavAction.ToggleSystemPanel -> toggleSystemPanel()
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             else -> Unit
@@ -2790,23 +2807,208 @@ class HomeViewModel @Inject constructor(
             systemPanelSelectedIndex.value = index.coerceIn(0, rows.lastIndex)
         }
         when (val row = rows.getOrNull(rowIndex)) {
-            SystemPanelRow.EditProfile -> profileEditRequest.update { it + 1 }
-            is SystemPanelRow.JumpBack -> {
-                val game = uiState.value.quickLaunchGames.firstOrNull { it.id == row.gameId } ?: return
-                collapseHeroPanels()
-                launchGame(game)
+            SystemPanelRow.EditProfile -> {
+                closeStatusEditor()
+                profileEditRequest.update { it + 1 }
             }
-            SystemPanelRow.Brightness -> openSystemSettings(Settings.ACTION_DISPLAY_SETTINGS)
-            SystemPanelRow.Wifi -> openSystemSettings(Settings.ACTION_WIFI_SETTINGS)
-            SystemPanelRow.Bluetooth -> openSystemSettings(Settings.ACTION_BLUETOOTH_SETTINGS)
-            SystemPanelRow.AllSettings -> openSystemSettings(Settings.ACTION_SETTINGS)
+            SystemPanelRow.Status -> {
+                if (systemStatusEditorOpen.value) {
+                    saveCustomStatus()
+                } else {
+                    openStatusEditor()
+                }
+            }
+            SystemPanelRow.FavoriteGame -> openFavoritePicker()
+            SystemPanelRow.ClearFavorite -> {
+                clearFavoriteRaGame()
+                closeFavoritePicker()
+            }
+            is SystemPanelRow.RaFavoritePick -> {
+                val game = systemFavoritePickerGames.value.firstOrNull { it.gameId == row.gameId }
+                if (game != null) {
+                    setFavoriteRaGame(game)
+                    closeFavoritePicker()
+                }
+            }
             null -> Unit
         }
     }
 
-    private fun currentSystemPanelRows(): List<SystemPanelRow> {
-        val jumpIds = uiState.value.quickLaunchGames.take(3).map { it.id }
-        return buildSystemPanelRows(jumpIds)
+    private fun currentSystemPanelRows(): List<SystemPanelRow> =
+        buildSystemPanelRows(
+            favoritePickerOpen = systemFavoritePickerOpen.value,
+            favoritePickerGameIds = systemFavoritePickerGames.value.map { it.gameId },
+        )
+
+    private fun systemProfileChromeFlow(): Flow<SystemProfileCardState> = combine(
+        preferences.profile,
+        discordRichPresence.state,
+        libraryRepository.observeGames(),
+        combine(
+            combine(systemStatusEditorOpen, systemStatusDraft) { open, draft -> open to draft },
+            combine(
+                systemFavoritePickerOpen,
+                systemFavoritePickerLoading,
+                systemFavoritePickerGames,
+                systemFavoritePickerError,
+            ) { pickerOpen, pickerLoading, pickerGames, pickerError ->
+                SystemProfilePickerBits(
+                    favoritePickerOpen = pickerOpen,
+                    favoritePickerLoading = pickerLoading,
+                    favoritePickerGames = pickerGames,
+                    favoritePickerError = pickerError,
+                )
+            },
+        ) { status, picker ->
+            SystemProfileChromeBits(
+                statusEditorOpen = status.first,
+                statusDraft = status.second,
+                favoritePickerOpen = picker.favoritePickerOpen,
+                favoritePickerLoading = picker.favoritePickerLoading,
+                favoritePickerGames = picker.favoritePickerGames,
+                favoritePickerError = picker.favoritePickerError,
+            )
+        },
+    ) { profile, presence, games, chrome ->
+        val custom = profile.customStatus?.takeIf { it.isNotBlank() }
+        val activityLine = resolveActivityStatusLine(presence.activity)
+        val favorite = profile.favoriteRaGame?.let { pinned ->
+            val playTime = games
+                .filter { !it.isAndroidApp }
+                .firstOrNull { it.title.equals(pinned.title, ignoreCase = true) }
+                ?.playTimeMs
+                ?: 0L
+            SystemFavoriteGame(
+                raGameId = pinned.gameId,
+                title = pinned.title,
+                imageIconUrl = pinned.imageIconUrl,
+                playTimeMs = playTime,
+            )
+        }
+        SystemProfileCardState(
+            statusLine = custom ?: activityLine,
+            isCustomStatus = custom != null,
+            statusEditorOpen = chrome.statusEditorOpen,
+            statusDraft = chrome.statusDraft,
+            favorite = favorite,
+            favoritePickerOpen = chrome.favoritePickerOpen,
+            favoritePickerLoading = chrome.favoritePickerLoading,
+            favoritePickerGames = chrome.favoritePickerGames,
+            favoritePickerError = chrome.favoritePickerError,
+        )
+    }
+
+    private data class SystemProfilePickerBits(
+        val favoritePickerOpen: Boolean,
+        val favoritePickerLoading: Boolean,
+        val favoritePickerGames: List<RaCompletionGame>,
+        val favoritePickerError: String?,
+    )
+
+    private data class SystemProfileChromeBits(
+        val statusEditorOpen: Boolean,
+        val statusDraft: String,
+        val favoritePickerOpen: Boolean,
+        val favoritePickerLoading: Boolean,
+        val favoritePickerGames: List<RaCompletionGame>,
+        val favoritePickerError: String?,
+    )
+
+    private fun resolveActivityStatusLine(
+        activity: DiscordPresenceActivity,
+    ): String = when (activity) {
+        is DiscordPresenceActivity.Playing ->
+            "playing ${activity.gameTitle}"
+        is DiscordPresenceActivity.Browsing ->
+            "Browsing ${activity.gameTitle}"
+        DiscordPresenceActivity.InSora,
+        DiscordPresenceActivity.Idle,
+        -> "Browsing XOrA"
+    }
+
+    private fun openStatusEditor() {
+        viewModelScope.launch {
+            val custom = preferences.profile.first().customStatus.orEmpty()
+            systemStatusDraft.value = custom
+            systemStatusEditorOpen.value = true
+        }
+    }
+
+    private fun closeStatusEditor() {
+        systemStatusEditorOpen.value = false
+        systemStatusDraft.value = ""
+    }
+
+    fun updateSystemStatusDraft(value: String) {
+        systemStatusDraft.value = value.take(80)
+    }
+
+    fun saveCustomStatus() {
+        viewModelScope.launch {
+            val draft = systemStatusDraft.value.trim()
+            preferences.setProfileCustomStatus(draft.ifBlank { null })
+            closeStatusEditor()
+        }
+    }
+
+    fun clearCustomStatus() {
+        viewModelScope.launch {
+            preferences.setProfileCustomStatus(null)
+            closeStatusEditor()
+        }
+    }
+
+    private fun openFavoritePicker() {
+        if (systemFavoritePickerOpen.value) return
+        closeStatusEditor()
+        systemFavoritePickerOpen.value = true
+        systemPanelSelectedIndex.value = 0
+        viewModelScope.launch {
+            systemFavoritePickerLoading.value = true
+            systemFavoritePickerError.value = null
+            val result = retroAchievements.fetchCompletionProgress(count = 50)
+            systemFavoritePickerLoading.value = false
+            result.fold(
+                onSuccess = { games ->
+                    systemFavoritePickerGames.value = games
+                    if (games.isEmpty()) {
+                        systemFavoritePickerError.value =
+                            "No RetroAchievements games yet. Earn progress to pin a favorite."
+                    }
+                },
+                onFailure = { error ->
+                    systemFavoritePickerGames.value = emptyList()
+                    systemFavoritePickerError.value =
+                        error.message ?: "Could not load RetroAchievements games."
+                },
+            )
+        }
+    }
+
+    private fun closeFavoritePicker() {
+        systemFavoritePickerOpen.value = false
+        systemFavoritePickerLoading.value = false
+        systemFavoritePickerGames.value = emptyList()
+        systemFavoritePickerError.value = null
+        systemPanelSelectedIndex.value = 0
+    }
+
+    private fun setFavoriteRaGame(game: RaCompletionGame) {
+        viewModelScope.launch {
+            preferences.setProfileFavoriteRaGame(
+                ProfileFavoriteRaGame(
+                    gameId = game.gameId,
+                    title = game.title,
+                    imageIconUrl = game.imageIconUrl,
+                ),
+            )
+        }
+    }
+
+    private fun clearFavoriteRaGame() {
+        viewModelScope.launch {
+            preferences.setProfileFavoriteRaGame(null)
+        }
     }
 
     private fun openSystemSettings(action: String) {
@@ -3974,7 +4176,12 @@ class HomeViewModel @Inject constructor(
             accountPanelExpanded.value = false
             achievementsPanelExpanded.value = false
             systemPanelSelectedIndex.value = 0
+            closeFavoritePicker()
+            closeStatusEditor()
             refreshSystemPanelRaChrome()
+        } else {
+            closeFavoritePicker()
+            closeStatusEditor()
         }
     }
 
@@ -3985,6 +4192,8 @@ class HomeViewModel @Inject constructor(
         if (opening) {
             accountPanelExpanded.value = false
             systemPanelExpanded.value = false
+            closeFavoritePicker()
+            closeStatusEditor()
         }
     }
 
@@ -3993,6 +4202,8 @@ class HomeViewModel @Inject constructor(
         accountPanelExpanded.value = false
         systemPanelExpanded.value = false
         achievementsPanelExpanded.value = false
+        closeFavoritePicker()
+        closeStatusEditor()
     }
 
     fun saveProfile(displayName: String, avatarPresetId: String) {

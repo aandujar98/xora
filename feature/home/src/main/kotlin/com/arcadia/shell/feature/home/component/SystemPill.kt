@@ -8,7 +8,6 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
-import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -22,8 +21,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,15 +37,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +59,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -68,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
@@ -77,33 +79,44 @@ import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
+import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.feature.home.SystemFavoriteGame
 import com.arcadia.shell.feature.home.SystemPanelRow
+import com.arcadia.shell.feature.home.SystemProfileCardState
 import com.arcadia.shell.feature.home.buildSystemPanelRows
-import com.arcadia.shell.model.Game
+import com.arcadia.shell.retroachievements.RaCompletionGame
 import com.arcadia.shell.retroachievements.RaRecentUnlock
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
-private val ScoreGreen = Color(0xFF37D6A0)
+private val ScoreAmber = Color(0xFFFFC24B)
+private val OnlineGreen = Color(0xFF37D6A0)
 private val FocusRing = Color(0xFF4AE39A)
+private val BadgeBorder = Color(0xFFFF9A3C)
+private val PanelCharcoal = Color(0xFF1A1C1F)
 
 @Composable
 fun SystemPill(
     profile: LocalProfile,
     avatarImageModel: String?,
+    raUsername: String?,
     raScore: Int?,
     recentAchievements: List<RaRecentUnlock>,
-    jumpBackGames: List<Game>,
+    systemProfile: SystemProfileCardState,
     expanded: Boolean,
     selectedRowIndex: Int,
     onToggle: () -> Unit,
     onSelectRow: (Int) -> Unit,
     onActivateRow: (Int?) -> Unit,
+    onStatusDraftChange: (String) -> Unit,
+    onSaveCustomStatus: () -> Unit,
+    onClearCustomStatus: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -111,13 +124,17 @@ fun SystemPill(
     var batteryPercent by remember { mutableIntStateOf(readBatteryPercent(context)) }
     var charging by remember { mutableStateOf(isCharging(context)) }
     var wifiConnected by remember { mutableStateOf(isWifiConnected(context)) }
-    var brightness by remember { mutableFloatStateOf(readBrightness(context)) }
-    val canWriteBrightness = remember { Settings.System.canWrite(context) }
     val listState = rememberLazyListState()
-    val maxPanelHeight = LocalConfiguration.current.screenHeightDp.dp * 0.78f
+    val maxPanelHeight = LocalConfiguration.current.screenHeightDp.dp * 0.82f
 
-    val systemRows = remember(jumpBackGames) {
-        buildSystemPanelRows(jumpBackGames.map { it.id })
+    val systemRows = remember(
+        systemProfile.favoritePickerOpen,
+        systemProfile.favoritePickerGames,
+    ) {
+        buildSystemPanelRows(
+            favoritePickerOpen = systemProfile.favoritePickerOpen,
+            favoritePickerGameIds = systemProfile.favoritePickerGames.map { it.gameId },
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -128,7 +145,7 @@ fun SystemPill(
         }
     }
 
-    LaunchedEffect(selectedRowIndex, expanded, systemRows.size) {
+    LaunchedEffect(selectedRowIndex, expanded, systemRows.size, systemProfile.favoritePickerOpen) {
         if (!expanded || systemRows.isEmpty()) return@LaunchedEffect
         listState.animateScrollToItem(selectedRowIndex.coerceIn(0, systemRows.lastIndex))
     }
@@ -154,16 +171,20 @@ fun SystemPill(
         DateFormat.getTimeInstance(DateFormat.SHORT, Locale.getDefault()).format(now)
     }
     val dateShort = remember(now) {
-        android.text.format.DateFormat.format("MM/dd", now).toString()
-    }
-    val dateMedium = remember(now) {
-        DateFormat.getDateInstance(DateFormat.MEDIUM, Locale.getDefault()).format(now)
+        android.text.format.DateFormat.format("MM/dd/yy", now).toString()
     }
 
     val glass = rememberGlassTokens(GlassTone.OverMedia)
+    val presetColor = avatarPreset(profile.avatarPresetId).color
+    val usernameAccent = rememberAvatarAccentColor(
+        imageModel = avatarImageModel,
+        fallback = presetColor,
+    )
+    val displayName = (raUsername?.takeIf { it.isNotBlank() } ?: profile.displayName)
+        .uppercase(Locale.getDefault())
 
     Column(
-        modifier = modifier.widthIn(max = if (expanded) 360.dp else 300.dp),
+        modifier = modifier.widthIn(max = if (expanded) 380.dp else 300.dp),
         horizontalAlignment = Alignment.End,
     ) {
         // Collapsed status pill: Wi‑Fi · time · date · battery · PFP
@@ -217,9 +238,7 @@ fun SystemPill(
                 )
                 TriggerGlyph(
                     letter = "R",
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 0.dp),
+                    modifier = Modifier.align(Alignment.TopEnd),
                 )
             }
         }
@@ -238,173 +257,82 @@ fun SystemPill(
             Column(
                 modifier = Modifier
                     .padding(top = 8.dp)
-                    .widthIn(max = 360.dp)
+                    .widthIn(max = 380.dp)
                     .heightIn(max = maxPanelHeight)
                     .liquidGlass(
-                        shape = ArcadiaGlass.PanelShape,
+                        shape = RoundedCornerShape(28.dp),
                         tone = GlassTone.OverMedia,
                         intensity = GlassIntensity.Strong,
                         shimmer = true,
                     )
-                    .padding(14.dp)
+                    .padding(16.dp)
                     .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                SystemProfileHeader(
-                    profile = profile,
-                    avatarImageModel = avatarImageModel,
-                    raScore = raScore,
-                    editSelected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.EditProfile,
-                    onEditProfile = {
-                        val idx = systemRows.indexOfFirst { it is SystemPanelRow.EditProfile }
-                        if (idx >= 0) {
-                            onSelectRow(idx)
-                            onActivateRow(idx)
-                        }
-                    },
-                    glassContent = glass.content,
-                    glassMuted = glass.contentMuted,
-                )
+                if (systemProfile.favoritePickerOpen) {
+                    FavoritePickerPanel(
+                        state = systemProfile,
+                        selectedRowIndex = selectedRowIndex,
+                        listState = listState,
+                        onSelectRow = onSelectRow,
+                        onActivateRow = onActivateRow,
+                    )
+                } else {
+                    ProfileCardHeader(
+                        displayName = displayName,
+                        usernameAccent = usernameAccent,
+                        profile = profile,
+                        avatarImageModel = avatarImageModel,
+                        raScore = raScore,
+                        systemProfile = systemProfile,
+                        statusSelected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.Status,
+                        editSelected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.EditProfile,
+                        onSelectStatus = {
+                            val idx = systemRows.indexOfFirst { it is SystemPanelRow.Status }
+                            if (idx >= 0) onSelectRow(idx)
+                        },
+                        onActivateStatus = {
+                            val idx = systemRows.indexOfFirst { it is SystemPanelRow.Status }
+                            if (idx >= 0) {
+                                onSelectRow(idx)
+                                onActivateRow(idx)
+                            }
+                        },
+                        onEditProfile = {
+                            val idx = systemRows.indexOfFirst { it is SystemPanelRow.EditProfile }
+                            if (idx >= 0) {
+                                onSelectRow(idx)
+                                onActivateRow(idx)
+                            }
+                        },
+                        onStatusDraftChange = onStatusDraftChange,
+                        onSaveCustomStatus = onSaveCustomStatus,
+                        onClearCustomStatus = onClearCustomStatus,
+                    )
 
-                Text(
-                    text = "$timeText · $dateMedium",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = glass.contentMuted.copy(alpha = 0.65f),
-                )
+                    RecentlyEarnedStrip(unlocks = recentAchievements)
 
-                RecentAchievementStrip(
-                    unlocks = recentAchievements,
-                    muted = glass.contentMuted,
-                )
-
-                if (jumpBackGames.isNotEmpty()) {
-                    Text(
-                        text = "Jump back into",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = glass.contentMuted,
+                    FavoriteGameSection(
+                        favorite = systemProfile.favorite,
+                        selected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.FavoriteGame,
+                        onClick = {
+                            val idx = systemRows.indexOfFirst { it is SystemPanelRow.FavoriteGame }
+                            if (idx >= 0) {
+                                onSelectRow(idx)
+                                onActivateRow(idx)
+                            }
+                        },
                     )
                 }
 
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = (maxPanelHeight - 220.dp).coerceAtLeast(140.dp)),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 4.dp),
-                ) {
-                    itemsIndexed(
-                        items = systemRows,
-                        key = { _, row ->
-                            when (row) {
-                                is SystemPanelRow.JumpBack -> "jump_${row.gameId}"
-                                else -> row::class.simpleName.orEmpty()
-                            }
-                        },
-                    ) { index, row ->
-                        val selected = index == selectedRowIndex
-                        when (row) {
-                            SystemPanelRow.EditProfile -> Unit // header button handles this
-                            is SystemPanelRow.JumpBack -> {
-                                val game = jumpBackGames.firstOrNull { it.id == row.gameId }
-                                if (game != null) {
-                                    JumpBackRow(
-                                        game = game,
-                                        selected = selected,
-                                        onClick = {
-                                            onSelectRow(index)
-                                            onActivateRow(index)
-                                        },
-                                    )
-                                }
-                            }
-                            SystemPanelRow.Brightness -> {
-                                if (index == systemRows.indexOfFirst { it is SystemPanelRow.Brightness }) {
-                                    Text(
-                                        text = "Quick settings",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = glass.contentMuted,
-                                        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
-                                    )
-                                }
-                                BrightnessRow(
-                                    brightness = brightness,
-                                    canWrite = canWriteBrightness,
-                                    selected = selected,
-                                    onBrightnessChange = { value ->
-                                        brightness = value
-                                        writeBrightness(context, value)
-                                    },
-                                    onSelect = { onSelectRow(index) },
-                                    onActivate = { onActivateRow(index) },
-                                    onRequestWritePermission = {
-                                        context.startActivity(
-                                            Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-                                                data = android.net.Uri.parse(
-                                                    "package:${context.packageName}",
-                                                )
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            },
-                                        )
-                                    },
-                                )
-                            }
-                            SystemPanelRow.Wifi -> SettingsRow(
-                                title = "Wi‑Fi",
-                                subtitle = if (wifiConnected) "Connected — open settings" else "Not connected — open settings",
-                                selected = selected,
-                                onClick = {
-                                    onSelectRow(index)
-                                    onActivateRow(index)
-                                },
-                            )
-                            SystemPanelRow.Bluetooth -> SettingsRow(
-                                title = "Bluetooth",
-                                subtitle = "Open Bluetooth settings",
-                                selected = selected,
-                                onClick = {
-                                    onSelectRow(index)
-                                    onActivateRow(index)
-                                },
-                            )
-                            SystemPanelRow.AllSettings -> {
-                                val shape = ArcadiaGlass.ChipShape
-                                TextButton(
-                                    onClick = {
-                                        onSelectRow(index)
-                                        onActivateRow(index)
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(shape)
-                                        .then(
-                                            if (selected) {
-                                                Modifier
-                                                    .background(Color.White.copy(alpha = 0.16f))
-                                                    .border(
-                                                        1.5.dp,
-                                                        FocusRing.copy(alpha = 0.85f),
-                                                        shape,
-                                                    )
-                                            } else {
-                                                Modifier
-                                            },
-                                        ),
-                                ) {
-                                    Text(text = "Settings")
-                                }
-                            }
-                        }
-                    }
-                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
 
-                Text(
-                    text = "RT toggle · U/D · A activate · B close",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = glass.contentMuted.copy(alpha = 0.7f),
+                ProfileCardFooter(
+                    wifiConnected = wifiConnected,
+                    timeText = timeText,
+                    dateText = dateShort,
+                    batteryPercent = batteryPercent,
+                    charging = charging,
                 )
             }
         }
@@ -412,81 +340,105 @@ fun SystemPill(
 }
 
 @Composable
-private fun SystemProfileHeader(
+private fun ProfileCardHeader(
+    displayName: String,
+    usernameAccent: Color,
     profile: LocalProfile,
     avatarImageModel: String?,
     raScore: Int?,
+    systemProfile: SystemProfileCardState,
+    statusSelected: Boolean,
     editSelected: Boolean,
+    onSelectStatus: () -> Unit,
+    onActivateStatus: () -> Unit,
     onEditProfile: () -> Unit,
-    glassContent: Color,
-    glassMuted: Color,
+    onStatusDraftChange: (String) -> Unit,
+    onSaveCustomStatus: () -> Unit,
+    onClearCustomStatus: () -> Unit,
 ) {
     Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.Top,
     ) {
         ProfileAvatar(
             displayName = profile.displayName,
             presetId = profile.avatarPresetId,
-            size = 56.dp,
+            size = 72.dp,
             imageModel = avatarImageModel,
-            borderColor = Color.White.copy(alpha = 0.4f),
+            borderColor = Color.White.copy(alpha = 0.55f),
+            onClick = onEditProfile,
+            modifier = Modifier
+                .then(
+                    if (editSelected) {
+                        Modifier.border(2.dp, FocusRing, CircleShape)
+                    } else {
+                        Modifier
+                    },
+                ),
         )
+
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            StatusBubble(
+                text = systemProfile.statusLine,
+                selected = statusSelected,
+                editing = systemProfile.statusEditorOpen,
+                draft = systemProfile.statusDraft,
+                isCustom = systemProfile.isCustomStatus,
+                onSelect = onSelectStatus,
+                onActivate = onActivateStatus,
+                onDraftChange = onStatusDraftChange,
+                onSave = onSaveCustomStatus,
+                onClear = onClearCustomStatus,
+            )
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(OnlineGreen),
+                )
                 Text(
-                    text = profile.displayName,
-                    style = MaterialTheme.typography.titleMedium,
+                    text = displayName,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = XoraFonts.Title,
+                        letterSpacing = XoraFonts.TitleLetterSpacing,
+                    ),
                     fontWeight = FontWeight.Bold,
-                    color = glassContent,
+                    color = usernameAccent,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.clickable(onClick = onEditProfile),
                 )
-                if (raScore != null) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(ScoreGreen.copy(alpha = 0.22f))
-                            .border(1.dp, ScoreGreen.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    ) {
-                        Text(
-                            text = "★ $raScore",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = ScoreGreen,
-                        )
-                    }
-                }
             }
-            val shape = RoundedCornerShape(12.dp)
-            TextButton(
-                onClick = onEditProfile,
-                modifier = Modifier
-                    .clip(shape)
-                    .then(
-                        if (editSelected) {
-                            Modifier
-                                .background(Color.White.copy(alpha = 0.14f))
-                                .border(1.5.dp, FocusRing.copy(alpha = 0.85f), shape)
-                        } else {
-                            Modifier.background(Color.White.copy(alpha = 0.08f))
-                        },
-                    ),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                TrophyMiniGlyph(tint = Color.White.copy(alpha = 0.9f))
                 Text(
-                    text = "Edit profile",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = glassContent,
+                    text = "POINTS",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = XoraFonts.Title,
+                        letterSpacing = 0.08.sp,
+                    ),
+                    color = Color.White.copy(alpha = 0.72f),
+                )
+                Text(
+                    text = formatPoints(raScore),
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontFamily = XoraFonts.Title,
+                    ),
+                    fontWeight = FontWeight.Bold,
+                    color = ScoreAmber,
                 )
             }
         }
@@ -494,22 +446,94 @@ private fun SystemProfileHeader(
 }
 
 @Composable
-private fun RecentAchievementStrip(
-    unlocks: List<RaRecentUnlock>,
-    muted: Color,
+private fun StatusBubble(
+    text: String,
+    selected: Boolean,
+    editing: Boolean,
+    draft: String,
+    isCustom: Boolean,
+    onSelect: () -> Unit,
+    onActivate: () -> Unit,
+    onDraftChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onClear: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val shape = RoundedCornerShape(14.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Color.White.copy(alpha = if (selected) 0.16f else 0.10f))
+            .then(
+                if (selected) Modifier.border(1.5.dp, FocusRing.copy(alpha = 0.85f), shape)
+                else Modifier.border(1.dp, Color.White.copy(alpha = 0.08f), shape),
+            )
+            .clickable {
+                onSelect()
+                if (!editing) onActivate()
+            }
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (editing) {
+            BasicTextField(
+                value = draft,
+                onValueChange = onDraftChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.labelMedium.copy(color = Color.White),
+                cursorBrush = SolidColor(FocusRing),
+                modifier = Modifier.fillMaxWidth(),
+                decorationBox = { inner ->
+                    Box {
+                        if (draft.isBlank()) {
+                            Text(
+                                text = "Custom status…",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.4f),
+                            )
+                        }
+                        inner()
+                    }
+                },
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onSave) {
+                    Text("Save", color = OnlineGreen)
+                }
+                if (isCustom || draft.isNotBlank()) {
+                    TextButton(onClick = onClear) {
+                        Text("Clear", color = Color.White.copy(alpha = 0.7f))
+                    }
+                }
+            }
+        } else {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = 0.82f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            text = "Recent Achievement",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = muted,
+            text = "RECENTLY EARNED",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = XoraFonts.Title,
+                letterSpacing = 0.08.sp,
+            ),
+            color = Color.White.copy(alpha = 0.78f),
         )
         if (unlocks.isEmpty()) {
             Text(
-                text = "No recent unlocks",
+                text = "No recent unlocks yet",
                 style = MaterialTheme.typography.bodySmall,
-                color = muted.copy(alpha = 0.55f),
+                color = Color.White.copy(alpha = 0.45f),
             )
         } else {
             val scroll = rememberScrollState()
@@ -517,9 +541,9 @@ private fun RecentAchievementStrip(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(scroll),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                unlocks.take(10).forEach { unlock ->
+                unlocks.take(8).forEach { unlock ->
                     AchievementBadge(unlock = unlock)
                 }
             }
@@ -530,58 +554,258 @@ private fun RecentAchievementStrip(
 @Composable
 private fun AchievementBadge(unlock: RaRecentUnlock) {
     val platformContext = LocalPlatformContext.current
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.width(52.dp),
+    Box(
+        modifier = Modifier
+            .size(52.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(1.5.dp, BadgeBorder.copy(alpha = 0.9f), RoundedCornerShape(12.dp)),
     ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color.White.copy(alpha = 0.10f)),
-        ) {
-            AsyncImage(
-                model = ImageRequest.Builder(platformContext)
-                    .data(unlock.badgeUrl)
-                    .crossfade(120)
-                    .build(),
-                contentDescription = unlock.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-        Text(
-            text = unlock.title,
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.75f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        AsyncImage(
+            model = ImageRequest.Builder(platformContext)
+                .data(unlock.badgeUrl)
+                .crossfade(120)
+                .build(),
+            contentDescription = unlock.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(11.dp)),
         )
     }
 }
 
 @Composable
-private fun JumpBackRow(
-    game: Game,
+private fun FavoriteGameSection(
+    favorite: SystemFavoriteGame?,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
-    val shape = ArcadiaGlass.ChipShape
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "FAVORITE GAME",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = XoraFonts.Title,
+                letterSpacing = 0.08.sp,
+            ),
+            color = Color.White.copy(alpha = 0.78f),
+        )
+        val shape = RoundedCornerShape(16.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(Color.White.copy(alpha = if (selected) 0.14f else 0.06f))
+                .then(
+                    if (selected) Modifier.border(1.5.dp, FocusRing.copy(alpha = 0.85f), shape)
+                    else Modifier,
+                )
+                .clickable(onClick = onClick)
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (favorite == null) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 108.dp, height = 60.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.08f))
+                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "+",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White.copy(alpha = 0.55f),
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "Add favorite",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                    )
+                    Text(
+                        text = "Pick from your RetroAchievements list",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.5f),
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(width = 108.dp, height = 60.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.08f)),
+                ) {
+                    if (favorite.imageIconUrl.isNotBlank()) {
+                        AsyncImage(
+                            model = favorite.imageIconUrl,
+                            contentDescription = favorite.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = favorite.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        ClockMiniGlyph(tint = Color.White.copy(alpha = 0.75f))
+                        val hours = TimeUnit.MILLISECONDS.toHours(favorite.playTimeMs)
+                        Text(
+                            text = if (favorite.playTimeMs >= 60_000L) {
+                                "$hours"
+                            } else {
+                                "—"
+                            },
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontFamily = XoraFonts.Title,
+                            ),
+                            fontWeight = FontWeight.Bold,
+                            color = OnlineGreen,
+                        )
+                        if (favorite.playTimeMs >= 60_000L) {
+                            Text(
+                                text = "HR",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontFamily = XoraFonts.Title,
+                                ),
+                                color = Color.White.copy(alpha = 0.75f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FavoritePickerPanel(
+    state: SystemProfileCardState,
+    selectedRowIndex: Int,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    onSelectRow: (Int) -> Unit,
+    onActivateRow: (Int?) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = "PICK FAVORITE GAME",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = XoraFonts.Title,
+                letterSpacing = 0.08.sp,
+            ),
+            color = Color.White.copy(alpha = 0.78f),
+        )
+        Text(
+            text = "From your RetroAchievements progress",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = 0.5f),
+        )
+
+        when {
+            state.favoritePickerLoading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        color = FocusRing,
+                        strokeWidth = 2.dp,
+                    )
+                }
+            }
+            state.favoritePickerError != null -> {
+                Text(
+                    text = state.favoritePickerError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            else -> {
+                val rows = buildSystemPanelRows(
+                    favoritePickerOpen = true,
+                    favoritePickerGameIds = state.favoritePickerGames.map { it.gameId },
+                )
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 220.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    itemsIndexed(rows, key = { _, row ->
+                        when (row) {
+                            is SystemPanelRow.RaFavoritePick -> "ra_${row.gameId}"
+                            else -> row::class.simpleName.orEmpty()
+                        }
+                    }) { index, row ->
+                        val selected = index == selectedRowIndex
+                        when (row) {
+                            SystemPanelRow.ClearFavorite -> PickerRow(
+                                title = "Clear favorite",
+                                subtitle = "Show the + placeholder again",
+                                selected = selected,
+                                onClick = {
+                                    onSelectRow(index)
+                                    onActivateRow(index)
+                                },
+                            )
+                            is SystemPanelRow.RaFavoritePick -> {
+                                val game = state.favoritePickerGames.firstOrNull {
+                                    it.gameId == row.gameId
+                                }
+                                if (game != null) {
+                                    RaFavoritePickRow(
+                                        game = game,
+                                        selected = selected,
+                                        onClick = {
+                                            onSelectRow(index)
+                                            onActivateRow(index)
+                                        },
+                                    )
+                                }
+                            }
+                            else -> Unit
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RaFavoritePickRow(
+    game: RaCompletionGame,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(12.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(
-                if (selected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.05f),
-            )
+            .background(Color.White.copy(alpha = if (selected) 0.16f else 0.05f))
             .then(
-                if (selected) {
-                    Modifier.border(1.5.dp, FocusRing.copy(alpha = 0.85f), shape)
-                } else {
-                    Modifier
-                },
+                if (selected) Modifier.border(1.5.dp, FocusRing.copy(alpha = 0.85f), shape)
+                else Modifier,
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -590,32 +814,32 @@ private fun JumpBackRow(
     ) {
         Box(
             modifier = Modifier
-                .size(width = 40.dp, height = 52.dp)
+                .size(40.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color.White.copy(alpha = 0.10f)),
+                .background(Color.White.copy(alpha = 0.08f)),
         ) {
-            ArtworkImage(
-                path = game.gridArt ?: game.boxArtPath,
-                contentDescription = game.title,
-                fallbackText = game.title.take(1),
-                contentScale = ContentScale.Crop,
-                decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (game.imageIconUrl.isNotBlank()) {
+                AsyncImage(
+                    model = game.imageIconUrl,
+                    contentDescription = game.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = game.title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
-                color = glass.content,
+                color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = game.platform.displayName,
+                text = "${game.consoleName} · ${game.progressLabel}",
                 style = MaterialTheme.typography.labelSmall,
-                color = glass.contentMuted.copy(alpha = 0.65f),
+                color = Color.White.copy(alpha = 0.5f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -624,89 +848,21 @@ private fun JumpBackRow(
 }
 
 @Composable
-private fun BrightnessRow(
-    brightness: Float,
-    canWrite: Boolean,
-    selected: Boolean,
-    onBrightnessChange: (Float) -> Unit,
-    onSelect: () -> Unit,
-    onActivate: () -> Unit,
-    onRequestWritePermission: () -> Unit,
-) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
-    val shape = ArcadiaGlass.ChipShape
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(
-                if (selected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.05f),
-            )
-            .then(
-                if (selected) {
-                    Modifier.border(1.5.dp, FocusRing.copy(alpha = 0.85f), shape)
-                } else {
-                    Modifier
-                },
-            )
-            .clickable {
-                onSelect()
-                onActivate()
-            }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            text = "Brightness",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = glass.content,
-        )
-        if (canWrite) {
-            Slider(
-                value = brightness,
-                onValueChange = { value ->
-                    onSelect()
-                    onBrightnessChange(value)
-                },
-                valueRange = 0f..1f,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        } else {
-            Text(
-                text = "Allow brightness control, or open Display settings with A",
-                style = MaterialTheme.typography.labelSmall,
-                color = glass.contentMuted.copy(alpha = 0.65f),
-            )
-            TextButton(onClick = onRequestWritePermission) {
-                Text(text = "Allow brightness control")
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsRow(
+private fun PickerRow(
     title: String,
     subtitle: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
-    val shape = ArcadiaGlass.ChipShape
+    val shape = RoundedCornerShape(12.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(
-                if (selected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.05f),
-            )
+            .background(Color.White.copy(alpha = if (selected) 0.16f else 0.05f))
             .then(
-                if (selected) {
-                    Modifier.border(1.5.dp, FocusRing.copy(alpha = 0.85f), shape)
-                } else {
-                    Modifier
-                },
+                if (selected) Modifier.border(1.5.dp, FocusRing.copy(alpha = 0.85f), shape)
+                else Modifier,
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -716,12 +872,111 @@ private fun SettingsRow(
             text = title,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
-            color = glass.content,
+            color = Color.White,
         )
         Text(
             text = subtitle,
             style = MaterialTheme.typography.labelSmall,
-            color = glass.contentMuted.copy(alpha = 0.65f),
+            color = Color.White.copy(alpha = 0.5f),
+        )
+    }
+}
+
+@Composable
+private fun ProfileCardFooter(
+    wifiConnected: Boolean,
+    timeText: String,
+    dateText: String,
+    batteryPercent: Int,
+    charging: Boolean,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        WifiGlyph(connected = wifiConnected, tint = Color.White.copy(alpha = 0.85f))
+        Text(
+            text = timeText,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.85f),
+        )
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(12.dp)
+                .background(Color.White.copy(alpha = 0.25f)),
+        )
+        Text(
+            text = dateText,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.7f),
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        BatteryGlyph(
+            percent = batteryPercent,
+            charging = charging,
+            tint = Color.White.copy(alpha = 0.85f),
+        )
+        Text(
+            text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.7f),
+        )
+    }
+}
+
+@Composable
+private fun TrophyMiniGlyph(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(14.dp)) {
+        val w = size.width
+        val h = size.height
+        val cup = Path().apply {
+            moveTo(w * 0.28f, h * 0.12f)
+            lineTo(w * 0.72f, h * 0.12f)
+            quadraticTo(w * 0.78f, h * 0.38f, w * 0.58f, h * 0.55f)
+            lineTo(w * 0.42f, h * 0.55f)
+            quadraticTo(w * 0.22f, h * 0.38f, w * 0.28f, h * 0.12f)
+            close()
+        }
+        drawPath(cup, color = tint)
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.44f, h * 0.55f),
+            size = Size(w * 0.12f, h * 0.18f),
+            cornerRadius = CornerRadius(w * 0.04f),
+        )
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.30f, h * 0.78f),
+            size = Size(w * 0.40f, h * 0.14f),
+            cornerRadius = CornerRadius(w * 0.04f),
+        )
+    }
+}
+
+@Composable
+private fun ClockMiniGlyph(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(12.dp)) {
+        val stroke = Stroke(width = size.minDimension * 0.12f, cap = StrokeCap.Round)
+        drawCircle(
+            color = tint,
+            radius = size.minDimension * 0.42f,
+            style = stroke,
+        )
+        drawLine(
+            color = tint,
+            start = Offset(size.width * 0.5f, size.height * 0.28f),
+            end = Offset(size.width * 0.5f, size.height * 0.52f),
+            strokeWidth = stroke.width,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            color = tint,
+            start = Offset(size.width * 0.5f, size.height * 0.52f),
+            end = Offset(size.width * 0.68f, size.height * 0.62f),
+            strokeWidth = stroke.width,
+            cap = StrokeCap.Round,
         )
     }
 }
@@ -784,7 +1039,7 @@ private fun BatteryGlyph(
         val fillFrac = (percent / 100f).coerceIn(0f, 1f)
         val pad = 1.5.dp.toPx()
         val fillColor = when {
-            charging -> ScoreGreen
+            charging -> OnlineGreen
             percent <= 20 -> Color(0xFFFF5C6C)
             else -> tint.copy(alpha = 0.75f)
         }
@@ -795,6 +1050,11 @@ private fun BatteryGlyph(
             cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx()),
         )
     }
+}
+
+private fun formatPoints(score: Int?): String {
+    if (score == null) return "—"
+    return "%,d".format(Locale.US, score)
 }
 
 private fun readBatteryPercent(context: Context): Int {
@@ -812,25 +1072,4 @@ private fun isWifiConnected(context: Context): Boolean {
     val network = cm.activeNetwork ?: return false
     val caps = cm.getNetworkCapabilities(network) ?: return false
     return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-}
-
-private fun readBrightness(context: Context): Float {
-    val raw = Settings.System.getInt(
-        context.contentResolver,
-        Settings.System.SCREEN_BRIGHTNESS,
-        128,
-    )
-    return (raw / 255f).coerceIn(0f, 1f)
-}
-
-private fun writeBrightness(context: Context, value: Float) {
-    if (!Settings.System.canWrite(context)) return
-    val level = (value * 255f).toInt().coerceIn(1, 255)
-    runCatching {
-        Settings.System.putInt(
-            context.contentResolver,
-            Settings.System.SCREEN_BRIGHTNESS,
-            level,
-        )
-    }
 }

@@ -214,22 +214,33 @@ fun discordFriendActivity(friend: DiscordFriendEntry?): String? = when (friend?.
 }
 
 /**
- * Focusable rows inside the expanded RT profile / quick-settings menu.
+ * Focusable rows inside the expanded RT profile card.
  */
 sealed interface SystemPanelRow {
+    /** Activity / custom status bubble. */
+    data object Status : SystemPanelRow
+    /** Favorite RetroAchievements game (plus placeholder when unset). */
+    data object FavoriteGame : SystemPanelRow
     data object EditProfile : SystemPanelRow
-    data class JumpBack(val gameId: String) : SystemPanelRow
-    data object Brightness : SystemPanelRow
-    data object Wifi : SystemPanelRow
-    data object Bluetooth : SystemPanelRow
-    data object AllSettings : SystemPanelRow
+    /** Clear the pinned favorite (only while the favorite picker is open). */
+    data object ClearFavorite : SystemPanelRow
+    /** One RetroAchievements completion-progress game in the favorite picker. */
+    data class RaFavoritePick(val gameId: Int) : SystemPanelRow
 }
 
-fun buildSystemPanelRows(jumpBackGames: List<String>): List<SystemPanelRow> = buildList {
-    add(SystemPanelRow.EditProfile)
-    jumpBackGames.take(3).forEach { add(SystemPanelRow.JumpBack(it)) }
-    add(SystemPanelRow.Brightness)
-    add(SystemPanelRow.Wifi)
-    add(SystemPanelRow.Bluetooth)
-    add(SystemPanelRow.AllSettings)
-}
+fun buildSystemPanelRows(
+    favoritePickerOpen: Boolean,
+    favoritePickerGameIds: List<Int> = emptyList(),
+): List<SystemPanelRow> =
+    if (favoritePickerOpen) {
+        buildList {
+            add(SystemPanelRow.ClearFavorite)
+            favoritePickerGameIds.forEach { add(SystemPanelRow.RaFavoritePick(it)) }
+        }
+    } else {
+        listOf(
+            SystemPanelRow.Status,
+            SystemPanelRow.FavoriteGame,
+            SystemPanelRow.EditProfile,
+        )
+    }

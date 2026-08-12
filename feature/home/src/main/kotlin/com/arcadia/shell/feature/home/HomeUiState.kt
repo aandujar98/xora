@@ -234,6 +234,8 @@ data class HomeUiState(
     val systemPanelExpanded: Boolean = false,
     /** Focus index inside the RT system menu while [systemPanelExpanded]. */
     val systemPanelSelectedIndex: Int = 0,
+    /** RT profile card chrome (status, favorite game, pickers). */
+    val systemProfile: SystemProfileCardState = SystemProfileCardState(),
     val achievementsPanelExpanded: Boolean = false,
     val achievements: AchievementsUiState = AchievementsUiState(),
     val trailer: HeroTrailerState = HeroTrailerState(),
