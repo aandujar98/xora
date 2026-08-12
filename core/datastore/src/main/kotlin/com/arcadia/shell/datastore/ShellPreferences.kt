@@ -491,7 +491,7 @@ class ShellPreferences @Inject constructor(
     }
 
     /**
-     * Mixed Steam + Discord pins for the LT “Your Circle” strip
+     * Mixed Steam + Discord pins for the LT “Pinned Friends” strip
      * (order preserved, max [CIRCLE_FRIEND_LIMIT]).
      *
      * Prefers [Keys.CIRCLE_PINS] JSON; falls back to legacy Steam-only
@@ -1126,13 +1126,13 @@ internal fun decodeHomeShortcuts(raw: String): List<HomeShortcut> {
     }.getOrDefault(emptyList())
 }
 
-/** Social source for a pinned LT “Your Circle” friend. */
+/** Social source for a pinned LT “Pinned Friends” friend. */
 enum class CirclePinSource {
     Steam,
     Discord,
 }
 
-/** One pinned friend in Your Circle (SteamID64 or Discord user id). */
+/** One pinned friend in Pinned Friends (SteamID64 or Discord user id). */
 data class CirclePin(
     val source: CirclePinSource,
     val id: String,
@@ -1140,7 +1140,7 @@ data class CirclePin(
     val key: String get() = "${source.name}:$id"
 }
 
-/** Max friends the user can pin in LT “Your Circle”. */
+/** Max friends the user can pin in LT “Pinned Friends”. */
 const val CIRCLE_FRIEND_LIMIT = 5
 
 internal fun encodeCirclePins(pins: List<CirclePin>): String {
