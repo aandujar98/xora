@@ -94,6 +94,9 @@ fun VerticalGameSelectorPane(
     onActivateAccountRow: (Int?) -> Unit,
     onSelectSystemRow: (Int) -> Unit,
     onActivateSystemRow: (Int?) -> Unit,
+    onSystemStatusDraftChange: (String) -> Unit = {},
+    onSaveCustomStatus: () -> Unit = {},
+    onClearCustomStatus: () -> Unit = {},
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
     onRequestLocalAvatar: () -> Unit,
@@ -260,14 +263,18 @@ fun VerticalGameSelectorPane(
                 SystemPill(
                     profile = state.profile,
                     avatarImageModel = state.profileAvatarModel,
+                    raUsername = state.achievements.profile?.username,
                     raScore = state.achievements.profile?.totalPoints,
                     recentAchievements = state.achievements.recent,
-                    jumpBackGames = state.quickLaunchGames.take(3),
+                    systemProfile = state.systemProfile,
                     expanded = state.systemPanelExpanded && !state.isLaunching,
                     selectedRowIndex = state.systemPanelSelectedIndex,
                     onToggle = onToggleSystemPanel,
                     onSelectRow = onSelectSystemRow,
                     onActivateRow = onActivateSystemRow,
+                    onStatusDraftChange = onSystemStatusDraftChange,
+                    onSaveCustomStatus = onSaveCustomStatus,
+                    onClearCustomStatus = onClearCustomStatus,
                 )
             }
 
