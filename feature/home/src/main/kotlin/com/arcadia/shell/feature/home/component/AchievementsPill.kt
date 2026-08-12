@@ -46,8 +46,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -55,6 +57,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,21 +73,41 @@ import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
+import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.AchievementsUiState
+import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaGameProgress
 import com.arcadia.shell.retroachievements.RaProfile
 
 /** Soft bar radius — same as RT, so in-pill circles aren't clipped into ovals. */
 private val CollapsedBarShape = RoundedCornerShape(20.dp)
-private val BadgeShape = RoundedCornerShape(8.dp)
-private val ProgressTrack = Color(0xFF3A3A3C)
-private val ProgressFill = Color.White
 private val DividerColor = Color.White.copy(alpha = 0.28f)
+
+// Expanded card, authored against the XOrA "X+" Figma frame (741×326 at 2×).
+private val CardShape = RoundedCornerShape(15.dp)
+private val CardEdge = Color.White.copy(alpha = 0.25f)
+private val CardInk = Color(0xFFEBEBEB)
+private val EarnedBadgeEdge = Color(0xFFEFBD17)
+private val ScoreGoldTop = Color(0xFFFFC95E)
+private val ScoreGoldBottom = Color(0xFFFF9B1B)
+private val RuleStart = Color(0xFF989CB3).copy(alpha = 0.25f)
+private val RuleEnd = Color(0xFF4D4655).copy(alpha = 0.25f)
+private val BoxArtSize = 67.dp
+private val TrophyBadgeSize = 28.dp
+private val TrophyBadgeShape = RoundedCornerShape(3.dp)
+private const val TROPHY_BADGE_SLOTS = 7
+private const val TROPHY_BADGE_EARNED_SLOTS = 5
+private val PlayerAvatarSize = 25.dp
+private val CardTextShadow = Shadow(
+    color = Color.Black.copy(alpha = 0.5f),
+    offset = Offset(2f, 2f),
+    blurRadius = 4f,
+)
 
 @Composable
 fun AchievementsPill(
@@ -95,7 +118,6 @@ fun AchievementsPill(
     onSelectTab: (com.arcadia.shell.feature.home.AchievementsPaneTab) -> Unit,
     onLogin: (username: String, password: String) -> Unit,
     onLoginWithApiKey: (username: String, apiKey: String) -> Unit,
-    onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
@@ -104,7 +126,7 @@ fun AchievementsPill(
     val progress = matched?.progress
 
     Column(
-        modifier = modifier.widthIn(max = if (expanded) 320.dp else 240.dp),
+        modifier = modifier.widthIn(max = if (expanded) 372.dp else 240.dp),
         horizontalAlignment = Alignment.End,
     ) {
         // Collapsed X chrome hides while the panel is open; Back / X restores it.
@@ -144,14 +166,16 @@ fun AchievementsPill(
             Column(
                 modifier = Modifier
                     .padding(top = 8.dp)
+                    .xoraForegroundShadow(CardShape)
                     .liquidGlass(
-                        shape = ArcadiaGlass.PanelShape,
+                        shape = CardShape,
                         tone = GlassTone.OverMedia,
                         intensity = GlassIntensity.Strong,
                         shimmer = true,
                     )
+                    .border(1.5.dp, CardEdge, CardShape)
                     .clickable(onClick = onToggle)
-                    .padding(14.dp)
+                    .padding(vertical = 10.dp)
                     .fillMaxWidth()
                     .heightIn(max = 420.dp)
                     .then(
@@ -164,14 +188,18 @@ fun AchievementsPill(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when {
-                    needsLogin -> LoginForm(
-                        initial = state.credentials,
-                        isBusy = state.isLoggingIn,
-                        error = state.error,
-                        pendingWebApiUsername = state.pendingWebApiUsername,
-                        onLogin = onLogin,
-                        onLoginWithApiKey = onLoginWithApiKey,
-                    )
+                    // Only the summary is full-bleed (its rule spans the card), so every other
+                    // branch pads itself.
+                    needsLogin -> Column(modifier = Modifier.padding(horizontal = 14.dp)) {
+                        LoginForm(
+                            initial = state.credentials,
+                            isBusy = state.isLoggingIn,
+                            error = state.error,
+                            pendingWebApiUsername = state.pendingWebApiUsername,
+                            onLogin = onLogin,
+                            onLoginWithApiKey = onLoginWithApiKey,
+                        )
+                    }
                     state.isLoading && progress == null -> Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -188,15 +216,13 @@ fun AchievementsPill(
                         progress = progress,
                         profile = state.profile,
                         credentials = state.credentials,
-                        contentColor = glass.content,
                         mutedColor = glass.contentMuted,
-                        onSignOut = onSignOut,
                     )
                     else -> ExpandedEmptyState(
                         state = state,
                         contentColor = glass.content,
                         mutedColor = glass.contentMuted,
-                        onSignOut = onSignOut,
+                        modifier = Modifier.padding(horizontal = 14.dp),
                     )
                 }
             }
@@ -264,127 +290,258 @@ private fun ExpandedRaSummary(
     progress: RaGameProgress,
     profile: RaProfile?,
     credentials: RetroAchievementsCredentials,
-    contentColor: Color,
     mutedColor: Color,
-    onSignOut: () -> Unit,
 ) {
-    val earnedBadges = progress.achievements.filter { it.earned }
-    val badgeSlots = buildList {
-        addAll(earnedBadges.take(5))
-        while (size < 7) add(null)
-    }
+    val badgeSlots = remember(progress.achievements) { trophyBadgeSlots(progress) }
     val playerUrls = listOfNotNull(
         profile?.userPicUrl ?: RaProfile.userPicUrlFor(credentials.username),
     )
     val extraPlayers = (progress.numDistinctPlayers - playerUrls.size).coerceAtLeast(0)
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-    // Header — game icon, title, console chip
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        GameIconThumb(url = progress.imageIconUrl, size = 40.dp)
-        Text(
-            text = progress.title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = contentColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        ConsoleBadge(label = consoleShortName(progress.consoleName))
-    }
-
-    // Achievement badge strip
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        badgeSlots.forEach { achievement ->
-            if (achievement != null) {
-                BadgeImage(
-                    url = achievement.badgeUrl,
-                    locked = false,
-                    size = 34.dp,
-                    corner = 7.dp,
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.12f))
-                        .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape),
-                )
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            BoxArtThumb(url = progress.imageIconUrl)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = progress.title,
+                        fontFamily = XoraFonts.Secondary,
+                        fontSize = 16.sp,
+                        color = CardInk,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(shadow = CardTextShadow),
+                        modifier = Modifier.weight(1f),
+                    )
+                    ConsoleBadge(label = consoleShortName(progress.consoleName))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    badgeSlots.forEach { achievement ->
+                        TrophyBadge(achievement = achievement)
+                    }
+                }
             }
         }
-    }
 
-    // Trophy progress + bar
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        TrophyGlyph(modifier = Modifier.size(16.dp), tint = contentColor)
-        Text(
-            text = progress.progressLabel,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = contentColor,
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TrophyGlyph(modifier = Modifier.size(22.dp), tint = Color.White)
+            ScoreReadout(
+                earned = progress.numAwardedToUser,
+                total = progress.numAchievements,
+            )
+            ProgressGauge(
+                fraction = progress.completionFraction,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        // Full-bleed rule, so the row padding above and below cannot clip it.
         Box(
             modifier = Modifier
-                .weight(1f)
-                .height(8.dp)
-                .clip(CollapsedBarShape)
-                .background(ProgressTrack.copy(alpha = 0.55f)),
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Brush.horizontalGradient(listOf(RuleStart, RuleEnd))),
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(progress.completionFraction)
-                    .clip(CollapsedBarShape)
-                    .background(ProgressFill.copy(alpha = 0.92f)),
+            ClockGlyph(modifier = Modifier.size(22.dp), tint = Color.White)
+            Text(
+                text = "Recently Played:",
+                fontFamily = XoraFonts.Title,
+                fontSize = 11.sp,
+                letterSpacing = XoraFonts.TitleLetterSpacing,
+                color = CardInk,
+                maxLines = 1,
+                style = TextStyle(shadow = CardTextShadow),
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            RecentPlayers(
+                urls = playerUrls,
+                extraCount = extraPlayers.coerceAtMost(99),
             )
         }
     }
+}
 
-    // Recent players
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+/** Five earned slots then locked ones, so the strip keeps the designed 5 gold + 2 dim rhythm. */
+private fun trophyBadgeSlots(progress: RaGameProgress): List<RaAchievement?> {
+    val earned = progress.achievements.filter { it.earned }.take(TROPHY_BADGE_EARNED_SLOTS)
+    val locked = progress.achievements.filterNot { it.earned }
+    return buildList {
+        addAll(earned)
+        addAll(locked.take(TROPHY_BADGE_SLOTS - size))
+        while (size < TROPHY_BADGE_SLOTS) add(null)
+    }
+}
+
+@Composable
+private fun BoxArtThumb(url: String) {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .xoraForegroundShadow(RoundedCornerShape(5.dp))
+            .size(BoxArtSize)
+            .clip(RoundedCornerShape(5.dp))
+            .background(Color.White.copy(alpha = 0.1f))
+            .border(1.5.dp, CardEdge, RoundedCornerShape(5.dp)),
     ) {
-        ClockGlyph(modifier = Modifier.size(14.dp), tint = mutedColor)
+        if (url.isNotBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(120)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TrophyBadge(achievement: RaAchievement?) {
+    val context = LocalContext.current
+    val earned = achievement?.earned == true
+    val edge = if (earned) EarnedBadgeEdge else CardEdge
+    Box(
+        modifier = Modifier
+            .size(TrophyBadgeSize)
+            .clip(TrophyBadgeShape)
+            .background(Color.White.copy(alpha = if (earned) 0.12f else 0.2f))
+            .border(1.5.dp, edge, TrophyBadgeShape),
+    ) {
+        if (achievement != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(achievement.badgeUrl)
+                    .crossfade(120)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                alpha = if (earned) 1f else 0.4f,
+            )
+        }
+    }
+}
+
+/** Earned count in gold over the muted total, as authored in the Figma card. */
+@Composable
+private fun ScoreReadout(earned: Int, total: Int) {
+    val goldBrush = remember { Brush.verticalGradient(listOf(ScoreGoldTop, ScoreGoldBottom)) }
+    val totalBrush = remember {
+        Brush.verticalGradient(listOf(Color.White, Color(0xFFA1A1A1)))
+    }
+    Row(verticalAlignment = Alignment.Bottom) {
         Text(
-            text = "Recent Players:",
-            style = MaterialTheme.typography.labelMedium,
-            color = mutedColor,
+            text = "$earned",
+            style = TextStyle(
+                brush = goldBrush,
+                fontFamily = XoraFonts.Title,
+                fontSize = 16.sp,
+                letterSpacing = XoraFonts.TitleLetterSpacing,
+                shadow = CardTextShadow,
+            ),
         )
-        Spacer(modifier = Modifier.weight(1f))
-        OverlappingAvatars(
-            urls = playerUrls,
-            size = 22.dp,
-            overlap = 7.dp,
-            maxVisible = 4,
-            extraCount = extraPlayers.coerceAtMost(99),
-            showEmptySlots = 3,
+        Text(
+            text = "/$total",
+            style = TextStyle(
+                brush = totalBrush,
+                fontFamily = XoraFonts.Title,
+                fontSize = 9.sp,
+                letterSpacing = XoraFonts.TitleLetterSpacing,
+                shadow = CardTextShadow,
+            ),
+            modifier = Modifier.padding(bottom = 1.dp),
         )
     }
+}
 
-    TextButton(
-        onClick = onSignOut,
-        modifier = Modifier.align(Alignment.End),
+@Composable
+private fun ProgressGauge(fraction: Float, modifier: Modifier = Modifier) {
+    val fillBrush = remember { Brush.verticalGradient(listOf(ScoreGoldTop, ScoreGoldBottom)) }
+    Box(
+        modifier = modifier
+            .height(15.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.25f))
+            .border(1.5.dp, Color.White, CircleShape)
+            .padding(2.dp),
     ) {
-        Text("Sign out", color = mutedColor)
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .clip(CircleShape)
+                .background(fillBrush),
+        )
     }
+}
+
+@Composable
+private fun RecentPlayers(urls: List<String>, extraCount: Int) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val slots = urls.take(4)
+        slots.forEach { url ->
+            AvatarCircle(url = url, size = PlayerAvatarSize)
+        }
+        repeat((4 - slots.size).coerceAtLeast(0)) {
+            Box(
+                modifier = Modifier
+                    .size(PlayerAvatarSize)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .border(1.5.dp, CardEdge, CircleShape),
+            )
+        }
+        if (extraCount > 0) {
+            Box(
+                modifier = Modifier
+                    .height(PlayerAvatarSize)
+                    .widthIn(min = 35.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .border(1.dp, Color.White, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "+$extraCount",
+                    fontFamily = XoraFonts.Secondary,
+                    fontSize = 12.sp,
+                    color = CardInk,
+                    maxLines = 1,
+                    style = TextStyle(shadow = CardTextShadow),
+                )
+            }
+        }
     }
 }
 
@@ -393,10 +550,10 @@ private fun ExpandedEmptyState(
     state: AchievementsUiState,
     contentColor: Color,
     mutedColor: Color,
-    onSignOut: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
@@ -416,9 +573,6 @@ private fun ExpandedEmptyState(
             style = MaterialTheme.typography.bodySmall,
             color = mutedColor,
         )
-        TextButton(onClick = onSignOut, modifier = Modifier.align(Alignment.End)) {
-            Text("Sign out", color = mutedColor)
-        }
     }
 }
 
@@ -436,29 +590,6 @@ private fun ConsoleBadge(label: String) {
             .background(Color.White.copy(alpha = 0.16f))
             .padding(horizontal = 8.dp, vertical = 4.dp),
     )
-}
-
-@Composable
-private fun GameIconThumb(url: String, size: Dp) {
-    val context = LocalContext.current
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(BadgeShape)
-            .background(Color.White.copy(alpha = 0.1f)),
-    ) {
-        if (url.isNotBlank()) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(url)
-                    .crossfade(120)
-                    .build(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-    }
 }
 
 @Composable
@@ -541,34 +672,6 @@ private fun AvatarCircle(
             .clip(CircleShape)
             .border(1.dp, Color(0xFF0C1524), CircleShape)
             .background(Color.White.copy(alpha = 0.12f)),
-    )
-}
-
-@Composable
-private fun BadgeImage(
-    url: String,
-    locked: Boolean,
-    size: Dp = 40.dp,
-    corner: Dp = 8.dp,
-) {
-    val context = LocalContext.current
-    AsyncImage(
-        model = ImageRequest.Builder(context)
-            .data(url)
-            .crossfade(120)
-            .build(),
-        contentDescription = null,
-        contentScale = ContentScale.Fit,
-        modifier = Modifier
-            .size(size)
-            .clip(RoundedCornerShape(corner))
-            .background(Color.White.copy(alpha = if (locked) 0.08f else 0.12f))
-            .border(
-                width = 1.5.dp,
-                color = if (locked) Color.White.copy(alpha = 0.12f) else Color(0xFFFFC857),
-                shape = RoundedCornerShape(corner),
-            ),
-        alpha = if (locked) 0.45f else 1f,
     )
 }
 

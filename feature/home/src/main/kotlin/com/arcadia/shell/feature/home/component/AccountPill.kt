@@ -55,6 +55,10 @@ import com.arcadia.shell.feature.home.SocialPresence
 
 private val NotificationRed = Color(0xFFFF3B30)
 
+/** Figma LT pill: 73px avatars on a 37px pitch, so each disc covers half the one before it. */
+private val AvatarSize = 36.dp
+private val AvatarPitch = 18.dp
+
 @Composable
 fun AccountPill(
     expanded: Boolean,
@@ -75,8 +79,6 @@ fun AccountPill(
     val pillFriends = remember(socialMenu.circlePins, socialMenu.steam.friends, socialMenu.discord.friends) {
         circlePillAvatars(socialMenu)
     }
-    val onlineAcross = socialMenu.friendsBadgeCount
-    val extraOnline = (onlineAcross - pillFriends.size).coerceAtLeast(0)
     // Same tally as the panel's Notifications pill so the collapsed badge cannot disagree.
     val notificationCount = socialMenu.messagesBadgeCount + socialMenu.recentNotifications.size
     // Use window pixels ÷ current (fitted) density so Auto UI-fit cannot push the panel off-screen.
@@ -127,25 +129,20 @@ fun AccountPill(
                                 intensity = GlassIntensity.Standard,
                             )
                             .clickable(onClick = onToggle)
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                            .padding(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        StackedCircleAvatars(members = pillFriends)
-                        if (extraOnline > 0) {
-                            Text(
-                                text = "+$extraOnline",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = glass.contentMuted,
-                            )
-                        }
+                        // Avatars only — the Figma pill carries no online-count label.
                         if (pillFriends.isEmpty()) {
-                            Text(
-                                text = if (onlineAcross > 0) "$onlineAcross online" else "Social",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = glass.contentMuted,
+                            ProfileAvatar(
+                                displayName = profile.displayName,
+                                presetId = profile.avatarPresetId,
+                                size = AvatarSize,
+                                imageModel = profileAvatarModel,
+                                borderColor = Color.Transparent,
                             )
+                        } else {
+                            StackedCircleAvatars(members = pillFriends)
                         }
                     }
                     if (notificationCount > 0) {
@@ -209,21 +206,21 @@ fun AccountPill(
 private fun StackedCircleAvatars(members: List<CircleMemberUi>) {
     if (members.isEmpty()) return
     Row(
-        horizontalArrangement = Arrangement.spacedBy((-12).dp),
+        horizontalArrangement = Arrangement.spacedBy(AvatarSize - AvatarPitch),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         members.forEachIndexed { index, member ->
             Box(
                 modifier = Modifier
                     .zIndex((members.size - index).toFloat())
-                    .size(36.dp)
+                    .size(AvatarSize)
                     .clip(CircleShape)
                     .border(1.5.dp, Color(0xFF0C1524), CircleShape),
             ) {
                 ProfileAvatar(
                     displayName = member.displayName,
                     presetId = "preset_0",
-                    size = 36.dp,
+                    size = AvatarSize,
                     imageModel = member.avatarUrl,
                     borderColor = Color.Transparent,
                 )

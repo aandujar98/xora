@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -112,7 +113,10 @@ private val PlaytimeGreen = Color(0xFF5FE06A)
 private val FooterInk = Color(0xFF9FB0B8)
 
 /** Collapsed RT chrome is the profile picture alone, tucked into the corner. */
-private val CollapsedAvatarSize = 60.dp
+private val CollapsedAvatarSize = 88.dp
+
+/** Figma crops the disc on both screen edges; this clears the pane padding to get there. */
+private val CollapsedAvatarBleed = 24.dp
 
 @Composable
 fun SystemPill(
@@ -208,7 +212,8 @@ fun SystemPill(
             enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
             exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
         ) {
-            // Just the avatar in the corner; status readouts live in the expanded card footer.
+            // Just the avatar, pushed past the pane padding so it tucks into the screen corner;
+            // status readouts live in the expanded card footer.
             ProfileAvatar(
                 displayName = profile.displayName,
                 presetId = profile.avatarPresetId,
@@ -216,7 +221,9 @@ fun SystemPill(
                 imageModel = avatarImageModel,
                 borderColor = Color.White.copy(alpha = 0.9f),
                 onClick = onToggle,
-                modifier = Modifier.xoraForegroundShadow(CircleShape),
+                modifier = Modifier
+                    .offset(x = CollapsedAvatarBleed, y = -CollapsedAvatarBleed)
+                    .xoraForegroundShadow(CircleShape),
             )
         }
 

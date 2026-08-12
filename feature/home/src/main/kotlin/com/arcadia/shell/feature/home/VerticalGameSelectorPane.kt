@@ -292,7 +292,6 @@ fun VerticalGameSelectorPane(
                 onSelectTab = onSelectAchievementsTab,
                 onLogin = onLoginRetroAchievements,
                 onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOut = onSignOutRetroAchievements,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(

@@ -263,7 +263,6 @@ fun HeroPane(
             onSelectTab = onSelectAchievementsTab,
             onLogin = onLoginRetroAchievements,
             onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-            onSignOut = onSignOutRetroAchievements,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
