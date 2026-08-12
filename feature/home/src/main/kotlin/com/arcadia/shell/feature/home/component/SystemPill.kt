@@ -75,15 +75,13 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.arcadia.shell.datastore.LocalProfile
-import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
-import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.arcadiaTween
-import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.SystemFavoriteGame
 import com.arcadia.shell.feature.home.SystemPanelRow
 import com.arcadia.shell.feature.home.SystemProfileCardState
@@ -112,6 +110,9 @@ private val BubbleFill = Color(0xFFE8EAEA)
 private val BubbleInk = Color(0xFF4A4F52)
 private val PlaytimeGreen = Color(0xFF5FE06A)
 private val FooterInk = Color(0xFF9FB0B8)
+
+/** Collapsed RT chrome is the profile picture alone, tucked into the corner. */
+private val CollapsedAvatarSize = 60.dp
 
 @Composable
 fun SystemPill(
@@ -207,60 +208,16 @@ fun SystemPill(
             enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
             exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
         ) {
-            Row(
-                modifier = Modifier
-                    .liquidGlass(
-                        shape = ArcadiaGlass.PillShape,
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Standard,
-                    )
-                    .clickable(onClick = onToggle)
-                    .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                WifiGlyph(connected = wifiConnected, tint = glass.content)
-                Text(
-                    text = timeText,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = glass.content,
-                )
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(14.dp)
-                        .background(glass.contentMuted.copy(alpha = 0.35f)),
-                )
-                Text(
-                    text = dateShort,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = glass.contentMuted,
-                )
-                BatteryGlyph(
-                    percent = batteryPercent,
-                    charging = charging,
-                    tint = glass.content,
-                )
-                Text(
-                    text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = glass.contentMuted,
-                )
-                Box {
-                    ProfileAvatar(
-                        displayName = profile.displayName,
-                        presetId = profile.avatarPresetId,
-                        size = 30.dp,
-                        imageModel = avatarImageModel,
-                        borderColor = Color.White.copy(alpha = 0.45f),
-                    )
-                    TriggerGlyph(
-                        letter = "R",
-                        modifier = Modifier.align(Alignment.TopEnd),
-                    )
-                }
-            }
+            // Just the avatar in the corner; status readouts live in the expanded card footer.
+            ProfileAvatar(
+                displayName = profile.displayName,
+                presetId = profile.avatarPresetId,
+                size = CollapsedAvatarSize,
+                imageModel = avatarImageModel,
+                borderColor = Color.White.copy(alpha = 0.9f),
+                onClick = onToggle,
+                modifier = Modifier.xoraForegroundShadow(CircleShape),
+            )
         }
 
         AnimatedVisibility(

@@ -18,11 +18,11 @@ import kotlin.math.min
  * Stays against the silhouette: a couple of pixels down/right, soft blur, no spread.
  */
 object XoraForegroundShadow {
-    val OffsetX: Dp = 2.dp
-    val OffsetY: Dp = 3.dp
+    val OffsetX: Dp = 3.dp
+    val OffsetY: Dp = 4.dp
     val Spread: Dp = 0.dp
-    val Blur: Dp = 8.dp
-    const val Alpha: Float = 0.35f
+    val Blur: Dp = 16.dp
+    const val Alpha: Float = 0.6f
     val Ink: Color = Color.Black
 }
 

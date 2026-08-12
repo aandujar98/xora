@@ -73,6 +73,7 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.AchievementsUiState
 import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaGameProgress
@@ -220,6 +221,7 @@ private fun CollapsedRaPill(
 
     Row(
         modifier = Modifier
+            .xoraForegroundShadow(CollapsedBarShape)
             .liquidGlass(
                 shape = CollapsedBarShape,
                 tone = GlassTone.OverMedia,

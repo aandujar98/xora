@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -45,11 +46,14 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.AccountPanelRow
 import com.arcadia.shell.feature.home.CircleMemberUi
 import com.arcadia.shell.feature.home.SocialMenuTab
 import com.arcadia.shell.feature.home.SocialMenuUiState
 import com.arcadia.shell.feature.home.SocialPresence
+
+private val NotificationRed = Color(0xFFFF3B30)
 
 @Composable
 fun AccountPill(
@@ -73,6 +77,8 @@ fun AccountPill(
     }
     val onlineAcross = socialMenu.friendsBadgeCount
     val extraOnline = (onlineAcross - pillFriends.size).coerceAtLeast(0)
+    // Same tally as the panel's Notifications pill so the collapsed badge cannot disagree.
+    val notificationCount = socialMenu.messagesBadgeCount + socialMenu.recentNotifications.size
     // Use window pixels ÷ current (fitted) density so Auto UI-fit cannot push the panel off-screen.
     val view = LocalView.current
     val density = LocalDensity.current
@@ -111,33 +117,55 @@ fun AccountPill(
                     transformOrigin = TransformOrigin(0.1f, 0f),
                 ),
             ) {
-                Row(
-                    modifier = Modifier
-                        .liquidGlass(
-                            shape = ArcadiaGlass.PillShape,
-                            tone = GlassTone.OverMedia,
-                            intensity = GlassIntensity.Standard,
-                        )
-                        .clickable(onClick = onToggle)
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    StackedCircleAvatars(members = pillFriends)
-                    if (extraOnline > 0) {
-                        Text(
-                            text = "+$extraOnline",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = glass.contentMuted,
-                        )
+                Box {
+                    Row(
+                        modifier = Modifier
+                            .xoraForegroundShadow(ArcadiaGlass.PillShape)
+                            .liquidGlass(
+                                shape = ArcadiaGlass.PillShape,
+                                tone = GlassTone.OverMedia,
+                                intensity = GlassIntensity.Standard,
+                            )
+                            .clickable(onClick = onToggle)
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        StackedCircleAvatars(members = pillFriends)
+                        if (extraOnline > 0) {
+                            Text(
+                                text = "+$extraOnline",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = glass.contentMuted,
+                            )
+                        }
+                        if (pillFriends.isEmpty()) {
+                            Text(
+                                text = if (onlineAcross > 0) "$onlineAcross online" else "Social",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = glass.contentMuted,
+                            )
+                        }
                     }
-                    if (pillFriends.isEmpty()) {
-                        Text(
-                            text = if (onlineAcross > 0) "$onlineAcross online" else "Social",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = glass.contentMuted,
-                        )
+                    if (notificationCount > 0) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 4.dp, y = (-4).dp)
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(NotificationRed)
+                                .border(2.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = if (notificationCount > 9) "9+" else "$notificationCount",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                            )
+                        }
                     }
                 }
             }
