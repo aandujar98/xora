@@ -56,6 +56,7 @@ import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.AccountPanelRow
@@ -88,6 +89,14 @@ private val MessagesBadge = Color(0xFFFF8A4C)
 private val SkyGlass = Color(0xFF7EC8E8)
 private val NotificationRed = Color(0xFFFF3B30)
 
+/** LT card frame + display type, shared with the RT profile card. */
+private val CardEdge = Color(0xFFAEE3F7)
+private val OutlineInk = Color(0xFF10202A)
+private val CountBlue = Color(0xFF3FA3F0)
+private val ActivityGreen = Color(0xFF4CE05A)
+private val RowSelectedEdge = Color(0xFF7FD4F5)
+private val AvatarRingGold = Color(0xFFF5C542)
+
 @Composable
 fun SocialMenuPanel(
     social: SocialMenuUiState,
@@ -104,15 +113,17 @@ fun SocialMenuPanel(
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
 
+    val cardShape = RoundedCornerShape(30.dp)
     Column(
         modifier = modifier
             .liquidGlass(
-                shape = RoundedCornerShape(28.dp),
+                shape = cardShape,
                 tone = GlassTone.OverMedia,
                 intensity = GlassIntensity.Strong,
                 shimmer = true,
             )
-            .padding(14.dp)
+            .border(2.5.dp, CardEdge, cardShape)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
             .fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -237,26 +248,29 @@ private fun PinnedFriendsHeader(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = "PINNED FRIENDS",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = glassContent,
-            )
+            CardSectionLabel("PINNED FRIENDS")
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
+                XoraOutlinedText(
                     text = "${social.circleSlotsFilled}",
-                    style = MaterialTheme.typography.titleSmall,
+                    fontFamily = XoraFonts.Title,
                     fontWeight = FontWeight.Bold,
-                    color = SkyGlass,
+                    fontSize = 20.sp,
+                    fillColor = CountBlue,
+                    outlineColor = OutlineInk,
+                    letterSpacing = XoraFonts.TitleLetterSpacing,
+                    maxLines = 1,
                 )
-                Text(
+                XoraOutlinedText(
                     text = "/$CIRCLE_FRIEND_LIMIT",
-                    style = MaterialTheme.typography.titleSmall,
+                    fontFamily = XoraFonts.Title,
                     fontWeight = FontWeight.Bold,
-                    color = glassContent.copy(alpha = 0.55f),
+                    fontSize = 14.sp,
+                    fillColor = Color.White.copy(alpha = 0.85f),
+                    outlineColor = OutlineInk,
+                    letterSpacing = XoraFonts.TitleLetterSpacing,
+                    maxLines = 1,
                 )
             }
         }
@@ -364,7 +378,7 @@ private fun PinnedFriendsRow(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier
-                    .width(64.dp)
+                    .width(72.dp)
                     .bringIntoViewRequester(bringIntoViewRequester)
                     .clickable {
                         if (rowIndex >= 0) onActivateRow(rowIndex)
@@ -374,12 +388,11 @@ private fun PinnedFriendsRow(
                     PresenceAvatar(
                         displayName = member.displayName,
                         presetId = "preset_0",
-                        size = if (selected) 54.dp else 48.dp,
+                        size = 58.dp,
                         imageModel = member.avatarUrl,
                         presence = member.presence,
                         selected = selected,
-                        gameBadge = !member.activityLabel.isNullOrBlank() &&
-                            member.presence != SocialPresence.Offline,
+                        gameBadge = false,
                         sourceTint = when (member.pin.source) {
                             CirclePinSource.Steam -> SteamAccent
                             CirclePinSource.Discord -> DiscordAccent
@@ -387,8 +400,8 @@ private fun PinnedFriendsRow(
                     )
                     Text(
                         text = member.displayName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.85f),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -442,17 +455,17 @@ private fun SocialTabSearchBar(
     showSearch: Boolean,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(alpha = 0.07f))
-            .border(1.dp, SkyGlass.copy(alpha = 0.18f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.White.copy(alpha = 0.07f))
+                .border(1.5.dp, CardEdge.copy(alpha = 0.5f), RoundedCornerShape(22.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SocialMenuTab.entries.forEach { tab ->
@@ -474,15 +487,13 @@ private fun SocialTabSearchBar(
                 }
                 Box(
                     modifier = Modifier
-                        .size(if (active) 38.dp else 34.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .then(
                             if (active) {
-                                Modifier
-                                    .background(Color.White.copy(alpha = 0.16f))
-                                    .border(2.dp, FocusRing.copy(alpha = 0.85f), CircleShape)
+                                Modifier.background(accent.copy(alpha = 0.28f))
                             } else {
-                                Modifier.background(Color.White.copy(alpha = 0.05f))
+                                Modifier
                             },
                         )
                         .clickable { onSelect(tab) },
@@ -491,8 +502,8 @@ private fun SocialTabSearchBar(
                     Icon(
                         painter = painterResource(iconRes),
                         contentDescription = contentDescription,
-                        tint = if (active) accent else muted.copy(alpha = 0.55f),
-                        modifier = Modifier.size(if (active) 20.dp else 17.dp),
+                        tint = if (active) accent else Color.White.copy(alpha = 0.38f),
+                        modifier = Modifier.size(21.dp),
                     )
                 }
             }
@@ -502,9 +513,10 @@ private fun SocialTabSearchBar(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(22.dp))
                     .background(Color.White.copy(alpha = 0.08f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .border(1.5.dp, CardEdge.copy(alpha = 0.5f), RoundedCornerShape(22.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -541,6 +553,21 @@ private fun SocialTabSearchBar(
     }
 }
 
+/** Blocky outlined section label, shared with the RT profile card. */
+@Composable
+private fun CardSectionLabel(text: String) {
+    XoraOutlinedText(
+        text = text,
+        fontFamily = XoraFonts.Title,
+        fontWeight = FontWeight.Bold,
+        fontSize = 15.sp,
+        fillColor = Color.White,
+        outlineColor = OutlineInk,
+        letterSpacing = XoraFonts.TitleLetterSpacing,
+        maxLines = 1,
+    )
+}
+
 @Composable
 private fun FriendsOnlineHeader(online: Int, total: Int, muted: Color) {
     Row(
@@ -550,24 +577,27 @@ private fun FriendsOnlineHeader(online: Int, total: Int, muted: Color) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "FRIENDS ONLINE",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = muted,
-        )
+        CardSectionLabel("FRIENDS ONLINE")
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
+            XoraOutlinedText(
                 text = "$online",
-                style = MaterialTheme.typography.labelLarge,
+                fontFamily = XoraFonts.Title,
                 fontWeight = FontWeight.Bold,
-                color = SkyGlass,
+                fontSize = 20.sp,
+                fillColor = ActivityGreen,
+                outlineColor = OutlineInk,
+                letterSpacing = XoraFonts.TitleLetterSpacing,
+                maxLines = 1,
             )
-            Text(
+            XoraOutlinedText(
                 text = "/$total",
-                style = MaterialTheme.typography.labelLarge,
+                fontFamily = XoraFonts.Title,
                 fontWeight = FontWeight.Bold,
-                color = muted.copy(alpha = 0.7f),
+                fontSize = 14.sp,
+                fillColor = Color.White.copy(alpha = 0.85f),
+                outlineColor = OutlineInk,
+                letterSpacing = XoraFonts.TitleLetterSpacing,
+                maxLines = 1,
             )
         }
     }
@@ -1383,7 +1413,7 @@ private fun FriendListRow(
     trailingHint: String? = null,
 ) {
     val offline = presence == SocialPresence.Offline
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(percent = 50)
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     LaunchedEffect(selected) {
         if (selected) {
@@ -1391,54 +1421,59 @@ private fun FriendListRow(
             bringIntoViewRequester.bringIntoView()
         }
     }
+    val statusText = when {
+        offline -> "OFFLINE"
+        !activityLabel.isNullOrBlank() -> activityLabel.uppercase()
+        else -> presenceLabel(presence).uppercase()
+    }
+    val statusColor = if (offline) Color.White.copy(alpha = 0.45f) else ActivityGreen
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .bringIntoViewRequester(bringIntoViewRequester)
             .clip(shape)
-            .background(if (selected) FocusRing.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.05f))
+            .background(
+                if (selected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f),
+            )
             .then(
-                if (selected) Modifier.border(1.dp, FocusRing.copy(alpha = 0.85f), shape) else Modifier,
+                if (selected) Modifier.border(2.dp, RowSelectedEdge, shape) else Modifier,
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         PresenceAvatar(
             displayName = displayName,
             presetId = "preset_0",
-            size = 36.dp,
+            size = 38.dp,
             imageModel = avatarUrl,
             presence = presence,
             selected = false,
-            sourceTint = sourceTint,
+            sourceTint = if (selected) AvatarRingGold else sourceTint,
             modifier = if (offline) Modifier.alpha(0.45f) else Modifier,
         )
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = displayName.uppercase(),
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = XoraFonts.Title,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = when {
-                    offline -> "OFFLINE"
-                    !activityLabel.isNullOrBlank() -> activityLabel.uppercase()
-                    else -> presenceLabel(presence).uppercase()
-                },
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = XoraFonts.Title,
-                fontWeight = FontWeight.Bold,
-                color = if (offline) Color.White.copy(alpha = 0.4f) else OnlineGreen,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+
+        // Focused row stacks the activity under the name; the rest keep it on one line.
+        if (selected) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                FriendName(displayName)
+                FriendStatus(statusText, statusColor)
+            }
+        } else {
+            FriendName(displayName)
+            Spacer(modifier = Modifier.weight(1f))
+            FriendStatus(
+                text = statusText,
+                color = statusColor,
+                modifier = Modifier.widthIn(max = 180.dp),
             )
         }
+
         if (trailingHint != null) {
             Text(
                 text = trailingHint,
@@ -1452,44 +1487,83 @@ private fun FriendListRow(
     }
 }
 
+@Composable
+private fun FriendName(displayName: String) {
+    XoraOutlinedText(
+        text = displayName.uppercase(),
+        fontFamily = XoraFonts.Title,
+        fontWeight = FontWeight.Bold,
+        fontSize = 17.sp,
+        fillColor = Color.White,
+        outlineColor = OutlineInk,
+        letterSpacing = XoraFonts.TitleLetterSpacing,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun FriendStatus(text: String, color: Color, modifier: Modifier = Modifier) {
+    XoraOutlinedText(
+        text = text,
+        modifier = modifier,
+        fontFamily = XoraFonts.Title,
+        fontWeight = FontWeight.Bold,
+        fontSize = 14.sp,
+        fillColor = color,
+        outlineColor = OutlineInk,
+        letterSpacing = XoraFonts.TitleLetterSpacing,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
 /** Simple drawn speech-bubble glyph (avoids relying on an emoji font) with an unread badge. */
 @Composable
 private fun SpeechBubbleIcon(
     hasUnread: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier.size(26.dp)) {
+    Box(modifier = modifier.size(width = 40.dp, height = 30.dp)) {
         Canvas(modifier = Modifier.matchParentSize()) {
-            val bubbleHeight = size.height * 0.7f
-            val strokeWidth = size.minDimension * 0.11f
-            val tint = Color.White.copy(alpha = if (hasUnread) 0.85f else 0.4f)
+            val bubbleHeight = size.height * 0.76f
+            val tint = Color.White.copy(alpha = if (hasUnread) 0.95f else 0.8f)
             drawRoundRect(
                 color = tint,
                 size = Size(size.width, bubbleHeight),
-                cornerRadius = CornerRadius(size.minDimension * 0.28f, size.minDimension * 0.28f),
-                style = Stroke(width = strokeWidth),
+                cornerRadius = CornerRadius(size.minDimension * 0.34f, size.minDimension * 0.34f),
             )
             val tailPath = Path().apply {
-                moveTo(size.width * 0.26f, bubbleHeight - strokeWidth / 2f)
-                lineTo(size.width * 0.20f, size.height)
-                lineTo(size.width * 0.46f, bubbleHeight - strokeWidth / 2f)
+                moveTo(size.width * 0.20f, bubbleHeight - 1f)
+                lineTo(size.width * 0.16f, size.height)
+                lineTo(size.width * 0.44f, bubbleHeight - 1f)
                 close()
             }
             drawPath(tailPath, color = tint)
+            // Three dots inside the bubble.
+            val dotR = size.minDimension * 0.075f
+            val cy = bubbleHeight / 2f
+            listOf(0.28f, 0.5f, 0.72f).forEach { fx ->
+                drawCircle(
+                    color = Color(0xFF3C4750),
+                    radius = dotR,
+                    center = androidx.compose.ui.geometry.Offset(size.width * fx, cy),
+                )
+            }
         }
         if (hasUnread) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = 3.dp, y = (-3).dp)
-                    .size(14.dp)
+                    .offset(x = 4.dp, y = (-5).dp)
+                    .size(17.dp)
                     .clip(CircleShape)
-                    .background(BusyRose),
+                    .background(NotificationRed),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = "1",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                 )
