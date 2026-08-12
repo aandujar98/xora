@@ -95,6 +95,9 @@ fun VerticalGameSelectorPane(
     onSelectSystemRow: (Int) -> Unit,
     onActivateSystemRow: (Int?) -> Unit,
     onOpenNotifications: () -> Unit = {},
+    onSystemStatusDraftChange: (String) -> Unit = {},
+    onSaveCustomStatus: () -> Unit = {},
+    onClearCustomStatus: () -> Unit = {},
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
     onRequestLocalAvatar: () -> Unit,
@@ -260,9 +263,11 @@ fun VerticalGameSelectorPane(
             SystemPill(
                 profile = state.profile,
                 avatarImageModel = state.profileAvatarModel,
+                raUsername = state.achievements.profile?.username,
                 raScore = state.achievements.profile?.totalPoints,
                 recentAchievements = state.achievements.recent,
                 jumpBackGames = state.quickLaunchGames.take(3),
+                systemProfile = state.systemProfile,
                 expanded = systemExpanded,
                 selectedRowIndex = state.systemPanelSelectedIndex,
                 notificationUnreadCount = state.notificationUnreadCount,
@@ -270,6 +275,9 @@ fun VerticalGameSelectorPane(
                 onSelectRow = onSelectSystemRow,
                 onActivateRow = onActivateSystemRow,
                 onOpenNotifications = onOpenNotifications,
+                onStatusDraftChange = onSystemStatusDraftChange,
+                onSaveCustomStatus = onSaveCustomStatus,
+                onClearCustomStatus = onClearCustomStatus,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(horizontal = 14.dp, vertical = 8.dp)

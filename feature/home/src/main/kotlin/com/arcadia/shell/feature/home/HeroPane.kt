@@ -83,6 +83,7 @@ fun HeroPane(
     accountPanelRows: List<AccountPanelRow> = emptyList(),
     accountPanelSelectedIndex: Int = 0,
     systemPanelSelectedIndex: Int = 0,
+    systemProfile: SystemProfileCardState = SystemProfileCardState(),
     trailer: HeroTrailerState = HeroTrailerState(),
     isLaunching: Boolean = false,
     rssItem: RssFeedItem? = null,
@@ -98,6 +99,9 @@ fun HeroPane(
     onActivateAccountRow: (Int?) -> Unit = {},
     onSelectSystemRow: (Int) -> Unit = {},
     onActivateSystemRow: (Int?) -> Unit = {},
+    onSystemStatusDraftChange: (String) -> Unit = {},
+    onSaveCustomStatus: () -> Unit = {},
+    onClearCustomStatus: () -> Unit = {},
     profileEditRequest: Int = 0,
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
@@ -230,9 +234,11 @@ fun HeroPane(
         SystemPill(
             profile = profile,
             avatarImageModel = profileAvatarModel,
+            raUsername = achievements.profile?.username,
             raScore = achievements.profile?.totalPoints,
             recentAchievements = achievements.recent,
             jumpBackGames = quickLaunchGames.take(3),
+            systemProfile = systemProfile,
             expanded = systemExpanded,
             selectedRowIndex = systemPanelSelectedIndex,
             notificationUnreadCount = notificationUnreadCount,
@@ -240,6 +246,9 @@ fun HeroPane(
             onSelectRow = onSelectSystemRow,
             onActivateRow = onActivateSystemRow,
             onOpenNotifications = onOpenNotifications,
+            onStatusDraftChange = onSystemStatusDraftChange,
+            onSaveCustomStatus = onSaveCustomStatus,
+            onClearCustomStatus = onClearCustomStatus,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
