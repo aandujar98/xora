@@ -3913,7 +3913,7 @@ class HomeViewModel @Inject constructor(
             }
             is AccountPanelRow.CircleEmptySlot -> {
                 managingCircle.value = true
-                emit(HomeEvent.ShowMessage("Pick a friend to add to Your Circle."))
+                emit(HomeEvent.ShowMessage("Pick a friend to pin."))
             }
             is AccountPanelRow.CircleMember -> {
                 if (managingCircle.value) {

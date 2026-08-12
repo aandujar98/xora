@@ -406,7 +406,7 @@ fun buildXoraCategoryItems(
         XoraXmbItem(
             id = "friends",
             title = "Friends",
-            subtitle = "Circle, Steam & Discord",
+            subtitle = "Pinned Friends, Steam & Discord",
             action = XoraXmbAction.OpenFriends,
             icon = XmbIcon.Friends,
         ),
