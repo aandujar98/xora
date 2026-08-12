@@ -12,14 +12,14 @@ import com.arcadia.shell.launcher.discord.DiscordFriendEntry
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 
 /**
- * Pages inside the LT social overlay (Cocoon-style).
- * Your Circle stays above the tab bar; LB/RB (and L/R) cycle Discord / Steam / Messages.
+ * Pages inside the LT social overlay.
+ * Pinned Friends stay above the tab bar; LB/RB (and L/R) cycle Discord / Steam / XOrA Network.
  */
 enum class SocialMenuTab {
     Discord,
     Steam,
-    /** Notification-listener conversations (Android / other messaging apps). */
-    Android,
+    /** XOrA Network — notification-listener conversations & local network inbox. */
+    XoraNetwork,
 }
 
 enum class SocialPresence {
@@ -63,7 +63,7 @@ data class DiscordSocialUiState(
     val avatarAvailable: Boolean get() = !presence.currentUserAvatarUrl.isNullOrBlank()
 }
 
-/** Resolved pin for the Your Circle strip (Steam or Discord). */
+/** Resolved pin for the Pinned Friends strip (Steam or Discord). */
 data class CircleMemberUi(
     val pin: CirclePin,
     val displayName: String,
@@ -78,13 +78,15 @@ data class CircleMemberUi(
  * Focusable rows inside the expanded LT social menu (flat list for U/D within the active tab).
  */
 sealed interface AccountPanelRow {
+    /** Opens the LT notification center (recent banners + message inbox). */
+    data object OpenNotifications : AccountPanelRow
     data object ManageCircle : AccountPanelRow
-    /** Empty Circle slot — A opens add / manage flow. */
+    /** Empty pinned-friend slot — A opens add / manage flow. */
     data class CircleEmptySlot(val slotIndex: Int) : AccountPanelRow
     data class CircleMember(val pin: CirclePin) : AccountPanelRow
-    /** Add this friend into Circle (manage mode). */
+    /** Add this friend into Pinned Friends (manage mode). */
     data class AddToCircle(val pin: CirclePin) : AccountPanelRow
-    /** Remove this friend from Circle (manage mode). */
+    /** Remove this friend from Pinned Friends (manage mode). */
     data class RemoveFromCircle(val pin: CirclePin) : AccountPanelRow
     data class SteamFriend(val steamId: String) : AccountPanelRow
     data class DiscordFriend(val userId: String) : AccountPanelRow
@@ -118,10 +120,14 @@ data class SocialMenuUiState(
     val reply: ConversationReplyUiState = ConversationReplyUiState(),
     /** In-launcher Discord DM thread (Social SDK messaging). */
     val discordDm: DiscordDmThreadUiState = DiscordDmThreadUiState(),
-    /** Persisted mixed Circle pins (max [CIRCLE_FRIEND_LIMIT]). */
+    /** Persisted mixed Pinned Friends pins (max [CIRCLE_FRIEND_LIMIT]). */
     val circlePins: List<CirclePin> = emptyList(),
-    /** When true, friend lists show add/remove Circle controls. */
+    /** When true, friend lists show add/remove pin controls. */
     val managingCircle: Boolean = false,
+    /** LT notification center overlay (recent shell notifications). */
+    val notificationsOpen: Boolean = false,
+    /** Recent shell notifications for the LT notification center. */
+    val recentNotifications: List<com.arcadia.shell.launcher.notifications.ShellNotification> = emptyList(),
     /** Local filter for the friends list. */
     val friendSearchQuery: String = "",
 ) {

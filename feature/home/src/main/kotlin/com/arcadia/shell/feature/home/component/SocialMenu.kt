@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home.component
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,9 +34,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +55,7 @@ import com.arcadia.shell.datastore.CirclePinSource
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
+import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.AccountPanelRow
@@ -66,6 +73,8 @@ import com.arcadia.shell.launcher.discord.DiscordDmMessage
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordFriendEntry
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
+import com.arcadia.shell.launcher.notifications.ShellNotification
+import com.arcadia.shell.launcher.notifications.toCopy
 import kotlinx.coroutines.delay
 
 private val OnlineGreen = Color(0xFF37D6A0)
@@ -74,10 +83,10 @@ private val BusyRose = Color(0xFFFF5C6C)
 private val FocusRing = Color(0xFF4AE39A)
 private val SteamAccent = Color(0xFF66C0F4)
 private val DiscordAccent = Color(0xFF5865F2)
-private val AndroidAccent = Color(0xFF3DDC84)
-private val FriendsBadge = Color(0xFF9B7BFF)
+private val XoraAccent = Color(0xFF5B9DFF)
 private val MessagesBadge = Color(0xFFFF8A4C)
 private val SkyGlass = Color(0xFF7EC8E8)
+private val NotificationRed = Color(0xFFFF3B30)
 
 @Composable
 fun SocialMenuPanel(
@@ -107,16 +116,7 @@ fun SocialMenuPanel(
             .fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        SocialHeader(
-            profile = profile,
-            profileAvatarModel = profileAvatarModel,
-            friendsCount = social.friendsBadgeCount,
-            messagesCount = social.messagesBadgeCount,
-            glassMuted = glass.contentMuted,
-            onMessagesClick = { onSelectTab(SocialMenuTab.Android) },
-        )
-
-        YourCircleSection(
+        PinnedFriendsSection(
             social = social,
             accountRows = accountRows,
             selectedRowIndex = selectedRowIndex,
@@ -125,46 +125,61 @@ fun SocialMenuPanel(
             onActivateRow = onActivateRow,
         )
 
-        SocialPlatformTabBar(
-            selected = social.tab,
-            onSelect = onSelectTab,
-            muted = glass.contentMuted,
-        )
-
-        when (social.tab) {
-            SocialMenuTab.Discord -> DiscordTabContent(
+        if (social.notificationsOpen) {
+            NotificationCenterPanel(
                 social = social,
                 accountRows = accountRows,
                 selectedRowIndex = selectedRowIndex,
-                glassMuted = glass.contentMuted,
-                onActivateRow = onActivateRow,
-                onFriendSearchChange = onFriendSearchChange,
-                onDmDraftChange = onReplyDraftChange,
-            )
-            SocialMenuTab.Steam -> SteamTabContent(
-                social = social,
-                accountRows = accountRows,
-                selectedRowIndex = selectedRowIndex,
-                glassMuted = glass.contentMuted,
-                onActivateRow = onActivateRow,
-                onFriendSearchChange = onFriendSearchChange,
-            )
-            SocialMenuTab.Android -> AndroidTabContent(
-                social = social,
-                accountRows = accountRows,
-                selectedRowIndex = selectedRowIndex,
+                glassContent = glass.content,
                 glassMuted = glass.contentMuted,
                 onActivateRow = onActivateRow,
                 onReplyDraftChange = onReplyDraftChange,
             )
+        } else {
+            val showSearch = social.tab != SocialMenuTab.XoraNetwork && !social.isDiscordDmOpen
+            SocialTabSearchBar(
+                selected = social.tab,
+                onSelect = onSelectTab,
+                query = social.friendSearchQuery,
+                onQueryChange = onFriendSearchChange,
+                muted = glass.contentMuted,
+                showSearch = showSearch,
+            )
+
+            when (social.tab) {
+                SocialMenuTab.Discord -> DiscordTabContent(
+                    social = social,
+                    accountRows = accountRows,
+                    selectedRowIndex = selectedRowIndex,
+                    glassMuted = glass.contentMuted,
+                    onActivateRow = onActivateRow,
+                    onDmDraftChange = onReplyDraftChange,
+                )
+                SocialMenuTab.Steam -> SteamTabContent(
+                    social = social,
+                    accountRows = accountRows,
+                    selectedRowIndex = selectedRowIndex,
+                    glassMuted = glass.contentMuted,
+                    onActivateRow = onActivateRow,
+                )
+                SocialMenuTab.XoraNetwork -> XoraNetworkTabContent(
+                    social = social,
+                    accountRows = accountRows,
+                    selectedRowIndex = selectedRowIndex,
+                    glassMuted = glass.contentMuted,
+                    onActivateRow = onActivateRow,
+                    onReplyDraftChange = onReplyDraftChange,
+                )
+            }
         }
 
         Text(
             text = when {
+                social.notificationsOpen -> "B closes"
                 social.isDiscordDmOpen -> "A send · B back · type to message"
                 social.isReplying -> "A send · B cancel reply · type on keyboard"
-                social.managingCircle -> "A pin/unpin · Manage to finish · L/R tabs"
-                else -> "LT close · L/R tabs · U/D · A chat · Manage to pin"
+                social.managingCircle -> "A pin/unpin · Done to finish · L/R tabs"
+                else -> "LT close · LB/RB tabs · U/D · A chat"
             },
             style = MaterialTheme.typography.labelSmall,
             color = glass.contentMuted.copy(alpha = 0.7f),
@@ -173,77 +188,7 @@ fun SocialMenuPanel(
 }
 
 @Composable
-private fun SocialHeader(
-    profile: LocalProfile,
-    profileAvatarModel: String?,
-    friendsCount: Int,
-    messagesCount: Int,
-    glassMuted: Color,
-    onMessagesClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        TriggerGlyph(letter = "LB")
-        PresenceAvatar(
-            displayName = profile.displayName,
-            presetId = profile.avatarPresetId,
-            size = 52.dp,
-            imageModel = profileAvatarModel,
-            presence = SocialPresence.Online,
-            selected = false,
-        )
-        Spacer(modifier = Modifier.weight(1f))
-        CountBadge(
-            glyph = "◎",
-            count = friendsCount,
-            accent = FriendsBadge,
-        )
-        CountBadge(
-            glyph = "◌",
-            count = messagesCount,
-            accent = MessagesBadge,
-            onClick = onMessagesClick,
-        )
-    }
-}
-
-@Composable
-private fun CountBadge(
-    glyph: String,
-    count: Int,
-    accent: Color,
-    onClick: (() -> Unit)? = null,
-) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(accent.copy(alpha = 0.18f))
-            .border(1.dp, accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        Text(
-            text = glyph,
-            style = MaterialTheme.typography.labelSmall,
-            color = accent,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = count.toString(),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = Color.White.copy(alpha = 0.92f),
-        )
-    }
-}
-
-@Composable
-private fun YourCircleSection(
+private fun PinnedFriendsSection(
     social: SocialMenuUiState,
     accountRows: List<AccountPanelRow>,
     selectedRowIndex: Int,
@@ -252,46 +197,15 @@ private fun YourCircleSection(
     onActivateRow: (Int?) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Your Circle  ${social.circleSlotsFilled}/$CIRCLE_FRIEND_LIMIT",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = glassContent,
-            )
-            val manageIndex = accountRows.indexOfFirst { it is AccountPanelRow.ManageCircle }
-            Text(
-                text = if (social.managingCircle) "Done" else "Manage",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (manageIndex >= 0 && manageIndex == selectedRowIndex) {
-                    FocusRing
-                } else {
-                    SkyGlass
-                },
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .then(
-                        if (manageIndex >= 0 && manageIndex == selectedRowIndex) {
-                            Modifier
-                                .background(FocusRing.copy(alpha = 0.18f))
-                                .border(1.dp, FocusRing.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .clickable {
-                        if (manageIndex >= 0) onActivateRow(manageIndex)
-                    }
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-        }
+        PinnedFriendsHeader(
+            social = social,
+            accountRows = accountRows,
+            selectedRowIndex = selectedRowIndex,
+            glassContent = glassContent,
+            onActivateRow = onActivateRow,
+        )
 
-        YourCircleRow(
+        PinnedFriendsRow(
             social = social,
             accountRows = accountRows,
             selectedRowIndex = selectedRowIndex,
@@ -309,7 +223,110 @@ private fun YourCircleSection(
 }
 
 @Composable
-private fun YourCircleRow(
+private fun PinnedFriendsHeader(
+    social: SocialMenuUiState,
+    accountRows: List<AccountPanelRow>,
+    selectedRowIndex: Int,
+    glassContent: Color,
+    onActivateRow: (Int?) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "PINNED FRIENDS",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = glassContent,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "${social.circleSlotsFilled}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = SkyGlass,
+                )
+                Text(
+                    text = "/$CIRCLE_FRIEND_LIMIT",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = glassContent.copy(alpha = 0.55f),
+                )
+            }
+        }
+
+        val manageIndex = accountRows.indexOfFirst { it is AccountPanelRow.ManageCircle }
+        val notificationsIndex = accountRows.indexOfFirst { it is AccountPanelRow.OpenNotifications }
+        val badgeCount = social.messagesBadgeCount + social.recentNotifications.size
+        NotificationsPill(
+            label = if (social.managingCircle) "Done" else "Notifications",
+            badgeCount = if (social.managingCircle) 0 else badgeCount,
+            selected = if (social.managingCircle) {
+                manageIndex >= 0 && manageIndex == selectedRowIndex
+            } else {
+                notificationsIndex >= 0 && notificationsIndex == selectedRowIndex
+            },
+            onClick = {
+                val index = if (social.managingCircle) manageIndex else notificationsIndex
+                if (index >= 0) onActivateRow(index)
+            },
+        )
+    }
+}
+
+@Composable
+private fun NotificationsPill(
+    label: String,
+    badgeCount: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.92f))
+            .then(
+                if (selected) Modifier.border(1.5.dp, FocusRing, shape) else Modifier,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF13202D),
+        )
+        if (badgeCount > 0) {
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(NotificationRed),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (badgeCount > 9) "9+" else badgeCount.toString(),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PinnedFriendsRow(
     social: SocialMenuUiState,
     accountRows: List<AccountPanelRow>,
     selectedRowIndex: Int,
@@ -347,7 +364,7 @@ private fun YourCircleRow(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier
-                    .width(72.dp)
+                    .width(64.dp)
                     .bringIntoViewRequester(bringIntoViewRequester)
                     .clickable {
                         if (rowIndex >= 0) onActivateRow(rowIndex)
@@ -357,7 +374,7 @@ private fun YourCircleRow(
                     PresenceAvatar(
                         displayName = member.displayName,
                         presetId = "preset_0",
-                        size = if (selected) 64.dp else 56.dp,
+                        size = if (selected) 54.dp else 48.dp,
                         imageModel = member.avatarUrl,
                         presence = member.presence,
                         selected = selected,
@@ -392,7 +409,7 @@ private fun YourCircleRow(
 private fun EmptyCircleSlot(selected: Boolean) {
     Box(
         modifier = Modifier
-            .size(64.dp)
+            .size(54.dp)
             .clip(CircleShape)
             .background(Color.White.copy(alpha = 0.06f))
             .border(
@@ -411,11 +428,18 @@ private fun EmptyCircleSlot(selected: Boolean) {
     }
 }
 
+/**
+ * Combined platform-tab + friend-search pill. Search is hidden on the XOrA Network tab and
+ * while a Discord DM is open (both replace the friend list with different content).
+ */
 @Composable
-private fun SocialPlatformTabBar(
+private fun SocialTabSearchBar(
     selected: SocialMenuTab,
     onSelect: (SocialMenuTab) -> Unit,
+    query: String,
+    onQueryChange: (String) -> Unit,
     muted: Color,
+    showSearch: Boolean,
 ) {
     Row(
         modifier = Modifier
@@ -423,16 +447,10 @@ private fun SocialPlatformTabBar(
             .clip(RoundedCornerShape(20.dp))
             .background(Color.White.copy(alpha = 0.07f))
             .border(1.dp, SkyGlass.copy(alpha = 0.18f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 6.dp, vertical = 5.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = "+",
-            style = MaterialTheme.typography.labelLarge,
-            color = muted.copy(alpha = 0.55f),
-            modifier = Modifier.padding(horizontal = 6.dp),
-        )
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -442,21 +460,21 @@ private fun SocialPlatformTabBar(
                 val accent = when (tab) {
                     SocialMenuTab.Discord -> DiscordAccent
                     SocialMenuTab.Steam -> SteamAccent
-                    SocialMenuTab.Android -> AndroidAccent
+                    SocialMenuTab.XoraNetwork -> XoraAccent
                 }
                 val iconRes = when (tab) {
                     SocialMenuTab.Discord -> R.drawable.ic_brand_discord
                     SocialMenuTab.Steam -> R.drawable.ic_brand_steam
-                    SocialMenuTab.Android -> R.drawable.ic_brand_android
+                    SocialMenuTab.XoraNetwork -> R.drawable.ic_brand_xora
                 }
                 val contentDescription = when (tab) {
                     SocialMenuTab.Discord -> "Discord"
                     SocialMenuTab.Steam -> "Steam"
-                    SocialMenuTab.Android -> "Android"
+                    SocialMenuTab.XoraNetwork -> "XOrA Network"
                 }
                 Box(
                     modifier = Modifier
-                        .size(if (active) 40.dp else 36.dp)
+                        .size(if (active) 38.dp else 34.dp)
                         .clip(CircleShape)
                         .then(
                             if (active) {
@@ -474,17 +492,84 @@ private fun SocialPlatformTabBar(
                         painter = painterResource(iconRes),
                         contentDescription = contentDescription,
                         tint = if (active) accent else muted.copy(alpha = 0.55f),
-                        modifier = Modifier.size(if (active) 22.dp else 18.dp),
+                        modifier = Modifier.size(if (active) 20.dp else 17.dp),
                     )
                 }
             }
         }
+
+        if (showSearch) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.White.copy(alpha = 0.08f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                    cursorBrush = SolidColor(FocusRing),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        Box {
+                            if (query.isEmpty()) {
+                                Text(
+                                    text = "search friends...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = muted.copy(alpha = 0.55f),
+                                )
+                            }
+                            inner()
+                        }
+                    },
+                )
+                Text(
+                    text = "⌕",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = muted.copy(alpha = 0.7f),
+                )
+            }
+        } else {
+            Spacer(modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun FriendsOnlineHeader(online: Int, total: Int, muted: Color) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
-            text = "+",
+            text = "FRIENDS ONLINE",
             style = MaterialTheme.typography.labelLarge,
-            color = muted.copy(alpha = 0.55f),
-            modifier = Modifier.padding(horizontal = 6.dp),
+            fontWeight = FontWeight.SemiBold,
+            color = muted,
         )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "$online",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = SkyGlass,
+            )
+            Text(
+                text = "/$total",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = muted.copy(alpha = 0.7f),
+            )
+        }
     }
 }
 
@@ -495,14 +580,16 @@ private fun DiscordTabContent(
     selectedRowIndex: Int,
     glassMuted: Color,
     onActivateRow: (Int?) -> Unit,
-    onFriendSearchChange: (String) -> Unit,
     onDmDraftChange: (String) -> Unit,
 ) {
     if (social.discordDm.peerUserId != null) {
-        // Full chat lives in DiscordConversationWindow; keep a compact resume chip here.
-        DiscordDmOpenChip(
+        DiscordDmPane(
             thread = social.discordDm,
+            accountRows = accountRows,
+            selectedRowIndex = selectedRowIndex,
             glassMuted = glassMuted,
+            onActivateRow = onActivateRow,
+            onDraftChange = onDmDraftChange,
         )
         return
     }
@@ -516,11 +603,10 @@ private fun DiscordTabContent(
             onActivateRow = onActivateRow,
         )
 
-        FriendSearchField(
-            query = social.friendSearchQuery,
-            onQueryChange = onFriendSearchChange,
+        FriendsOnlineHeader(
+            online = social.discord.friends.count { it.isOnline },
+            total = social.discord.friends.size,
             muted = glassMuted,
-            placeholder = "Search Discord friends",
         )
 
         val friends = if (social.managingCircle) {
@@ -603,44 +689,187 @@ private fun DiscordTabContent(
 }
 
 @Composable
-private fun DiscordDmOpenChip(
+private fun DiscordDmPane(
     thread: DiscordDmThreadUiState,
+    accountRows: List<AccountPanelRow>,
+    selectedRowIndex: Int,
     glassMuted: Color,
+    onActivateRow: (Int?) -> Unit,
+    onDraftChange: (String) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(DiscordAccent.copy(alpha = 0.18f))
-            .border(1.dp, DiscordAccent.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        PresenceAvatar(
-            displayName = thread.peerDisplayName,
-            presetId = "preset_0",
-            size = 48.dp,
-            imageModel = thread.peerAvatarUrl,
-            presence = SocialPresence.Online,
-            selected = false,
-            sourceTint = DiscordAccent,
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Chatting with ${thread.peerDisplayName.ifBlank { "friend" }}",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+    val closeIndex = accountRows.indexOfFirst { it is AccountPanelRow.DiscordDmClose }
+    val sendIndex = accountRows.indexOfFirst { it is AccountPanelRow.DiscordDmSend }
+    val sendSelected = sendIndex >= 0 && sendIndex == selectedRowIndex
+    val closeSelected = closeIndex >= 0 && closeIndex == selectedRowIndex
+    val listState = rememberLazyListState()
+    LaunchedEffect(thread.messages.size) {
+        if (thread.messages.isNotEmpty()) {
+            listState.animateScrollToItem(thread.messages.lastIndex)
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    if (closeSelected) DiscordAccent.copy(alpha = 0.22f)
+                    else Color.White.copy(alpha = 0.06f),
+                )
+                .then(
+                    if (closeSelected) {
+                        Modifier.border(1.5.dp, DiscordAccent.copy(alpha = 0.75f), RoundedCornerShape(14.dp))
+                    } else {
+                        Modifier
+                    },
+                )
+                .clickable {
+                    if (closeIndex >= 0) onActivateRow(closeIndex)
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            PresenceAvatar(
+                displayName = thread.peerDisplayName,
+                presetId = "preset_0",
+                size = 36.dp,
+                imageModel = thread.peerAvatarUrl,
+                presence = SocialPresence.Online,
+                selected = false,
+                sourceTint = DiscordAccent,
             )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = thread.peerDisplayName.ifBlank { "Discord" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "B · Back to friends",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = glassMuted,
+                )
+            }
+        }
+
+        when {
+            thread.loading && thread.messages.isEmpty() -> {
+                Text(
+                    text = "Loading messages…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = glassMuted,
+                )
+            }
+            thread.messages.isEmpty() -> {
+                Text(
+                    text = "No messages yet — say hello",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = glassMuted,
+                )
+            }
+            else -> {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 80.dp, max = 180.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(thread.messages, key = { it.messageId }) { message ->
+                        DiscordDmBubble(message = message)
+                    }
+                }
+            }
+        }
+
+        val threadError = thread.error
+        if (!threadError.isNullOrBlank()) {
             Text(
-                text = "Conversation window open · B closes chat",
+                text = threadError,
                 style = MaterialTheme.typography.labelSmall,
-                color = glassMuted,
+                color = BusyRose,
             )
         }
+
+        val shape = RoundedCornerShape(14.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(Color.White.copy(alpha = if (sendSelected) 0.18f else 0.08f))
+                .then(
+                    if (sendSelected) {
+                        Modifier.border(1.5.dp, DiscordAccent.copy(alpha = 0.9f), shape)
+                    } else {
+                        Modifier
+                    },
+                )
+                .clickable {
+                    if (sendIndex >= 0) onActivateRow(sendIndex)
+                }
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BasicTextField(
+                value = thread.draft,
+                onValueChange = onDraftChange,
+                singleLine = true,
+                enabled = !thread.sending,
+                textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+                cursorBrush = SolidColor(DiscordAccent),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                decorationBox = { inner ->
+                    Box(modifier = Modifier.heightIn(min = 20.dp)) {
+                        if (thread.draft.isEmpty()) {
+                            Text(
+                                text = "Message ${thread.peerDisplayName.ifBlank { "friend" }}…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.45f),
+                            )
+                        }
+                        inner()
+                    }
+                },
+            )
+            Text(
+                text = if (thread.sending) "Sending…" else "A · Send",
+                style = MaterialTheme.typography.labelSmall,
+                color = DiscordAccent,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiscordDmBubble(message: DiscordDmMessage) {
+    val mine = message.isMine
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+    ) {
+        Text(
+            text = message.content.ifBlank { " " },
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White,
+            modifier = Modifier
+                .widthIn(max = 260.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    if (mine) DiscordAccent.copy(alpha = 0.55f)
+                    else Color.White.copy(alpha = 0.12f),
+                )
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+        )
     }
 }
 
@@ -703,7 +932,6 @@ private fun SteamTabContent(
     selectedRowIndex: Int,
     glassMuted: Color,
     onActivateRow: (Int?) -> Unit,
-    onFriendSearchChange: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (!social.steam.isConfigured) {
@@ -720,11 +948,10 @@ private fun SteamTabContent(
             return
         }
 
-        FriendSearchField(
-            query = social.friendSearchQuery,
-            onQueryChange = onFriendSearchChange,
+        FriendsOnlineHeader(
+            online = social.steam.onlineCount,
+            total = social.steam.friends.size,
             muted = glassMuted,
-            placeholder = "Search Steam friends",
         )
 
         when {
@@ -809,7 +1036,7 @@ private fun SteamTabContent(
 }
 
 @Composable
-private fun AndroidTabContent(
+private fun XoraNetworkTabContent(
     social: SocialMenuUiState,
     accountRows: List<AccountPanelRow>,
     selectedRowIndex: Int,
@@ -817,52 +1044,105 @@ private fun AndroidTabContent(
     onActivateRow: (Int?) -> Unit,
     onReplyDraftChange: (String) -> Unit,
 ) {
-    ConversationsSection(
-        title = "Conversations",
-        conversations = social.conversations.conversations,
-        listenerEnabled = social.conversations.listenerEnabled,
-        accountRows = accountRows,
-        selectedRowIndex = selectedRowIndex,
-        glassMuted = glassMuted,
-        emptyWhenEnabled = "No recent message notifications yet",
-        reply = social.reply,
-        onActivateRow = onActivateRow,
-        onReplyDraftChange = onReplyDraftChange,
-        footnote = "Shows message previews when notification access is on",
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "XOrA Network",
+            style = MaterialTheme.typography.titleSmall,
+            fontFamily = XoraFonts.Title,
+            fontWeight = FontWeight.Bold,
+            color = XoraAccent,
+        )
+        ConversationsSection(
+            title = "Conversations",
+            conversations = social.conversations.conversations,
+            listenerEnabled = social.conversations.listenerEnabled,
+            accountRows = accountRows,
+            selectedRowIndex = selectedRowIndex,
+            glassMuted = glassMuted,
+            emptyWhenEnabled = "No recent message notifications yet",
+            reply = social.reply,
+            onActivateRow = onActivateRow,
+            onReplyDraftChange = onReplyDraftChange,
+            footnote = "Shows message previews when notification access is on",
+        )
+    }
+}
+
+/** LT notification center — recent shell notifications, then conversations. Shown in place of tabs/friends. */
+@Composable
+private fun NotificationCenterPanel(
+    social: SocialMenuUiState,
+    accountRows: List<AccountPanelRow>,
+    selectedRowIndex: Int,
+    glassContent: Color,
+    glassMuted: Color,
+    onActivateRow: (Int?) -> Unit,
+    onReplyDraftChange: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = "NOTIFICATIONS",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = glassContent,
+        )
+
+        if (social.recentNotifications.isEmpty()) {
+            Text(
+                text = "No recent notifications",
+                style = MaterialTheme.typography.bodySmall,
+                color = glassMuted,
+            )
+        } else {
+            social.recentNotifications.forEach { notification ->
+                NotificationHistoryRow(notification = notification)
+            }
+        }
+
+        ConversationsSection(
+            title = "Conversations",
+            conversations = social.conversations.conversations,
+            listenerEnabled = social.conversations.listenerEnabled,
+            accountRows = accountRows,
+            selectedRowIndex = selectedRowIndex,
+            glassMuted = glassMuted,
+            emptyWhenEnabled = "No recent message notifications yet",
+            reply = social.reply,
+            onActivateRow = onActivateRow,
+            onReplyDraftChange = onReplyDraftChange,
+        )
+    }
 }
 
 @Composable
-private fun FriendSearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    muted: Color,
-    placeholder: String = "Search Friends",
-) {
-    BasicTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        singleLine = true,
-        textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
-        cursorBrush = SolidColor(FocusRing),
+private fun NotificationHistoryRow(notification: ShellNotification) {
+    val copy = notification.toCopy()
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.08f))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        decorationBox = { inner ->
-            Box {
-                if (query.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = muted.copy(alpha = 0.55f),
-                    )
-                }
-                inner()
-            }
-        },
-    )
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = copy.category.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = SkyGlass,
+            )
+            Text(
+                text = copy.body,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
 
 @Composable
@@ -1050,36 +1330,15 @@ private fun SteamFriendRow(
     trailingHint: String? = null,
     hasUnread: Boolean = false,
 ) {
-    SocialListRow(
-        leading = {
-            PresenceAvatar(
-                displayName = friend.displayName,
-                presetId = "preset_0",
-                size = 48.dp,
-                imageModel = friend.avatarUrl,
-                presence = friend.presence,
-                selected = false,
-                sourceTint = SteamAccent,
-            )
-        },
-        title = friend.displayName,
-        subtitle = buildString {
-            friend.currentGame?.let { append(it) }
-                ?: append(presenceLabel(friend.presence))
-            trailingHint?.let {
-                append(" · ")
-                append(it)
-            }
-        },
+    FriendListRow(
+        displayName = friend.displayName,
+        avatarUrl = friend.avatarUrl,
+        presence = friend.presence,
+        activityLabel = friend.currentGame,
+        sourceTint = SteamAccent,
         selected = selected,
-        accent = SteamAccent,
-        trailing = if (hasUnread) {
-            {
-                UnreadBubble()
-            }
-        } else {
-            null
-        },
+        hasUnread = hasUnread,
+        trailingHint = trailingHint,
         onClick = onClick,
     )
 }
@@ -1094,54 +1353,148 @@ private fun DiscordFriendRow(
 ) {
     val presence = discordFriendPresence(friend)
     val activity = discordFriendActivity(friend)
-    SocialListRow(
-        leading = {
-            PresenceAvatar(
-                displayName = friend.displayName,
-                presetId = "preset_0",
-                size = 48.dp,
-                imageModel = friend.avatarUrl,
-                presence = presence,
-                selected = false,
-                sourceTint = DiscordAccent,
-            )
-        },
-        title = friend.displayName,
-        subtitle = buildString {
-            append(activity ?: presenceLabel(presence))
-            trailingHint?.let {
-                append(" · ")
-                append(it)
-            }
-        },
+    FriendListRow(
+        displayName = friend.displayName,
+        avatarUrl = friend.avatarUrl,
+        presence = presence,
+        activityLabel = activity,
+        sourceTint = DiscordAccent,
         selected = selected,
-        accent = DiscordAccent,
-        trailing = if (hasUnread) {
-            {
-                UnreadBubble()
-            }
-        } else {
-            null
-        },
+        hasUnread = hasUnread,
+        trailingHint = trailingHint,
         onClick = onClick,
     )
 }
 
+/**
+ * Restyled friend row: uppercase bold name, blocky neon-green activity line, dimmed offline
+ * state, thin focus-ring border when selected, and a trailing speech-bubble/unread badge.
+ */
 @Composable
-private fun UnreadBubble() {
-    Box(
+private fun FriendListRow(
+    displayName: String,
+    avatarUrl: String?,
+    presence: SocialPresence,
+    activityLabel: String?,
+    sourceTint: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+    hasUnread: Boolean = false,
+    trailingHint: String? = null,
+) {
+    val offline = presence == SocialPresence.Offline
+    val shape = RoundedCornerShape(14.dp)
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(selected) {
+        if (selected) {
+            delay(16)
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
+    Row(
         modifier = Modifier
-            .size(22.dp)
-            .clip(CircleShape)
-            .background(MessagesBadge.copy(alpha = 0.9f)),
-        contentAlignment = Alignment.Center,
+            .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .clip(shape)
+            .background(if (selected) FocusRing.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.05f))
+            .then(
+                if (selected) Modifier.border(1.dp, FocusRing.copy(alpha = 0.85f), shape) else Modifier,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = "!",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
+        PresenceAvatar(
+            displayName = displayName,
+            presetId = "preset_0",
+            size = 36.dp,
+            imageModel = avatarUrl,
+            presence = presence,
+            selected = false,
+            sourceTint = sourceTint,
+            modifier = if (offline) Modifier.alpha(0.45f) else Modifier,
         )
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = displayName.uppercase(),
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = XoraFonts.Title,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = when {
+                    offline -> "OFFLINE"
+                    !activityLabel.isNullOrBlank() -> activityLabel.uppercase()
+                    else -> presenceLabel(presence).uppercase()
+                },
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = XoraFonts.Title,
+                fontWeight = FontWeight.Bold,
+                color = if (offline) Color.White.copy(alpha = 0.4f) else OnlineGreen,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (trailingHint != null) {
+            Text(
+                text = trailingHint,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (trailingHint == "Full") BusyRose else SkyGlass,
+            )
+        } else {
+            SpeechBubbleIcon(hasUnread = hasUnread)
+        }
+    }
+}
+
+/** Simple drawn speech-bubble glyph (avoids relying on an emoji font) with an unread badge. */
+@Composable
+private fun SpeechBubbleIcon(
+    hasUnread: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.size(26.dp)) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val bubbleHeight = size.height * 0.7f
+            val strokeWidth = size.minDimension * 0.11f
+            val tint = Color.White.copy(alpha = if (hasUnread) 0.85f else 0.4f)
+            drawRoundRect(
+                color = tint,
+                size = Size(size.width, bubbleHeight),
+                cornerRadius = CornerRadius(size.minDimension * 0.28f, size.minDimension * 0.28f),
+                style = Stroke(width = strokeWidth),
+            )
+            val tailPath = Path().apply {
+                moveTo(size.width * 0.26f, bubbleHeight - strokeWidth / 2f)
+                lineTo(size.width * 0.20f, size.height)
+                lineTo(size.width * 0.46f, bubbleHeight - strokeWidth / 2f)
+                close()
+            }
+            drawPath(tailPath, color = tint)
+        }
+        if (hasUnread) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 3.dp, y = (-3).dp)
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(BusyRose),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "1",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
+        }
     }
 }
 
