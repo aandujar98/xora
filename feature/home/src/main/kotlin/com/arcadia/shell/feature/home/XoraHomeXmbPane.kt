@@ -185,20 +185,6 @@ fun XoraHomeXmbPane(
                 .fillMaxSize()
                 .then(backdropMotion),
         )
-        // Soft readability wash — dim theme / wallpaper slightly under the XMB.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.28f),
-                            Color.Black.copy(alpha = 0.14f),
-                            Color.Black.copy(alpha = 0.40f),
-                        ),
-                    ),
-                ),
-        )
 
         // Keep mounted so focus / back / cancel always crossfade (never unmount-snap).
         XoraRomHeroBackdrop(
@@ -388,19 +374,6 @@ fun XoraXmbHeroDetail(
             modifier = Modifier
                 .fillMaxSize()
                 .then(backdropMotion),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.26f),
-                            Color.Black.copy(alpha = 0.12f),
-                            Color.Black.copy(alpha = 0.38f),
-                        ),
-                    ),
-                ),
         )
         XoraRomHeroBackdrop(
             artPath = heroGame?.takeIf {
