@@ -71,6 +71,7 @@ import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
+import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberAmbientMotionActive
@@ -970,14 +971,7 @@ private fun XmbItemGlyph(
             .then(
                 when {
                     boxArt -> Modifier
-                        .graphicsLayer {
-                            // Soft drop only — no mirror / oval reflection under the tile.
-                            shadowElevation = if (selected) 14f else 8f
-                            this.shape = shape
-                            clip = false
-                            ambientShadowColor = Color.Black.copy(alpha = 0.45f)
-                            spotShadowColor = Color.Black.copy(alpha = 0.55f)
-                        }
+                        .xoraForegroundShadow(shape)
                         .drawWithContent {
                             drawContent()
                             if (selected) {
@@ -1007,13 +1001,16 @@ private fun XmbItemGlyph(
                             shape = shape,
                         )
                     isVectorIcon -> Modifier
+                        .xoraForegroundShadow(shape)
                         .clip(shape)
                         .border(
                             width = if (selected) 2.dp else 1.5.dp,
                             color = Color.Black,
                             shape = shape,
                         )
-                    else -> Modifier.clip(shape)
+                    else -> Modifier
+                        .xoraForegroundShadow(shape)
+                        .clip(shape)
                 },
             )
             .background(
@@ -1043,6 +1040,7 @@ private fun XmbItemGlyph(
                 tint = Color.White,
                 size = minOf(width, height) * 0.5f,
                 outlined = true,
+                castShadow = false,
             )
         }
     }

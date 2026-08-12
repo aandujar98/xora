@@ -16,6 +16,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.designsystem.XoraForegroundShadow
+import com.arcadia.shell.designsystem.drawXoraForegroundSilhouette
 
 /** Stable glyph ids for XMB rows that are not ROM box art. */
 enum class XmbIcon {
@@ -77,6 +79,8 @@ fun XmbVectorIcon(
     size: Dp = 28.dp,
     /** Soft black halo so glyphs stay readable over bright hero art (no glass / reflection). */
     outlined: Boolean = true,
+    /** When false, a parent plate / tile already casts [XoraForegroundShadow]. */
+    castShadow: Boolean = true,
 ) {
     Canvas(modifier = modifier.size(size)) {
         val stroke = Stroke(
@@ -84,6 +88,12 @@ fun XmbVectorIcon(
             cap = StrokeCap.Round,
             join = StrokeJoin.Round,
         )
+        if (castShadow) {
+            val shadowInk = XoraForegroundShadow.Ink.copy(alpha = XoraForegroundShadow.Alpha)
+            drawXoraForegroundSilhouette {
+                drawXmbIconContent(icon, shadowInk, stroke)
+            }
+        }
         if (outlined) {
             val outline = size.toPx() * 0.055f
             val ink = Color.Black
