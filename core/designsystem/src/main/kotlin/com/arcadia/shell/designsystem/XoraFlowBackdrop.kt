@@ -38,19 +38,28 @@ private const val ART_HEIGHT = 1080f
  */
 private const val WAVE_BLEED = 160f
 
-// Unequal periods keep the two bands from lining back up, so the flow never looks like a loop.
-private const val BACK_PERIOD_MS = 92_000
-private const val FRONT_PERIOD_MS = 66_000
+// Unequal periods keep the two bands from lining back up, so the flow never looks like a loop and
+// the pair drifts apart and back together on its own.
+private const val BACK_PERIOD_MS = 84_000
+private const val FRONT_PERIOD_MS = 61_000
 
-// Each band travels an ellipse. Speed is sqrt((A·cos)² + (B·sin)²), which never reaches zero, so
-// the drift reads as constant — a hold at the turnaround is what would give the loop away. Both
-// amplitudes stay under WAVE_BLEED.
-private const val BACK_TRAVEL_X = 58f
-private const val BACK_TRAVEL_Y = 46f
-private const val FRONT_TRAVEL_X = 74f
-private const val FRONT_TRAVEL_Y = 58f
+/**
+ * Both bands slide along the same shallow diagonal — roughly the axis the artwork's own crests run
+ * on, so a band travels along its length and the crest reads as flowing rather than bobbing.
+ */
+private const val WAVE_ANGLE_DEG = 16f
+
+// Travel is an ellipse squashed onto that diagonal: a long axis along it, a short one across. The
+// short axis is what keeps speed off zero at the far ends, so the turnaround rounds off instead of
+// stopping dead. Both bands stay inside WAVE_BLEED at full extension.
+private const val BACK_TRAVEL_ALONG = 84f
+private const val BACK_TRAVEL_ACROSS = 24f
+private const val FRONT_TRAVEL_ALONG = 110f
+private const val FRONT_TRAVEL_ACROSS = 30f
 
 private const val TWO_PI = (Math.PI * 2).toFloat()
+private val WaveAngleCos = cos(WAVE_ANGLE_DEG * Math.PI.toFloat() / 180f)
+private val WaveAngleSin = sin(WAVE_ANGLE_DEG * Math.PI.toFloat() / 180f)
 
 /**
  * Default shell wallpaper: the authored HOME bands over a cyan → white sky, drifting slowly.
@@ -91,8 +100,8 @@ fun XoraFlowBackdrop(modifier: Modifier = Modifier) {
                     dstSize = dstSize,
                     scale = scale,
                     phase = backPhase,
-                    travelX = BACK_TRAVEL_X,
-                    travelY = BACK_TRAVEL_Y,
+                    travelAlong = BACK_TRAVEL_ALONG,
+                    travelAcross = BACK_TRAVEL_ACROSS,
                 )
                 drawWaveLayer(
                     image = front,
@@ -100,10 +109,11 @@ fun XoraFlowBackdrop(modifier: Modifier = Modifier) {
                     originY = originY,
                     dstSize = dstSize,
                     scale = scale,
-                    // Quarter-turn apart, so the bands are never at the same point of their orbits.
-                    phase = frontPhase + TWO_PI / 4f,
-                    travelX = FRONT_TRAVEL_X,
-                    travelY = FRONT_TRAVEL_Y,
+                    // Half a turn apart, so the bands set off counter to each other and cross
+                    // rather than sliding in convoy.
+                    phase = frontPhase + TWO_PI / 2f,
+                    travelAlong = FRONT_TRAVEL_ALONG,
+                    travelAcross = FRONT_TRAVEL_ACROSS,
                 )
             },
     )
@@ -116,14 +126,16 @@ private fun DrawScope.drawWaveLayer(
     dstSize: IntSize,
     scale: Float,
     phase: Float,
-    travelX: Float,
-    travelY: Float,
+    travelAlong: Float,
+    travelAcross: Float,
 ) {
+    val along = sin(phase) * travelAlong
+    val across = cos(phase) * travelAcross
     drawImage(
         image = image,
         dstOffset = IntOffset(
-            (originX + sin(phase) * travelX * scale).roundToInt(),
-            (originY + cos(phase) * travelY * scale).roundToInt(),
+            (originX + (along * WaveAngleCos - across * WaveAngleSin) * scale).roundToInt(),
+            (originY + (along * WaveAngleSin + across * WaveAngleCos) * scale).roundToInt(),
         ),
         dstSize = dstSize,
         blendMode = BlendMode.Lighten,
