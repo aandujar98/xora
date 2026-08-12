@@ -188,12 +188,15 @@ fun XoraFlowBackdrop(modifier: Modifier = Modifier) {
     }
     val backMesh = remember { WaveMesh() }
     val frontMesh = remember { WaveMesh() }
+    // Unbounded endY resolves against the draw size, so one brush serves every pane size and the
+    // draw loop stays allocation-free.
+    val sky = remember { Brush.verticalGradient(listOf(FlowSkyTop, FlowSkyBottom)) }
 
     Spacer(
         modifier = modifier
             .fillMaxSize()
             .drawBehind {
-                drawRect(brush = Brush.verticalGradient(listOf(FlowSkyTop, FlowSkyBottom)))
+                drawRect(brush = sky)
                 val seconds = clock.floatValue
                 drawWaveBand(back, backMesh, BackBand, seconds, paint)
                 drawWaveBand(front, frontMesh, FrontBand, seconds, paint)
