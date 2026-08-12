@@ -1,28 +1,26 @@
 package com.arcadia.shell.designsystem
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import android.graphics.BlendMode as AndroidBlendMode
+import android.graphics.Paint as AndroidPaint
+import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.res.imageResource
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private val FlowSkyTop = Color(0xFF2ACBFD)
@@ -34,130 +32,271 @@ private const val ART_HEIGHT = 1080f
 
 /**
  * Bleed baked into the drawables on every side, in artboard units. The bands continue past the
- * artboard, so drifting them can never pull a cut edge into frame.
+ * artboard, so neither the drift nor the swell can pull a cut edge into frame.
  */
-private const val WAVE_BLEED = 160f
-
-// Unequal periods keep the two bands from lining back up, so the flow never looks like a loop and
-// the pair drifts apart and back together on its own.
-private const val BACK_PERIOD_MS = 84_000
-private const val FRONT_PERIOD_MS = 61_000
+private const val WAVE_BLEED = 340f
 
 /**
- * Both bands slide along the same shallow diagonal — roughly the axis the artwork's own crests run
+ * Every period divides this evenly, so wrapping the clock here leaves each phase exactly where it
+ * was. That keeps the loop seamless and stops float precision from coarsening over a long session.
+ */
+private const val LOOP_SECONDS = 420.0
+
+/**
+ * Both bands run along the same shallow diagonal — roughly the axis the artwork's own crests lie
  * on, so a band travels along its length and the crest reads as flowing rather than bobbing.
  */
 private const val WAVE_ANGLE_DEG = 16f
 
-// Travel is an ellipse squashed onto that diagonal: a long axis along it, a short one across. The
-// short axis is what keeps speed off zero at the far ends, so the turnaround rounds off instead of
-// stopping dead. Both bands stay inside WAVE_BLEED at full extension.
-private const val BACK_TRAVEL_ALONG = 84f
-private const val BACK_TRAVEL_ACROSS = 24f
-private const val FRONT_TRAVEL_ALONG = 110f
-private const val FRONT_TRAVEL_ACROSS = 30f
+/**
+ * Grid the bands are warped on — around eight samples across the shortest ripple, so the swell
+ * reads as a curve rather than facets.
+ */
+private const val MESH_COLUMNS = 52
+private const val MESH_ROWS = 30
+
+/**
+ * Troughs are flattened to this fraction of the crest. Real waves are shaped that way — peaked
+ * crests over broad shallow troughs — and it also earns headroom: the artwork's own upper boundary
+ * sits only ~150 units above the frame in the left half, so a symmetric swell of this size would
+ * drag that boundary into view as a hard edge.
+ */
+private const val TROUGH_FLATTEN = 0.45f
 
 private const val TWO_PI = (Math.PI * 2).toFloat()
 private val WaveAngleCos = cos(WAVE_ANGLE_DEG * Math.PI.toFloat() / 180f)
 private val WaveAngleSin = sin(WAVE_ANGLE_DEG * Math.PI.toFloat() / 180f)
 
 /**
- * Default shell wallpaper: the authored HOME bands over a cyan → white sky, drifting slowly.
+ * How a band moves: it slides along the diagonal, and its surface swells as two travelling waves
+ * of different lengths run down that same axis, plus a slow cross-swell so the crest is never a
+ * uniform ridge. Summing waves of unlike length is what stops the surface looking like one
+ * repeating ripple.
+ */
+private class WaveBand(
+    val driftPeriod: Float,
+    val driftAlong: Float,
+    val driftAcross: Float,
+    val driftPhase: Float,
+    /**
+     * Sliding along the diagonal barely changes how a band looks, because a band is nearly
+     * unchanged along its own length — so drift alone leaves the pair looking glued together. This
+     * is a slow lift across the diagonal on its own period, which opens and closes the gap between
+     * the two and is what actually reads as independence.
+     */
+    val swayPeriod: Float,
+    val swayAmplitude: Float,
+    val swayPhase: Float,
+    val swellPeriod: Float,
+    val swellAmplitude: Float,
+    val swellLength: Float,
+    val ripplePeriod: Float,
+    val rippleAmplitude: Float,
+    val rippleLength: Float,
+    val crossPeriod: Float,
+    val crossAmplitude: Float,
+    val crossLength: Float,
+    val swellPhase: Float,
+)
+
+private val BackBand = WaveBand(
+    driftPeriod = 28f,
+    driftAlong = 76f,
+    driftAcross = 20f,
+    driftPhase = 0f,
+    swayPeriod = 35f,
+    swayAmplitude = 42f,
+    swayPhase = 0f,
+    swellPeriod = 12f,
+    swellAmplitude = 52f,
+    swellLength = 1150f,
+    ripplePeriod = 6f,
+    rippleAmplitude = 30f,
+    rippleLength = 430f,
+    crossPeriod = 20f,
+    crossAmplitude = 16f,
+    crossLength = 900f,
+    swellPhase = 0f,
+)
+
+private val FrontBand = WaveBand(
+    driftPeriod = 21f,
+    driftAlong = 100f,
+    driftAcross = 26f,
+    // Set off counter to the back band, so the two cross instead of sliding in convoy.
+    driftPhase = TWO_PI / 2f,
+    swayPeriod = 20f,
+    swayAmplitude = 54f,
+    // Counter to the back band's sway, so the gap between them breathes instead of holding.
+    swayPhase = TWO_PI / 2f,
+    swellPeriod = 7f,
+    swellAmplitude = 68f,
+    swellLength = 950f,
+    ripplePeriod = 5f,
+    rippleAmplitude = 36f,
+    rippleLength = 390f,
+    crossPeriod = 15f,
+    crossAmplitude = 20f,
+    crossLength = 780f,
+    swellPhase = TWO_PI / 3f,
+)
+
+/**
+ * Default shell wallpaper: the authored HOME bands over a cyan → white sky, flowing like water.
  *
- * The bands ship as pre-rendered drawables rather than paths. Each one carries a white inner
- * shadow in the source art, which is what gives the edges their glow, and Compose has no
- * inner-shadow primitive — so the layers are baked from the authored vectors and composited here
- * with [BlendMode.Lighten], exactly as authored. Lighten also means the bands can only brighten
- * the sky, so the pale bottom of the gradient never turns muddy.
+ * The bands ship as pre-rendered drawables rather than paths. Each carries a white inner shadow in
+ * the source art — the glow along its edges — and Compose has no inner-shadow primitive, so the
+ * layers are baked from the authored vectors and composited here with Lighten exactly as authored.
+ * Lighten also means a band can only brighten the sky, so the pale bottom of the gradient never
+ * muddies and crossing edges pick up a sheen.
+ *
+ * Baked art would normally be stuck moving as a rigid slab, so each band is drawn through a warped
+ * vertex mesh instead: the artwork keeps its exact pixels while its surface deforms. Per frame this
+ * is a few hundred vertices and one textured draw, which leaves headroom at 120Hz; the vertex
+ * buffers are allocated once and rewritten in place rather than per frame.
  */
 @Composable
 fun XoraFlowBackdrop(modifier: Modifier = Modifier) {
-    val back = ImageBitmap.imageResource(R.drawable.xora_wave_back)
-    val front = ImageBitmap.imageResource(R.drawable.xora_wave_front)
+    val back = rememberWaveBitmap(R.drawable.xora_wave_back)
+    val front = rememberWaveBitmap(R.drawable.xora_wave_front)
     val animate = rememberAmbientMotionActive()
 
-    val backPhase = rememberWavePhase(BACK_PERIOD_MS, animate, "xoraFlowBack")
-    val frontPhase = rememberWavePhase(FRONT_PERIOD_MS, animate, "xoraFlowFront")
+    // Written from the frame clock and read only while drawing, so a new frame invalidates the
+    // draw without dragging composition or layout along with it.
+    val clock = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(animate) {
+        if (!animate) {
+            clock.floatValue = 0f
+            return@LaunchedEffect
+        }
+        var origin = 0L
+        while (true) {
+            withInfiniteAnimationFrameNanos { nanos ->
+                if (origin == 0L) origin = nanos
+                val elapsed = (nanos - origin) / 1_000_000_000.0
+                clock.floatValue = (elapsed % LOOP_SECONDS).toFloat()
+            }
+        }
+    }
+
+    val paint = remember {
+        AndroidPaint().apply {
+            isAntiAlias = true
+            isFilterBitmap = true
+            blendMode = AndroidBlendMode.LIGHTEN
+        }
+    }
+    val backMesh = remember { WaveMesh() }
+    val frontMesh = remember { WaveMesh() }
 
     Spacer(
         modifier = modifier
             .fillMaxSize()
             .drawBehind {
                 drawRect(brush = Brush.verticalGradient(listOf(FlowSkyTop, FlowSkyBottom)))
-                // Cover the pane the way the artboard would crop, then bleed outwards.
-                val scale = max(size.width / ART_WIDTH, size.height / ART_HEIGHT)
-                val originX = (size.width - ART_WIDTH * scale) / 2f - WAVE_BLEED * scale
-                val originY = (size.height - ART_HEIGHT * scale) / 2f - WAVE_BLEED * scale
-                val spread = WAVE_BLEED * 2f
-                val dstSize = IntSize(
-                    ((ART_WIDTH + spread) * scale).roundToInt(),
-                    ((ART_HEIGHT + spread) * scale).roundToInt(),
-                )
-                drawWaveLayer(
-                    image = back,
-                    originX = originX,
-                    originY = originY,
-                    dstSize = dstSize,
-                    scale = scale,
-                    phase = backPhase,
-                    travelAlong = BACK_TRAVEL_ALONG,
-                    travelAcross = BACK_TRAVEL_ACROSS,
-                )
-                drawWaveLayer(
-                    image = front,
-                    originX = originX,
-                    originY = originY,
-                    dstSize = dstSize,
-                    scale = scale,
-                    // Half a turn apart, so the bands set off counter to each other and cross
-                    // rather than sliding in convoy.
-                    phase = frontPhase + TWO_PI / 2f,
-                    travelAlong = FRONT_TRAVEL_ALONG,
-                    travelAcross = FRONT_TRAVEL_ACROSS,
-                )
+                val seconds = clock.floatValue
+                drawWaveBand(back, backMesh, BackBand, seconds, paint)
+                drawWaveBand(front, frontMesh, FrontBand, seconds, paint)
             },
     )
 }
 
-private fun DrawScope.drawWaveLayer(
-    image: ImageBitmap,
-    originX: Float,
-    originY: Float,
-    dstSize: IntSize,
-    scale: Float,
-    phase: Float,
-    travelAlong: Float,
-    travelAcross: Float,
+/** [drawBitmapMesh] needs a platform bitmap, and the conversion should happen once. */
+@Composable
+private fun rememberWaveBitmap(resId: Int): android.graphics.Bitmap {
+    val image = ImageBitmap.imageResource(resId)
+    return remember(image) { image.asAndroidBitmap() }
+}
+
+private fun DrawScope.drawWaveBand(
+    bitmap: android.graphics.Bitmap,
+    mesh: WaveMesh,
+    band: WaveBand,
+    seconds: Float,
+    paint: AndroidPaint,
 ) {
-    val along = sin(phase) * travelAlong
-    val across = cos(phase) * travelAcross
-    drawImage(
-        image = image,
-        dstOffset = IntOffset(
-            (originX + (along * WaveAngleCos - across * WaveAngleSin) * scale).roundToInt(),
-            (originY + (along * WaveAngleSin + across * WaveAngleCos) * scale).roundToInt(),
-        ),
-        dstSize = dstSize,
-        blendMode = BlendMode.Lighten,
+    // Cover the pane the way the artboard crops, then bleed outwards on every side.
+    val scale = max(size.width / ART_WIDTH, size.height / ART_HEIGHT)
+    val offsetX = (size.width - ART_WIDTH * scale) / 2f
+    val offsetY = (size.height - ART_HEIGHT * scale) / 2f
+
+    val driftPhase = band.driftPhase + TWO_PI * (seconds / band.driftPeriod)
+    val swayPhase = band.swayPhase + TWO_PI * (seconds / band.swayPeriod)
+    val along = sin(driftPhase) * band.driftAlong
+    val across = cos(driftPhase) * band.driftAcross + sin(swayPhase) * band.swayAmplitude
+    val driftX = along * WaveAngleCos - across * WaveAngleSin
+    val driftY = along * WaveAngleSin + across * WaveAngleCos
+
+    mesh.update(
+        band = band,
+        seconds = seconds,
+        driftX = driftX,
+        driftY = driftY,
+        scale = scale,
+        offsetX = offsetX,
+        offsetY = offsetY,
     )
+
+    drawIntoCanvas { canvas ->
+        canvas.nativeCanvas.drawBitmapMesh(
+            bitmap,
+            MESH_COLUMNS,
+            MESH_ROWS,
+            mesh.vertices,
+            0,
+            null,
+            0,
+            paint,
+        )
+    }
 }
 
 /**
- * A full turn per cycle. Sine and cosine both close on themselves at 2π, so restarting the ramp
- * is seamless no matter how long the shell stays open.
+ * Destination vertices for one band. Allocated once; [update] rewrites it in place so a frame at
+ * 120Hz costs arithmetic rather than garbage.
  */
-@Composable
-private fun rememberWavePhase(periodMs: Int, animate: Boolean, label: String): Float {
-    if (!animate) return 0f
-    val transition = rememberInfiniteTransition(label = label)
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = TWO_PI,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = periodMs, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "${label}Phase",
-    )
-    return phase
+private class WaveMesh {
+    val vertices = FloatArray((MESH_COLUMNS + 1) * (MESH_ROWS + 1) * 2)
+
+    fun update(
+        band: WaveBand,
+        seconds: Float,
+        driftX: Float,
+        driftY: Float,
+        scale: Float,
+        offsetX: Float,
+        offsetY: Float,
+    ) {
+        val swellPhase = band.swellPhase + TWO_PI * (seconds / band.swellPeriod)
+        // The shorter ripple runs at its own rate, so crests overtake each other.
+        val ripplePhase = TWO_PI * (seconds / band.ripplePeriod)
+        val crossPhase = TWO_PI * (seconds / band.crossPeriod)
+        val swellK = TWO_PI / band.swellLength
+        val rippleK = TWO_PI / band.rippleLength
+        val crossK = TWO_PI / band.crossLength
+
+        val spanX = ART_WIDTH + WAVE_BLEED * 2f
+        val spanY = ART_HEIGHT + WAVE_BLEED * 2f
+        var index = 0
+        for (row in 0..MESH_ROWS) {
+            val designY = -WAVE_BLEED + spanY * row / MESH_ROWS
+            for (column in 0..MESH_COLUMNS) {
+                val designX = -WAVE_BLEED + spanX * column / MESH_COLUMNS
+                // Distance along the diagonal, and across it, for this vertex.
+                val alongAxis = designX * WaveAngleCos + designY * WaveAngleSin
+                val acrossAxis = -designX * WaveAngleSin + designY * WaveAngleCos
+                val swell = sin(alongAxis * swellK - swellPhase) * band.swellAmplitude +
+                    sin(alongAxis * rippleK - ripplePhase) * band.rippleAmplitude +
+                    sin(acrossAxis * crossK + crossPhase) * band.crossAmplitude
+                // Negative lifts the surface, so crests keep their full height while troughs stay
+                // shallow. Peaked crests read as water, and the flat side is the one with no room.
+                val lift = if (swell < 0f) swell else swell * TROUGH_FLATTEN
+                // The surface rises across the axis it travels along, as water does.
+                val x = designX + driftX - lift * WaveAngleSin
+                val y = designY + driftY + lift * WaveAngleCos
+                vertices[index++] = offsetX + x * scale
+                vertices[index++] = offsetY + y * scale
+            }
+        }
+    }
 }
