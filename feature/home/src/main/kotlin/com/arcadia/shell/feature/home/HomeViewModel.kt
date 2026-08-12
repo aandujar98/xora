@@ -3849,6 +3849,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             preferences.setProfileFavoriteRaGame(null)
         }
+    }
 
     private fun openSystemSettings(action: String) {
         val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
