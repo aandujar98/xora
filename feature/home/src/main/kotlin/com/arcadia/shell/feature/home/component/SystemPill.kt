@@ -99,7 +99,6 @@ private val ScoreAmber = Color(0xFFFFC24B)
 private val OnlineGreen = Color(0xFF37D6A0)
 private val FocusRing = Color(0xFF4AE39A)
 private val BadgeBorder = Color(0xFFFF9A3C)
-private val PanelCharcoal = Color(0xFF1A1C1F)
 
 @Composable
 fun SystemPill(
