@@ -201,59 +201,65 @@ fun SystemPill(
         modifier = modifier.widthIn(max = if (expanded) 380.dp else 300.dp),
         horizontalAlignment = Alignment.End,
     ) {
-        // Collapsed status pill: Wi‑Fi · time · date · battery · PFP
-        Row(
-            modifier = Modifier
-                .liquidGlass(
-                    shape = ArcadiaGlass.PillShape,
-                    tone = GlassTone.OverMedia,
-                    intensity = GlassIntensity.Standard,
-                )
-                .clickable(onClick = onToggle)
-                .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // Collapsed status chrome hides while the card is open; RT / B restores it.
+        AnimatedVisibility(
+            visible = !expanded,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
         ) {
-            WifiGlyph(connected = wifiConnected, tint = glass.content)
-            Text(
-                text = timeText,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = glass.content,
-            )
-            Box(
+            Row(
                 modifier = Modifier
-                    .width(1.dp)
-                    .height(14.dp)
-                    .background(glass.contentMuted.copy(alpha = 0.35f)),
-            )
-            Text(
-                text = dateShort,
-                style = MaterialTheme.typography.labelMedium,
-                color = glass.contentMuted,
-            )
-            BatteryGlyph(
-                percent = batteryPercent,
-                charging = charging,
-                tint = glass.content,
-            )
-            Text(
-                text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
-                style = MaterialTheme.typography.labelMedium,
-                color = glass.contentMuted,
-            )
-            Box {
-                ProfileAvatar(
-                    displayName = profile.displayName,
-                    presetId = profile.avatarPresetId,
-                    size = 30.dp,
-                    imageModel = avatarImageModel,
-                    borderColor = Color.White.copy(alpha = 0.45f),
+                    .liquidGlass(
+                        shape = ArcadiaGlass.PillShape,
+                        tone = GlassTone.OverMedia,
+                        intensity = GlassIntensity.Standard,
+                    )
+                    .clickable(onClick = onToggle)
+                    .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                WifiGlyph(connected = wifiConnected, tint = glass.content)
+                Text(
+                    text = timeText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = glass.content,
                 )
-                TriggerGlyph(
-                    letter = "R",
-                    modifier = Modifier.align(Alignment.TopEnd),
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(14.dp)
+                        .background(glass.contentMuted.copy(alpha = 0.35f)),
                 )
+                Text(
+                    text = dateShort,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = glass.contentMuted,
+                )
+                BatteryGlyph(
+                    percent = batteryPercent,
+                    charging = charging,
+                    tint = glass.content,
+                )
+                Text(
+                    text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = glass.contentMuted,
+                )
+                Box {
+                    ProfileAvatar(
+                        displayName = profile.displayName,
+                        presetId = profile.avatarPresetId,
+                        size = 30.dp,
+                        imageModel = avatarImageModel,
+                        borderColor = Color.White.copy(alpha = 0.45f),
+                    )
+                    TriggerGlyph(
+                        letter = "R",
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    )
+                }
             }
         }
 
