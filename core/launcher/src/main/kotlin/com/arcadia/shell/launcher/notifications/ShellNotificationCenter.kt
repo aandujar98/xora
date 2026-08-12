@@ -52,6 +52,9 @@ class ShellNotificationCenter @Inject constructor(
 
     private val _unreadCount = MutableStateFlow(0)
     val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
+    private val _recent = MutableStateFlow<List<ShellNotification>>(emptyList())
+    /** Newest-first history for the LT notification center. */
+    val recent: StateFlow<List<ShellNotification>> = _recent.asStateFlow()
 
     private val recentIds = ConcurrentHashMap.newKeySet<String>()
     private var holdJob: Job? = null
@@ -95,6 +98,7 @@ class ShellNotificationCenter @Inject constructor(
             recentIds.clear()
             recentIds.add(notification.id)
         }
+        rememberRecent(notification)
 
         recordHistory(notification)
 
@@ -130,6 +134,7 @@ class ShellNotificationCenter @Inject constructor(
     fun clearHistory() {
         _history.value = emptyList()
         _unreadCount.value = 0
+        _recent.value = emptyList()
     }
 
     private fun recordHistory(notification: ShellNotification) {
@@ -143,6 +148,11 @@ class ShellNotificationCenter @Inject constructor(
                 .take(MAX_HISTORY)
         }
         _unreadCount.update { (it + 1).coerceAtMost(MAX_HISTORY) }
+    }
+
+    private fun rememberRecent(notification: ShellNotification) {
+        val next = listOf(notification) + _recent.value.filterNot { it.id == notification.id }
+        _recent.value = next.take(MAX_HISTORY)
     }
 
     private fun clearIfCurrent(id: String) {

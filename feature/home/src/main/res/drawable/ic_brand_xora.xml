@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- XOrA network mark — stylized X. Tintable for UI chrome. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6.2,4.5L11.1,11.2L6.1,19.5h3.1l3.3,-5.5l3.3,5.5h3.1L13.9,11.2L18.8,4.5h-3.1l-2.7,4.6L10.3,4.5z" />
+</vector>
