@@ -185,8 +185,8 @@ data class ShellSettings(
     /** Seconds without input before an idle trailer may start. */
     val trailerIdleSeconds: Int = DEFAULT_TRAILER_IDLE_SECONDS,
     /**
-     * Absolute path to a user-picked Home wallpaper. Null / blank uses the built-in
-     * `sora_home_wallpaper` drawable.
+     * Absolute path to a user-picked Home wallpaper. Null / blank uses the active theme's
+     * backdrop.
      */
     val homeWallpaperPath: String? = null,
     /**

@@ -1,27 +1,46 @@
-package com.arcadia.shell.feature.home
+package com.arcadia.shell.designsystem
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /** The Figma artboard the shell is authored against; every design measurement is in its units. */
-internal const val XORA_DESIGN_WIDTH = 1920f
-internal const val XORA_DESIGN_HEIGHT = 1080f
+const val XORA_DESIGN_WIDTH = 1920f
+const val XORA_DESIGN_HEIGHT = 1080f
 
 private val WaveGradientStart = Color(0xFF2ACBFD)
 private val WaveGradientEnd = Color(0xFFB6FCFD)
 private val WaveOutline = Color.White.copy(alpha = 0.15f)
 private const val WAVE_FILL_ALPHA = 0.75f
+
+/** Figma inner shadow on each band: white, offset (-18, 27), 36.3 blur. */
+private const val GLOW_OFFSET_X = -18f
+private const val GLOW_OFFSET_Y = 27f
+private const val GLOW_STEPS = 22
+private const val GLOW_MAX_WIDTH = 260f
+private const val GLOW_ALPHA = 0.075f
+private const val WAVE_CACHE_SCALE = 0.5f
 
 /**
  * Sky plate used across the shell's Vita-styled screens: a vertical gradient with overlapping
@@ -34,32 +53,92 @@ fun WaveSky(
     bottomColor: Color,
     field: WaveField,
     modifier: Modifier = Modifier,
+    /** Per-layer travel in design units, so bands can slide at their own rate. */
+    layerDrift: (Int) -> Offset = { Offset.Zero },
+    /** Largest travel [layerDrift] can return, so the cache covers what slides into frame. */
+    driftMargin: Float = 0f,
 ) {
-    Canvas(modifier = modifier) {
-        drawRect(brush = Brush.verticalGradient(listOf(topColor, bottomColor)))
+    Spacer(
+        modifier = modifier.drawWithCache {
+            val scale = max(size.width / XORA_DESIGN_WIDTH, size.height / XORA_DESIGN_HEIGHT)
+            val margin = driftMargin * scale
+            val originX = ((size.width - (XORA_DESIGN_WIDTH * scale)) / 2f) + (field.left * scale)
+            val originY = ((size.height - (XORA_DESIGN_HEIGHT * scale)) / 2f) + (field.top * scale)
 
-        val scale = max(size.width / XORA_DESIGN_WIDTH, size.height / XORA_DESIGN_HEIGHT)
-        val originX = ((size.width - (XORA_DESIGN_WIDTH * scale)) / 2f) + (field.left * scale)
-        val originY = ((size.height - (XORA_DESIGN_HEIGHT * scale)) / 2f) + (field.top * scale)
+            // The bands are complex paths and the rim glow is many stacked strokes, so each layer
+            // is rasterized once here and only blitted per frame. Half resolution is invisible on
+            // artwork this soft and quarters the memory.
+            val cacheWidth = ((size.width + margin * 2f) * WAVE_CACHE_SCALE)
+                .roundToInt().coerceAtLeast(1)
+            val cacheHeight = ((size.height + margin * 2f) * WAVE_CACHE_SCALE)
+                .roundToInt().coerceAtLeast(1)
+            val layerImages = field.layers.map { layer ->
+                val image = ImageBitmap(cacheWidth, cacheHeight)
+                CanvasDrawScope().draw(
+                    density = this,
+                    layoutDirection = layoutDirection,
+                    canvas = Canvas(image),
+                    size = Size(cacheWidth.toFloat(), cacheHeight.toFloat()),
+                ) {
+                    withTransform({
+                        scale(WAVE_CACHE_SCALE, WAVE_CACHE_SCALE, pivot = Offset.Zero)
+                        translate(originX + margin, originY + margin)
+                        scale(scale, scale, pivot = Offset.Zero)
+                    }) {
+                        drawWaveLayer(layer)
+                    }
+                }
+                image
+            }
+            val dstSize = IntSize(
+                (cacheWidth / WAVE_CACHE_SCALE).roundToInt(),
+                (cacheHeight / WAVE_CACHE_SCALE).roundToInt(),
+            )
 
-        withTransform({
-            translate(originX, originY)
-            scale(scale, scale, pivot = Offset.Zero)
-        }) {
-            field.layers.forEach { layer ->
-                layer.fills.forEach { path ->
-                    drawPath(
-                        path = path,
-                        brush = layer.brush,
-                        alpha = WAVE_FILL_ALPHA,
+            onDrawBehind {
+                drawRect(brush = Brush.verticalGradient(listOf(topColor, bottomColor)))
+                layerImages.forEachIndexed { index, image ->
+                    val drift = layerDrift(index)
+                    drawImage(
+                        image = image,
+                        dstOffset = IntOffset(
+                            (drift.x * scale - margin).roundToInt(),
+                            (drift.y * scale - margin).roundToInt(),
+                        ),
+                        dstSize = dstSize,
                         blendMode = BlendMode.Lighten,
                     )
                 }
-                layer.outlines.forEach { path ->
-                    drawPath(path = path, color = WaveOutline, style = Stroke(width = 1f))
+            }
+        },
+    )
+}
+
+/**
+ * Fills plus the authored white inner shadow. Compose has no inner-shadow primitive, so the rim
+ * is stacked strokes clipped to the shape: every stroke straddles the edge and only its inner
+ * half survives the clip, so overlap piles up at the edge and thins out inward.
+ */
+private fun DrawScope.drawWaveLayer(layer: WaveLayer) {
+    layer.fills.forEach { path ->
+        drawPath(path = path, brush = layer.brush, alpha = WAVE_FILL_ALPHA)
+        clipPath(path) {
+            translate(left = GLOW_OFFSET_X, top = GLOW_OFFSET_Y) {
+                repeat(GLOW_STEPS) { step ->
+                    drawPath(
+                        path = path,
+                        color = Color.White,
+                        alpha = GLOW_ALPHA,
+                        style = Stroke(
+                            width = GLOW_MAX_WIDTH * (step + 1) / GLOW_STEPS,
+                        ),
+                    )
                 }
             }
         }
+    }
+    layer.outlines.forEach { path ->
+        drawPath(path = path, color = WaveOutline, style = Stroke(width = 1f))
     }
 }
 
@@ -90,6 +169,31 @@ internal class WaveLayer(
 }
 
 private fun parseWavePath(data: String): Path = PathParser().parsePathString(data).toPath()
+
+/**
+ * `Ellipse 26` + `Ellipse 27` from the HOME frame — the crossing bands the shell wallpaper is
+ * built from. Both are authored in artboard coordinates, so the field needs no origin offset.
+ */
+val HomeWaveField: WaveField by lazy {
+    WaveField(
+        layers = listOf(
+            WaveLayer(
+                fillData = listOf(HOME_FILL_0, HOME_FILL_1),
+                outlineData = listOf(HOME_OUTLINE_0),
+                gradientStart = Offset(-354.892f, 606.484f),
+                gradientEnd = Offset(2083.7f, 1053.39f),
+            ),
+            WaveLayer(
+                fillData = listOf(HOME_FILL_2, HOME_FILL_3),
+                outlineData = listOf(HOME_OUTLINE_1),
+                gradientStart = Offset(-470.977f, 543.457f),
+                gradientEnd = Offset(2037.87f, 1237.77f),
+            ),
+        ),
+        left = 0f,
+        top = 0f,
+    )
+}
 
 /** `BG WAVE` from the Vita shortcut frame. */
 val VitaWaveField: WaveField by lazy {
@@ -134,6 +238,61 @@ val PlatformWaveField: WaveField by lazy {
         top = -554f,
     )
 }
+
+private const val HOME_FILL_0 =
+    "M827.821 323.002C928.323 920.273 2355.95 768.619 2083.22 1151.36C1695.03 1696.14 " +
+        "-484.671 1665.08 -535.799 1061.99C-586.928 458.892 -830.381 -175.114 -512.902 " +
+        "-157.218C-362.989 -148.768 719.131 -322.927 827.821 323.002Z"
+
+private const val HOME_FILL_1 =
+    "M841.374 333.198C941.876 930.469 2369.5 778.814 2096.77 1161.56C1708.58 1706.34 " +
+        "-471.117 1675.28 -522.246 1072.18C-573.375 469.088 -816.828 -164.918 -499.349 " +
+        "-147.023C-349.435 -138.573 732.685 -312.731 841.374 333.198Z"
+
+private const val HOME_FILL_2 =
+    "M1030.49 448.5C1081.49 1077.22 2485.68 754.94 2165.49 1127.5C1709.73 1657.79 " +
+        "-702.872 1630.09 -701.666 999.77C-700.46 369.452 -897.758 -310.241 -567.072 " +
+        "-263.109C-410.922 -240.853 975.328 -231.438 1030.49 448.5Z"
+
+private const val HOME_FILL_3 =
+    "M647.485 448.5C697.605 1073.86 2365.7 969.859 2045.06 1340.75C1588.68 1868.67 " +
+        "-689.161 1643.6 -687.083 1016.59C-685.005 389.59 -881.316 -286.349 -550.774 " +
+        "-239.765C-394.692 -217.769 593.282 -227.812 647.485 448.5Z"
+
+private const val HOME_OUTLINE_0 =
+    "M-607.424 -135.112C-583.682 -151.996 -552.641 -159.959 -512.874 -157.717C-494.171 " +
+        "-156.663 -460.903 -158.457 -416.74 -161.15C-372.594 -163.842 -317.594 -167.428 " +
+        "-255.474 -169.952C-131.233 -174.999 21.5142 -175.792 172.981 -156.658C324.443 " +
+        "-137.525 474.664 -98.4621 593.827 -23.769C610.754 -13.1588 627.054 -1.82877 " +
+        "642.642 10.2642C743.801 84.0328 817.426 187.862 841.868 333.115C859.832 439.873 " +
+        "920.261 522.691 1005.87 588.917C1036.25 611.149 1069.52 631.459 1104.96 " +
+        "650.142C1248.61 725.864 1427.91 774.849 1595.6 817.145C1763.25 859.429 1919.36 " +
+        "895.035 2016.48 944.005C2038.02 954.866 2056.68 966.397 2071.93 978.816C2098.17 " +
+        "997.125 2116.74 1017.38 2125.72 1040.39C2138.94 1074.26 2131.32 1113.93 2097.18 " +
+        "1161.85C2000.02 1298.2 1790.85 1398.44 1531.09 1462.72C1271.31 1527 960.808 " +
+        "1555.35 660.853 1547.82C360.901 1540.3 71.455 1496.89 -146.215 " +
+        "1417.66C-241.92 1382.82 -323.77 1341.05 -386.54 1292.33C-400.128 1282.42 " +
+        "-412.909 1272.21 -424.837 1261.7C-490.157 1204.14 -529.893 1137.58 -536.298 " +
+        "1062.03C-549.078 911.279 -573.877 758.591 -598.93 614.624C-623.981 470.667 " +
+        "-649.289 335.416 -663.076 219.572C-676.86 103.747 -679.142 7.22915 -658.083 " +
+        "-59.2286C-647.549 -92.471 -631.165 -118.23 -607.424 -135.112Z"
+
+private const val HOME_OUTLINE_1 =
+    "M-668.001 -248.661C-641.624 -264.038 -608.417 -269.506 -567.001 -263.604C-489.032 " +
+        "-252.491 -103.295 -244.553 269.697 -154.421C456.211 -109.351 639.61 -43.7165 " +
+        "779.84 53.1805C920.08 150.084 1017.18 278.282 1030.98 448.46C1043.72 605.402 " +
+        "1140.87 703.018 1274.59 766.992C1408.32 830.976 1578.55 861.269 1737.25 " +
+        "883.564C1816.59 894.709 1893.06 903.858 1960.6 914.218C2028.14 924.578 2086.81 " +
+        "936.157 2130.57 952.176C2174.29 968.184 2203.3 988.687 2211.22 1017.01C2219.14 " +
+        "1045.34 2205.91 1081.24 2165.86 1127.83C2140.8 1156.99 2109.83 1184.46 2073.68 " +
+        "1210.24C2075.93 1213.89 2077.9 1217.6 2079.58 1221.37C2094.72 1255.5 2085.58 " +
+        "1294.65 2045.44 1341.08C1931.22 1473.2 1703.13 1558.14 1425.41 1601.48C1147.67 " +
+        "1644.83 820.17 1646.59 507.012 1612.26C193.857 1577.93 -104.998 1507.51 -325.45 " +
+        "1406.45C-435.675 1355.93 -526.325 1297.73 -589.361 1232.54C-616.034 1204.96 " +
+        "-637.765 1176.12 -653.943 1146.07C-685.321 1101.56 -702.268 1052.8 -702.166 " +
+        "999.769C-701.865 842.213 -713.968 681.566 -727.127 529.945C-740.287 378.333 " +
+        "-754.504 235.732 -758.424 114.303C-762.343 -7.10717 -755.973 -107.447 -727.903 " +
+        "-174.499C-713.861 -208.039 -694.376 -233.285 -668.001 -248.661Z"
 
 private const val VITA_FILL_0 =
     "M1589.82 696.204C1690.32 1293.48 3117.95 1141.82 2845.22 1524.56C2457.03 2069.35 " +

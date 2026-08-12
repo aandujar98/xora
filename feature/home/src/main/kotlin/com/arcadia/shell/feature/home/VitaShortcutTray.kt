@@ -49,6 +49,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.VitaWaveField
+import com.arcadia.shell.designsystem.WaveSky
+import com.arcadia.shell.designsystem.XORA_DESIGN_HEIGHT
+import com.arcadia.shell.designsystem.XORA_DESIGN_WIDTH
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.rememberAmbientMotionActive

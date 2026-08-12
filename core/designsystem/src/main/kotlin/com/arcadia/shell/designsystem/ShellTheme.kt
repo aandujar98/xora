@@ -26,8 +26,8 @@ enum class ShellThemeId(val id: String, val displayName: String) {
 
 /** How the Home hub paints its full-bleed backdrop when no custom wallpaper file is set. */
 enum class ShellWallpaperStyle {
-    /** Bundled `sora_home_wallpaper` drawable. */
-    DefaultBundled,
+    /** Authored HOME bands drifting over a cyan → white sky (PSP-style flowing wave). */
+    XoraFlowWave,
     /** Navy + yellow tartan-inspired geometric field (authored, not ripped art). */
     Persona3Tartan,
     /** Deep indigo night gradient. */
@@ -100,9 +100,9 @@ object ShellThemeCatalog {
             shardAccentFocused = Color(0xFF7EC8E3),
             shardAccentIdle = Color(0xFF3A5F73),
         ),
-        wallpaperStyle = ShellWallpaperStyle.DefaultBundled,
+        wallpaperStyle = ShellWallpaperStyle.XoraFlowWave,
         bgm = null,
-        description = "XOrA blue caustic & PlayStation curve",
+        description = "XOrA flowing blue wave",
     )
 
     val Persona3Reload: ShellTheme = ShellTheme(
