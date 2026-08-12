@@ -8,7 +8,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -55,9 +54,15 @@ import com.arcadia.shell.feature.home.SocialPresence
 
 private val NotificationRed = Color(0xFFFF3B30)
 
-/** Figma LT pill: 73px avatars on a 37px pitch, so each disc covers half the one before it. */
-private val AvatarSize = 36.dp
-private val AvatarPitch = 18.dp
+/**
+ * Figma LT (`56:160`): 73px discs on a 37px pitch inside a 207×96 pill.
+ * Sized a step under that 2× mapping so the chrome hugs the stack.
+ */
+private val AvatarSize = 28.dp
+/** Center-to-center step; half of [AvatarSize] so each friend covers half the previous disc. */
+private val AvatarPitch = 14.dp
+private val PillPad = 4.dp
+private val BadgeSize = 18.dp
 
 @Composable
 fun AccountPill(
@@ -92,7 +97,7 @@ fun AccountPill(
 
     BoxWithConstraints(
         modifier = modifier
-            .widthIn(max = if (expanded) 400.dp else 240.dp)
+            .widthIn(max = if (expanded) 400.dp else 160.dp)
             .heightIn(max = windowCap + 56.dp),
     ) {
         // Cap against parent constraints and the real window so Auto UI-fit cannot clip LT.
@@ -129,7 +134,7 @@ fun AccountPill(
                                 intensity = GlassIntensity.Standard,
                             )
                             .clickable(onClick = onToggle)
-                            .padding(6.dp),
+                            .padding(PillPad),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // Avatars only — the Figma pill carries no online-count label.
@@ -149,11 +154,11 @@ fun AccountPill(
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .offset(x = 4.dp, y = (-4).dp)
-                                .size(22.dp)
+                                .offset(x = 3.dp, y = (-3).dp)
+                                .size(BadgeSize)
                                 .clip(CircleShape)
                                 .background(NotificationRed)
-                                .border(2.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+                                .border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -205,14 +210,15 @@ fun AccountPill(
 @Composable
 private fun StackedCircleAvatars(members: List<CircleMemberUi>) {
     if (members.isEmpty()) return
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(AvatarSize - AvatarPitch),
-        verticalAlignment = Alignment.CenterVertically,
+    val stackWidth = AvatarSize + AvatarPitch * (members.lastIndex)
+    Box(
+        modifier = Modifier.size(width = stackWidth, height = AvatarSize),
     ) {
         members.forEachIndexed { index, member ->
             Box(
                 modifier = Modifier
-                    .zIndex((members.size - index).toFloat())
+                    .offset(x = AvatarPitch * index)
+                    .zIndex(index.toFloat())
                     .size(AvatarSize)
                     .clip(CircleShape)
                     .border(1.5.dp, Color(0xFF0C1524), CircleShape),
