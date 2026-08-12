@@ -49,29 +49,25 @@ private const val LOOP_SECONDS = 420.0
 private const val WAVE_ANGLE_DEG = 16f
 
 /**
- * Grid the bands are warped on — around eight samples across the shortest ripple, so the swell
- * reads as a curve rather than facets.
+ * Long, soft wavelengths only need a sparse mesh — denser grids just burn work for no visible gain.
  */
-private const val MESH_COLUMNS = 52
-private const val MESH_ROWS = 30
+private const val MESH_COLUMNS = 24
+private const val MESH_ROWS = 14
 
 /**
  * Troughs are flattened to this fraction of the crest. Real waves are shaped that way — peaked
- * crests over broad shallow troughs — and it also earns headroom: the artwork's own upper boundary
- * sits only ~150 units above the frame in the left half, so a symmetric swell of this size would
- * drag that boundary into view as a hard edge.
+ * crests over broad shallow troughs — and it also earns headroom against the artwork's upper edge.
  */
-private const val TROUGH_FLATTEN = 0.45f
+private const val TROUGH_FLATTEN = 0.55f
 
 private const val TWO_PI = (Math.PI * 2).toFloat()
 private val WaveAngleCos = cos(WAVE_ANGLE_DEG * Math.PI.toFloat() / 180f)
 private val WaveAngleSin = sin(WAVE_ANGLE_DEG * Math.PI.toFloat() / 180f)
 
 /**
- * How a band moves: it slides along the diagonal, and its surface swells as two travelling waves
- * of different lengths run down that same axis, plus a slow cross-swell so the crest is never a
- * uniform ridge. Summing waves of unlike length is what stops the surface looking like one
- * repeating ripple.
+ * How a band moves: it slides along the diagonal, and its surface swells as one long travelling
+ * wave — at most one or two soft bends across the screen — with a faint secondary of similar
+ * scale so the surface never looks locked to a single sinusoid.
  */
 private class WaveBand(
     val driftPeriod: Float,
@@ -90,54 +86,46 @@ private class WaveBand(
     val swellPeriod: Float,
     val swellAmplitude: Float,
     val swellLength: Float,
-    val ripplePeriod: Float,
-    val rippleAmplitude: Float,
-    val rippleLength: Float,
-    val crossPeriod: Float,
-    val crossAmplitude: Float,
-    val crossLength: Float,
+    val secondaryPeriod: Float,
+    val secondaryAmplitude: Float,
+    val secondaryLength: Float,
     val swellPhase: Float,
 )
 
 private val BackBand = WaveBand(
-    driftPeriod = 28f,
-    driftAlong = 76f,
-    driftAcross = 20f,
+    driftPeriod = 32f,
+    driftAlong = 48f,
+    driftAcross = 10f,
     driftPhase = 0f,
-    swayPeriod = 35f,
-    swayAmplitude = 42f,
+    swayPeriod = 40f,
+    swayAmplitude = 14f,
     swayPhase = 0f,
-    swellPeriod = 12f,
-    swellAmplitude = 52f,
-    swellLength = 1150f,
-    ripplePeriod = 6f,
-    rippleAmplitude = 30f,
-    rippleLength = 430f,
-    crossPeriod = 20f,
-    crossAmplitude = 16f,
-    crossLength = 900f,
+    // ~one soft crest across the artboard.
+    swellPeriod = 18f,
+    swellAmplitude = 16f,
+    swellLength = 2400f,
+    secondaryPeriod = 26f,
+    secondaryAmplitude = 6f,
+    secondaryLength = 3200f,
     swellPhase = 0f,
 )
 
 private val FrontBand = WaveBand(
-    driftPeriod = 21f,
-    driftAlong = 100f,
-    driftAcross = 26f,
+    driftPeriod = 24f,
+    driftAlong = 62f,
+    driftAcross = 12f,
     // Set off counter to the back band, so the two cross instead of sliding in convoy.
     driftPhase = TWO_PI / 2f,
-    swayPeriod = 20f,
-    swayAmplitude = 54f,
+    swayPeriod = 28f,
+    swayAmplitude = 18f,
     // Counter to the back band's sway, so the gap between them breathes instead of holding.
     swayPhase = TWO_PI / 2f,
-    swellPeriod = 7f,
-    swellAmplitude = 68f,
-    swellLength = 950f,
-    ripplePeriod = 5f,
-    rippleAmplitude = 36f,
-    rippleLength = 390f,
-    crossPeriod = 15f,
-    crossAmplitude = 20f,
-    crossLength = 780f,
+    swellPeriod = 14f,
+    swellAmplitude = 20f,
+    swellLength = 2100f,
+    secondaryPeriod = 22f,
+    secondaryAmplitude = 7f,
+    secondaryLength = 2900f,
     swellPhase = TWO_PI / 3f,
 )
 
@@ -271,12 +259,9 @@ private class WaveMesh {
         offsetY: Float,
     ) {
         val swellPhase = band.swellPhase + TWO_PI * (seconds / band.swellPeriod)
-        // The shorter ripple runs at its own rate, so crests overtake each other.
-        val ripplePhase = TWO_PI * (seconds / band.ripplePeriod)
-        val crossPhase = TWO_PI * (seconds / band.crossPeriod)
+        val secondaryPhase = TWO_PI * (seconds / band.secondaryPeriod)
         val swellK = TWO_PI / band.swellLength
-        val rippleK = TWO_PI / band.rippleLength
-        val crossK = TWO_PI / band.crossLength
+        val secondaryK = TWO_PI / band.secondaryLength
 
         val spanX = ART_WIDTH + WAVE_BLEED * 2f
         val spanY = ART_HEIGHT + WAVE_BLEED * 2f
@@ -285,12 +270,10 @@ private class WaveMesh {
             val designY = -WAVE_BLEED + spanY * row / MESH_ROWS
             for (column in 0..MESH_COLUMNS) {
                 val designX = -WAVE_BLEED + spanX * column / MESH_COLUMNS
-                // Distance along the diagonal, and across it, for this vertex.
+                // Distance along the diagonal for this vertex.
                 val alongAxis = designX * WaveAngleCos + designY * WaveAngleSin
-                val acrossAxis = -designX * WaveAngleSin + designY * WaveAngleCos
                 val swell = sin(alongAxis * swellK - swellPhase) * band.swellAmplitude +
-                    sin(alongAxis * rippleK - ripplePhase) * band.rippleAmplitude +
-                    sin(acrossAxis * crossK + crossPhase) * band.crossAmplitude
+                    sin(alongAxis * secondaryK - secondaryPhase) * band.secondaryAmplitude
                 // Negative lifts the surface, so crests keep their full height while troughs stay
                 // shallow. Peaked crests read as water, and the flat side is the one with no room.
                 val lift = if (swell < 0f) swell else swell * TROUGH_FLATTEN
