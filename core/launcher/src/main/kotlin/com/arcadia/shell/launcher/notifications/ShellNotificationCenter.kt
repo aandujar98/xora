@@ -36,6 +36,10 @@ class ShellNotificationCenter @Inject constructor(
     private val _active = MutableStateFlow<ShellNotification?>(null)
     val active: StateFlow<ShellNotification?> = _active.asStateFlow()
 
+    private val _recent = MutableStateFlow<List<ShellNotification>>(emptyList())
+    /** Newest-first history for the LT notification center. */
+    val recent: StateFlow<List<ShellNotification>> = _recent.asStateFlow()
+
     private val recentIds = ConcurrentHashMap.newKeySet<String>()
     private var holdJob: Job? = null
 
@@ -78,6 +82,7 @@ class ShellNotificationCenter @Inject constructor(
             recentIds.clear()
             recentIds.add(notification.id)
         }
+        rememberRecent(notification)
 
         if (foregroundTracker.isForeground) {
             inbound.trySend(notification)
@@ -102,6 +107,15 @@ class ShellNotificationCenter @Inject constructor(
         clearIfCurrent(current.id)
     }
 
+    fun clearHistory() {
+        _recent.value = emptyList()
+    }
+
+    private fun rememberRecent(notification: ShellNotification) {
+        val next = listOf(notification) + _recent.value.filterNot { it.id == notification.id }
+        _recent.value = next.take(MAX_HISTORY)
+    }
+
     private fun clearIfCurrent(id: String) {
         if (_active.value?.id == id) {
             _active.value = null
@@ -114,5 +128,6 @@ class ShellNotificationCenter @Inject constructor(
         /** Brief gap so exit/enter animations do not collide. */
         const val GAP_MS = 220L
         private const val MAX_RECENT_IDS = 120
+        private const val MAX_HISTORY = 40
     }
 }

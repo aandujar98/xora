@@ -225,6 +225,8 @@ class HomeViewModel @Inject constructor(
     private val conversationReply = MutableStateFlow(ConversationReplyUiState())
     private val circlePins = MutableStateFlow<List<CirclePin>>(emptyList())
     private val managingCircle = MutableStateFlow(false)
+    /** LT notification center overlay (recent shell notifications + conversations). */
+    private val notificationsOpen = MutableStateFlow(false)
     private val friendSearchQuery = MutableStateFlow("")
     private val profileEditRequest = MutableStateFlow(0)
     private val systemPanelExpanded = MutableStateFlow(false)
@@ -396,6 +398,11 @@ class HomeViewModel @Inject constructor(
         val raSettings: RetroAchievementsSettings,
     )
 
+    private val notificationCenterFlow = combine(
+        notificationsOpen,
+        shellNotifications.recent,
+    ) { open, recent -> open to recent }
+
     private val socialPartnersFlow = combine(
         steamFriendsUi,
         discordSocialUi,
@@ -404,9 +411,10 @@ class HomeViewModel @Inject constructor(
         combine(
             combine(circlePins, managingCircle, friendSearchQuery, ::Triple),
             discordRichPresence.dmThread,
-        ) { circle, dm -> circle to dm },
-    ) { steam, discord, conversations, reply, circleAndDm ->
-        val (circle, dm) = circleAndDm
+            notificationCenterFlow,
+        ) { circle, dm, notifications -> Triple(circle, dm, notifications) },
+    ) { steam, discord, conversations, reply, extra ->
+        val (circle, dm, notifications) = extra
         SocialPartners(
             steam = steam,
             discord = discord,
@@ -416,6 +424,8 @@ class HomeViewModel @Inject constructor(
             circlePins = circle.first,
             managingCircle = circle.second,
             friendSearchQuery = circle.third,
+            notificationsOpen = notifications.first,
+            recentNotifications = notifications.second,
         )
     }
 
@@ -428,6 +438,8 @@ class HomeViewModel @Inject constructor(
         val circlePins: List<CirclePin>,
         val managingCircle: Boolean,
         val friendSearchQuery: String,
+        val notificationsOpen: Boolean,
+        val recentNotifications: List<ShellNotification>,
     )
 
     private val socialFlow = combine(
@@ -446,6 +458,8 @@ class HomeViewModel @Inject constructor(
             circlePins = partners.circlePins,
             managingCircle = partners.managingCircle,
             friendSearchQuery = partners.friendSearchQuery,
+            notificationsOpen = partners.notificationsOpen,
+            recentNotifications = partners.recentNotifications,
             accountPanelSelectedIndex = accountIndex,
             profileEditRequest = editRequest,
         )
@@ -461,6 +475,8 @@ class HomeViewModel @Inject constructor(
         val circlePins: List<CirclePin>,
         val managingCircle: Boolean,
         val friendSearchQuery: String,
+        val notificationsOpen: Boolean,
+        val recentNotifications: List<ShellNotification>,
         val accountPanelSelectedIndex: Int,
         val profileEditRequest: Int,
     )
@@ -1199,6 +1215,8 @@ class HomeViewModel @Inject constructor(
             discordDm = social.discordDm,
             circlePins = social.circlePins,
             managingCircle = social.managingCircle,
+            notificationsOpen = social.notificationsOpen,
+            recentNotifications = social.recentNotifications,
             friendSearchQuery = social.friendSearchQuery,
         )
         val accountRows = buildAccountPanelRows(
@@ -1211,6 +1229,7 @@ class HomeViewModel @Inject constructor(
             circlePins = socialMenu.circlePins,
             managingCircle = socialMenu.managingCircle,
             friendSearchQuery = socialMenu.friendSearchQuery,
+            notificationsOpen = socialMenu.notificationsOpen,
         )
         val accountIndex = social.accountPanelSelectedIndex.coerceIn(
             0,
@@ -1319,12 +1338,14 @@ class HomeViewModel @Inject constructor(
         managingCircle: Boolean,
         friendSearchQuery: String,
         discordDm: DiscordDmThreadUiState = DiscordDmThreadUiState(),
+        notificationsOpen: Boolean = false,
     ): List<AccountPanelRow> {
         val circleKeys = circlePins.mapTo(mutableSetOf()) { it.key }
         val q = friendSearchQuery.trim()
 
         return buildList {
-            // Header chrome: Manage + Circle slots are always focusable.
+            // Header chrome: Notifications + Manage + Circle slots are always focusable.
+            add(AccountPanelRow.OpenNotifications)
             add(AccountPanelRow.ManageCircle)
             repeat(CIRCLE_FRIEND_LIMIT) { slot ->
                 val pin = circlePins.getOrNull(slot)
@@ -1333,6 +1354,15 @@ class HomeViewModel @Inject constructor(
                 } else {
                     add(AccountPanelRow.CircleEmptySlot(slot))
                 }
+            }
+
+            if (notificationsOpen) {
+                // Notification center shows conversations regardless of the active tab.
+                if (reply.conversationKey != null) {
+                    add(AccountPanelRow.ConversationReplySend(reply.conversationKey))
+                }
+                conversations.conversations.forEach { add(AccountPanelRow.Conversation(it.key)) }
+                return@buildList
             }
 
             when (tab) {
@@ -1391,7 +1421,7 @@ class HomeViewModel @Inject constructor(
                         }
                     }
                 }
-                SocialMenuTab.Android -> {
+                SocialMenuTab.XoraNetwork -> {
                     if (!conversations.listenerEnabled) {
                         add(AccountPanelRow.EnableNotificationAccess)
                     } else {
@@ -2729,11 +2759,13 @@ class HomeViewModel @Inject constructor(
         // Social menu owns the gamepad while open — absorb L/R and LB/RB (tabs); no page hops.
         when (action) {
             NavAction.Left, NavAction.PreviousPlatform -> {
+                if (notificationsOpen.value) return
                 clearConversationReply()
                 discordRichPresence.closeDm()
                 cycleSocialMenuTab(-1)
             }
             NavAction.Right, NavAction.NextPlatform -> {
+                if (notificationsOpen.value) return
                 clearConversationReply()
                 discordRichPresence.closeDm()
                 cycleSocialMenuTab(1)
@@ -2745,6 +2777,10 @@ class HomeViewModel @Inject constructor(
                 when {
                     conversationReply.value.conversationKey != null -> clearConversationReply()
                     discordRichPresence.dmThread.value.peerUserId != null -> handleDiscordDmBack()
+                    notificationsOpen.value -> {
+                        notificationsOpen.value = false
+                        accountPanelSelectedIndex.value = 0
+                    }
                     else -> collapseHeroPanels()
                 }
             }
@@ -2863,13 +2899,17 @@ class HomeViewModel @Inject constructor(
         }
         val row = state.accountPanelRows.getOrNull(rowIndex) ?: return
         when (row) {
+            AccountPanelRow.OpenNotifications -> {
+                notificationsOpen.update { !it }
+                accountPanelSelectedIndex.value = 0
+            }
             AccountPanelRow.ManageCircle -> {
                 managingCircle.update { !it }
                 accountPanelSelectedIndex.value = 0
             }
             is AccountPanelRow.CircleEmptySlot -> {
                 managingCircle.value = true
-                emit(HomeEvent.ShowMessage("Pick a friend to add to Your Circle."))
+                emit(HomeEvent.ShowMessage("Pick a friend to pin."))
             }
             is AccountPanelRow.CircleMember -> {
                 if (managingCircle.value) {
@@ -3951,12 +3991,14 @@ class HomeViewModel @Inject constructor(
             achievementsPanelExpanded.value = false
             socialMenuTab.value = SocialMenuTab.Discord
             managingCircle.value = false
+            notificationsOpen.value = false
             friendSearchQuery.value = ""
             accountPanelSelectedIndex.value = 0
             if (steamFriendsUi.value.isConfigured) refreshSteamFriends()
             conversationRepository.refreshListenerEnabled()
         } else {
             managingCircle.value = false
+            notificationsOpen.value = false
         }
     }
 

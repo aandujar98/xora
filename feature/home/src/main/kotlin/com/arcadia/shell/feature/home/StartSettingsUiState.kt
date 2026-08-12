@@ -436,7 +436,7 @@ fun buildStartSettingsRows(
         StartSettingsRow.Action(
             id = "open_social",
             title = "Open Social",
-            subtitle = "Circle, Steam & Discord",
+            subtitle = "Pinned Friends, Steam & Discord",
             action = StartSettingsAction.OpenSocialMenu,
         ),
         StartSettingsRow.Action(
