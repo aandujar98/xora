@@ -68,6 +68,10 @@ import com.arcadia.shell.launcher.music.MusicLibrary
 import com.arcadia.shell.launcher.music.MusicSource
 import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.launcher.music.NowPlayingController
+import com.arcadia.shell.launcher.photos.DevicePhoto
+import com.arcadia.shell.launcher.photos.PhotoAccess
+import com.arcadia.shell.launcher.photos.PhotoEditor
+import com.arcadia.shell.launcher.photos.PhotoLibrary
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
@@ -151,6 +155,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlin.math.roundToInt
@@ -198,6 +203,8 @@ class HomeViewModel @Inject constructor(
     private val spotifyWebApi: SpotifyWebApi,
     private val musicLibrary: MusicLibrary,
     private val musicArtRepository: MusicArtRepository,
+    private val photoLibrary: PhotoLibrary,
+    private val photoEditor: PhotoEditor,
     private val nowPlayingController: NowPlayingController,
     private val conversationRepository: ConversationRepository,
     private val discordRichPresence: DiscordRichPresence,
@@ -745,6 +752,14 @@ class HomeViewModel @Inject constructor(
     /** Music browse rungs; the Now Playing state is owned by the shared controller. */
     private val musicUi = MutableStateFlow(MusicUiState())
 
+    /** Media → Photos gallery / viewer / edit / delete state. */
+    private val photosUi = MutableStateFlow(PhotosUiState())
+    private var photoSlideshowJob: Job? = null
+    private var photoControlsHideJob: Job? = null
+    private var pendingDeletePhotoId: String? = null
+    /** Debounce for layer-changing photo actions so one press cannot fire through two layers. */
+    private var lastPhotoLayerActionMs = 0L
+
     private val musicFlow = combine(
         musicUi,
         nowPlayingController.state,
@@ -828,9 +843,12 @@ class HomeViewModel @Inject constructor(
         combine(
             combine(welcomeBackOpen, notificationChrome) { welcome, notif -> welcome to notif },
             systemProfileChromeFlow(),
-        ) { welcomeAndNotif, systemProfile -> welcomeAndNotif to systemProfile },
-    ) { base, trailer, insight, systemIndex, welcomeAndProfile ->
-        val (welcomeAndNotif, systemProfile) = welcomeAndProfile
+            photosUi,
+        ) { welcomeAndNotif, systemProfile, photos ->
+            Triple(welcomeAndNotif, systemProfile, photos)
+        },
+    ) { base, trailer, insight, systemIndex, welcomeProfilePhotos ->
+        val (welcomeAndNotif, systemProfile, photos) = welcomeProfilePhotos
         val (welcomeBack, notif) = welcomeAndNotif
         base.copy(
             trailer = trailer,
@@ -843,6 +861,7 @@ class HomeViewModel @Inject constructor(
             notificationHistorySelectedIndex = notif.selectedIndex
                 .coerceIn(0, (notif.history.size - 1).coerceAtLeast(0)),
             systemProfile = systemProfile,
+            photos = photos,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -876,6 +895,10 @@ class HomeViewModel @Inject constructor(
 
         preferences.homeShortcuts
             .onEach { homeShortcuts.value = it }
+            .launchIn(viewModelScope)
+
+        preferences.favoritePhotoIds
+            .onEach { favorites -> photosUi.update { it.copy(favoriteIds = favorites) } }
             .launchIn(viewModelScope)
 
         preferences.homeShortcutGridLayout
@@ -1365,6 +1388,8 @@ class HomeViewModel @Inject constructor(
             XoraXmbDepth.MusicTracks -> buildXoraMusicTrackItems(platformChrome.music.tracks)
             // The player page draws itself; the rung carries no list.
             XoraXmbDepth.NowPlaying -> emptyList()
+            // The gallery pane draws itself; the rung carries no list.
+            XoraXmbDepth.Photos -> emptyList()
         }
         val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
         val xoraSelected = xoraItems.getOrNull(xoraItemIndex)
@@ -1965,6 +1990,17 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        // Media → Photos pane captures the pad while open, PSP-style: A view, X options,
+        // Y slideshow, B back, LB/RB page. LT/RT still toggle their panels.
+        if (state.homePage == HomePage.Home && state.xoraXmb.depth == XoraXmbDepth.Photos) {
+            when (action) {
+                NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                else -> onPhotosNavAction(action)
+            }
+            return
+        }
+
         // On XOrA XMB home, LB/RB cycle categories. Elsewhere they retain page jumps.
         when (action) {
             NavAction.PreviousPlatform -> {
@@ -2240,8 +2276,7 @@ class HomeViewModel @Inject constructor(
             XoraXmbAction.LoadGameState,
             XoraXmbAction.ResetGame,
             -> Unit
-            XoraXmbAction.PhotosStub ->
-                emit(HomeEvent.ShowMessage("Photos — coming soon."))
+            XoraXmbAction.OpenPhotos -> openPhotosRung()
             XoraXmbAction.VideosStub ->
                 emit(HomeEvent.ShowMessage("Videos — coming soon."))
             XoraXmbAction.OpenNowPlaying -> {
@@ -2395,6 +2430,21 @@ class HomeViewModel @Inject constructor(
                 }
             }
             XoraXmbDepth.NowPlaying -> {
+                xoraDepth.value = XoraXmbDepth.Category
+                xoraItemIndex.value = 0
+            }
+            XoraXmbDepth.Photos -> {
+                stopPhotoSlideshow()
+                photoControlsHideJob?.cancel()
+                photosUi.update {
+                    it.copy(
+                        optionsOpen = false,
+                        fullscreenOpen = false,
+                        fullscreenControlsVisible = true,
+                        deleteConfirmOpen = false,
+                        edit = null,
+                    )
+                }
                 xoraDepth.value = XoraXmbDepth.Category
                 xoraItemIndex.value = 0
             }
@@ -2587,6 +2637,494 @@ class HomeViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Media → Photos
+    // ------------------------------------------------------------------
+
+    /**
+     * Slides into the Photos gallery and loads the device library. MediaStore is queried per
+     * open, like Music, so the shell never pays for an image scan it may not show.
+     */
+    private fun openPhotosRung() {
+        xoraDepth.value = XoraXmbDepth.Photos
+        xoraItemIndex.value = 0
+        val access = photoLibrary.access()
+        photosUi.update {
+            it.copy(
+                access = access,
+                isLoading = access != PhotoAccess.Denied,
+                loadError = null,
+                optionsOpen = false,
+                fullscreenOpen = false,
+                deleteConfirmOpen = false,
+                edit = null,
+            )
+        }
+        if (access == PhotoAccess.Denied) {
+            emit(HomeEvent.RequestImageAccess(photoLibrary.requiredPermissions()))
+            return
+        }
+        loadPhotos()
+    }
+
+    private fun loadPhotos(keepFocusId: String? = null) {
+        viewModelScope.launch {
+            val result = runCatching { photoLibrary.photos() }
+            result.onSuccess { photos ->
+                photosUi.update { ui ->
+                    val kept = keepFocusId?.let { id -> photos.indexOfFirst { it.id == id } }
+                        ?.takeIf { it >= 0 }
+                    val focus = (kept ?: ui.focusedIndex)
+                        .coerceIn(0, (photos.size - 1).coerceAtLeast(0))
+                    ui.copy(
+                        photos = photos,
+                        focusedIndex = focus,
+                        isLoading = false,
+                        loadError = null,
+                    )
+                }
+            }.onFailure { error ->
+                Log.w("HomeViewModel", "Photo library load failed", error)
+                photosUi.update {
+                    it.copy(isLoading = false, loadError = "Couldn't load your photo library.")
+                }
+            }
+        }
+    }
+
+    /** Re-checks photo access once the permission dialog is answered, then loads. */
+    fun onImageAccessResult() {
+        val access = photoLibrary.access()
+        photosUi.update { it.copy(access = access) }
+        if (access == PhotoAccess.Denied) {
+            emit(HomeEvent.ShowMessage("Photos needs access to your photo library."))
+            return
+        }
+        if (xoraDepth.value == XoraXmbDepth.Photos) {
+            photosUi.update { it.copy(isLoading = true) }
+            loadPhotos()
+        }
+    }
+
+    /** One press must not activate two layers: gate layer-changing photo actions. */
+    private fun photoLayerActionAllowed(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastPhotoLayerActionMs < PHOTO_LAYER_DEBOUNCE_MS) return false
+        lastPhotoLayerActionMs = now
+        return true
+    }
+
+    /** Layer priority: edit → delete confirm → options popup → fullscreen viewer → gallery. */
+    private fun onPhotosNavAction(action: NavAction) {
+        val ui = photosUi.value
+
+        val edit = ui.edit
+        if (edit != null) {
+            when (action) {
+                NavAction.Left -> photoEditFocusTool(edit.toolIndex - 1)
+                NavAction.Right -> photoEditFocusTool(edit.toolIndex + 1)
+                NavAction.Confirm -> if (photoLayerActionAllowed()) {
+                    activatePhotoEditTool(edit.toolIndex)
+                }
+                NavAction.Cancel -> if (photoLayerActionAllowed()) closePhotoEdit()
+                else -> Unit
+            }
+            return
+        }
+
+        if (ui.deleteConfirmOpen) {
+            when (action) {
+                NavAction.Left, NavAction.Right, NavAction.Up, NavAction.Down ->
+                    photosUi.update {
+                        it.copy(deleteConfirmDeleteFocused = !it.deleteConfirmDeleteFocused)
+                    }
+                NavAction.Confirm -> if (photoLayerActionAllowed()) {
+                    if (photosUi.value.deleteConfirmDeleteFocused) {
+                        confirmPhotoDelete()
+                    } else {
+                        closePhotoDeleteConfirm()
+                    }
+                }
+                NavAction.Cancel -> if (photoLayerActionAllowed()) closePhotoDeleteConfirm()
+                else -> Unit
+            }
+            return
+        }
+
+        if (ui.optionsOpen) {
+            when (action) {
+                NavAction.Up -> movePhotoOption(-1)
+                NavAction.Down -> movePhotoOption(1)
+                NavAction.Confirm -> if (photoLayerActionAllowed()) {
+                    activatePhotoOption(photosUi.value.optionIndex)
+                }
+                // Square closes its own popup, and B backs out — focus stays trapped inside.
+                NavAction.Cancel, NavAction.ToggleAchievementsPanel ->
+                    if (photoLayerActionAllowed()) closePhotoOptions()
+                else -> Unit
+            }
+            return
+        }
+
+        if (ui.fullscreenOpen) {
+            revealPhotoControls()
+            when (action) {
+                NavAction.Left -> {
+                    if (ui.slideshowActive) stopPhotoSlideshow()
+                    movePhotoFocus(-1)
+                }
+                NavAction.Right -> {
+                    if (ui.slideshowActive) stopPhotoSlideshow()
+                    movePhotoFocus(1)
+                }
+                NavAction.SwapScreens -> if (photoLayerActionAllowed()) {
+                    if (ui.slideshowActive) stopPhotoSlideshow() else startPhotoSlideshow()
+                }
+                NavAction.Cancel -> if (photoLayerActionAllowed()) closePhotoViewer()
+                else -> Unit
+            }
+            return
+        }
+
+        if (ui.photos.isEmpty()) {
+            when (action) {
+                NavAction.Confirm -> if (ui.access == PhotoAccess.Denied) {
+                    emit(HomeEvent.RequestImageAccess(photoLibrary.requiredPermissions()))
+                }
+                NavAction.Cancel -> drillOutXora()
+                else -> Unit
+            }
+            return
+        }
+
+        when (action) {
+            NavAction.Left -> movePhotoFocus(-1)
+            NavAction.Right -> movePhotoFocus(1)
+            NavAction.Up -> movePhotoFocusRow(-1)
+            NavAction.Down -> movePhotoFocusRow(1)
+            NavAction.PreviousPlatform -> movePhotoPage(-1)
+            NavAction.NextPlatform -> movePhotoPage(1)
+            NavAction.Confirm -> if (photoLayerActionAllowed()) openPhotoViewer()
+            NavAction.ToggleAchievementsPanel, NavAction.Options ->
+                if (photoLayerActionAllowed()) openPhotoOptions()
+            NavAction.SwapScreens -> if (photoLayerActionAllowed()) startPhotoSlideshow()
+            NavAction.Cancel -> drillOutXora()
+            else -> Unit
+        }
+    }
+
+    /** Touch / click entry point — the pane funnels every tap through here. */
+    fun onPhotoCommand(command: PhotoPaneCommand) {
+        noteUserActivity()
+        when (command) {
+            is PhotoPaneCommand.Focus -> photosUi.update {
+                it.copy(focusedIndex = command.index.coerceIn(0, (it.photos.size - 1).coerceAtLeast(0)))
+            }
+            is PhotoPaneCommand.Open -> {
+                photosUi.update {
+                    it.copy(focusedIndex = command.index.coerceIn(0, (it.photos.size - 1).coerceAtLeast(0)))
+                }
+                openPhotoViewer()
+            }
+            PhotoPaneCommand.OpenOptions -> openPhotoOptions()
+            PhotoPaneCommand.CloseOptions -> closePhotoOptions()
+            is PhotoPaneCommand.FocusOption -> photosUi.update {
+                it.copy(optionIndex = command.index.coerceIn(0, PhotoOption.entries.lastIndex))
+            }
+            is PhotoPaneCommand.ActivateOption -> activatePhotoOption(command.index)
+            PhotoPaneCommand.StartSlideshow -> startPhotoSlideshow()
+            PhotoPaneCommand.CloseViewer -> closePhotoViewer()
+            PhotoPaneCommand.NextPhoto -> {
+                if (photosUi.value.slideshowActive) stopPhotoSlideshow()
+                movePhotoFocus(1)
+                revealPhotoControls()
+            }
+            PhotoPaneCommand.PreviousPhoto -> {
+                if (photosUi.value.slideshowActive) stopPhotoSlideshow()
+                movePhotoFocus(-1)
+                revealPhotoControls()
+            }
+            PhotoPaneCommand.RevealControls -> revealPhotoControls()
+            is PhotoPaneCommand.FocusDeleteChoice -> photosUi.update {
+                it.copy(deleteConfirmDeleteFocused = command.delete)
+            }
+            PhotoPaneCommand.ConfirmDelete -> confirmPhotoDelete()
+            PhotoPaneCommand.CancelDelete -> closePhotoDeleteConfirm()
+            is PhotoPaneCommand.FocusEditTool -> photoEditFocusTool(command.index)
+            is PhotoPaneCommand.ActivateEditTool -> activatePhotoEditTool(command.index)
+            PhotoPaneCommand.RequestAccess ->
+                emit(HomeEvent.RequestImageAccess(photoLibrary.requiredPermissions()))
+            PhotoPaneCommand.Retry -> {
+                photosUi.update { it.copy(isLoading = true, loadError = null) }
+                loadPhotos()
+            }
+            PhotoPaneCommand.Back -> {
+                val ui = photosUi.value
+                when {
+                    ui.edit != null -> closePhotoEdit()
+                    ui.deleteConfirmOpen -> closePhotoDeleteConfirm()
+                    ui.optionsOpen -> closePhotoOptions()
+                    ui.fullscreenOpen -> closePhotoViewer()
+                    else -> drillOutXora()
+                }
+            }
+        }
+    }
+
+    private fun movePhotoFocus(delta: Int) {
+        photosUi.update { ui ->
+            if (ui.photos.isEmpty()) return@update ui
+            val next = if (ui.slideshowActive) {
+                (ui.focusedIndex + delta + ui.photos.size) % ui.photos.size
+            } else {
+                (ui.focusedIndex + delta).coerceIn(0, ui.photos.lastIndex)
+            }
+            ui.copy(focusedIndex = next)
+        }
+    }
+
+    private fun movePhotoFocusRow(delta: Int) {
+        photosUi.update { ui ->
+            if (ui.photos.isEmpty()) return@update ui
+            val next = (ui.focusedIndex + delta * PHOTO_GRID_COLUMNS)
+                .coerceIn(0, ui.photos.lastIndex)
+            ui.copy(focusedIndex = next)
+        }
+    }
+
+    private fun movePhotoPage(delta: Int) {
+        photosUi.update { ui ->
+            if (ui.photos.isEmpty()) return@update ui
+            val nextPage = (ui.currentPage + delta).coerceIn(0, ui.pageCount - 1)
+            val offsetInPage = ui.focusedIndex % PHOTO_PAGE_SIZE
+            val next = (nextPage * PHOTO_PAGE_SIZE + offsetInPage)
+                .coerceIn(0, ui.photos.lastIndex)
+            ui.copy(focusedIndex = next)
+        }
+    }
+
+    private fun openPhotoViewer() {
+        if (photosUi.value.focusedPhoto == null) return
+        photosUi.update {
+            it.copy(fullscreenOpen = true, fullscreenControlsVisible = true, optionsOpen = false)
+        }
+        schedulePhotoControlsHide()
+    }
+
+    private fun closePhotoViewer() {
+        stopPhotoSlideshow()
+        photoControlsHideJob?.cancel()
+        photosUi.update { it.copy(fullscreenOpen = false, fullscreenControlsVisible = true) }
+    }
+
+    private fun revealPhotoControls() {
+        photosUi.update { it.copy(fullscreenControlsVisible = true) }
+        schedulePhotoControlsHide()
+    }
+
+    private fun schedulePhotoControlsHide() {
+        photoControlsHideJob?.cancel()
+        photoControlsHideJob = viewModelScope.launch {
+            delay(PHOTO_CONTROLS_HIDE_MS)
+            photosUi.update { it.copy(fullscreenControlsVisible = false) }
+        }
+    }
+
+    private fun startPhotoSlideshow() {
+        if (photosUi.value.photos.isEmpty()) {
+            emit(HomeEvent.ShowMessage("No photos to show yet."))
+            return
+        }
+        photoSlideshowJob?.cancel()
+        photosUi.update {
+            it.copy(
+                fullscreenOpen = true,
+                slideshowActive = true,
+                optionsOpen = false,
+                fullscreenControlsVisible = false,
+            )
+        }
+        photoSlideshowJob = viewModelScope.launch {
+            while (isActive && photosUi.value.slideshowActive) {
+                delay(PHOTO_SLIDESHOW_INTERVAL_MS)
+                if (photosUi.value.slideshowActive) movePhotoFocus(1)
+            }
+        }
+    }
+
+    private fun stopPhotoSlideshow() {
+        photoSlideshowJob?.cancel()
+        photoSlideshowJob = null
+        photosUi.update { it.copy(slideshowActive = false) }
+    }
+
+    private fun openPhotoOptions() {
+        if (photosUi.value.focusedPhoto == null) return
+        photosUi.update { it.copy(optionsOpen = true, optionIndex = 0) }
+    }
+
+    private fun closePhotoOptions() {
+        photosUi.update { it.copy(optionsOpen = false) }
+    }
+
+    private fun movePhotoOption(delta: Int) {
+        photosUi.update { ui ->
+            ui.copy(optionIndex = (ui.optionIndex + delta).coerceIn(0, PhotoOption.entries.lastIndex))
+        }
+    }
+
+    private fun activatePhotoOption(index: Int) {
+        val option = PhotoOption.entries.getOrNull(index) ?: return
+        val photo = photosUi.value.focusedPhoto ?: return
+        when (option) {
+            PhotoOption.View -> {
+                closePhotoOptions()
+                openPhotoViewer()
+            }
+            PhotoOption.Edit -> {
+                closePhotoOptions()
+                openPhotoEdit(photo)
+            }
+            PhotoOption.MarkFavorite -> togglePhotoFavorite(photo)
+            PhotoOption.Delete -> {
+                closePhotoOptions()
+                photosUi.update {
+                    it.copy(deleteConfirmOpen = true, deleteConfirmDeleteFocused = false)
+                }
+            }
+            PhotoOption.ShareToNetwork ->
+                emit(HomeEvent.ShowMessage("XOrA Network sharing is coming soon."))
+        }
+    }
+
+    /** Favorite status lives in preferences, never in the image file. */
+    fun togglePhotoFavorite(photo: DevicePhoto) {
+        val favored = photo.id in photosUi.value.favoriteIds
+        viewModelScope.launch { preferences.setPhotoFavorite(photo.id, !favored) }
+    }
+
+    private fun openPhotoEdit(photo: DevicePhoto) {
+        stopPhotoSlideshow()
+        photosUi.update {
+            it.copy(edit = PhotoEditUiState(photo = photo), fullscreenOpen = false)
+        }
+    }
+
+    private fun closePhotoEdit() {
+        photosUi.update { it.copy(edit = null) }
+    }
+
+    private fun photoEditFocusTool(index: Int) {
+        photosUi.update { ui ->
+            val edit = ui.edit ?: return@update ui
+            ui.copy(edit = edit.copy(toolIndex = index.coerceIn(0, PhotoEditTool.entries.lastIndex)))
+        }
+    }
+
+    private fun activatePhotoEditTool(index: Int) {
+        val edit = photosUi.value.edit ?: return
+        if (edit.saving) return
+        when (PhotoEditTool.entries.getOrNull(index) ?: return) {
+            PhotoEditTool.RotateLeft -> photosUi.update {
+                it.copy(edit = edit.copy(rotationDeg = (edit.rotationDeg + 270) % 360, toolIndex = index))
+            }
+            PhotoEditTool.RotateRight -> photosUi.update {
+                it.copy(edit = edit.copy(rotationDeg = (edit.rotationDeg + 90) % 360, toolIndex = index))
+            }
+            PhotoEditTool.Crop -> photosUi.update {
+                it.copy(
+                    edit = edit.copy(
+                        cropIndex = (edit.cropIndex + 1) % PHOTO_CROP_PRESETS.size,
+                        toolIndex = index,
+                    ),
+                )
+            }
+            PhotoEditTool.Reset -> photosUi.update {
+                it.copy(edit = edit.copy(rotationDeg = 0, cropIndex = 0, toolIndex = index))
+            }
+            PhotoEditTool.Save -> savePhotoEdit()
+            PhotoEditTool.Cancel -> closePhotoEdit()
+        }
+    }
+
+    /** Writes the rotated / cropped result as a NEW image; the original is never modified. */
+    private fun savePhotoEdit() {
+        val edit = photosUi.value.edit ?: return
+        if (edit.rotationDeg == 0 && edit.cropAspect == null) {
+            emit(HomeEvent.ShowMessage("No changes to save yet."))
+            return
+        }
+        photosUi.update { it.copy(edit = edit.copy(saving = true)) }
+        viewModelScope.launch {
+            val saved = photoEditor.saveEditedCopy(
+                sourceUri = Uri.parse(edit.photo.contentUri),
+                rotationDeg = edit.rotationDeg,
+                cropAspect = edit.cropAspect,
+                baseName = edit.photo.displayName,
+            )
+            if (saved != null) {
+                emit(HomeEvent.ShowMessage("Saved an edited copy to Pictures/XOrA."))
+                photosUi.update { it.copy(edit = null) }
+                loadPhotos(keepFocusId = photosUi.value.focusedPhoto?.id)
+            } else {
+                emit(HomeEvent.ShowError("Couldn't save the edited photo."))
+                photosUi.update { ui ->
+                    ui.copy(edit = ui.edit?.copy(saving = false))
+                }
+            }
+        }
+    }
+
+    private fun closePhotoDeleteConfirm() {
+        photosUi.update { it.copy(deleteConfirmOpen = false) }
+    }
+
+    /**
+     * Deletion runs through MediaStore's consent flow: API 30+ uses createDeleteRequest, API 29
+     * attempts a direct delete and falls back to the RecoverableSecurityException sender.
+     */
+    private fun confirmPhotoDelete() {
+        val photo = photosUi.value.focusedPhoto ?: return
+        closePhotoDeleteConfirm()
+        pendingDeletePhotoId = photo.id
+        val uri = Uri.parse(photo.contentUri)
+        photoLibrary.deleteRequest(uri)?.let { sender ->
+            emit(HomeEvent.RequestPhotoDelete(sender))
+            return
+        }
+        viewModelScope.launch {
+            val outcome = withContext(Dispatchers.IO) { photoLibrary.deleteDirect(uri) }
+            val recovery = outcome.recoverySender
+            when {
+                outcome.deleted -> onPhotoDeleteResult(confirmed = true)
+                recovery != null -> emit(HomeEvent.RequestPhotoDelete(recovery))
+                else -> {
+                    pendingDeletePhotoId = null
+                    emit(HomeEvent.ShowError("XOrA wasn't allowed to delete that photo."))
+                }
+            }
+        }
+    }
+
+    /** Called with the system consent result; selects the nearest remaining photo. */
+    fun onPhotoDeleteResult(confirmed: Boolean) {
+        val deletedId = pendingDeletePhotoId
+        pendingDeletePhotoId = null
+        if (!confirmed || deletedId == null) return
+        photosUi.update { ui ->
+            val index = ui.photos.indexOfFirst { it.id == deletedId }
+            if (index < 0) return@update ui
+            val remaining = ui.photos.filterNot { it.id == deletedId }
+            ui.copy(
+                photos = remaining,
+                focusedIndex = index.coerceIn(0, (remaining.size - 1).coerceAtLeast(0)),
+                fullscreenOpen = ui.fullscreenOpen && remaining.isNotEmpty(),
+            )
+        }
+        emit(HomeEvent.ShowMessage("Photo deleted."))
+        loadPhotos(keepFocusId = photosUi.value.focusedPhoto?.id)
     }
 
     /** Re-runs the pending music rung once the audio permission dialog is answered. */
@@ -5851,6 +6389,11 @@ class HomeViewModel @Inject constructor(
         const val RA_UNLOCK_POLL_MS = 90_000L
         /** Ignore brief pauses (permission sheets, quick app switches). */
         const val WELCOME_BACK_THRESHOLD_MS = 45_000L
+        /** One press must not fire through two Photo Viewer layers. */
+        const val PHOTO_LAYER_DEBOUNCE_MS = 250L
+        /** Fullscreen photo chrome fades after this pause. */
+        const val PHOTO_CONTROLS_HIDE_MS = 3_000L
+        const val PHOTO_SLIDESHOW_INTERVAL_MS = 4_000L
     }
 
     private fun refreshInstalledApps() {

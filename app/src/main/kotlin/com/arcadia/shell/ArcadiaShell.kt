@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
@@ -162,6 +163,18 @@ fun ArcadiaShell(
     ) { granted ->
         homeViewModel.onAudioAccessResult(granted)
     }
+    // Photos: multiple-permission request (READ_MEDIA_IMAGES + partial-access on 14+).
+    val imagePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) { _ ->
+        homeViewModel.onImageAccessResult()
+    }
+    // MediaStore deletion consent dialog (createDeleteRequest / RecoverableSecurityException).
+    val photoDeleteLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        homeViewModel.onPhotoDeleteResult(result.resultCode == Activity.RESULT_OK)
+    }
     val gameBoxArtPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -302,6 +315,13 @@ fun ArcadiaShell(
                     }
                 }
                 is HomeEvent.RequestAudioAccess -> audioPermissionLauncher.launch(event.permission)
+                is HomeEvent.RequestImageAccess ->
+                    imagePermissionLauncher.launch(event.permissions.toTypedArray())
+                is HomeEvent.RequestPhotoDelete -> runCatching {
+                    photoDeleteLauncher.launch(
+                        IntentSenderRequest.Builder(event.intentSender).build(),
+                    )
+                }.onFailure { homeViewModel.onPhotoDeleteResult(confirmed = false) }
                 is HomeEvent.OpenGameOptions -> optionsGameId = event.gameId
                 is HomeEvent.OpenScrapeMenu -> scrapeMenuGameId = event.gameId
                 HomeEvent.BringShellToFront -> bringShellToFront(context)
@@ -450,6 +470,7 @@ fun ArcadiaShell(
                     onLoginRetroAchievementsWithApiKey =
                         homeViewModel::loginRetroAchievementsWithApiKey,
                     onSignOutRetroAchievements = homeViewModel::signOutRetroAchievements,
+                    onPhotoCommand = homeViewModel::onPhotoCommand,
                 )
             }
 
@@ -982,6 +1003,7 @@ private fun PaneForRole(
                     onAdjustShortcutColumns = homeViewModel::adjustShortcutGridColumns,
                     onAdjustShortcutRows = homeViewModel::adjustShortcutGridRows,
                     onFocusShortcutCustomizeChrome = homeViewModel::focusShortcutCustomizeChrome,
+                    onPhotoCommand = homeViewModel::onPhotoCommand,
                     showWallpaperBackdrop = state.homePage == HomePage.Home,
                     // XMB owns its own launch hold; fading the whole Grid pane wiped the art.
                     modifier = if (state.homePage == HomePage.Home) {

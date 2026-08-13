@@ -553,6 +553,20 @@ class ShellPreferences @Inject constructor(
         }
     }
 
+    /**
+     * MediaStore ids of photos the user marked as favorites in the Photo Viewer. Stored here so
+     * favorite status never touches the image files themselves.
+     */
+    val favoritePhotoIds: Flow<Set<String>> = dataStore.data.map { prefs ->
+        decodeStringIdSet(prefs[Keys.FAVORITE_PHOTO_IDS].orEmpty())
+    }
+
+    suspend fun setPhotoFavorite(photoId: String, favorite: Boolean) = edit { prefs ->
+        val current = decodeStringIdSet(prefs[Keys.FAVORITE_PHOTO_IDS].orEmpty())
+        val next = if (favorite) current + photoId else current - photoId
+        prefs[Keys.FAVORITE_PHOTO_IDS] = encodeStringIdSet(next)
+    }
+
     suspend fun setSecondaryDisplayRole(role: ScreenRole) = edit { it[Keys.SECONDARY_ROLE] = role.name }
 
     suspend fun setDisplayMode(mode: DisplayMode) = edit {
@@ -1069,6 +1083,8 @@ class ShellPreferences @Inject constructor(
         val CIRCLE_FRIEND_IDS = stringPreferencesKey("circle_friend_ids")
         /** JSON array of `{source,id}` Circle pins (Steam + Discord). */
         val CIRCLE_PINS = stringPreferencesKey("circle_pins")
+        /** JSON array of MediaStore photo ids favourited in the Photo Viewer. */
+        val FAVORITE_PHOTO_IDS = stringPreferencesKey("favorite_photo_ids")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
         val CUSTOM_BGM_PATH = stringPreferencesKey("custom_bgm_path")
         val MUSIC_LIBRARY_PATH = stringPreferencesKey("music_library_path")
@@ -1218,6 +1234,25 @@ data class CirclePin(
 
 /** Max friends the user can pin in LT “Pinned Friends”. */
 const val CIRCLE_FRIEND_LIMIT = 5
+
+internal fun encodeStringIdSet(ids: Set<String>): String {
+    val array = JSONArray()
+    ids.forEach { id -> if (id.isNotBlank()) array.put(id) }
+    return array.toString()
+}
+
+internal fun decodeStringIdSet(raw: String): Set<String> {
+    if (raw.isBlank()) return emptySet()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildSet {
+            for (i in 0 until array.length()) {
+                val id = array.optString(i).trim()
+                if (id.isNotEmpty()) add(id)
+            }
+        }
+    }.getOrDefault(emptySet())
+}
 
 internal fun encodeCirclePins(pins: List<CirclePin>): String {
     val array = JSONArray()

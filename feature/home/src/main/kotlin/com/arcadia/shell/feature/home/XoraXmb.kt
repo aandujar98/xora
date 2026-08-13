@@ -56,6 +56,8 @@ enum class XoraXmbDepth {
     MusicTracks,
     /** Music → Now Playing — full-bleed player over the cover art. */
     NowPlaying,
+    /** Media → Photos — full-bleed PSP-style gallery over the wallpaper. */
+    Photos,
 }
 
 /** One focusable row in the XMB vertical list. */
@@ -96,7 +98,8 @@ sealed interface XoraXmbAction {
     data object SaveGameState : XoraXmbAction
     data object LoadGameState : XoraXmbAction
     data object ResetGame : XoraXmbAction
-    data object PhotosStub : XoraXmbAction
+    /** Media → Photos — the device photo gallery. */
+    data object OpenPhotos : XoraXmbAction
     data object VideosStub : XoraXmbAction
     /** Music → Now Playing page. */
     data object OpenNowPlaying : XoraXmbAction
@@ -359,8 +362,8 @@ fun buildXoraCategoryItems(
         XoraXmbItem(
             id = "photos",
             title = "Photos",
-            subtitle = "Coming soon",
-            action = XoraXmbAction.PhotosStub,
+            subtitle = "Pictures & screenshots on this device",
+            action = XoraXmbAction.OpenPhotos,
             icon = XmbIcon.Photo,
         ),
         XoraXmbItem(

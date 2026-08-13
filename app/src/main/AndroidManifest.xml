@@ -26,6 +26,13 @@
     -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
+    <!--
+      Media → Photos browses on-device pictures through MediaStore.Images. The second permission
+      enables Android 14+ limited-photo ("select photos") access.
+    -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+
     <!-- Android 13+: status-bar delivery when SORA is not in the foreground. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 

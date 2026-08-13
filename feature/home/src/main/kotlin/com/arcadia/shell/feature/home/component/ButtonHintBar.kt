@@ -98,6 +98,7 @@ fun hintsForPage(
         xmbDepth == XoraXmbDepth.MusicAlbums ||
             xmbDepth == XoraXmbDepth.MusicTracks -> XoraMusicBrowseHints
         xmbDepth == XoraXmbDepth.NowPlaying -> XoraNowPlayingHints
+        xmbDepth == XoraXmbDepth.Photos -> XoraPhotoHints
         else -> XoraXmbHints
     }
     HomePage.GameSelector -> if (displayMode == DisplayMode.Single) {
@@ -143,6 +144,17 @@ val XoraMusicBrowseHints: List<Pair<String, String>> = listOf(
     "B" to "Back",
     "LT" to "Circle",
     "RT" to "Profile / Alerts",
+    "Start" to "Settings",
+)
+
+/** Media → Photos gallery. */
+val XoraPhotoHints: List<Pair<String, String>> = listOf(
+    "L/R/U/D" to "Photo",
+    "LB/RB" to "Page",
+    "A" to "View",
+    "X" to "Options",
+    "Y" to "Slideshow",
+    "B" to "Back",
     "Start" to "Settings",
 )
 

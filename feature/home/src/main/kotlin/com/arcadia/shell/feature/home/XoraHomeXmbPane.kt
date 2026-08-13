@@ -135,6 +135,7 @@ fun XoraHomeXmbPane(
     onSkipNextTrack: () -> Unit = {},
     onToggleShuffle: () -> Unit = {},
     onToggleRepeat: () -> Unit = {},
+    onPhotoCommand: (PhotoPaneCommand) -> Unit = {},
     showPillChrome: Boolean = true,
     modifier: Modifier = Modifier,
     /** Full-bleed layer above the XMB cross but below the pill chrome. */
@@ -242,6 +243,11 @@ fun XoraHomeXmbPane(
                     onSkipNext = onSkipNextTrack,
                     onToggleShuffle = onToggleShuffle,
                     onToggleRepeat = onToggleRepeat,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                XoraXmbDepth.Photos -> XoraPhotoViewerPane(
+                    state = state.photos,
+                    onCommand = onPhotoCommand,
                     modifier = Modifier.fillMaxSize(),
                 )
                 XoraXmbDepth.Systems,
@@ -623,6 +629,7 @@ private fun XmbCross(
             xmb.depth == XoraXmbDepth.MusicAlbums -> "Playlist"
             xmb.depth == XoraXmbDepth.MusicTracks -> "Songs"
             xmb.depth == XoraXmbDepth.NowPlaying -> "Now Playing"
+            xmb.depth == XoraXmbDepth.Photos -> "Photos"
             else -> xmb.category.label
         }
         val catLabelWidth = if (xmb.depth == XoraXmbDepth.DspAccounts) 220.dp else 160.dp

@@ -8,6 +8,8 @@ import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.launcher.music.MusicAlbum
 import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.launcher.music.NowPlayingState
+import com.arcadia.shell.launcher.photos.DevicePhoto
+import com.arcadia.shell.launcher.photos.PhotoAccess
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.PlatformSummary
@@ -259,6 +261,8 @@ data class HomeUiState(
     val achievements: AchievementsUiState = AchievementsUiState(),
     /** What the Music category is browsing and what is playing. */
     val music: MusicUiState = MusicUiState(),
+    /** Media → Photos gallery, viewer, and edit / delete flows. */
+    val photos: PhotosUiState = PhotosUiState(),
     val trailer: HeroTrailerState = HeroTrailerState(),
     val rss: RssUiState = RssUiState(),
     val guide: GuideUiState = GuideUiState(),
@@ -305,6 +309,10 @@ sealed interface HomeEvent {
     data object LinkDiscordAccount : HomeEvent
     /** Music browsing needs the runtime audio permission before MediaStore returns anything. */
     data class RequestAudioAccess(val permission: String) : HomeEvent
+    /** Photo Viewer needs the runtime image permission before MediaStore returns anything. */
+    data class RequestImageAccess(val permissions: List<String>) : HomeEvent
+    /** MediaStore deletion consent — launched as an IntentSender from the primary Activity. */
+    data class RequestPhotoDelete(val intentSender: android.content.IntentSender) : HomeEvent
     data class OpenGameOptions(val gameId: String) : HomeEvent
     /** Select button: ROM options (customize + saves + scrape) for [gameId]. */
     data class OpenScrapeMenu(val gameId: String) : HomeEvent
@@ -351,6 +359,101 @@ data class MusicUiState(
 ) {
     /** Cover art for whichever music rung is focused, used as the XMB backdrop. */
     val nowPlayingArtPath: String? get() = nowPlaying.track?.albumArtUri
+}
+
+/** Order of rows in the Photo Viewer's Options popup. */
+enum class PhotoOption(val label: String) {
+    View("View"),
+    Edit("Edit"),
+    MarkFavorite("Mark as Favorite"),
+    Delete("Delete"),
+    ShareToNetwork("Share to XOrA Network"),
+}
+
+/** Tools along the bottom of the non-destructive photo edit screen. */
+enum class PhotoEditTool(val label: String) {
+    RotateLeft("Rotate left"),
+    RotateRight("Rotate right"),
+    Crop("Crop"),
+    Reset("Reset"),
+    Save("Save"),
+    Cancel("Cancel"),
+}
+
+/** Center-crop presets the edit screen cycles through. Null aspect = no crop. */
+val PHOTO_CROP_PRESETS: List<Pair<String, Float?>> = listOf(
+    "Off" to null,
+    "1:1" to 1f,
+    "4:3" to 4f / 3f,
+    "16:9" to 16f / 9f,
+)
+
+/** Non-destructive edit session for one photo. Nothing is written until Save. */
+data class PhotoEditUiState(
+    val photo: DevicePhoto,
+    /** Multiples of 90, applied before crop. */
+    val rotationDeg: Int = 0,
+    val cropIndex: Int = 0,
+    val toolIndex: Int = 0,
+    val saving: Boolean = false,
+) {
+    val cropAspect: Float? get() = PHOTO_CROP_PRESETS[cropIndex].second
+    val cropLabel: String get() = PHOTO_CROP_PRESETS[cropIndex].first
+}
+
+/** Media → Photos: gallery, fullscreen viewer, slideshow, options popup, edit + delete flows. */
+data class PhotosUiState(
+    val photos: List<DevicePhoto> = emptyList(),
+    val focusedIndex: Int = 0,
+    val isLoading: Boolean = false,
+    /** Null until the rung has been opened once and access was checked. */
+    val access: PhotoAccess? = null,
+    /** MediaStore ids the user favourited (persisted in preferences, never in the files). */
+    val favoriteIds: Set<String> = emptySet(),
+    val loadError: String? = null,
+    val optionsOpen: Boolean = false,
+    val optionIndex: Int = 0,
+    val fullscreenOpen: Boolean = false,
+    /** Fullscreen chrome fades after a pause and returns on any input. */
+    val fullscreenControlsVisible: Boolean = true,
+    val slideshowActive: Boolean = false,
+    val deleteConfirmOpen: Boolean = false,
+    /** True when the destructive button holds controller focus in the confirm dialog. */
+    val deleteConfirmDeleteFocused: Boolean = false,
+    val edit: PhotoEditUiState? = null,
+) {
+    val focusedPhoto: DevicePhoto? get() = photos.getOrNull(focusedIndex)
+    val focusedIsFavorite: Boolean get() = focusedPhoto?.id?.let { it in favoriteIds } == true
+    val pageCount: Int get() = if (photos.isEmpty()) 1 else (photos.size + PHOTO_PAGE_SIZE - 1) / PHOTO_PAGE_SIZE
+    val currentPage: Int get() = focusedIndex / PHOTO_PAGE_SIZE
+}
+
+/** 2 rows × 5 columns per gallery page, matching the concept layout. */
+const val PHOTO_GRID_COLUMNS = 5
+const val PHOTO_GRID_ROWS = 2
+const val PHOTO_PAGE_SIZE = PHOTO_GRID_COLUMNS * PHOTO_GRID_ROWS
+
+/** Everything the Photo Viewer pane can ask the shell to do (touch and gamepad funnel here). */
+sealed interface PhotoPaneCommand {
+    data class Focus(val index: Int) : PhotoPaneCommand
+    data class Open(val index: Int) : PhotoPaneCommand
+    data object OpenOptions : PhotoPaneCommand
+    data object CloseOptions : PhotoPaneCommand
+    data class FocusOption(val index: Int) : PhotoPaneCommand
+    data class ActivateOption(val index: Int) : PhotoPaneCommand
+    data object StartSlideshow : PhotoPaneCommand
+    data object CloseViewer : PhotoPaneCommand
+    data object NextPhoto : PhotoPaneCommand
+    data object PreviousPhoto : PhotoPaneCommand
+    data object RevealControls : PhotoPaneCommand
+    data class FocusDeleteChoice(val delete: Boolean) : PhotoPaneCommand
+    data object ConfirmDelete : PhotoPaneCommand
+    data object CancelDelete : PhotoPaneCommand
+    data class FocusEditTool(val index: Int) : PhotoPaneCommand
+    data class ActivateEditTool(val index: Int) : PhotoPaneCommand
+    data object RequestAccess : PhotoPaneCommand
+    data object Retry : PhotoPaneCommand
+    data object Back : PhotoPaneCommand
 }
 
 sealed interface HomeExternalAuthRequest {
