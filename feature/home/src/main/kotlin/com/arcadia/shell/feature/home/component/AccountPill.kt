@@ -54,13 +54,13 @@ private val NotificationRed = Color(0xFFFF3B30)
 
 /**
  * Figma LT (`56:160`): 73px discs on a 37px pitch inside a 207×96 pill.
- * 2× mapping with half-cover stacking so the capsule stays compact.
+ * Sized to stay readable next to the 88dp RT avatar without matching its portrait scale.
  */
-private val AvatarSize = 36.dp
+private val AvatarSize = 56.dp
 /** Center-to-center step; half of [AvatarSize] so each friend covers half the previous disc. */
-private val AvatarPitch = 18.dp
-private val PillPad = 6.dp
-private val BadgeSize = 22.dp
+private val AvatarPitch = 28.dp
+private val PillPad = 8.dp
+private val BadgeSize = 26.dp
 
 @Composable
 fun AccountPill(
@@ -95,7 +95,7 @@ fun AccountPill(
 
     BoxWithConstraints(
         modifier = modifier
-            .widthIn(max = if (expanded) 400.dp else 200.dp)
+            .widthIn(max = if (expanded) 400.dp else 260.dp)
             .heightIn(max = windowCap + 24.dp),
     ) {
         // Cap against parent constraints and the real window so Auto UI-fit cannot clip LT.
