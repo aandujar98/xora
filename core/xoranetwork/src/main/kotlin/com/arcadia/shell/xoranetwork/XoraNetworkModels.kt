@@ -144,6 +144,13 @@ object XoraIdentityRules {
             "Enter a valid email address."
         else -> null
     }
+
+    /** Sign-in accepts the same identifier as the website: email or public username. */
+    fun loginIdentifierError(raw: String): String? {
+        val value = raw.trim()
+        if (value.isEmpty()) return "Enter your email or username."
+        return if ('@' in value) emailError(value) else usernameError(value)
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

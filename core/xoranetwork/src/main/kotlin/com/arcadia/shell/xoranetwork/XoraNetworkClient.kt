@@ -93,6 +93,47 @@ class XoraNetworkClient @Inject constructor(
         )
     }
 
+    /**
+     * Website sign-in — same `/api/auth/login` as account.xoranetwork.com, so username OR email
+     * works. Tokens arrive as `xora_at` / `xora_rt` cookies (never logged).
+     */
+    internal suspend fun websiteLogin(identifier: String, password: String): ApiSessionDto {
+        var csrf = fetchAnonymousCsrf()
+        suspend fun post(csrfToken: String): Triple<Int, List<String>, String> = withContext(Dispatchers.IO) {
+            val payload = buildJsonObject {
+                put("identifier", identifier.trim())
+                put("password", password)
+                put("rememberMe", true)
+            }.toString().toRequestBody(JSON_MEDIA_TYPE)
+            val request = Request.Builder()
+                .url("$ACCOUNT_SITE/api/auth/login")
+                .header("Cookie", "xora_csrf=$csrfToken")
+                .header("x-csrf-token", csrfToken)
+                .header("Accept", "application/json")
+                .post(payload)
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                Triple(response.code, response.headers("Set-Cookie"), response.body.string())
+            }
+        }
+        var (code, cookies, raw) = post(csrf)
+        if (code == 403) {
+            csrfToken.set(null)
+            csrf = fetchAnonymousCsrf()
+            val retry = post(csrf)
+            code = retry.first
+            cookies = retry.second
+            raw = retry.third
+        }
+        if (code !in 200..299) throw friendlyError(code, raw)
+        val access = cookieValue(cookies, "xora_at")
+        val refresh = cookieValue(cookies, "xora_rt")
+        if (access.isBlank() || refresh.isBlank()) {
+            throw XoraNetworkException("Couldn't complete XOrA Network sign-in.")
+        }
+        return ApiSessionDto(token = access, refreshToken = refresh, created = false)
+    }
+
     internal suspend fun refreshSession(refreshToken: String): ApiSessionDto {
         val body = buildJsonObject { put("token", refreshToken) }
         return execute(
@@ -359,6 +400,23 @@ class XoraNetworkClient @Inject constructor(
 
     internal fun clearCsrf() {
         csrfToken.set(null)
+    }
+
+    private suspend fun fetchAnonymousCsrf(): String {
+        csrfToken.get()?.let { return it }
+        return withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("$ACCOUNT_SITE/login")
+                .header("Accept", "text/html")
+                .get()
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val value = cookieValue(response.headers("Set-Cookie"), "xora_csrf")
+                if (value.isEmpty()) throw XoraNetworkException("Couldn't start XOrA Network sign-in.")
+                csrfToken.set(value)
+                value
+            }
+        }
     }
 
     private suspend fun ensureCsrf(accessToken: String, refreshToken: String): String {

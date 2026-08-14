@@ -62,11 +62,20 @@ class XoraNetworkRepository @Inject constructor(
             mutableState.update { it.copy(restoring = false, signedIn = false) }
             return
         }
-        session = stored
-        authCookies.update(stored)
-        val refreshed = runCatching { validAccessToken() }
-        if (refreshed.isFailure) {
-            mutableState.update { it.copy(restoring = false, signedIn = false) }
+        val now = System.currentTimeMillis()
+        val lastActive = stored.lastActiveEpochMs.takeIf { it > 0L } ?: now
+        if (sessionIdleExpired(lastActive, now)) {
+            signOut()
+            return
+        }
+        session = stored.copy(lastActiveEpochMs = lastActive)
+        authCookies.update(session)
+        mutableState.update { it.copy(signedIn = true) }
+        val token = runCatching { validAccessToken() }
+        if (token.isFailure) {
+            mutableState.update {
+                it.copy(restoring = false, signedIn = session != null)
+            }
             return
         }
         mutableState.update { it.copy(signedIn = true) }
@@ -77,18 +86,26 @@ class XoraNetworkRepository @Inject constructor(
         if (realtimeEnabled) connectRealtime()
     }
 
-    /** Login only — `create=false` so this path can never mint a new account. */
-    suspend fun signIn(email: String, password: String): Result<Unit> {
-        XoraIdentityRules.emailError(email)?.let { return Result.failure(XoraNetworkException(it)) }
+    /** Login only — website `/api/auth/login` so email OR username works; never mints an account. */
+    suspend fun signIn(identifier: String, password: String): Result<Unit> {
+        val id = identifier.trim()
+        XoraIdentityRules.loginIdentifierError(id)?.let { return Result.failure(XoraNetworkException(it)) }
         if (password.isEmpty()) {
             return Result.failure(XoraNetworkException("Enter your password."))
         }
         return runCatching {
-            val dto = client.authenticateEmail(email, password, create = false)
-            adoptSession(StoredXoraSession(dto.token, dto.refreshToken))
+            val dto = runCatching { client.websiteLogin(id, password) }.getOrElse { error ->
+                if (error is XoraNetworkException && isExpiredAuth(error.statusCode)) throw error
+                if ('@' in id) client.authenticateEmail(id, password, create = false) else throw error
+            }
+            adoptSession(
+                StoredXoraSession(dto.token, dto.refreshToken),
+                identifier = id,
+                password = password,
+            )
         }.mapFriendly { statusCode ->
             when (statusCode) {
-                401, 404 -> "Email or password is incorrect."
+                401, 404 -> "Email, username, or password is incorrect."
                 else -> null
             }
         }
@@ -117,7 +134,11 @@ class XoraNetworkRepository @Inject constructor(
                     "That email already has an XOrA Network account. Sign in instead.",
                 )
             }
-            adoptSession(StoredXoraSession(dto.token, dto.refreshToken))
+            adoptSession(
+                StoredXoraSession(dto.token, dto.refreshToken),
+                identifier = email.trim(),
+                password = password,
+            )
             runCatching { client.updateAccount(accessToken = dto.token, displayName = displayName.trim()) }
             refreshAccount()
         }.mapFriendly { null }
@@ -281,10 +302,24 @@ class XoraNetworkRepository @Inject constructor(
 
     // -------------------------------------------------------------------------------------------
 
-    private suspend fun adoptSession(newSession: StoredXoraSession) {
-        session = newSession
-        sessionStore.write(newSession)
-        authCookies.update(newSession)
+    private suspend fun adoptSession(
+        newSession: StoredXoraSession,
+        identifier: String? = null,
+        password: String? = null,
+    ) {
+        val previous = session
+        val merged = newSession.copy(
+            identifier = identifier?.trim()?.ifBlank { null }
+                ?: previous?.identifier?.ifBlank { null }
+                ?: newSession.identifier,
+            password = password?.takeIf { it.isNotEmpty() }
+                ?: previous?.password?.takeIf { it.isNotEmpty() }
+                ?: newSession.password,
+            lastActiveEpochMs = System.currentTimeMillis(),
+        )
+        session = merged
+        sessionStore.write(merged)
+        authCookies.update(merged)
         mutableState.update { it.copy(signedIn = true) }
         refreshAccount()
         refreshFriends()
@@ -302,27 +337,104 @@ class XoraNetworkRepository @Inject constructor(
 
     private suspend fun validAccessToken(): String = sessionMutex.withLock {
         val current = session ?: throw XoraNetworkException("Sign in to XOrA Network first.")
-        val expiresAt = XoraJwt.expirySeconds(current.accessToken, json)
-        val now = System.currentTimeMillis() / 1000
-        if (expiresAt > now + 60) return current.accessToken
-        val refreshed = runCatching { client.refreshSession(current.refreshToken) }.getOrElse {
-            // Refresh token rejected — the session is gone for good. Clean sign-out locally.
-            session = null
-            sessionStore.clear()
-            authCookies.clear()
-            presenceOnline.clear()
-            realtime.disconnect()
-            mutableState.update {
-                XoraNetworkState(configured = it.configured, restoring = false)
-            }
-            throw XoraNetworkException("Your XOrA Network session expired. Sign in again.")
+        val nowMs = System.currentTimeMillis()
+        if (sessionIdleExpired(current.lastActiveEpochMs, nowMs)) {
+            clearSessionLocked()
+            throw XoraNetworkException("Signed out of XOrA Network after a week away.")
         }
-        val next = StoredXoraSession(refreshed.token, refreshed.refreshToken.ifBlank { current.refreshToken })
+        val expiresAt = XoraJwt.expirySeconds(current.accessToken, json)
+        val nowSec = nowMs / 1000
+        if (expiresAt > nowSec + 60) {
+            touchLastActiveLocked(nowMs)
+            return current.accessToken
+        }
+        val refreshed = runCatching { client.refreshSession(current.refreshToken) }
+        refreshed.getOrNull()?.let { dto ->
+            persistLocked(
+                current.copy(
+                    accessToken = dto.token,
+                    refreshToken = dto.refreshToken.ifBlank { current.refreshToken },
+                    lastActiveEpochMs = nowMs,
+                ),
+            )
+            if (realtimeEnabled) connectRealtime()
+            return session!!.accessToken
+        }
+        val refreshError = refreshed.exceptionOrNull()
+        val refreshStatus = (refreshError as? XoraNetworkException)?.statusCode ?: 0
+        if (!isExpiredAuth(refreshStatus)) {
+            if (expiresAt > nowSec) {
+                touchLastActiveLocked(nowMs)
+                return current.accessToken
+            }
+            throw refreshError
+                ?: XoraNetworkException("Couldn't reach XOrA Network. Check your connection and try again.")
+        }
+        silentReauthLocked(current, nowMs)?.let { return it }
+        clearSessionLocked()
+        throw XoraNetworkException("Your XOrA Network session expired. Sign in again.")
+    }
+
+    private suspend fun silentReauthLocked(current: StoredXoraSession, nowMs: Long): String? {
+        if (!current.canSilentReauth) return null
+        val website = runCatching { client.websiteLogin(current.identifier, current.password) }
+        val dto = website.getOrNull() ?: run {
+            val error = website.exceptionOrNull() ?: return null
+            val status = (error as? XoraNetworkException)?.statusCode ?: 0
+            when {
+                isExpiredAuth(status) && '@' in current.identifier -> {
+                    val emailLogin = runCatching {
+                        client.authenticateEmail(current.identifier, current.password, create = false)
+                    }
+                    emailLogin.getOrNull() ?: run {
+                        val emailError = emailLogin.exceptionOrNull() ?: return null
+                        if (emailError is XoraNetworkException && isExpiredAuth(emailError.statusCode)) {
+                            return null
+                        }
+                        throw emailError
+                    }
+                }
+                isExpiredAuth(status) -> return null
+                else -> throw error
+            }
+        }
+        persistLocked(
+            current.copy(
+                accessToken = dto.token,
+                refreshToken = dto.refreshToken.ifBlank { current.refreshToken },
+                lastActiveEpochMs = nowMs,
+            ),
+        )
+        if (realtimeEnabled) connectRealtime()
+        return session!!.accessToken
+    }
+
+    private fun persistLocked(next: StoredXoraSession) {
         session = next
         sessionStore.write(next)
         authCookies.update(next)
-        if (realtimeEnabled) connectRealtime()
-        next.accessToken
+    }
+
+    private fun touchLastActiveLocked(nowMs: Long) {
+        val current = session ?: return
+        val next = current.copy(lastActiveEpochMs = nowMs)
+        session = next
+        if (nowMs - current.lastActiveEpochMs >= 15L * 60 * 1000) {
+            sessionStore.write(next)
+        }
+    }
+
+    private fun clearSessionLocked() {
+        session = null
+        sessionStore.clear()
+        authCookies.clear()
+        presenceOnline.clear()
+        presenceStatus.clear()
+        realtime.disconnect()
+        client.clearCsrf()
+        mutableState.update {
+            XoraNetworkState(configured = it.configured, restoring = false)
+        }
     }
 
     /** Rewraps unexpected failures with friendly copy; [override] can specialise by HTTP status. */

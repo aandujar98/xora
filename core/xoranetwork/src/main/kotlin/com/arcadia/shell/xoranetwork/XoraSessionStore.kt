@@ -18,7 +18,14 @@ import javax.inject.Singleton
 data class StoredXoraSession(
     val accessToken: String,
     val refreshToken: String,
-)
+    /** Email or username used at sign-in. Never logged. */
+    val identifier: String = "",
+    /** Sealed with the tokens so the launcher can refresh after Nakama's short-lived JWTs die. */
+    val password: String = "",
+    val lastActiveEpochMs: Long = 0L,
+) {
+    val canSilentReauth: Boolean get() = identifier.isNotBlank() && password.isNotEmpty()
+}
 
 /**
  * Encrypted-at-rest session storage: tokens are sealed with an AndroidKeyStore AES-GCM key before
@@ -54,6 +61,9 @@ class XoraSessionStore @Inject constructor(
             StoredXoraSession(
                 accessToken = payload.optString("access"),
                 refreshToken = payload.optString("refresh"),
+                identifier = payload.optString("identifier"),
+                password = payload.optString("password"),
+                lastActiveEpochMs = payload.optLong("lastActive", 0L),
             ).takeIf { it.accessToken.isNotBlank() && it.refreshToken.isNotBlank() }
         }.getOrElse {
             // Key invalidated or blob corrupted — treat as signed out rather than crash-looping.
@@ -67,6 +77,9 @@ class XoraSessionStore @Inject constructor(
             val payload = JSONObject()
                 .put("access", session.accessToken)
                 .put("refresh", session.refreshToken)
+                .put("identifier", session.identifier)
+                .put("password", session.password)
+                .put("lastActive", session.lastActiveEpochMs)
                 .toString()
             val cipher = Cipher.getInstance(TRANSFORM)
             cipher.init(Cipher.ENCRYPT_MODE, secretKey())

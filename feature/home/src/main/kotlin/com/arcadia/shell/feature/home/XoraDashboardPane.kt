@@ -600,7 +600,11 @@ private fun DashboardAuthCard(
                 color = Ink,
             )
             Text(
-                text = "Same account as account.xoranetwork.com.",
+                text = if (auth.mode == DashboardAuthMode.SignIn) {
+                    "Email or username — same account as account.xoranetwork.com."
+                } else {
+                    "Same account as account.xoranetwork.com."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = InkMuted,
             )
@@ -610,10 +614,18 @@ private fun DashboardAuthCard(
                     DashboardAuthRow.Email -> DashboardTextField(
                         value = auth.email,
                         onValueChange = { onCommand(DashboardCommand.EditField(DashboardField.Email, it)) },
-                        label = "Email",
+                        label = if (auth.mode == DashboardAuthMode.SignIn) {
+                            "Email or username"
+                        } else {
+                            "Email"
+                        },
                         focused = focused,
                         focusRequester = requesterFor(row),
-                        keyboardType = KeyboardType.Email,
+                        keyboardType = if (auth.mode == DashboardAuthMode.SignIn) {
+                            KeyboardType.Text
+                        } else {
+                            KeyboardType.Email
+                        },
                         onTap = { onCommand(DashboardCommand.FocusAuthRow(index)) },
                     )
                     DashboardAuthRow.Password -> DashboardTextField(

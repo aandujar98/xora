@@ -179,4 +179,44 @@ class XoraNetworkFriendsParseTest {
         assertEquals("hello", envelope.data.messages.single().body)
         assertEquals("xoraadmin", envelope.data.messages.single().fromUsername)
     }
+
+    @Test
+    fun loginIdentifierAcceptsUsernameOrEmail() {
+        assertEquals(null, XoraIdentityRules.loginIdentifierError("xoraadmin"))
+        assertEquals(null, XoraIdentityRules.loginIdentifierError("xora.agent.test@example.com"))
+        assertEquals("Enter your email or username.", XoraIdentityRules.loginIdentifierError("  "))
+        assertEquals("Username must be 3–128 characters.", XoraIdentityRules.loginIdentifierError("ab"))
+        assertEquals("Enter a valid email address.", XoraIdentityRules.loginIdentifierError("not-an-email@"))
+    }
+
+    @Test
+    fun sessionStaysValidUntilAWeekOfInactivity() {
+        val start = 1_000_000L
+        val sixDays = 6L * 24 * 60 * 60 * 1000
+        val sevenDays = 7L * 24 * 60 * 60 * 1000
+        assertTrue(!sessionIdleExpired(start, start + sixDays))
+        assertTrue(sessionIdleExpired(start, start + sevenDays))
+        assertTrue(!sessionIdleExpired(0L, start + sevenDays))
+    }
+
+    @Test
+    fun cookieValueReadsFirstSetCookiePair() {
+        val headers = listOf(
+            "xora_csrf=abc; Path=/; Secure",
+            "xora_at=access.jwt.here; Path=/; Max-Age=3600; HttpOnly",
+            "xora_rt=refresh.jwt.here; Path=/; Max-Age=3600; HttpOnly",
+        )
+        assertEquals("abc", cookieValue(headers, "xora_csrf"))
+        assertEquals("access.jwt.here", cookieValue(headers, "xora_at"))
+        assertEquals("refresh.jwt.here", cookieValue(headers, "xora_rt"))
+        assertEquals("", cookieValue(headers, "missing"))
+    }
+
+    @Test
+    fun expiredAuthIsOnlyUnauthorized() {
+        assertTrue(isExpiredAuth(401))
+        assertTrue(!isExpiredAuth(403))
+        assertTrue(!isExpiredAuth(500))
+        assertTrue(!isExpiredAuth(0))
+    }
 }
