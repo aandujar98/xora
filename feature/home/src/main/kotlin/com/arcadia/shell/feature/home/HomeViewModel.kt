@@ -4905,7 +4905,8 @@ class HomeViewModel @Inject constructor(
                 favoritePickerError = picker.favoritePickerError,
             )
         },
-    ) { profile, presence, games, chrome ->
+        xoraNetwork.state,
+    ) { profile, presence, games, chrome, xora ->
         val custom = profile.customStatus?.takeIf { it.isNotBlank() }
         val activityLine = resolveActivityStatusLine(presence.activity)
         val favorite = profile.favoriteRaGame?.let { pinned ->
@@ -4931,6 +4932,8 @@ class HomeViewModel @Inject constructor(
             favoritePickerLoading = chrome.favoritePickerLoading,
             favoritePickerGames = chrome.favoritePickerGames,
             favoritePickerError = chrome.favoritePickerError,
+            xoraNetworkSignedIn = xora.signedIn,
+            xoraNetworkOnline = xora.selfOnline,
         )
     }
 

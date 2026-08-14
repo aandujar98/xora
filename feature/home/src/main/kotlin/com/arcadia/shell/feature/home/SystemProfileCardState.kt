@@ -17,6 +17,10 @@ data class SystemProfileCardState(
     val favoritePickerLoading: Boolean = false,
     val favoritePickerGames: List<RaCompletionGame> = emptyList(),
     val favoritePickerError: String? = null,
+    /** True while signed in to XOrA Network. Drives the RT presence dot. */
+    val xoraNetworkSignedIn: Boolean = false,
+    /** Live Nakama presence — only meaningful when [xoraNetworkSignedIn]. */
+    val xoraNetworkOnline: Boolean = false,
 )
 
 data class SystemFavoriteGame(

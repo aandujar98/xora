@@ -709,20 +709,59 @@ private fun DashboardFriendsView(
             fontWeight = FontWeight.Bold,
             color = Ink,
         )
+        state.network.account?.let { account ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.White.copy(alpha = 0.08f))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            ) {
+                XoraNetworkAvatar(
+                    username = account.username,
+                    displayName = account.displayName,
+                    avatarUrl = account.resolvedAvatarUrl,
+                    size = 38.dp,
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = account.displayName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "You · ${account.username}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = InkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (state.network.selfOnline) {
+                    StateChip("Online", OnlineGreen)
+                } else {
+                    StateChip("Offline", InkMuted)
+                }
+            }
+        }
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Box(modifier = Modifier.weight(1f)) {
-                DashboardTextField(
-                    value = state.addFriendQuery,
-                    onValueChange = { onCommand(DashboardCommand.EditField(DashboardField.FriendQuery, it)) },
-                    label = "Add a friend by username",
-                    focused = state.friendsIndex == 0,
-                    focusRequester = fieldRequester,
-                    onTap = { onCommand(DashboardCommand.FocusFriendRow(0)) },
-                )
-            }
+            DashboardTextField(
+                value = state.addFriendQuery,
+                onValueChange = { onCommand(DashboardCommand.EditField(DashboardField.FriendQuery, it)) },
+                label = "Add a friend by username",
+                focused = state.friendsIndex == 0,
+                focusRequester = fieldRequester,
+                onTap = { onCommand(DashboardCommand.FocusFriendRow(0)) },
+                modifier = Modifier.weight(1f),
+            )
             Spacer(modifier = Modifier.width(10.dp))
             DashboardButton(
                 label = "Add",
@@ -997,13 +1036,16 @@ private fun DashboardTextField(
     password: Boolean = false,
     keyboardType: KeyboardType = KeyboardType.Text,
     onTap: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
-    Column {
+    Column(modifier = modifier) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = if (focused) Ink else InkMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         BasicTextField(
             value = value,
@@ -1035,6 +1077,8 @@ private fun DashboardTextField(
                             text = label,
                             style = MaterialTheme.typography.bodyMedium,
                             color = glass.contentMuted.copy(alpha = 0.5f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     innerTextField()
@@ -1074,7 +1118,7 @@ private fun DashboardButton(
                 shape = RoundedCornerShape(8.dp),
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
     )
 }
 

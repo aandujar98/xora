@@ -41,6 +41,8 @@ class XoraNetworkRepository @Inject constructor(
             when (event) {
                 is XoraPresenceEvent.Joins -> applyPresence(event.usernames, online = true)
                 is XoraPresenceEvent.Leaves -> applyPresence(event.usernames, online = false)
+                XoraPresenceEvent.Connected -> applySelfOnline(true)
+                XoraPresenceEvent.Disconnected -> applySelfOnline(false)
             }
         }
     }
@@ -192,7 +194,7 @@ class XoraNetworkRepository @Inject constructor(
                 friend.copy(online = friend.online || friend.username.lowercase() in presenceOnline)
             }
             mutableState.update { it.copy(friends = friends, friendsError = null) }
-            realtime.follow(friends.map { it.username })
+            followPresenceTargets()
             if (realtimeEnabled && !realtime.isConnected) connectRealtime()
         }
         mutableState.update { current ->
@@ -349,7 +351,21 @@ class XoraNetworkRepository @Inject constructor(
     private fun connectRealtime() {
         val token = session?.accessToken?.takeIf { it.isNotBlank() } ?: return
         if (!realtime.isConnected) realtime.connect(token)
-        realtime.follow(mutableState.value.friends.map { it.username })
+        followPresenceTargets()
+    }
+
+    private fun followPresenceTargets() {
+        val state = mutableState.value
+        val self = state.account?.username
+        realtime.follow(listOfNotNull(self) + state.friends.map { it.username })
+    }
+
+    private fun applySelfOnline(online: Boolean) {
+        val self = mutableState.value.account?.username?.lowercase()
+        if (self != null) {
+            if (online) presenceOnline.add(self) else presenceOnline.remove(self)
+        }
+        mutableState.update { it.copy(selfOnline = online) }
     }
 
     private fun applyPresence(usernames: List<String>, online: Boolean) {
@@ -363,9 +379,10 @@ class XoraNetworkRepository @Inject constructor(
             val friends = state.friends.map { friend ->
                 if (friend.username.lowercase() in keys) friend.copy(online = online) else friend
             }
+            val stillOnline = realtime.isConnected || (self != null && self in presenceOnline)
             state.copy(
                 friends = friends,
-                selfOnline = self != null && self in presenceOnline,
+                selfOnline = stillOnline,
             )
         }
     }

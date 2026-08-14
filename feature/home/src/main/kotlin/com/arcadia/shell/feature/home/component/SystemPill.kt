@@ -392,11 +392,12 @@ private fun ProfileCardHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
+                val presenceOnline = !systemProfile.xoraNetworkSignedIn || systemProfile.xoraNetworkOnline
                 Box(
                     modifier = Modifier
                         .size(13.dp)
                         .clip(CircleShape)
-                        .background(OnlineGreen)
+                        .background(if (presenceOnline) OnlineGreen else FooterInk)
                         .border(1.5.dp, OutlineInk.copy(alpha = 0.55f), CircleShape),
                 )
                 XoraOutlinedText(
@@ -412,6 +413,15 @@ private fun ProfileCardHeader(
                     modifier = Modifier
                         .weight(1f, fill = false)
                         .clickable(onClick = onEditProfile),
+                )
+            }
+            if (systemProfile.xoraNetworkSignedIn) {
+                Text(
+                    text = if (systemProfile.xoraNetworkOnline) "ONLINE · XOrA NETWORK" else "OFFLINE · XOrA NETWORK",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (systemProfile.xoraNetworkOnline) OnlineGreen else FooterInk,
+                    maxLines = 1,
                 )
             }
 

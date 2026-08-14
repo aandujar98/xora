@@ -196,10 +196,11 @@ class XoraNetworkClient @Inject constructor(
                 .get()
                 .build(),
         )
-        if (!envelope.ok) {
+        val data = envelope.data
+        if (!envelope.ok && data.friends.isEmpty() && data.incoming.isEmpty() && data.outgoing.isEmpty()) {
             throw XoraNetworkException("Couldn't load friends right now.")
         }
-        return envelope.data
+        return data
     }
 
     /** Also accepts an incoming invite when called with that username. */

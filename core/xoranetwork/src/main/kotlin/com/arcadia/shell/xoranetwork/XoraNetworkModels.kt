@@ -167,7 +167,7 @@ internal data class ApiFriendListDto(
 /** Website `/api/friends` envelope — same accounts as Nakama, camelCase + string states. */
 @Serializable
 internal data class WebsiteFriendsResponseDto(
-    val ok: Boolean = false,
+    val ok: Boolean = true,
     val data: WebsiteFriendsDataDto = WebsiteFriendsDataDto(),
 )
 

@@ -75,4 +75,56 @@ class XoraNetworkFriendsParseTest {
         assertEquals("/api/avatars/pal", merged[0].avatarUrl)
         assertTrue(merged[0].online)
     }
+
+    @Test
+    fun websiteEnvelopeWithoutOkStillParsesFriends() {
+        val payload = """{"data":{"friends":[{"username":"pal","state":"friend"}],"incoming":[],"outgoing":[]}}"""
+        val envelope = json.decodeFromString<WebsiteFriendsResponseDto>(payload)
+        assertTrue(envelope.ok)
+        assertEquals("pal", envelope.data.friends.single().username)
+    }
+
+    @Test
+    fun statusUpdateJoinAndLeaveIsStillOnline() {
+        val payload = """
+            {"status_presence_event":{"joins":[{"user_id":"98d90fe7-5296-4835-a649-a00dfe27fad9","session_id":"abc","username":"xoraadmin","status":"Online"}],"leaves":[{"user_id":"98d90fe7-5296-4835-a649-a00dfe27fad9","session_id":"abc","username":"xoraadmin","status":""}]}}
+        """.trimIndent()
+        val root = json.parseToJsonElement(payload) as kotlinx.serialization.json.JsonObject
+        val events = parseXoraPresenceMessage(root)
+        assertEquals(1, events.size)
+        val joins = events.single() as XoraPresenceEvent.Joins
+        assertEquals(listOf("xoraadmin"), joins.usernames)
+    }
+
+    @Test
+    fun realLeaveIsOffline() {
+        val payload = """
+            {"status_presence_event":{"leaves":[{"user_id":"33e69f24-39b1-4e15-b5bc-48c5aacd6bf7","session_id":"abc","username":"xora_agent_pal","status":"Online"}]}}
+        """.trimIndent()
+        val root = json.parseToJsonElement(payload) as kotlinx.serialization.json.JsonObject
+        val events = parseXoraPresenceMessage(root)
+        val leaves = events.single() as XoraPresenceEvent.Leaves
+        assertEquals(listOf("xora_agent_pal"), leaves.usernames)
+    }
+
+    @Test
+    fun statusFollowSnapshotMarksFriendsOnline() {
+        val payload = """
+            {"cid":"2","status":{"presences":[{"user_id":"33e69f24-39b1-4e15-b5bc-48c5aacd6bf7","session_id":"abc","username":"xora_agent_pal","status":"Online"}]}}
+        """.trimIndent()
+        val root = json.parseToJsonElement(payload) as kotlinx.serialization.json.JsonObject
+        val events = parseXoraPresenceMessage(root)
+        val joins = events.single() as XoraPresenceEvent.Joins
+        assertEquals(listOf("xora_agent_pal"), joins.usernames)
+    }
+
+    @Test
+    fun emptyStatusJoinOnConnectIsOnline() {
+        val payload = """
+            {"status_presence_event":{"joins":[{"user_id":"1","session_id":"s","username":"xoraadmin","status":""}]}}
+        """.trimIndent()
+        val root = json.parseToJsonElement(payload) as kotlinx.serialization.json.JsonObject
+        val joins = parseXoraPresenceMessage(root).single() as XoraPresenceEvent.Joins
+        assertEquals(listOf("xoraadmin"), joins.usernames)
+    }
 }

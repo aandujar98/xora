@@ -1,12 +1,10 @@
 package com.arcadia.shell.xoranetwork
 
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -14,17 +12,14 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
-
-/** Presence events from the Nakama realtime socket. Usernames are the public XOrA ids. */
-internal sealed interface XoraPresenceEvent {
-    data class Joins(val usernames: List<String>) : XoraPresenceEvent
-    data class Leaves(val usernames: List<String>) : XoraPresenceEvent
-}
 
 /**
  * Nakama `/ws` session. REST auth alone never marks a user online — the server only flips
@@ -44,6 +39,12 @@ class XoraNetworkRealtime @Inject constructor(
     private val socket = AtomicReference<WebSocket?>(null)
     private val cid = AtomicInteger(1)
     private val followed = AtomicReference<Set<String>>(emptySet())
+    private val wantConnected = AtomicBoolean(false)
+    private val tokenRef = AtomicReference<String?>(null)
+    private val opened = AtomicBoolean(false)
+    private val reconnecter: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "xora-presence-reconnect").apply { isDaemon = true }
+    }
 
     @Volatile
     private var listener: ((XoraPresenceEvent) -> Unit)? = null
@@ -53,7 +54,29 @@ class XoraNetworkRealtime @Inject constructor(
     }
 
     internal fun connect(accessToken: String) {
-        disconnect()
+        wantConnected.set(true)
+        tokenRef.set(accessToken)
+        closeSocket(notify = false)
+        openSocket(accessToken)
+    }
+
+    internal fun follow(usernames: Collection<String>) {
+        val next = usernames.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        followed.set(next)
+        val current = socket.get() ?: return
+        if (opened.get() && next.isNotEmpty()) sendFollow(current, next)
+    }
+
+    internal fun disconnect() {
+        wantConnected.set(false)
+        tokenRef.set(null)
+        followed.set(emptySet())
+        closeSocket(notify = true)
+    }
+
+    internal val isConnected: Boolean get() = opened.get() && socket.get() != null
+
+    private fun openSocket(accessToken: String) {
         val https = "https://api.xoranetwork.com/ws".toHttpUrl().newBuilder()
             .addQueryParameter("lang", "en")
             .addQueryParameter("format", "json")
@@ -68,6 +91,8 @@ class XoraNetworkRealtime @Inject constructor(
                 request,
                 object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
+                        opened.set(true)
+                        listener?.invoke(XoraPresenceEvent.Connected)
                         sendStatus(webSocket, "Online")
                         val names = followed.get()
                         if (names.isNotEmpty()) sendFollow(webSocket, names)
@@ -82,30 +107,43 @@ class XoraNetworkRealtime @Inject constructor(
                     }
 
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                        socket.compareAndSet(webSocket, null)
+                        handleDrop(webSocket)
                     }
 
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                        socket.compareAndSet(webSocket, null)
+                        handleDrop(webSocket)
                     }
                 },
             ),
         )
     }
 
-    internal fun follow(usernames: Collection<String>) {
-        val next = usernames.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-        followed.set(next)
-        val current = socket.get() ?: return
-        if (next.isNotEmpty()) sendFollow(current, next)
+    private fun closeSocket(notify: Boolean) {
+        val wasOpen = opened.getAndSet(false)
+        val previous = socket.getAndSet(null)
+        previous?.cancel()
+        if (notify && wasOpen) listener?.invoke(XoraPresenceEvent.Disconnected)
     }
 
-    internal fun disconnect() {
-        followed.set(emptySet())
-        socket.getAndSet(null)?.cancel()
+    private fun handleDrop(webSocket: WebSocket) {
+        val dropped = socket.compareAndSet(webSocket, null)
+        val wasOpen = opened.getAndSet(false)
+        if (dropped && wasOpen) listener?.invoke(XoraPresenceEvent.Disconnected)
+        if (dropped && wantConnected.get()) scheduleReconnect()
     }
 
-    internal val isConnected: Boolean get() = socket.get() != null
+    private fun scheduleReconnect() {
+        reconnecter.schedule(
+            {
+                val token = tokenRef.get()
+                if (wantConnected.get() && token != null && socket.get() == null) {
+                    openSocket(token)
+                }
+            },
+            RECONNECT_DELAY_SECONDS,
+            TimeUnit.SECONDS,
+        )
+    }
 
     private fun sendStatus(webSocket: WebSocket, status: String) {
         val body = buildJsonObject {
@@ -135,30 +173,11 @@ class XoraNetworkRealtime @Inject constructor(
 
     private fun dispatch(text: String) {
         val root = runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull() ?: return
-        val event = root["status_presence_event"] as? JsonObject
-        if (event != null) {
-            val joins = usernamesIn(event["joins"])
-            val leaves = usernamesIn(event["leaves"])
-            if (joins.isNotEmpty()) listener?.invoke(XoraPresenceEvent.Joins(joins))
-            if (leaves.isNotEmpty()) listener?.invoke(XoraPresenceEvent.Leaves(leaves))
-            return
-        }
-        val status = root["status"] as? JsonObject
-        if (status != null) {
-            val online = usernamesIn(status["presences"])
-            if (online.isNotEmpty()) listener?.invoke(XoraPresenceEvent.Joins(online))
-        }
-    }
-
-    private fun usernamesIn(element: kotlinx.serialization.json.JsonElement?): List<String> {
-        val array = element as? JsonArray ?: return emptyList()
-        return array.mapNotNull { item ->
-            val obj = item as? JsonObject ?: return@mapNotNull null
-            (obj["username"] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
-        }
+        parseXoraPresenceMessage(root).forEach { event -> listener?.invoke(event) }
     }
 
     private companion object {
         const val PING_INTERVAL_SECONDS = 20L
+        const val RECONNECT_DELAY_SECONDS = 2L
     }
 }
