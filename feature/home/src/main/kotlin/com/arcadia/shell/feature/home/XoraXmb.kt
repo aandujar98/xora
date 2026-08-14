@@ -408,7 +408,7 @@ fun buildXoraCategoryItems(
     XoraXmbCategory.Network -> listOf(
         XoraXmbItem(
             id = "friends",
-            title = "Friends",
+            title = "Dashboard",
             subtitle = "Pinned Friends, Steam & Discord",
             action = XoraXmbAction.OpenFriends,
             icon = XmbIcon.Friends,
