@@ -20,6 +20,7 @@ class XoraNetworkRepository @Inject constructor(
     private val client: XoraNetworkClient,
     private val sessionStore: XoraSessionStore,
     private val authCookies: XoraNetworkAuthCookies,
+    private val realtime: XoraNetworkRealtime,
     private val json: Json,
 ) {
     private val mutableState = MutableStateFlow(
@@ -32,6 +33,17 @@ class XoraNetworkRepository @Inject constructor(
 
     private var session: StoredXoraSession? = null
     private val sessionMutex = Mutex()
+    @Volatile private var realtimeEnabled = false
+    private val presenceOnline = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    init {
+        realtime.setListener { event ->
+            when (event) {
+                is XoraPresenceEvent.Joins -> applyPresence(event.usernames, online = true)
+                is XoraPresenceEvent.Leaves -> applyPresence(event.usernames, online = false)
+            }
+        }
+    }
 
     /** Restores the persisted session on launch and hydrates account + friends. */
     suspend fun restore() {
@@ -56,6 +68,7 @@ class XoraNetworkRepository @Inject constructor(
         mutableState.update { it.copy(restoring = false) }
         refreshFriends()
         refreshNotifications()
+        if (realtimeEnabled) connectRealtime()
     }
 
     /** Login only — `create=false` so this path can never mint a new account. */
@@ -110,9 +123,11 @@ class XoraNetworkRepository @Inject constructor(
         if (current != null) {
             runCatching { client.logout(current.accessToken, current.refreshToken) }
         }
-            session = null
-            sessionStore.clear()
-            authCookies.clear()
+        session = null
+        sessionStore.clear()
+        authCookies.clear()
+        presenceOnline.clear()
+        realtime.disconnect()
         mutableState.update {
             XoraNetworkState(configured = it.configured, restoring = false)
         }
@@ -173,8 +188,12 @@ class XoraNetworkRepository @Inject constructor(
             } else {
                 emptyList()
             }
-            val friends = mergeXoraFriends(fromNakama, fromWebsite)
+            val friends = mergeXoraFriends(fromNakama, fromWebsite).map { friend ->
+                friend.copy(online = friend.online || friend.username.lowercase() in presenceOnline)
+            }
             mutableState.update { it.copy(friends = friends, friendsError = null) }
+            realtime.follow(friends.map { it.username })
+            if (realtimeEnabled && !realtime.isConnected) connectRealtime()
         }
         mutableState.update { current ->
             current.copy(
@@ -258,6 +277,7 @@ class XoraNetworkRepository @Inject constructor(
         refreshAccount()
         refreshFriends()
         refreshNotifications()
+        if (realtimeEnabled) connectRealtime()
     }
 
     /** Runs [block] with a valid access token, refreshing (or signing out) as needed. */
@@ -278,6 +298,8 @@ class XoraNetworkRepository @Inject constructor(
             session = null
             sessionStore.clear()
             authCookies.clear()
+            presenceOnline.clear()
+            realtime.disconnect()
             mutableState.update {
                 XoraNetworkState(configured = it.configured, restoring = false)
             }
@@ -287,6 +309,7 @@ class XoraNetworkRepository @Inject constructor(
         session = next
         sessionStore.write(next)
         authCookies.update(next)
+        if (realtimeEnabled) connectRealtime()
         next.accessToken
     }
 
@@ -306,4 +329,44 @@ class XoraNetworkRepository @Inject constructor(
             Result.failure(friendly)
         },
     )
+
+    /**
+     * Opens the Nakama realtime socket while the shell is in the foreground so this account
+     * (and followed friends) actually show as online. Closed on sleep so the radio stays quiet.
+     */
+    fun setRealtimeEnabled(enabled: Boolean) {
+        realtimeEnabled = enabled
+        if (!enabled) {
+            realtime.disconnect()
+            val self = mutableState.value.account?.username?.lowercase()
+            if (self != null) presenceOnline.remove(self)
+            mutableState.update { it.copy(selfOnline = false) }
+            return
+        }
+        if (mutableState.value.signedIn) connectRealtime()
+    }
+
+    private fun connectRealtime() {
+        val token = session?.accessToken?.takeIf { it.isNotBlank() } ?: return
+        if (!realtime.isConnected) realtime.connect(token)
+        realtime.follow(mutableState.value.friends.map { it.username })
+    }
+
+    private fun applyPresence(usernames: List<String>, online: Boolean) {
+        val self = mutableState.value.account?.username?.lowercase()
+        usernames.forEach { name ->
+            val key = name.lowercase()
+            if (online) presenceOnline.add(key) else presenceOnline.remove(key)
+        }
+        mutableState.update { state ->
+            val keys = usernames.map { it.lowercase() }.toSet()
+            val friends = state.friends.map { friend ->
+                if (friend.username.lowercase() in keys) friend.copy(online = online) else friend
+            }
+            state.copy(
+                friends = friends,
+                selfOnline = self != null && self in presenceOnline,
+            )
+        }
+    }
 }

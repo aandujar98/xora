@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -136,7 +137,10 @@ private fun DashboardHeader(state: XoraDashboardUiState) {
             )
             val status = state.error
                 ?: state.notice
-                ?: network.account?.let { "Signed in as ${it.username}" }
+                ?: network.account?.let {
+                    val presence = if (network.selfOnline) "Online" else "Offline"
+                    "Signed in as ${it.username} · $presence"
+                }
                 ?: "One account for the launcher and account.xoranetwork.com"
             Text(
                 text = status,
@@ -310,6 +314,12 @@ private fun ProfileTileContent(state: XoraDashboardUiState) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(modifier = Modifier.height(6.dp))
+            if (state.network.selfOnline) {
+                StateChip("Online", OnlineGreen)
+            } else {
+                StateChip("Offline", InkMuted)
+            }
             if (account.location.isNotBlank()) {
                 Text(
                     text = account.location,
@@ -699,7 +709,10 @@ private fun DashboardFriendsView(
             fontWeight = FontWeight.Bold,
             color = Ink,
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Box(modifier = Modifier.weight(1f)) {
                 DashboardTextField(
                     value = state.addFriendQuery,
@@ -715,6 +728,7 @@ private fun DashboardFriendsView(
                 label = "Add",
                 focused = false,
                 primary = true,
+                fillMaxWidth = false,
                 onClick = { onCommand(DashboardCommand.SubmitAddFriend) },
             )
         }
@@ -1035,6 +1049,7 @@ private fun DashboardButton(
     label: String,
     focused: Boolean,
     primary: Boolean = false,
+    fillMaxWidth: Boolean = true,
     onClick: () -> Unit,
 ) {
     val background = when {
@@ -1050,7 +1065,7 @@ private fun DashboardButton(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier
-            .fillMaxWidth()
+            .then(if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier.wrapContentWidth())
             .clip(RoundedCornerShape(8.dp))
             .background(background)
             .border(

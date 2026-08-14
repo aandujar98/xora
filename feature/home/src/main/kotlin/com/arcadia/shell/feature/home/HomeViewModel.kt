@@ -920,6 +920,7 @@ class HomeViewModel @Inject constructor(
         // backgrounded device must not wake the radio every minute (battery / fan complaint).
         viewModelScope.launch {
             appForegroundTracker.isForeground.collectLatest { foreground ->
+                xoraNetwork.setRealtimeEnabled(foreground)
                 if (!foreground) return@collectLatest
                 while (isActive) {
                     delay(XORA_SOCIAL_POLL_MS)

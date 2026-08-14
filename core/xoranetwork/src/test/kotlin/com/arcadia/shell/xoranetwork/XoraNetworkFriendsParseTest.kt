@@ -53,6 +53,15 @@ class XoraNetworkFriendsParseTest {
     }
 
     @Test
+    fun websiteFriendFallsBackToIdWhenUsernameOmitted() {
+        val payload = """{"username":"","id":"xoraadmin","displayName":"Admin","state":"friend"}"""
+        val friend = json.decodeFromString<WebsiteFriendDto>(payload)
+            .toXoraFriend(XoraFriendState.Friend)!!
+        assertEquals("xoraadmin", friend.username)
+        assertEquals("Admin", friend.displayName)
+    }
+
+    @Test
     fun mergePrefersFilledAvatarAndIncomingInvites() {
         val nakama = listOf(
             XoraFriend("pal", "pal", "", online = false, state = XoraFriendState.Friend),

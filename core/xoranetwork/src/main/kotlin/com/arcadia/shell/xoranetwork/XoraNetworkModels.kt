@@ -45,6 +45,8 @@ data class XoraFriend(
     val avatarUrl: String,
     val online: Boolean,
     val state: XoraFriendState,
+    /** Nakama UUID when known; never shown in UI. */
+    val userId: String = "",
 ) {
     val resolvedAvatarUrl: String get() = resolveXoraAvatarUrl(username, avatarUrl)
 }
@@ -74,6 +76,8 @@ data class XoraNetworkState(
     /** Friendly copy when the friends refresh failed; null when the last load succeeded. */
     val friendsError: String? = null,
     val notifications: List<XoraNotificationItem> = emptyList(),
+    /** True while the Nakama realtime socket is up — REST-only sessions always look offline. */
+    val selfOnline: Boolean = false,
 ) {
     val acceptedFriends: List<XoraFriend>
         get() = friends.filter { it.state == XoraFriendState.Friend }
@@ -176,6 +180,7 @@ internal data class WebsiteFriendsDataDto(
 
 @Serializable
 internal data class WebsiteFriendDto(
+    val id: String = "",
     val username: String = "",
     val displayName: String = "",
     val avatarUrl: String = "",
@@ -260,11 +265,12 @@ internal fun ApiFriendDto.toXoraFriend(): XoraFriend? {
         avatarUrl = user.avatarUrl,
         online = user.online,
         state = friendState,
+        userId = user.id,
     )
 }
 
 internal fun WebsiteFriendDto.toXoraFriend(fallbackState: XoraFriendState): XoraFriend? {
-    val name = username.trim()
+    val name = username.trim().ifBlank { id.trim() }
     if (name.isEmpty()) return null
     val friendState = parseXoraFriendState(state) ?: fallbackState
     return XoraFriend(
@@ -290,6 +296,7 @@ internal fun mergeXoraFriends(vararg groups: List<XoraFriend>): List<XoraFriend>
                     avatarUrl = existing.avatarUrl.ifBlank { friend.avatarUrl },
                     online = existing.online || friend.online,
                     state = mergeFriendState(existing.state, friend.state),
+                    userId = existing.userId.ifBlank { friend.userId },
                 )
             }
         }
