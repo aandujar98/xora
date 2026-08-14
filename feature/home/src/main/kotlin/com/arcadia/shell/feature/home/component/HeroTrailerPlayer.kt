@@ -179,23 +179,52 @@ private fun DirectTrailerPlayer(
     }
 
     DisposableEffect(player, lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+        // Local owner (Activity) + whole-process lifecycle. Hosted on a secondary display
+        // Presentation the local lifecycle stays RESUMED until dismiss, so trailers used to keep
+        // playing (with audio) through screen-off — process ON_STOP now always pauses them.
+        var localResumed =
+            lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        var processStarted = androidx.lifecycle.ProcessLifecycleOwner.get()
+            .lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+        fun syncPlayback() {
+            val shouldPlay = localResumed && processStarted
+            player.playWhenReady = shouldPlay
+            if (!shouldPlay) player.pause()
+        }
+        val localObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
             when (event) {
                 androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
                 androidx.lifecycle.Lifecycle.Event.ON_STOP,
                 -> {
-                    player.playWhenReady = false
-                    player.pause()
+                    localResumed = false
+                    syncPlayback()
                 }
                 androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
-                    player.playWhenReady = true
+                    localResumed = true
+                    syncPlayback()
                 }
                 else -> Unit
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
+        val processObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    processStarted = false
+                    syncPlayback()
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    processStarted = true
+                    syncPlayback()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(localObserver)
+        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(processObserver)
+        syncPlayback()
         onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
+            lifecycleOwner.lifecycle.removeObserver(localObserver)
+            androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.removeObserver(processObserver)
             player.release()
         }
     }
@@ -246,6 +275,23 @@ private fun YouTubeTrailerEmbed(
 
     val videoId = ids[candidateIndex.coerceIn(0, ids.lastIndex)]
 
+    // On a secondary display Presentation the local lifecycle never pauses, so the muted WebView
+    // kept decoding through screen-off. Pause on process ON_STOP; resume when any screen returns.
+    var activePlayer by remember(videoId) { mutableStateOf<YouTubePlayer?>(null) }
+    DisposableEffect(videoId) {
+        val processObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> activePlayer?.pause()
+                androidx.lifecycle.Lifecycle.Event.ON_START -> activePlayer?.play()
+                else -> Unit
+            }
+        }
+        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(processObserver)
+        onDispose {
+            androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.removeObserver(processObserver)
+        }
+    }
+
     key(videoId) {
         AndroidView(
             factory = { ctx ->
@@ -272,6 +318,7 @@ private fun YouTubeTrailerEmbed(
                         object : AbstractYouTubePlayerListener() {
                             override fun onReady(youTubePlayer: YouTubePlayer) {
                                 Log.i(TAG, "YouTube IFrame ready; muted load $videoId")
+                                activePlayer = youTubePlayer
                                 youTubePlayer.mute()
                                 youTubePlayer.loadVideo(videoId, 0f)
                             }

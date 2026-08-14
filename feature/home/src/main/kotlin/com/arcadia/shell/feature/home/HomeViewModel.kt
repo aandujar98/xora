@@ -903,13 +903,17 @@ class HomeViewModel @Inject constructor(
         xoraNetwork.state
             .onEach { emitXoraNetworkBanners(it) }
             .launchIn(viewModelScope)
-        // Background poll so banners fire without the Dashboard open; quiet no-op when signed out.
+        // Poll friends + inbox only while the shell is actually in the foreground — an asleep or
+        // backgrounded device must not wake the radio every minute (battery / fan complaint).
         viewModelScope.launch {
-            while (true) {
-                delay(XORA_SOCIAL_POLL_MS)
-                if (xoraNetwork.state.value.signedIn) {
-                    xoraNetwork.refreshFriends()
-                    xoraNetwork.refreshNotifications()
+            appForegroundTracker.isForeground.collectLatest { foreground ->
+                if (!foreground) return@collectLatest
+                while (isActive) {
+                    delay(XORA_SOCIAL_POLL_MS)
+                    if (xoraNetwork.state.value.signedIn) {
+                        xoraNetwork.refreshFriends()
+                        xoraNetwork.refreshNotifications()
+                    }
                 }
             }
         }
@@ -6902,6 +6906,8 @@ class HomeViewModel @Inject constructor(
         backgroundedAtElapsed = SystemClock.elapsedRealtime()
         pausedWhileScreenOff = !screenInteractive
         gameCompanionController.onShellBackgrounded()
+        // No foreground media service: local music left playing through sleep only burns battery.
+        nowPlayingController.onShellBackgrounded()
     }
 
     /** Called when the shell regains focus, to record playtime and re-read permission state. */

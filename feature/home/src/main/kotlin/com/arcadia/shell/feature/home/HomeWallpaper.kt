@@ -183,23 +183,53 @@ private fun LoopingWallpaperVideo(
     }
 
     DisposableEffect(player, lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+        // Watch BOTH lifecycles: the local owner (Activity) and the whole process. A secondary
+        // display Presentation stays RESUMED from show() to dismiss(), so on dual-screen devices
+        // this player used to keep decoding video all night while the device slept — fans + battery.
+        // Process ON_STOP (screen off / another app owning every screen) now always pauses it.
+        var localResumed =
+            lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        var processStarted = androidx.lifecycle.ProcessLifecycleOwner.get()
+            .lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+        fun syncPlayback() {
+            val shouldPlay = localResumed && processStarted
+            player.playWhenReady = shouldPlay
+            if (!shouldPlay) player.pause()
+        }
+        val localObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
             when (event) {
                 androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
                 androidx.lifecycle.Lifecycle.Event.ON_STOP,
                 -> {
-                    player.playWhenReady = false
-                    player.pause()
+                    localResumed = false
+                    syncPlayback()
                 }
                 androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
-                    player.playWhenReady = true
+                    localResumed = true
+                    syncPlayback()
                 }
                 else -> Unit
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
+        val processObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    processStarted = false
+                    syncPlayback()
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    processStarted = true
+                    syncPlayback()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(localObserver)
+        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(processObserver)
+        syncPlayback()
         onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
+            lifecycleOwner.lifecycle.removeObserver(localObserver)
+            androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.removeObserver(processObserver)
             player.release()
         }
     }

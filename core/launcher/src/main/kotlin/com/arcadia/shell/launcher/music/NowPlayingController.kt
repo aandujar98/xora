@@ -315,6 +315,18 @@ class NowPlayingController @Inject constructor(
         player = created
     }
 
+    /**
+     * Called when the shell UI leaves the foreground (screen off / sleep / another app in front).
+     * There is no foreground media service, so a MediaPlayer left running behind a dark screen
+     * only drains the battery — pause and keep the position so Resume picks up where it left off.
+     * Spotify is untouched: that stream belongs to the Spotify app's own service.
+     */
+    fun onShellBackgrounded() {
+        val current = stateFlow.value
+        if (current.track?.source != MusicSource.Device || !current.isPlaying) return
+        pauseDevice()
+    }
+
     private fun pauseDevice() {
         runCatching { player?.pause() }
         stopPositionTicker()
