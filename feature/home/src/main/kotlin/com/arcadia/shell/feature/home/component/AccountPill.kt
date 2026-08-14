@@ -53,14 +53,14 @@ import com.arcadia.shell.feature.home.SocialPresence
 private val NotificationRed = Color(0xFFFF3B30)
 
 /**
- * Collapsed LT chrome. 64dp discs: the 80dp pass crowded the corner, 56dp read too small next to
- * the 88dp RT avatar — this splits the difference while keeping the stacked-pill silhouette.
+ * Collapsed LT chrome. 48dp discs keep the stacked-pill silhouette without crowding the corner
+ * (80 / 64 were too large; Figma `56:160` was 73px).
  */
-private val AvatarSize = 64.dp
+private val AvatarSize = 48.dp
 /** Center-to-center step; half of [AvatarSize] so each friend covers half the previous disc. */
-private val AvatarPitch = 32.dp
-private val PillPad = 8.dp
-private val BadgeSize = 28.dp
+private val AvatarPitch = 24.dp
+private val PillPad = 6.dp
+private val BadgeSize = 22.dp
 
 @Composable
 fun AccountPill(
@@ -95,7 +95,7 @@ fun AccountPill(
 
     BoxWithConstraints(
         modifier = modifier
-            .widthIn(max = if (expanded) 400.dp else 280.dp)
+            .widthIn(max = if (expanded) 400.dp else 240.dp)
             .heightIn(max = windowCap + 24.dp),
     ) {
         // Cap against parent constraints and the real window so Auto UI-fit cannot clip LT.
