@@ -84,6 +84,7 @@ import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.NowPlayingPill
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
+import com.arcadia.shell.feature.home.component.XmbStarFieldLayer
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
 import kotlin.math.PI
@@ -211,6 +212,13 @@ fun XoraHomeXmbPane(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.38f)),
+            )
+        } else {
+            // PS5-style ambient dust between the wallpaper and the menu chrome.
+            XmbStarFieldLayer(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = chromeAlpha },
             )
         }
 
@@ -630,6 +638,7 @@ private fun XmbCross(
                     icon = category.toXmbIcon(),
                     tint = Color.White,
                     size = 34.dp,
+                    glass = true,
                 )
             }
         }

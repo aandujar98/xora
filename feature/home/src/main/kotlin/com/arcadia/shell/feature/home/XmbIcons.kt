@@ -6,8 +6,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -60,6 +64,8 @@ enum class XmbIcon {
     System,
     GamePad,
     Emulator,
+    /** XOrA wordmark (X O Γ Δ) — the Network category on the cross bar. */
+    Xora,
 }
 
 fun XoraXmbCategory.toXmbIcon(): XmbIcon = when (this) {
@@ -68,7 +74,7 @@ fun XoraXmbCategory.toXmbIcon(): XmbIcon = when (this) {
     XoraXmbCategory.Games -> XmbIcon.Games
     XoraXmbCategory.Media -> XmbIcon.Media
     XoraXmbCategory.Music -> XmbIcon.Music
-    XoraXmbCategory.Network -> XmbIcon.Network
+    XoraXmbCategory.Network -> XmbIcon.Xora
 }
 
 @Composable
@@ -81,10 +87,12 @@ fun XmbVectorIcon(
     outlined: Boolean = true,
     /** When false, a parent plate / tile already casts [XoraForegroundShadow]. */
     castShadow: Boolean = true,
+    /** PS3-style frosted glass body (white→ice-blue gradient + top gloss) instead of flat tint. */
+    glass: Boolean = false,
 ) {
     Canvas(modifier = modifier.size(size)) {
         val stroke = Stroke(
-            width = size.toPx() * 0.075f,
+            width = size.toPx() * (if (glass) 0.095f else 0.075f),
             cap = StrokeCap.Round,
             join = StrokeJoin.Round,
         )
@@ -93,6 +101,10 @@ fun XmbVectorIcon(
             drawXoraForegroundSilhouette {
                 drawXmbIconContent(icon, shadowInk, stroke)
             }
+        }
+        if (glass) {
+            drawGlassIcon(icon, stroke)
+            return@Canvas
         }
         if (outlined) {
             val outline = size.toPx() * 0.055f
@@ -116,6 +128,47 @@ fun XmbVectorIcon(
         }
         drawXmbIconContent(icon, tint, stroke)
     }
+}
+
+/**
+ * Frosted-glass pass: the glyph is drawn in white and then masked (SrcIn) with a vertical
+ * white→ice-blue gradient, plus a second masked pass that leaves a bright gloss on the top half.
+ * The shape itself is the mask, so every stroke glyph gets the PS3 glass body without new paths.
+ */
+private fun DrawScope.drawGlassIcon(icon: XmbIcon, stroke: Stroke) {
+    val canvas = drawContext.canvas
+    val bounds = Rect(Offset.Zero, Size(size.width, size.height)).inflate(stroke.width)
+
+    // Body: cool glass gradient, brightest at the top edge like backlit acrylic.
+    canvas.saveLayer(bounds, Paint())
+    drawXmbIconContent(icon, Color.White, stroke)
+    drawRect(
+        brush = Brush.verticalGradient(
+            0f to Color.White.copy(alpha = 0.98f),
+            0.40f to Color(0xFFE2F1FC).copy(alpha = 0.94f),
+            0.72f to Color(0xFFB7DBF6).copy(alpha = 0.90f),
+            1f to Color(0xFF84B9E9).copy(alpha = 0.88f),
+        ),
+        topLeft = bounds.topLeft,
+        size = bounds.size,
+        blendMode = BlendMode.SrcIn,
+    )
+    canvas.restore()
+
+    // Gloss: extra white sheen fading out by mid-height — the "reflection" on the glass.
+    canvas.saveLayer(bounds, Paint())
+    drawXmbIconContent(icon, Color.White, stroke)
+    drawRect(
+        brush = Brush.verticalGradient(
+            0f to Color.White.copy(alpha = 0.55f),
+            0.45f to Color.Transparent,
+            1f to Color.Transparent,
+        ),
+        topLeft = bounds.topLeft,
+        size = bounds.size,
+        blendMode = BlendMode.SrcIn,
+    )
+    canvas.restore()
 }
 
 private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Stroke) {
@@ -159,7 +212,33 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.News -> drawNews(tint, stroke)
         XmbIcon.System -> drawSystemCube(tint, stroke)
         XmbIcon.GamePad -> drawController(tint, stroke)
+        XmbIcon.Xora -> drawXoraWordmark(tint, stroke)
     }
+}
+
+/** XOrA wordmark — X O Γ Δ, matching the brand logo's geometric letterforms. */
+private fun DrawScope.drawXoraWordmark(tint: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    val top = h * 0.34f
+    val bottom = h * 0.66f
+    val sw = stroke.width
+    // X
+    drawLine(tint, Offset(w * 0.04f, top), Offset(w * 0.22f, bottom), strokeWidth = sw, cap = StrokeCap.Round)
+    drawLine(tint, Offset(w * 0.22f, top), Offset(w * 0.04f, bottom), strokeWidth = sw, cap = StrokeCap.Round)
+    // O
+    drawCircle(tint, radius = w * 0.105f, center = Offset(w * 0.395f, h * 0.5f), style = stroke)
+    // Γ
+    drawLine(tint, Offset(w * 0.565f, top), Offset(w * 0.565f, bottom), strokeWidth = sw, cap = StrokeCap.Round)
+    drawLine(tint, Offset(w * 0.565f, top), Offset(w * 0.70f, top), strokeWidth = sw, cap = StrokeCap.Round)
+    // Δ
+    val tri = Path().apply {
+        moveTo(w * 0.865f, top)
+        lineTo(w * 0.97f, bottom)
+        lineTo(w * 0.76f, bottom)
+        close()
+    }
+    drawPath(tri, tint, style = stroke)
 }
 
 private fun DrawScope.drawProfiles(tint: Color, stroke: Stroke) {
