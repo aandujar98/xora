@@ -260,30 +260,42 @@ class XoraNetworkRepository @Inject constructor(
     }
 
     /**
-     * Reads the website's `xora_notifications` inbox for this user. The website may write it
-     * server-side (system-owned) or per-user, so both owners are queried and merged. Failures
-     * degrade to an empty inbox — never block sign-in/friends on this.
+     * Reads the website notification inbox (DMs, friend requests) plus Nakama storage as a
+     * fallback. Website DMs never land in `xora_notifications` storage — `/api/notifications`
+     * is the live source. Failures degrade to an empty inbox so sign-in/friends still work.
      */
     suspend fun refreshNotifications(): Result<Unit> = authenticated { token ->
+        val refresh = session?.refreshToken.orEmpty()
+        val websiteItems = runCatching {
+            client.listWebsiteNotifications(token, refresh)
+        }.getOrDefault(emptyList())
+        val threadItems = syntheticThreadInboxItems(
+            websiteItems = websiteItems,
+            unreadThreads = runCatching { client.listMessageThreads(token, refresh) }
+                .getOrDefault(emptyList()),
+        )
         val usernameLower = (
             mutableState.value.account?.username
                 ?: XoraJwt.username(token, json)
             ).lowercase()
-        if (usernameLower.isBlank()) return@authenticated
         val ownUuid = XoraJwt.userId(token, json)
-        val objects = runCatching {
-            client.readStorageObjects(
-                accessToken = token,
-                collection = XoraNetworkClient.NOTIFICATIONS_COLLECTION,
-                key = "inbox:$usernameLower",
-                ownerIds = listOf(null, ownUuid.takeIf { it.isNotBlank() }),
-            )
-        }.getOrDefault(emptyList())
-        val items = objects
-            .flatMap { obj ->
-                runCatching { json.decodeFromString<InboxValueDto>(obj.value).items }
-                    .getOrDefault(emptyList())
-            }
+        val storageItems = if (usernameLower.isNotBlank()) {
+            runCatching {
+                client.readStorageObjects(
+                    accessToken = token,
+                    collection = XoraNetworkClient.NOTIFICATIONS_COLLECTION,
+                    key = "inbox:$usernameLower",
+                    ownerIds = listOf(null, ownUuid.takeIf { it.isNotBlank() }),
+                )
+            }.getOrDefault(emptyList())
+                .flatMap { obj ->
+                    runCatching { json.decodeFromString<InboxValueDto>(obj.value).items }
+                        .getOrDefault(emptyList())
+                }
+        } else {
+            emptyList()
+        }
+        val items = (websiteItems + threadItems + storageItems)
             .distinctBy { it.id.ifBlank { it.createdAt + it.fromUsername + it.body } }
             .map { dto ->
                 XoraNotificationItem(

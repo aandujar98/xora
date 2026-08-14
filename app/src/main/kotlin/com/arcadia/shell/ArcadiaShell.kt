@@ -520,7 +520,10 @@ fun ArcadiaShell(
                     onDismiss = homeViewModel::dismissWelcomeBack,
                     modifier = Modifier.fillMaxSize(),
                 )
-                NotificationBannerHost(center = homeViewModel.shellNotifications)
+                NotificationBannerHost(
+                    center = homeViewModel.shellNotifications,
+                    ltExpanded = state.accountPanelExpanded,
+                )
                 NotificationHistoryPanel(
                     open = state.notificationHistoryOpen,
                     items = state.notificationHistory,

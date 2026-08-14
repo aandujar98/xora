@@ -252,6 +252,22 @@ class XoraNetworkClient @Inject constructor(
         return data
     }
 
+    /** Website notification inbox — DMs and friend events the site writes on send. */
+    internal suspend fun listWebsiteNotifications(
+        accessToken: String,
+        refreshToken: String,
+    ): List<InboxItemDto> {
+        val envelope: WebsiteNotificationsResponseDto = execute(
+            Request.Builder()
+                .url("$ACCOUNT_SITE/api/notifications")
+                .header("Cookie", websiteCookieHeader(accessToken, refreshToken))
+                .header("Accept", "application/json")
+                .get()
+                .build(),
+        )
+        return envelope.data.items
+    }
+
     internal suspend fun listMessageThreads(
         accessToken: String,
         refreshToken: String,

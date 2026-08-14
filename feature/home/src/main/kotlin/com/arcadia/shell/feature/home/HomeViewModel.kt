@@ -933,17 +933,26 @@ class HomeViewModel @Inject constructor(
             .launchIn(viewModelScope)
         // Poll friends + inbox only while the shell is actually in the foreground — an asleep or
         // backgrounded device must not wake the radio every minute (battery / fan complaint).
+        // Inbox is the website `/api/notifications` list (DMs never land in Nakama storage);
+        // poll it often enough that DMs toast quickly. Friends ride a slower cadence.
         viewModelScope.launch {
             appForegroundTracker.isForeground.collectLatest { foreground ->
                 xoraNetwork.setRealtimeEnabled(foreground)
                 if (!foreground) return@collectLatest
-                while (isActive) {
-                    delay(XORA_SOCIAL_POLL_MS)
-                    if (xoraNetwork.state.value.signedIn) {
-                        xoraNetwork.refreshFriends()
-                        xoraNetwork.refreshNotifications()
+                xoraNetwork.state
+                    .map { it.signedIn }
+                    .distinctUntilChanged()
+                    .collectLatest { signedIn ->
+                        if (!signedIn) return@collectLatest
+                        var ticks = 0
+                        while (isActive) {
+                            xoraNetwork.refreshNotifications()
+                            val friendEvery = (XORA_SOCIAL_POLL_MS / XORA_INBOX_POLL_MS).toInt().coerceAtLeast(1)
+                            if (ticks % friendEvery == 0) xoraNetwork.refreshFriends()
+                            ticks++
+                            delay(XORA_INBOX_POLL_MS)
+                        }
                     }
-                }
             }
         }
 
@@ -1323,6 +1332,16 @@ class HomeViewModel @Inject constructor(
             if (key in knownXoraNotificationIds) continue
             knownXoraNotificationIds.add(key)
             val fromKey = item.fromUsername.lowercase()
+            if (fromKey.isNotBlank() &&
+                fromKey == network.account?.username?.lowercase()
+            ) {
+                continue
+            }
+            if (network.dm.isOpen &&
+                network.dm.peerUsername.equals(item.fromUsername, ignoreCase = true)
+            ) {
+                continue
+            }
             val avatarUrl = XoraNetworkClient.avatarUrlFor(item.fromUsername)
             val sender = item.fromDisplayName.ifBlank { item.fromUsername }
             when {
@@ -1334,7 +1353,7 @@ class HomeViewModel @Inject constructor(
                         avatarUrl = avatarUrl,
                     ),
                 )
-                item.type == "friend_request" -> {
+                item.isFriendRequest -> {
                     if (fromKey !in announcedRequests) {
                         shellNotifications.emit(
                             ShellNotification.XoraFriendRequest(
@@ -1345,7 +1364,7 @@ class HomeViewModel @Inject constructor(
                         )
                     }
                 }
-                item.type == "message" -> shellNotifications.emit(
+                item.isMessage -> shellNotifications.emit(
                     ShellNotification.XoraMessage(
                         id = "xora-message:$key",
                         sender = sender,
@@ -7129,6 +7148,8 @@ class HomeViewModel @Inject constructor(
         const val RA_UNLOCK_POLL_MS = 90_000L
         /** XOrA Network has no push channel either — poll friends + inbox while signed in. */
         const val XORA_SOCIAL_POLL_MS = 60_000L
+        /** Website DMs land in `/api/notifications`; poll faster than the site's 30s bell. */
+        const val XORA_INBOX_POLL_MS = 20_000L
         /** Ignore brief pauses (permission sheets, quick app switches). */
         const val WELCOME_BACK_THRESHOLD_MS = 45_000L
         /** One press must not fire through two Photo Viewer layers. */

@@ -219,4 +219,95 @@ class XoraNetworkFriendsParseTest {
         assertTrue(!isExpiredAuth(500))
         assertTrue(!isExpiredAuth(0))
     }
+
+    @Test
+    fun websiteNotificationsEnvelopeParsesMessageItems() {
+        val payload = """
+            {"ok":true,"data":{"items":[{
+              "id":"n1",
+              "type":"message",
+              "fromUsername":"xora_agent_pal",
+              "fromDisplayName":"xora_agent_pal",
+              "body":"xora_agent_pal: banner-probe-1",
+              "href":"/messages/xora_agent_pal",
+              "createdAt":"2026-08-14T23:29:03.536Z",
+              "read":false
+            }],"unreadCount":1}}
+        """.trimIndent()
+        val envelope = json.decodeFromString<WebsiteNotificationsResponseDto>(payload)
+        assertTrue(envelope.ok)
+        assertEquals(1, envelope.data.unreadCount)
+        val item = envelope.data.items.single()
+        assertEquals("n1", item.id)
+        assertEquals("message", item.type)
+        assertEquals("xora_agent_pal", item.fromUsername)
+        assertEquals("xora_agent_pal: banner-probe-1", item.body)
+        assertEquals("/messages/xora_agent_pal", item.href)
+        assertTrue(isXoraInboxMessageType(item.type))
+        assertTrue(
+            XoraNotificationItem(
+                id = item.id,
+                type = item.type,
+                fromUsername = item.fromUsername,
+                fromDisplayName = item.fromDisplayName,
+                body = item.body,
+                createdAt = item.createdAt,
+                read = item.read,
+            ).isMessage,
+        )
+    }
+
+    @Test
+    fun syntheticThreadsFillGapsWhenWebsiteInboxOmitsTheDm() {
+        val website = listOf(
+            InboxItemDto(
+                id = "req1",
+                type = "friend_request",
+                fromUsername = "pal",
+                fromDisplayName = "Pal",
+            ),
+        )
+        val threads = listOf(
+            WebsiteMessageThreadDto(
+                username = "pal",
+                displayName = "Pal",
+                lastBody = "hey",
+                lastAt = "2026-08-14T23:29:03.536Z",
+                unread = 1,
+            ),
+            WebsiteMessageThreadDto(
+                username = "other",
+                displayName = "Other",
+                lastBody = "read already",
+                lastAt = "2026-08-14T20:00:00Z",
+                unread = 0,
+            ),
+        )
+        val synthetic = syntheticThreadInboxItems(website, threads)
+        assertEquals(1, synthetic.size)
+        assertEquals("thread:pal:2026-08-14T23:29:03.536Z", synthetic.single().id)
+        assertEquals("message", synthetic.single().type)
+        assertEquals("hey", synthetic.single().body)
+    }
+
+    @Test
+    fun syntheticThreadsSkipPeersAlreadyInWebsiteInbox() {
+        val website = listOf(
+            InboxItemDto(
+                id = "n1",
+                type = "message",
+                fromUsername = "pal",
+                body = "hey",
+            ),
+        )
+        val threads = listOf(
+            WebsiteMessageThreadDto(
+                username = "pal",
+                lastBody = "hey",
+                lastAt = "2026-08-14T23:29:03.536Z",
+                unread = 1,
+            ),
+        )
+        assertTrue(syntheticThreadInboxItems(website, threads).isEmpty())
+    }
 }

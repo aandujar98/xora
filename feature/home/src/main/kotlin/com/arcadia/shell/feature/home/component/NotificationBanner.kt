@@ -6,10 +6,11 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +32,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
@@ -45,45 +46,52 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.arcadia.shell.designsystem.ArcadiaGlass
+import com.arcadia.shell.designsystem.GlassIntensity
+import com.arcadia.shell.designsystem.GlassTone
+import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.launcher.notifications.FriendNetwork
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.toCopy
 
-private val BannerPanel = Color(0xFFF2F2F2)
-private val BannerText = Color(0xFF2A2A2A)
-private val BannerTextMuted = Color(0xFF5A5A5A)
-private val BannerShape = RoundedCornerShape(10.dp)
-private val AvatarShape = RoundedCornerShape(6.dp)
+/** Matches collapsed LT: 16dp start + 12dp top + 48dp avatar + 6dp pad × 2 + 8dp gap. */
+private val BannerBelowLtTop = 80.dp
+private val BannerStart = 16.dp
+private val BannerShape = ArcadiaGlass.PillShape
+private val CardEdge = Color.White.copy(alpha = 0.25f)
 
 /**
- * Top-left PS4-style toast host. Observes [ShellNotificationCenter.active].
+ * Top-left toast host, parked under the LT Social pill. Observes [ShellNotificationCenter.active].
  * Host only on the primary Activity composition in dual-display mode.
  */
 @Composable
 fun BoxScope.NotificationBannerHost(
     center: ShellNotificationCenter,
     modifier: Modifier = Modifier,
+    ltExpanded: Boolean = false,
 ) {
     val active by center.active.collectAsStateWithLifecycle()
     val reduceMotion = rememberReduceMotion()
 
     AnimatedVisibility(
-        visible = active != null,
+        visible = active != null && !ltExpanded,
         modifier = modifier
             .align(Alignment.TopStart)
-            .padding(top = 20.dp, start = 20.dp, end = 20.dp),
+            .padding(top = BannerBelowLtTop, start = BannerStart, end = 20.dp),
         enter = if (reduceMotion) {
             fadeIn()
         } else {
-            slideInVertically(
+            slideInHorizontally(
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
                     stiffness = Spring.StiffnessMediumLow,
                 ),
-                initialOffsetY = { -it },
+                initialOffsetX = { -it },
             ) + fadeIn(
                 animationSpec = spring(stiffness = Spring.StiffnessMedium),
             )
@@ -91,12 +99,12 @@ fun BoxScope.NotificationBannerHost(
         exit = if (reduceMotion) {
             fadeOut()
         } else {
-            slideOutVertically(
+            slideOutHorizontally(
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioNoBouncy,
                     stiffness = Spring.StiffnessMedium,
                 ),
-                targetOffsetY = { -it },
+                targetOffsetX = { -it },
             ) + fadeOut()
         },
         label = "shellNotificationBanner",
@@ -117,6 +125,7 @@ fun NotificationBanner(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val glass = rememberGlassTokens(GlassTone.OverMedia)
     val content = bannerContent(notification)
     val accessibility = listOfNotNull(
         content.category,
@@ -127,17 +136,17 @@ fun NotificationBanner(
     Row(
         modifier = modifier
             .widthIn(min = 280.dp, max = 420.dp)
-            .shadow(
-                elevation = 10.dp,
+            .xoraForegroundShadow(BannerShape)
+            .liquidGlass(
                 shape = BannerShape,
-                ambientColor = Color.Black.copy(alpha = 0.28f),
-                spotColor = Color.Black.copy(alpha = 0.22f),
+                tone = GlassTone.OverMedia,
+                intensity = GlassIntensity.Strong,
+                shimmer = true,
             )
-            .clip(BannerShape)
-            .background(BannerPanel.copy(alpha = 0.96f))
+            .border(1.5.dp, CardEdge, BannerShape)
             .clickable(onClick = onDismiss)
             .semantics { contentDescription = accessibility }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -156,13 +165,13 @@ fun NotificationBanner(
                     painter = painterResource(content.categoryIconRes),
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
-                    colorFilter = ColorFilter.tint(BannerText),
+                    colorFilter = ColorFilter.tint(glass.content),
                 )
                 Text(
                     text = content.category,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
-                    color = BannerText,
+                    color = glass.content,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -171,7 +180,7 @@ fun NotificationBanner(
                 text = content.body,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
-                color = BannerText,
+                color = glass.content,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 2.dp),
@@ -180,7 +189,7 @@ fun NotificationBanner(
                 Text(
                     text = content.subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = BannerTextMuted,
+                    color = glass.contentMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 1.dp),
@@ -196,7 +205,7 @@ fun NotificationBanner(
                         .height(3.dp)
                         .clip(RoundedCornerShape(2.dp)),
                     color = content.accent,
-                    trackColor = BannerText.copy(alpha = 0.12f),
+                    trackColor = glass.content.copy(alpha = 0.12f),
                 )
             }
         }
@@ -221,7 +230,7 @@ private fun BannerAvatar(
     Box(
         modifier = Modifier
             .size(48.dp)
-            .clip(AvatarShape)
+            .clip(CircleShape)
             .background(accent.copy(alpha = 0.18f)),
         contentAlignment = Alignment.Center,
     ) {
@@ -235,7 +244,7 @@ private fun BannerAvatar(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(AvatarShape),
+                    .clip(CircleShape),
             )
         } else {
             Text(

@@ -72,7 +72,7 @@ data class XoraDmUiState(
     val isOpen: Boolean get() = !peerUsername.isNullOrBlank()
 }
 
-/** One entry from the website's `xora_notifications` storage inbox. */
+/** One entry from the website notification inbox (or Nakama storage fallback). */
 data class XoraNotificationItem(
     val id: String,
     /** "friend_request" | "message" (website-defined). */
@@ -82,7 +82,12 @@ data class XoraNotificationItem(
     val body: String,
     val createdAt: String,
     val read: Boolean,
-)
+) {
+    val isMessage: Boolean
+        get() = isXoraInboxMessageType(type)
+    val isFriendRequest: Boolean
+        get() = type.equals("friend_request", ignoreCase = true)
+}
 
 /** Whole signed-in surface the launcher shows. One identity per device. */
 data class XoraNetworkState(
@@ -220,6 +225,18 @@ internal data class WebsiteFriendDto(
 )
 
 @Serializable
+internal data class WebsiteNotificationsResponseDto(
+    val ok: Boolean = true,
+    val data: WebsiteNotificationsDataDto = WebsiteNotificationsDataDto(),
+)
+
+@Serializable
+internal data class WebsiteNotificationsDataDto(
+    val items: List<InboxItemDto> = emptyList(),
+    val unreadCount: Int = 0,
+)
+
+@Serializable
 internal data class WebsiteMessagesListResponseDto(
     val ok: Boolean = true,
     val data: WebsiteMessagesListDataDto = WebsiteMessagesListDataDto(),
@@ -297,6 +314,41 @@ internal data class InboxItemDto(
     val createdAt: String = "",
     val read: Boolean = false,
 )
+
+internal fun isXoraInboxMessageType(type: String): Boolean =
+    type.equals("message", ignoreCase = true) || type.contains("dm", ignoreCase = true)
+
+/**
+ * Website DMs write `/api/notifications`. If that list is empty or missing a thread, unread
+ * `/api/messages` rows become synthetic `message` items so the launcher can still toast.
+ */
+internal fun syntheticThreadInboxItems(
+    websiteItems: List<InboxItemDto>,
+    unreadThreads: List<WebsiteMessageThreadDto>,
+): List<InboxItemDto> {
+    val alreadyCovered = websiteItems
+        .filter { isXoraInboxMessageType(it.type) }
+        .map { it.fromUsername.lowercase() }
+        .toSet()
+    return unreadThreads
+        .filter {
+            it.unread > 0 &&
+                it.username.isNotBlank() &&
+                it.username.lowercase() !in alreadyCovered
+        }
+        .map { thread ->
+            InboxItemDto(
+                id = "thread:${thread.username}:${thread.lastAt}",
+                type = "message",
+                fromUsername = thread.username,
+                fromDisplayName = thread.displayName.ifBlank { thread.username },
+                body = thread.lastBody,
+                href = "/messages/${thread.username}",
+                createdAt = thread.lastAt,
+                read = false,
+            )
+        }
+}
 
 /** Nakama uses ints; the website uses `"friend"` / `"incoming"` / `"outgoing"`. */
 internal fun parseXoraFriendState(raw: Int): XoraFriendState? = when (raw) {
