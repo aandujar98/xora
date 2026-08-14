@@ -330,6 +330,11 @@ class HomeViewModel @Inject constructor(
     /** First Steam friends pull only seeds online ids (avoids a banner storm on open). */
     private var steamOnlineSeeded = false
     private val knownOnlineSteamIds = linkedSetOf<String>()
+    /** First XOrA Network snapshot after sign-in only seeds — no replaying the backlog as toasts. */
+    private var xoraSocialSeeded = false
+    private val knownOnlineXoraUsernames = linkedSetOf<String>()
+    private val knownXoraInviteUsernames = linkedSetOf<String>()
+    private val knownXoraNotificationIds = linkedSetOf<String>()
     /** First RA recent-unlock poll only seeds ids so historical unlocks do not toast. */
     private var raUnlockSeeded = false
     private val knownRaUnlockKeys = linkedSetOf<String>()
@@ -894,6 +899,20 @@ class HomeViewModel @Inject constructor(
         migrateTrailerPipeline()
         // Restore the persisted XOrA Network session so sign-in survives process death.
         viewModelScope.launch { xoraNetwork.restore() }
+        // Friend-online / friend-request / message / netplay banners from XOrA Network state diffs.
+        xoraNetwork.state
+            .onEach { emitXoraNetworkBanners(it) }
+            .launchIn(viewModelScope)
+        // Background poll so banners fire without the Dashboard open; quiet no-op when signed out.
+        viewModelScope.launch {
+            while (true) {
+                delay(XORA_SOCIAL_POLL_MS)
+                if (xoraNetwork.state.value.signedIn) {
+                    xoraNetwork.refreshFriends()
+                    xoraNetwork.refreshNotifications()
+                }
+            }
+        }
 
         scraperScheduler.isRunning()
             .onEach { isScraping.value = it }
@@ -1204,6 +1223,107 @@ class HomeViewModel @Inject constructor(
             )
         }
         knownOnlineSteamIds.retainAll(onlineIds)
+    }
+
+    /**
+     * Banners + status-bar notifications from XOrA Network state diffs: a friend coming online,
+     * an incoming friend request, a new inbox message, and (future) a Netplay invite with the
+     * game's name. The first snapshot after sign-in only seeds so the backlog never toasts.
+     */
+    private fun emitXoraNetworkBanners(network: com.arcadia.shell.xoranetwork.XoraNetworkState) {
+        if (!network.signedIn) {
+            xoraSocialSeeded = false
+            knownOnlineXoraUsernames.clear()
+            knownXoraInviteUsernames.clear()
+            knownXoraNotificationIds.clear()
+            return
+        }
+        val onlineNow = network.acceptedFriends.filter { it.online }
+        val onlineNames = onlineNow.map { it.username.lowercase() }.toSet()
+        val invitesNow = network.incomingInvites
+        val inviteNames = invitesNow.map { it.username.lowercase() }.toSet()
+        val notificationIds = network.notifications
+            .map { it.id.ifBlank { it.createdAt + it.fromUsername + it.body } }
+            .toSet()
+        if (!xoraSocialSeeded) {
+            knownOnlineXoraUsernames.addAll(onlineNames)
+            knownXoraInviteUsernames.addAll(inviteNames)
+            knownXoraNotificationIds.addAll(notificationIds)
+            xoraSocialSeeded = true
+            return
+        }
+
+        for (friend in onlineNow) {
+            val key = friend.username.lowercase()
+            if (key in knownOnlineXoraUsernames) continue
+            knownOnlineXoraUsernames.add(key)
+            shellNotifications.emit(
+                ShellNotification.FriendOnline(
+                    id = "xora-online:$key:${SystemClock.elapsedRealtime()}",
+                    displayName = friend.displayName.ifBlank { friend.username },
+                    network = FriendNetwork.Xora,
+                    avatarUrl = friend.avatarUrl.ifBlank { friend.websiteAvatarUrl },
+                ),
+            )
+        }
+        knownOnlineXoraUsernames.retainAll(onlineNames)
+
+        // Friend requests can surface twice (friends list edge + inbox item) — announce once.
+        val announcedRequests = mutableSetOf<String>()
+        for (invite in invitesNow) {
+            val key = invite.username.lowercase()
+            if (key in knownXoraInviteUsernames) continue
+            knownXoraInviteUsernames.add(key)
+            announcedRequests.add(key)
+            shellNotifications.emit(
+                ShellNotification.XoraFriendRequest(
+                    id = "xora-request:$key:${SystemClock.elapsedRealtime()}",
+                    displayName = invite.displayName.ifBlank { invite.username },
+                    avatarUrl = invite.avatarUrl.ifBlank { invite.websiteAvatarUrl },
+                ),
+            )
+        }
+        knownXoraInviteUsernames.retainAll(inviteNames)
+
+        for (item in network.notifications) {
+            val key = item.id.ifBlank { item.createdAt + item.fromUsername + item.body }
+            if (key in knownXoraNotificationIds) continue
+            knownXoraNotificationIds.add(key)
+            val fromKey = item.fromUsername.lowercase()
+            val avatarUrl = XoraNetworkClient.avatarUrlFor(item.fromUsername)
+            val sender = item.fromDisplayName.ifBlank { item.fromUsername }
+            when {
+                item.type.contains("netplay", ignoreCase = true) -> shellNotifications.emit(
+                    ShellNotification.XoraNetplayInvite(
+                        id = "xora-netplay:$key",
+                        displayName = sender,
+                        gameTitle = item.body,
+                        avatarUrl = avatarUrl,
+                    ),
+                )
+                item.type == "friend_request" -> {
+                    if (fromKey !in announcedRequests) {
+                        shellNotifications.emit(
+                            ShellNotification.XoraFriendRequest(
+                                id = "xora-request:$key",
+                                displayName = sender,
+                                avatarUrl = avatarUrl,
+                            ),
+                        )
+                    }
+                }
+                item.type == "message" -> shellNotifications.emit(
+                    ShellNotification.XoraMessage(
+                        id = "xora-message:$key",
+                        sender = sender,
+                        snippet = item.body,
+                        avatarUrl = avatarUrl,
+                    ),
+                )
+            }
+        }
+        // Keep the id set bounded to what the inbox still holds (it is capped server-side).
+        knownXoraNotificationIds.retainAll(notificationIds)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -6840,6 +6960,8 @@ class HomeViewModel @Inject constructor(
         const val MAX_STEAM_FRIENDS = 200
         /** RA has no push channel — poll recent unlocks while the shell lives. */
         const val RA_UNLOCK_POLL_MS = 90_000L
+        /** XOrA Network has no push channel either — poll friends + inbox while signed in. */
+        const val XORA_SOCIAL_POLL_MS = 60_000L
         /** Ignore brief pauses (permission sheets, quick app switches). */
         const val WELCOME_BACK_THRESHOLD_MS = 45_000L
         /** One press must not fire through two Photo Viewer layers. */

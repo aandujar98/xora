@@ -302,6 +302,36 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             accent = Color(0xFF66C0F4),
         )
 
+        is ShellNotification.XoraMessage -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_messages,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.sender.take(1).ifBlank { "X" },
+            accent = Color(0xFF0070D1),
+        )
+
+        is ShellNotification.XoraFriendRequest -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_friends,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.displayName.take(1).ifBlank { "X" },
+            accent = Color(0xFF0070D1),
+        )
+
+        is ShellNotification.XoraNetplayInvite -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_friends,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.displayName.take(1).ifBlank { "X" },
+            accent = Color(0xFF0070D1),
+        )
+
         is ShellNotification.FriendOnline -> BannerContent(
             category = copy.category,
             categoryIconRes = R.drawable.ic_banner_friends,
@@ -312,6 +342,7 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             accent = when (notification.network) {
                 FriendNetwork.Discord -> Color(0xFF5865F2)
                 FriendNetwork.Steam -> Color(0xFF66C0F4)
+                FriendNetwork.Xora -> Color(0xFF0070D1)
             },
         )
 

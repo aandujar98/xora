@@ -49,10 +49,29 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
         subtitle = sender,
     )
 
+    is ShellNotification.XoraMessage -> ShellNotificationCopy(
+        category = "Messages",
+        body = snippet.ifBlank { "New XOrA Network message" },
+        subtitle = "$sender · XOrA Network",
+    )
+
+    is ShellNotification.XoraFriendRequest -> ShellNotificationCopy(
+        category = "Friends",
+        body = "Added you as a friend",
+        subtitle = "$displayName · XOrA Network",
+    )
+
+    is ShellNotification.XoraNetplayInvite -> ShellNotificationCopy(
+        category = "Netplay",
+        body = "Invited you to play ${gameTitle.ifBlank { "a game" }}",
+        subtitle = "$displayName · XOrA Network",
+    )
+
     is ShellNotification.FriendOnline -> {
         val networkLabel = when (network) {
             FriendNetwork.Discord -> "Discord"
             FriendNetwork.Steam -> "Steam"
+            FriendNetwork.Xora -> "XOrA Network"
         }
         val activity = activityLabel?.trim().orEmpty()
         ShellNotificationCopy(

@@ -41,6 +41,32 @@ sealed interface ShellNotification {
         val avatarUrl: String? = null,
     ) : ShellNotification
 
+    /** A website / in-network DM from the XOrA Network inbox. */
+    data class XoraMessage(
+        override val id: String,
+        val sender: String,
+        val snippet: String,
+        val avatarUrl: String? = null,
+    ) : ShellNotification
+
+    /** Someone sent an XOrA Network friend request to this account. */
+    data class XoraFriendRequest(
+        override val id: String,
+        val displayName: String,
+        val avatarUrl: String? = null,
+    ) : ShellNotification
+
+    /**
+     * A friend invited this account to a Netplay session. The backend feature is still planned;
+     * the banner lights up as soon as the website starts writing these inbox items.
+     */
+    data class XoraNetplayInvite(
+        override val id: String,
+        val displayName: String,
+        val gameTitle: String,
+        val avatarUrl: String? = null,
+    ) : ShellNotification
+
     data class FriendOnline(
         override val id: String,
         val displayName: String,
@@ -70,4 +96,5 @@ sealed interface ShellNotification {
 enum class FriendNetwork {
     Discord,
     Steam,
+    Xora,
 }

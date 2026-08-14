@@ -176,8 +176,12 @@ class ShellSystemNotifier @Inject constructor(
     private fun categoryFor(notification: ShellNotification): String = when (notification) {
         is ShellNotification.DiscordMessage,
         is ShellNotification.SteamMessage,
+        is ShellNotification.XoraMessage,
         -> NotificationCompat.CATEGORY_MESSAGE
-        is ShellNotification.FriendOnline -> NotificationCompat.CATEGORY_SOCIAL
+        is ShellNotification.FriendOnline,
+        is ShellNotification.XoraFriendRequest,
+        is ShellNotification.XoraNetplayInvite,
+        -> NotificationCompat.CATEGORY_SOCIAL
         is ShellNotification.AchievementUnlocked,
         is ShellNotification.RetroAchievementsSignedIn,
         -> NotificationCompat.CATEGORY_STATUS
