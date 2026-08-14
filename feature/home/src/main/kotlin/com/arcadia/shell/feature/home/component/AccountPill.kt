@@ -53,14 +53,14 @@ import com.arcadia.shell.feature.home.SocialPresence
 private val NotificationRed = Color(0xFFFF3B30)
 
 /**
- * Collapsed LT chrome. Discs sit just under the 88dp RT avatar so the stacked
- * friends pill has comparable presence on the XMB (Figma `56:160` was 73px).
+ * Collapsed LT chrome. 64dp discs: the 80dp pass crowded the corner, 56dp read too small next to
+ * the 88dp RT avatar — this splits the difference while keeping the stacked-pill silhouette.
  */
-private val AvatarSize = 80.dp
+private val AvatarSize = 64.dp
 /** Center-to-center step; half of [AvatarSize] so each friend covers half the previous disc. */
-private val AvatarPitch = 40.dp
-private val PillPad = 10.dp
-private val BadgeSize = 32.dp
+private val AvatarPitch = 32.dp
+private val PillPad = 8.dp
+private val BadgeSize = 28.dp
 
 @Composable
 fun AccountPill(
@@ -95,7 +95,7 @@ fun AccountPill(
 
     BoxWithConstraints(
         modifier = modifier
-            .widthIn(max = if (expanded) 400.dp else 320.dp)
+            .widthIn(max = if (expanded) 400.dp else 280.dp)
             .heightIn(max = windowCap + 24.dp),
     ) {
         // Cap against parent constraints and the real window so Auto UI-fit cannot clip LT.
