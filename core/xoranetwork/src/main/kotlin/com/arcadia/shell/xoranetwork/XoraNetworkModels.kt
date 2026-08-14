@@ -47,8 +47,29 @@ data class XoraFriend(
     val state: XoraFriendState,
     /** Nakama UUID when known; never shown in UI. */
     val userId: String = "",
+    /** Raw Nakama status string ("Online", "Away", "Busy", "Playing …"). */
+    val status: String = "",
 ) {
     val resolvedAvatarUrl: String get() = resolveXoraAvatarUrl(username, avatarUrl)
+}
+
+data class XoraDirectMessage(
+    val id: String,
+    val fromUsername: String,
+    val body: String,
+    val createdAt: String,
+)
+
+data class XoraDmUiState(
+    val peerUsername: String? = null,
+    val peerDisplayName: String = "",
+    val messages: List<XoraDirectMessage> = emptyList(),
+    val draft: String = "",
+    val loading: Boolean = false,
+    val sending: Boolean = false,
+    val error: String? = null,
+) {
+    val isOpen: Boolean get() = !peerUsername.isNullOrBlank()
 }
 
 /** One entry from the website's `xora_notifications` storage inbox. */
@@ -76,8 +97,11 @@ data class XoraNetworkState(
     /** Friendly copy when the friends refresh failed; null when the last load succeeded. */
     val friendsError: String? = null,
     val notifications: List<XoraNotificationItem> = emptyList(),
-    /** True while the Nakama realtime socket is up — REST-only sessions always look offline. */
+    /** True while the Nakama realtime socket is advertising this account. */
     val selfOnline: Boolean = false,
+    /** How this device asked to appear on XOrA Network. */
+    val presenceMode: XoraPresenceMode = XoraPresenceMode.Online,
+    val dm: XoraDmUiState = XoraDmUiState(),
 ) {
     val acceptedFriends: List<XoraFriend>
         get() = friends.filter { it.state == XoraFriendState.Friend }
@@ -189,6 +213,47 @@ internal data class WebsiteFriendDto(
 )
 
 @Serializable
+internal data class WebsiteMessagesListResponseDto(
+    val ok: Boolean = true,
+    val data: WebsiteMessagesListDataDto = WebsiteMessagesListDataDto(),
+)
+
+@Serializable
+internal data class WebsiteMessagesListDataDto(
+    val threads: List<WebsiteMessageThreadDto> = emptyList(),
+)
+
+@Serializable
+internal data class WebsiteMessageThreadDto(
+    val username: String = "",
+    val displayName: String = "",
+    val lastBody: String = "",
+    val lastAt: String = "",
+    val unread: Int = 0,
+)
+
+@Serializable
+internal data class WebsiteMessageThreadResponseDto(
+    val ok: Boolean = true,
+    val data: WebsiteMessageThreadDataDto = WebsiteMessageThreadDataDto(),
+)
+
+@Serializable
+internal data class WebsiteMessageThreadDataDto(
+    val username: String = "",
+    val displayName: String = "",
+    val messages: List<WebsiteMessageDto> = emptyList(),
+)
+
+@Serializable
+internal data class WebsiteMessageDto(
+    val id: String = "",
+    val fromUsername: String = "",
+    val body: String = "",
+    val createdAt: String = "",
+)
+
+@Serializable
 internal data class ApiStorageObjectDto(
     val collection: String = "",
     val key: String = "",
@@ -295,6 +360,11 @@ internal fun mergeXoraFriends(vararg groups: List<XoraFriend>): List<XoraFriend>
                     displayName = existing.displayName.ifBlank { friend.displayName },
                     avatarUrl = existing.avatarUrl.ifBlank { friend.avatarUrl },
                     online = existing.online || friend.online,
+                    status = when {
+                        existing.online && existing.status.isNotBlank() -> existing.status
+                        friend.online && friend.status.isNotBlank() -> friend.status
+                        else -> existing.status.ifBlank { friend.status }
+                    },
                     state = mergeFriendState(existing.state, friend.state),
                     userId = existing.userId.ifBlank { friend.userId },
                 )

@@ -58,6 +58,7 @@ fun ProfileEditSheet(
     onUseXoraAvatar: () -> Unit = {},
     onClearAvatar: () -> Unit,
     xoraSignedIn: Boolean = false,
+    onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
 ) {
     var name by remember(profile.displayName) { mutableStateOf(profile.displayName) }
     var presetId by remember(profile.avatarPresetId) { mutableStateOf(profile.avatarPresetId) }
@@ -80,7 +81,7 @@ fun ProfileEditSheet(
             modifier = Modifier
                 .align(Alignment.Center)
                 .fillMaxWidth(0.72f)
-                .heightIn(max = 460.dp)
+                .heightIn(max = 560.dp)
                 .clip(ArcadiaGlass.CardShape)
                 .background(glass.tintStrong)
                 .clickable(
@@ -141,6 +142,54 @@ fun ProfileEditSheet(
             if (!xoraSignedIn) {
                 Text(
                     text = "Sign in to XOrA Network (Dashboard) to use that avatar.",
+                    color = Color.White.copy(alpha = 0.55f),
+                )
+            } else {
+                Text(text = "XOrA Network status", color = glass.content)
+                val selectedMode = com.arcadia.shell.xoranetwork.parseXoraPresenceMode(profile.xoraPresenceMode)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val rows = listOf(
+                        listOf(
+                            com.arcadia.shell.xoranetwork.XoraPresenceMode.Online to "Online",
+                            com.arcadia.shell.xoranetwork.XoraPresenceMode.Away to "Away",
+                        ),
+                        listOf(
+                            com.arcadia.shell.xoranetwork.XoraPresenceMode.Busy to "Busy",
+                            com.arcadia.shell.xoranetwork.XoraPresenceMode.Invisible to "Offline",
+                        ),
+                    )
+                    rows.forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            row.forEach { (mode, label) ->
+                                val selected = mode == selectedMode
+                                OutlinedButton(
+                                    onClick = { onXoraPresenceMode(mode) },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selected) Color.White else Color.White.copy(alpha = 0.7f),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Text(
+                    text = when (selectedMode) {
+                        com.arcadia.shell.xoranetwork.XoraPresenceMode.Online ->
+                            "Friends see you online, and what you're playing."
+                        com.arcadia.shell.xoranetwork.XoraPresenceMode.Away ->
+                            "Friends see you as Away."
+                        com.arcadia.shell.xoranetwork.XoraPresenceMode.Busy ->
+                            "Friends see you as Busy."
+                        com.arcadia.shell.xoranetwork.XoraPresenceMode.Invisible ->
+                            "You stay signed in, but appear offline."
+                    },
                     color = Color.White.copy(alpha = 0.55f),
                 )
             }

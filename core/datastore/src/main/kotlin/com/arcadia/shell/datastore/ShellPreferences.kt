@@ -248,6 +248,11 @@ data class LocalProfile(
     val customStatus: String? = null,
     /** Pinned RetroAchievements game shown under Favorite Game on the RT card. */
     val favoriteRaGame: ProfileFavoriteRaGame? = null,
+    /**
+     * How this device should appear on XOrA Network: Online, Away, Busy, or Invisible.
+     * Only published while signed in.
+     */
+    val xoraPresenceMode: String = "Online",
 )
 
 /** Favorite game pinned on the RT profile card (from the user’s RA completion list). */
@@ -494,6 +499,7 @@ class ShellPreferences @Inject constructor(
             } else {
                 null
             },
+            xoraPresenceMode = prefs[Keys.XORA_PRESENCE_MODE]?.takeIf { it.isNotBlank() } ?: "Online",
         )
     }
 
@@ -874,6 +880,10 @@ class ShellPreferences @Inject constructor(
         }
     }
 
+    suspend fun setXoraPresenceMode(mode: String) = edit {
+        it[Keys.XORA_PRESENCE_MODE] = mode.trim().ifBlank { "Online" }
+    }
+
     suspend fun setProfileFavoriteRaGame(game: ProfileFavoriteRaGame?) = edit {
         if (game == null || game.gameId <= 0 || game.title.isBlank()) {
             it.remove(Keys.PROFILE_FAVORITE_RA_GAME_ID)
@@ -1076,6 +1086,7 @@ class ShellPreferences @Inject constructor(
         val PROFILE_AVATAR_SOURCE = stringPreferencesKey("profile_avatar_source")
         val PROFILE_AVATAR_FILE = stringPreferencesKey("profile_avatar_file")
         val PROFILE_CUSTOM_STATUS = stringPreferencesKey("profile_custom_status")
+        val XORA_PRESENCE_MODE = stringPreferencesKey("xora_presence_mode")
         val PROFILE_FAVORITE_RA_GAME_ID = intPreferencesKey("profile_favorite_ra_game_id")
         val PROFILE_FAVORITE_RA_GAME_TITLE = stringPreferencesKey("profile_favorite_ra_game_title")
         val PROFILE_FAVORITE_RA_GAME_ICON = stringPreferencesKey("profile_favorite_ra_game_icon")
@@ -1228,6 +1239,7 @@ internal fun decodeHomeShortcuts(raw: String): List<HomeShortcut> {
 enum class CirclePinSource {
     Steam,
     Discord,
+    XoraNetwork,
 }
 
 /** One pinned friend in Pinned Friends (SteamID64 or Discord user id). */

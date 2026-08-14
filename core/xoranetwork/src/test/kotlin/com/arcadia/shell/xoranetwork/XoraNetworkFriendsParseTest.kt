@@ -127,4 +127,56 @@ class XoraNetworkFriendsParseTest {
         val joins = parseXoraPresenceMessage(root).single() as XoraPresenceEvent.Joins
         assertEquals(listOf("xoraadmin"), joins.usernames)
     }
+
+    @Test
+    fun playingStatusIsKeptOnJoin() {
+        val payload = """
+            {"status_presence_event":{"joins":[{"user_id":"1","session_id":"s","username":"pal","status":"Playing Super Mario 64"}]}}
+        """.trimIndent()
+        val root = json.parseToJsonElement(payload) as kotlinx.serialization.json.JsonObject
+        val joins = parseXoraPresenceMessage(root).single() as XoraPresenceEvent.Joins
+        assertEquals("pal", joins.users.single().username)
+        assertEquals("Playing Super Mario 64", joins.users.single().status)
+    }
+
+    @Test
+    fun encodeXoraStatusPublishesPlayingAwayBusyAndHidesInvisible() {
+        assertEquals("Online", encodeXoraStatus(XoraPresenceMode.Online, null))
+        assertEquals("Online", encodeXoraStatus(XoraPresenceMode.Online, "Browsing XOrA"))
+        assertEquals("Playing Super Mario 64", encodeXoraStatus(XoraPresenceMode.Online, "playing Super Mario 64"))
+        assertEquals("Away", encodeXoraStatus(XoraPresenceMode.Away, "playing Super Mario 64"))
+        assertEquals("Busy", encodeXoraStatus(XoraPresenceMode.Busy, null))
+        assertEquals("", encodeXoraStatus(XoraPresenceMode.Invisible, "playing Super Mario 64"))
+    }
+
+    @Test
+    fun parseXoraPresenceModeAcceptsOfflineAsInvisible() {
+        assertEquals(XoraPresenceMode.Online, parseXoraPresenceMode("Online"))
+        assertEquals(XoraPresenceMode.Away, parseXoraPresenceMode("away"))
+        assertEquals(XoraPresenceMode.Busy, parseXoraPresenceMode("Busy"))
+        assertEquals(XoraPresenceMode.Invisible, parseXoraPresenceMode("Invisible"))
+        assertEquals(XoraPresenceMode.Invisible, parseXoraPresenceMode("Offline"))
+        assertEquals(XoraPresenceMode.Online, parseXoraPresenceMode("nope"))
+    }
+
+    @Test
+    fun appearanceLabelHidesInvisibleAndOfflineSocket() {
+        assertEquals("Online", xoraAppearanceLabel(XoraPresenceMode.Online, selfOnline = true))
+        assertEquals("Away", xoraAppearanceLabel(XoraPresenceMode.Away, selfOnline = true))
+        assertEquals("Busy", xoraAppearanceLabel(XoraPresenceMode.Busy, selfOnline = true))
+        assertEquals("Offline", xoraAppearanceLabel(XoraPresenceMode.Invisible, selfOnline = false))
+        assertEquals("Offline", xoraAppearanceLabel(XoraPresenceMode.Online, selfOnline = false))
+    }
+
+    @Test
+    fun websiteMessageThreadParsesBodies() {
+        val payload = """
+            {"ok":true,"data":{"username":"pal","displayName":"Pal","messages":[{"id":"1","fromUsername":"xoraadmin","body":"hello","createdAt":"2026-08-14T21:00:00Z"}]}}
+        """.trimIndent()
+        val envelope = json.decodeFromString<WebsiteMessageThreadResponseDto>(payload)
+        assertTrue(envelope.ok)
+        assertEquals("pal", envelope.data.username)
+        assertEquals("hello", envelope.data.messages.single().body)
+        assertEquals("xoraadmin", envelope.data.messages.single().fromUsername)
+    }
 }

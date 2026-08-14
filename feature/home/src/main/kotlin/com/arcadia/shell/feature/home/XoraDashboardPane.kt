@@ -62,6 +62,8 @@ import com.arcadia.shell.model.Game
 import com.arcadia.shell.xoranetwork.XoraFriend
 import com.arcadia.shell.xoranetwork.XoraFriendState
 import com.arcadia.shell.xoranetwork.XoraNetworkClient
+import com.arcadia.shell.xoranetwork.XoraNetworkState
+import com.arcadia.shell.xoranetwork.xoraAppearanceLabel
 
 private val TileShape = RoundedCornerShape(14.dp)
 private val Ink = Color.White
@@ -70,6 +72,8 @@ private val FocusEdge = Color.White.copy(alpha = 0.9f)
 private val RestEdge = Color.White.copy(alpha = 0.22f)
 private val OnlineGreen = Color(0xFF34C759)
 private val InviteAmber = Color(0xFFFFB020)
+private val AwayAmber = Color(0xFFFFC24B)
+private val BusyRose = Color(0xFFFF5C6C)
 
 /** PlayStation-family accent glazes over the glass, one per tile, Xbox-360-tile sized. */
 private fun tileAccent(tile: DashboardTile): Color = when (tile) {
@@ -138,8 +142,7 @@ private fun DashboardHeader(state: XoraDashboardUiState) {
             val status = state.error
                 ?: state.notice
                 ?: network.account?.let {
-                    val presence = if (network.selfOnline) "Online" else "Offline"
-                    "Signed in as ${it.username} · $presence"
+                    "Signed in as ${it.username} · ${xoraAppearanceLabel(network.presenceMode, network.selfOnline)}"
                 }
                 ?: "One account for the launcher and account.xoranetwork.com"
             Text(
@@ -315,11 +318,7 @@ private fun ProfileTileContent(state: XoraDashboardUiState) {
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(modifier = Modifier.height(6.dp))
-            if (state.network.selfOnline) {
-                StateChip("Online", OnlineGreen)
-            } else {
-                StateChip("Offline", InkMuted)
-            }
+            XoraSelfPresenceChip(state.network)
             if (account.location.isNotBlank()) {
                 Text(
                     text = account.location,
@@ -742,11 +741,7 @@ private fun DashboardFriendsView(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (state.network.selfOnline) {
-                    StateChip("Online", OnlineGreen)
-                } else {
-                    StateChip("Offline", InkMuted)
-                }
+                XoraSelfPresenceChip(state.network)
             }
         }
         Row(
@@ -872,7 +867,7 @@ private fun FriendRow(
         when (friend.state) {
             XoraFriendState.IncomingInvite -> StateChip("Wants to be friends", InviteAmber)
             XoraFriendState.OutgoingInvite -> StateChip("Invite sent", InkMuted)
-            else -> if (friend.online) StateChip("Online", OnlineGreen) else StateChip("Offline", InkMuted)
+            else -> XoraFriendPresenceChip(friend)
         }
         Spacer(modifier = Modifier.width(8.dp))
         Text(
@@ -884,6 +879,32 @@ private fun FriendRow(
                 .padding(6.dp),
         )
     }
+}
+
+@Composable
+private fun XoraSelfPresenceChip(network: XoraNetworkState) {
+    val label = xoraAppearanceLabel(network.presenceMode, network.selfOnline)
+    val color = when (label) {
+        "Away" -> AwayAmber
+        "Busy" -> BusyRose
+        "Online" -> OnlineGreen
+        else -> InkMuted
+    }
+    StateChip(label, color)
+}
+
+@Composable
+private fun XoraFriendPresenceChip(friend: XoraFriend) {
+    val presence = xoraFriendPresence(friend)
+    val activity = xoraFriendActivity(friend)
+    val (label, color) = when (presence) {
+        SocialPresence.Offline -> "Offline" to InkMuted
+        SocialPresence.Away -> "Away" to AwayAmber
+        SocialPresence.Busy -> "Busy" to BusyRose
+        SocialPresence.InGame -> (activity ?: "In game") to OnlineGreen
+        SocialPresence.Online -> (activity?.takeUnless { it.equals("Online", ignoreCase = true) } ?: "Online") to OnlineGreen
+    }
+    StateChip(label, color)
 }
 
 @Composable

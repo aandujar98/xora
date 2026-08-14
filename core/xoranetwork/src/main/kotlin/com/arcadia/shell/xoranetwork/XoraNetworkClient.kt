@@ -51,9 +51,17 @@ class XoraNetworkClient @Inject constructor(
         fun avatarUrlFor(username: String): String =
             "$ACCOUNT_SITE/api/avatars/${username.trim()}"
 
-        internal fun websiteCookieHeader(accessToken: String, refreshToken: String): String =
-            "xora_at=$accessToken; xora_rt=$refreshToken"
+        internal fun websiteCookieHeader(
+            accessToken: String,
+            refreshToken: String,
+            csrf: String? = null,
+        ): String = buildString {
+            append("xora_at=$accessToken; xora_rt=$refreshToken")
+            if (!csrf.isNullOrBlank()) append("; xora_csrf=$csrf")
+        }
     }
+
+    private val csrfToken = java.util.concurrent.atomic.AtomicReference<String?>(null)
 
     private fun serverKeyAuth(): String =
         Credentials.basic(BuildConfig.XORA_NETWORK_SERVER_KEY, "")
@@ -203,6 +211,71 @@ class XoraNetworkClient @Inject constructor(
         return data
     }
 
+    internal suspend fun listMessageThreads(
+        accessToken: String,
+        refreshToken: String,
+    ): List<WebsiteMessageThreadDto> {
+        val envelope: WebsiteMessagesListResponseDto = execute(
+            Request.Builder()
+                .url("$ACCOUNT_SITE/api/messages")
+                .header("Cookie", websiteCookieHeader(accessToken, refreshToken))
+                .header("Accept", "application/json")
+                .get()
+                .build(),
+        )
+        return envelope.data.threads
+    }
+
+    internal suspend fun getMessageThread(
+        accessToken: String,
+        refreshToken: String,
+        username: String,
+    ): WebsiteMessageThreadDataDto {
+        val envelope: WebsiteMessageThreadResponseDto = execute(
+            Request.Builder()
+                .url("$ACCOUNT_SITE/api/messages/${username.trim()}")
+                .header("Cookie", websiteCookieHeader(accessToken, refreshToken))
+                .header("Accept", "application/json")
+                .get()
+                .build(),
+        )
+        return envelope.data
+    }
+
+    internal suspend fun sendWebsiteMessage(
+        accessToken: String,
+        refreshToken: String,
+        username: String,
+        body: String,
+    ): WebsiteMessageThreadDataDto {
+        val payload = buildJsonObject { put("body", body) }.toString().toRequestBody(JSON_MEDIA_TYPE)
+        suspend fun post(csrf: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("$ACCOUNT_SITE/api/messages/${username.trim()}")
+                .header("Cookie", websiteCookieHeader(accessToken, refreshToken, csrf))
+                .header("x-csrf-token", csrf)
+                .header("Accept", "application/json")
+                .post(payload)
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                response.code to response.body.string()
+            }
+        }
+        var csrf = ensureCsrf(accessToken, refreshToken)
+        var (code, raw) = post(csrf)
+        if (code == 403) {
+            csrfToken.set(null)
+            csrf = ensureCsrf(accessToken, refreshToken)
+            val retry = post(csrf)
+            code = retry.first
+            raw = retry.second
+        }
+        if (code !in 200..299) throw friendlyError(code, raw)
+        val envelope = json.decodeFromString<WebsiteMessageThreadResponseDto>(raw.ifBlank { "{}" })
+        if (!envelope.ok) throw XoraNetworkException("Couldn't send that message.")
+        return envelope.data
+    }
+
     /** Also accepts an incoming invite when called with that username. */
     internal suspend fun addFriends(accessToken: String, usernames: List<String>) {
         executeUnit(
@@ -280,6 +353,29 @@ class XoraNetworkClient @Inject constructor(
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw friendlyError(response.code, response.body.string())
+            }
+        }
+    }
+
+    internal fun clearCsrf() {
+        csrfToken.set(null)
+    }
+
+    private suspend fun ensureCsrf(accessToken: String, refreshToken: String): String {
+        csrfToken.get()?.let { return it }
+        return withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("$ACCOUNT_SITE/messages")
+                .header("Cookie", websiteCookieHeader(accessToken, refreshToken))
+                .get()
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val header = response.headers("Set-Cookie").firstOrNull { it.contains("xora_csrf=") }
+                    ?: throw XoraNetworkException("Couldn't start a message.")
+                val value = header.substringAfter("xora_csrf=").substringBefore(';').trim()
+                if (value.isEmpty()) throw XoraNetworkException("Couldn't start a message.")
+                csrfToken.set(value)
+                value
             }
         }
     }

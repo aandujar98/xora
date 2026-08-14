@@ -105,6 +105,8 @@ import com.arcadia.shell.scanner.LibraryRootManager
 import com.arcadia.shell.xoranetwork.XoraFriendState
 import com.arcadia.shell.xoranetwork.XoraNetworkClient
 import com.arcadia.shell.xoranetwork.XoraNetworkRepository
+import com.arcadia.shell.xoranetwork.XoraPresenceMode
+import com.arcadia.shell.xoranetwork.parseXoraPresenceMode
 import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scanner.StorageAccess
 import com.arcadia.shell.scraper.LibraryHashScheduler
@@ -534,7 +536,8 @@ class HomeViewModel @Inject constructor(
         socialPartnersFlow,
         accountPanelSelectedIndex,
         profileEditRequest,
-    ) { tab, partners, accountIndex, editRequest ->
+        xoraNetwork.state,
+    ) { tab, partners, accountIndex, editRequest, xora ->
         SocialChrome(
             tab = tab,
             steam = partners.steam,
@@ -549,6 +552,7 @@ class HomeViewModel @Inject constructor(
             recentNotifications = partners.recentNotifications,
             accountPanelSelectedIndex = accountIndex,
             profileEditRequest = editRequest,
+            xoraNetwork = xora,
         )
     }
 
@@ -566,6 +570,7 @@ class HomeViewModel @Inject constructor(
         val recentNotifications: List<ShellNotification>,
         val accountPanelSelectedIndex: Int,
         val profileEditRequest: Int,
+        val xoraNetwork: com.arcadia.shell.xoranetwork.XoraNetworkState,
     )
 
     private val overlayFlow = combine(
@@ -915,6 +920,16 @@ class HomeViewModel @Inject constructor(
         // Friend-online / friend-request / message / netplay banners from XOrA Network state diffs.
         xoraNetwork.state
             .onEach { emitXoraNetworkBanners(it) }
+            .launchIn(viewModelScope)
+        preferences.profile
+            .map { parseXoraPresenceMode(it.xoraPresenceMode) }
+            .distinctUntilChanged()
+            .onEach { xoraNetwork.setPresenceMode(it) }
+            .launchIn(viewModelScope)
+        discordRichPresence.state
+            .map { resolveActivityStatusLine(it.activity) }
+            .distinctUntilChanged()
+            .onEach { xoraNetwork.setPlayingLine(it) }
             .launchIn(viewModelScope)
         // Poll friends + inbox only while the shell is actually in the foreground — an asleep or
         // backgrounded device must not wake the radio every minute (battery / fan complaint).
@@ -1573,6 +1588,7 @@ class HomeViewModel @Inject constructor(
             notificationsOpen = social.notificationsOpen,
             recentNotifications = social.recentNotifications,
             friendSearchQuery = social.friendSearchQuery,
+            xoraNetwork = social.xoraNetwork,
         )
         val accountRows = buildAccountPanelRows(
             tab = socialMenu.tab,
@@ -1585,6 +1601,7 @@ class HomeViewModel @Inject constructor(
             managingCircle = socialMenu.managingCircle,
             friendSearchQuery = socialMenu.friendSearchQuery,
             notificationsOpen = socialMenu.notificationsOpen,
+            xoraNetwork = socialMenu.xoraNetwork,
         )
         val accountIndex = social.accountPanelSelectedIndex.coerceIn(
             0,
@@ -1697,6 +1714,8 @@ class HomeViewModel @Inject constructor(
         friendSearchQuery: String,
         discordDm: DiscordDmThreadUiState = DiscordDmThreadUiState(),
         notificationsOpen: Boolean = false,
+        xoraNetwork: com.arcadia.shell.xoranetwork.XoraNetworkState =
+            com.arcadia.shell.xoranetwork.XoraNetworkState(),
     ): List<AccountPanelRow> {
         val circleKeys = circlePins.mapTo(mutableSetOf()) { it.key }
         val q = friendSearchQuery.trim()
@@ -1780,14 +1799,33 @@ class HomeViewModel @Inject constructor(
                     }
                 }
                 SocialMenuTab.XoraNetwork -> {
-                    if (!conversations.listenerEnabled) {
-                        add(AccountPanelRow.EnableNotificationAccess)
+                    if (!xoraNetwork.signedIn) {
+                        add(AccountPanelRow.XoraNetworkSignIn)
+                    } else if (xoraNetwork.dm.isOpen) {
+                        add(AccountPanelRow.XoraDmClose)
+                        add(AccountPanelRow.XoraDmSend)
                     } else {
-                        if (reply.conversationKey != null) {
-                            add(AccountPanelRow.ConversationReplySend(reply.conversationKey))
+                        val friends = xoraNetwork.acceptedFriends.filter {
+                            q.isEmpty() ||
+                                it.displayName.contains(q, ignoreCase = true) ||
+                                it.username.contains(q, ignoreCase = true) ||
+                                it.status.contains(q, ignoreCase = true)
                         }
-                        conversations.conversations.forEach {
-                            add(AccountPanelRow.Conversation(it.key))
+                        if (managingCircle) {
+                            friends.forEach { friend ->
+                                val pin = CirclePin(CirclePinSource.XoraNetwork, friend.username)
+                                if (pin.key in circleKeys) {
+                                    add(AccountPanelRow.RemoveFromCircle(pin))
+                                } else {
+                                    add(AccountPanelRow.AddToCircle(pin))
+                                }
+                            }
+                        } else {
+                            friends
+                                .filter {
+                                    CirclePin(CirclePinSource.XoraNetwork, it.username).key !in circleKeys
+                                }
+                                .forEach { add(AccountPanelRow.XoraFriend(it.username)) }
                         }
                     }
                 }
@@ -4721,6 +4759,13 @@ class HomeViewModel @Inject constructor(
                 when {
                     conversationReply.value.conversationKey != null -> clearConversationReply()
                     discordRichPresence.dmThread.value.peerUserId != null -> handleDiscordDmBack()
+                    xoraNetwork.state.value.dm.isOpen -> {
+                        if (xoraNetwork.state.value.dm.draft.isNotBlank()) {
+                            xoraNetwork.updateDirectMessageDraft("")
+                        } else {
+                            closeOpenXoraDm()
+                        }
+                    }
                     notificationsOpen.value -> {
                         notificationsOpen.value = false
                         accountPanelSelectedIndex.value = 0
@@ -4934,6 +4979,7 @@ class HomeViewModel @Inject constructor(
             favoritePickerError = chrome.favoritePickerError,
             xoraNetworkSignedIn = xora.signedIn,
             xoraNetworkOnline = xora.selfOnline,
+            xoraPresenceMode = xora.presenceMode,
         )
     }
 
@@ -5185,6 +5231,27 @@ class HomeViewModel @Inject constructor(
                 discordRichPresence.closeDm()
                 accountPanelSelectedIndex.value = 0
             }
+            AccountPanelRow.XoraNetworkSignIn -> {
+                collapseHeroPanels()
+                openDashboardRung()
+            }
+            is AccountPanelRow.XoraFriend -> {
+                if (managingCircle.value) {
+                    viewModelScope.launch {
+                        preferences.addCirclePin(CirclePin(CirclePinSource.XoraNetwork, row.username))
+                    }
+                } else {
+                    openXoraFriendConversation(row.username)
+                }
+            }
+            AccountPanelRow.XoraDmSend -> {
+                viewModelScope.launch {
+                    xoraNetwork.sendDirectMessage().onFailure { error ->
+                        emit(HomeEvent.ShowError(error.message ?: "Couldn't send that message."))
+                    }
+                }
+            }
+            AccountPanelRow.XoraDmClose -> closeOpenXoraDm()
         }
     }
 
@@ -5197,6 +5264,10 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         if (discordRichPresence.dmThread.value.peerUserId != null) {
             discordRichPresence.updateDmDraft(draft)
+            return
+        }
+        if (xoraNetwork.state.value.dm.isOpen) {
+            xoraNetwork.updateDirectMessageDraft(draft)
             return
         }
         conversationReply.update { current ->
@@ -5245,6 +5316,7 @@ class HomeViewModel @Inject constructor(
                 circlePins = circlePins.value,
                 managingCircle = managingCircle.value,
                 friendSearchQuery = friendSearchQuery.value,
+                xoraNetwork = xoraNetwork.state.value,
             )
             val sendIndex = rows.indexOfFirst {
                 it is AccountPanelRow.ConversationReplySend && it.conversationKey == key
@@ -5306,7 +5378,25 @@ class HomeViewModel @Inject constructor(
         when (pin.source) {
             CirclePinSource.Steam -> openSteamFriendConversation(pin.id, social)
             CirclePinSource.Discord -> openDiscordFriendConversation(pin.id, social)
+            CirclePinSource.XoraNetwork -> openXoraFriendConversation(pin.id)
         }
+    }
+
+    private fun openXoraFriendConversation(username: String) {
+        socialMenuTab.value = SocialMenuTab.XoraNetwork
+        managingCircle.value = false
+        viewModelScope.launch {
+            xoraNetwork.openDirectMessage(username).onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Couldn't open that conversation."))
+            }
+            accountPanelSelectedIndex.value = 0
+        }
+    }
+
+    fun closeOpenXoraDm() {
+        noteUserActivity()
+        xoraNetwork.closeDirectMessage()
+        accountPanelSelectedIndex.value = 0
     }
 
     private fun openSteamFriendConversation(steamId: String, social: SocialMenuUiState) {
@@ -6197,6 +6287,9 @@ class HomeViewModel @Inject constructor(
             friendSearchQuery.value = ""
             accountPanelSelectedIndex.value = 0
             if (steamFriendsUi.value.isConfigured) refreshSteamFriends()
+            if (xoraNetwork.state.value.signedIn) {
+                viewModelScope.launch { xoraNetwork.refreshFriends() }
+            }
             conversationRepository.refreshListenerEnabled()
         } else {
             managingCircle.value = false
@@ -6309,6 +6402,13 @@ class HomeViewModel @Inject constructor(
             }
             applyXoraNetworkIdentity(forceAvatar = true)
             avatarStore.clear()
+        }
+    }
+
+    fun setXoraPresenceMode(mode: XoraPresenceMode) {
+        viewModelScope.launch {
+            preferences.setXoraPresenceMode(mode.name)
+            xoraNetwork.setPresenceMode(mode)
         }
     }
 

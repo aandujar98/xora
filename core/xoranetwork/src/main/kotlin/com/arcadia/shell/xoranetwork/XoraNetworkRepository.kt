@@ -34,14 +34,18 @@ class XoraNetworkRepository @Inject constructor(
     private var session: StoredXoraSession? = null
     private val sessionMutex = Mutex()
     @Volatile private var realtimeEnabled = false
+    @Volatile private var presenceMode = XoraPresenceMode.Online
+    @Volatile private var playingLine: String = ""
+    @Volatile private var socketAppearsOnline = true
     private val presenceOnline = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val presenceStatus = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     init {
         realtime.setListener { event ->
             when (event) {
-                is XoraPresenceEvent.Joins -> applyPresence(event.usernames, online = true)
-                is XoraPresenceEvent.Leaves -> applyPresence(event.usernames, online = false)
-                XoraPresenceEvent.Connected -> applySelfOnline(true)
+                is XoraPresenceEvent.Joins -> applyPresence(event.users, online = true)
+                is XoraPresenceEvent.Leaves -> applyPresence(event.users, online = false)
+                XoraPresenceEvent.Connected -> applySelfOnline(presenceMode != XoraPresenceMode.Invisible)
                 XoraPresenceEvent.Disconnected -> applySelfOnline(false)
             }
         }
@@ -129,7 +133,9 @@ class XoraNetworkRepository @Inject constructor(
         sessionStore.clear()
         authCookies.clear()
         presenceOnline.clear()
+        presenceStatus.clear()
         realtime.disconnect()
+        client.clearCsrf()
         mutableState.update {
             XoraNetworkState(configured = it.configured, restoring = false)
         }
@@ -191,7 +197,11 @@ class XoraNetworkRepository @Inject constructor(
                 emptyList()
             }
             val friends = mergeXoraFriends(fromNakama, fromWebsite).map { friend ->
-                friend.copy(online = friend.online || friend.username.lowercase() in presenceOnline)
+                val key = friend.username.lowercase()
+                friend.copy(
+                    online = friend.online || key in presenceOnline,
+                    status = presenceStatus[key].orEmpty().ifBlank { friend.status },
+                )
             }
             mutableState.update { it.copy(friends = friends, friendsError = null) }
             followPresenceTargets()
@@ -341,17 +351,131 @@ class XoraNetworkRepository @Inject constructor(
         if (!enabled) {
             realtime.disconnect()
             val self = mutableState.value.account?.username?.lowercase()
-            if (self != null) presenceOnline.remove(self)
+            if (self != null) {
+                presenceOnline.remove(self)
+                presenceStatus.remove(self)
+            }
             mutableState.update { it.copy(selfOnline = false) }
             return
         }
         if (mutableState.value.signedIn) connectRealtime()
     }
 
+    fun setPresenceMode(mode: XoraPresenceMode) {
+        if (presenceMode == mode) {
+            publishStatus()
+            return
+        }
+        presenceMode = mode
+        mutableState.update { it.copy(presenceMode = mode) }
+        if (!realtimeEnabled || !mutableState.value.signedIn) {
+            mutableState.update { it.copy(selfOnline = false) }
+            return
+        }
+        connectRealtime()
+    }
+
+    fun setPlayingLine(line: String?) {
+        val next = line?.trim().orEmpty()
+        if (playingLine == next) return
+        playingLine = next
+        if (presenceMode == XoraPresenceMode.Online) publishStatus()
+    }
+
+    suspend fun openDirectMessage(username: String): Result<Unit> {
+        val target = username.trim()
+        if (target.isEmpty()) {
+            return Result.failure(XoraNetworkException("Pick a friend to message."))
+        }
+        mutableState.update {
+            it.copy(
+                dm = XoraDmUiState(
+                    peerUsername = target,
+                    peerDisplayName = it.friends.firstOrNull { friend ->
+                        friend.username.equals(target, ignoreCase = true)
+                    }?.displayName ?: target,
+                    loading = true,
+                    error = null,
+                ),
+            )
+        }
+        return authenticated { token ->
+            val refresh = session?.refreshToken.orEmpty()
+            val data = client.getMessageThread(token, refresh, target)
+            mutableState.update { state ->
+                state.copy(
+                    dm = state.dm.copy(
+                        peerUsername = data.username.ifBlank { target },
+                        peerDisplayName = data.displayName.ifBlank { target },
+                        messages = data.messages.map { it.toDirectMessage() },
+                        loading = false,
+                        error = null,
+                    ),
+                )
+            }
+        }.onFailure { error ->
+            mutableState.update {
+                it.copy(dm = it.dm.copy(loading = false, error = error.message))
+            }
+        }
+    }
+
+    fun closeDirectMessage() {
+        mutableState.update { it.copy(dm = XoraDmUiState()) }
+    }
+
+    fun updateDirectMessageDraft(draft: String) {
+        mutableState.update { it.copy(dm = it.dm.copy(draft = draft.take(500))) }
+    }
+
+    suspend fun sendDirectMessage(): Result<Unit> {
+        val dm = mutableState.value.dm
+        val peer = dm.peerUsername?.trim().orEmpty()
+        val body = dm.draft.trim()
+        if (peer.isEmpty()) {
+            return Result.failure(XoraNetworkException("Pick a friend to message."))
+        }
+        if (body.isEmpty()) {
+            return Result.failure(XoraNetworkException("Enter a message first."))
+        }
+        mutableState.update { it.copy(dm = it.dm.copy(sending = true, error = null)) }
+        return authenticated { token ->
+            val refresh = session?.refreshToken.orEmpty()
+            val data = client.sendWebsiteMessage(token, refresh, peer, body)
+            mutableState.update { state ->
+                state.copy(
+                    dm = state.dm.copy(
+                        messages = data.messages.map { it.toDirectMessage() },
+                        draft = "",
+                        sending = false,
+                        error = null,
+                    ),
+                )
+            }
+        }.onFailure { error ->
+            mutableState.update {
+                it.copy(dm = it.dm.copy(sending = false, error = error.message))
+            }
+        }
+    }
+
     private fun connectRealtime() {
         val token = session?.accessToken?.takeIf { it.isNotBlank() } ?: return
-        if (!realtime.isConnected) realtime.connect(token)
+        val appear = presenceMode != XoraPresenceMode.Invisible
+        realtime.updateStatus(encodeXoraStatus(presenceMode, playingLine))
+        when {
+            !realtime.isConnected || socketAppearsOnline != appear -> {
+                realtime.connect(token, appearOnline = appear)
+                socketAppearsOnline = appear
+            }
+            appear -> publishStatus()
+        }
         followPresenceTargets()
+    }
+
+    private fun publishStatus() {
+        if (presenceMode == XoraPresenceMode.Invisible) return
+        realtime.updateStatus(encodeXoraStatus(presenceMode, playingLine))
     }
 
     private fun followPresenceTargets() {
@@ -361,25 +485,39 @@ class XoraNetworkRepository @Inject constructor(
     }
 
     private fun applySelfOnline(online: Boolean) {
+        val visible = online && presenceMode != XoraPresenceMode.Invisible
         val self = mutableState.value.account?.username?.lowercase()
         if (self != null) {
-            if (online) presenceOnline.add(self) else presenceOnline.remove(self)
+            if (visible) presenceOnline.add(self) else presenceOnline.remove(self)
         }
-        mutableState.update { it.copy(selfOnline = online) }
+        mutableState.update { it.copy(selfOnline = visible, presenceMode = presenceMode) }
     }
 
-    private fun applyPresence(usernames: List<String>, online: Boolean) {
+    private fun applyPresence(users: List<XoraPresenceUser>, online: Boolean) {
         val self = mutableState.value.account?.username?.lowercase()
-        usernames.forEach { name ->
-            val key = name.lowercase()
-            if (online) presenceOnline.add(key) else presenceOnline.remove(key)
+        users.forEach { user ->
+            val key = user.username.lowercase()
+            if (online) {
+                presenceOnline.add(key)
+                presenceStatus[key] = user.status
+            } else {
+                presenceOnline.remove(key)
+                presenceStatus.remove(key)
+            }
         }
         mutableState.update { state ->
-            val keys = usernames.map { it.lowercase() }.toSet()
+            val keys = users.map { it.username.lowercase() }.toSet()
             val friends = state.friends.map { friend ->
-                if (friend.username.lowercase() in keys) friend.copy(online = online) else friend
+                val key = friend.username.lowercase()
+                if (key !in keys) friend else {
+                    friend.copy(
+                        online = online,
+                        status = if (online) presenceStatus[key].orEmpty() else "",
+                    )
+                }
             }
-            val stillOnline = realtime.isConnected || (self != null && self in presenceOnline)
+            val stillOnline = presenceMode != XoraPresenceMode.Invisible &&
+                (realtime.isConnected || (self != null && self in presenceOnline))
             state.copy(
                 friends = friends,
                 selfOnline = stillOnline,
@@ -387,3 +525,10 @@ class XoraNetworkRepository @Inject constructor(
         }
     }
 }
+
+private fun WebsiteMessageDto.toDirectMessage(): XoraDirectMessage = XoraDirectMessage(
+    id = id,
+    fromUsername = fromUsername,
+    body = body,
+    createdAt = createdAt,
+)

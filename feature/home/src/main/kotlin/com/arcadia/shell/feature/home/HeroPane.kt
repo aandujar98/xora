@@ -110,6 +110,7 @@ fun HeroPane(
     onUseRaAvatar: () -> Unit,
     onUseDiscordAvatar: () -> Unit,
     onUseXoraAvatar: () -> Unit,
+    onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit,
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
@@ -287,6 +288,7 @@ fun HeroPane(
                 onUseRaAvatar = onUseRaAvatar,
                 onUseDiscordAvatar = onUseDiscordAvatar,
                 onUseXoraAvatar = onUseXoraAvatar,
+                onXoraPresenceMode = onXoraPresenceMode,
                 onClearAvatar = onClearAvatar,
                 xoraSignedIn = xoraSignedIn,
             )

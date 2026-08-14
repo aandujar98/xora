@@ -41,7 +41,9 @@ class XoraNetworkRealtime @Inject constructor(
     private val followed = AtomicReference<Set<String>>(emptySet())
     private val wantConnected = AtomicBoolean(false)
     private val tokenRef = AtomicReference<String?>(null)
+    private val appearOnline = AtomicBoolean(true)
     private val opened = AtomicBoolean(false)
+    private val statusText = AtomicReference("Online")
     private val reconnecter: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "xora-presence-reconnect").apply { isDaemon = true }
     }
@@ -53,11 +55,20 @@ class XoraNetworkRealtime @Inject constructor(
         listener = onEvent
     }
 
-    internal fun connect(accessToken: String) {
+    internal fun connect(accessToken: String, appearOnline: Boolean = true) {
         wantConnected.set(true)
         tokenRef.set(accessToken)
+        this.appearOnline.set(appearOnline)
         closeSocket(notify = false)
         openSocket(accessToken)
+    }
+
+    internal fun updateStatus(status: String) {
+        statusText.set(status)
+        val current = socket.get() ?: return
+        if (opened.get() && appearOnline.get() && status.isNotBlank()) {
+            sendStatus(current, status)
+        }
     }
 
     internal fun follow(usernames: Collection<String>) {
@@ -80,7 +91,7 @@ class XoraNetworkRealtime @Inject constructor(
         val https = "https://api.xoranetwork.com/ws".toHttpUrl().newBuilder()
             .addQueryParameter("lang", "en")
             .addQueryParameter("format", "json")
-            .addQueryParameter("status", "true")
+            .addQueryParameter("status", if (appearOnline.get()) "true" else "false")
             .addQueryParameter("token", accessToken)
             .build()
         val request = Request.Builder()
@@ -93,7 +104,9 @@ class XoraNetworkRealtime @Inject constructor(
                     override fun onOpen(webSocket: WebSocket, response: Response) {
                         opened.set(true)
                         listener?.invoke(XoraPresenceEvent.Connected)
-                        sendStatus(webSocket, "Online")
+                        if (appearOnline.get()) {
+                            sendStatus(webSocket, statusText.get().ifBlank { "Online" })
+                        }
                         val names = followed.get()
                         if (names.isNotEmpty()) sendFollow(webSocket, names)
                     }

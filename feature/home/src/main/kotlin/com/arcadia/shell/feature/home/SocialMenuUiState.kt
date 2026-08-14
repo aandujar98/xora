@@ -18,7 +18,7 @@ import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 enum class SocialMenuTab {
     Discord,
     Steam,
-    /** XOrA Network — notification-listener conversations & local network inbox. */
+    /** XOrA Network — friends, presence, and website DMs. */
     XoraNetwork,
 }
 
@@ -90,8 +90,11 @@ sealed interface AccountPanelRow {
     data class RemoveFromCircle(val pin: CirclePin) : AccountPanelRow
     data class SteamFriend(val steamId: String) : AccountPanelRow
     data class DiscordFriend(val userId: String) : AccountPanelRow
+    data class XoraFriend(val username: String) : AccountPanelRow
 
     data object SteamConfigure : AccountPanelRow
+    /** Opens XOrA Network Dashboard so the user can sign in. */
+    data object XoraNetworkSignIn : AccountPanelRow
     /** Opens system Notification Listener settings so conversations can appear. */
     data object EnableNotificationAccess : AccountPanelRow
     data class Conversation(val key: String) : AccountPanelRow
@@ -105,6 +108,8 @@ sealed interface AccountPanelRow {
     data object DiscordDmSend : AccountPanelRow
     /** Closes the in-launcher Discord DM pane. */
     data object DiscordDmClose : AccountPanelRow
+    data object XoraDmSend : AccountPanelRow
+    data object XoraDmClose : AccountPanelRow
 }
 
 data class ConversationReplyUiState(
@@ -120,6 +125,8 @@ data class SocialMenuUiState(
     val reply: ConversationReplyUiState = ConversationReplyUiState(),
     /** In-launcher Discord DM thread (Social SDK messaging). */
     val discordDm: DiscordDmThreadUiState = DiscordDmThreadUiState(),
+    val xoraNetwork: com.arcadia.shell.xoranetwork.XoraNetworkState =
+        com.arcadia.shell.xoranetwork.XoraNetworkState(),
     /** Persisted mixed Pinned Friends pins (max [CIRCLE_FRIEND_LIMIT]). */
     val circlePins: List<CirclePin> = emptyList(),
     /** When true, friend lists show add/remove pin controls. */
@@ -135,6 +142,8 @@ data class SocialMenuUiState(
 
     val isDiscordDmOpen: Boolean get() = discordDm.peerUserId != null
 
+    val isXoraDmOpen: Boolean get() = xoraNetwork.dm.isOpen
+
     val circleSlotsFilled: Int get() = circlePins.size.coerceAtMost(CIRCLE_FRIEND_LIMIT)
 
     val circlePinKeys: Set<String> get() = circlePins.mapTo(mutableSetOf()) { it.key }
@@ -144,7 +153,9 @@ data class SocialMenuUiState(
 
     /** Online Steam + Discord friends for the header badge. */
     val friendsBadgeCount: Int
-        get() = steam.onlineCount + discord.friends.count { it.isOnline }
+        get() = steam.onlineCount +
+            discord.friends.count { it.isOnline } +
+            xoraNetwork.onlineFriendCount
 
     /** Notification conversations for the header messages badge. */
     val messagesBadgeCount: Int
@@ -168,6 +179,17 @@ data class SocialMenuUiState(
             val q = friendSearchQuery.trim()
             return discord.friends.filter {
                 q.isEmpty() || it.displayName.contains(q, ignoreCase = true)
+            }
+        }
+
+    val filteredXoraFriends: List<com.arcadia.shell.xoranetwork.XoraFriend>
+        get() {
+            val q = friendSearchQuery.trim()
+            return xoraNetwork.acceptedFriends.filter {
+                q.isEmpty() ||
+                    it.displayName.contains(q, ignoreCase = true) ||
+                    it.username.contains(q, ignoreCase = true) ||
+                    it.status.contains(q, ignoreCase = true)
             }
         }
 
@@ -205,6 +227,41 @@ data class SocialMenuUiState(
                 hasUnread = unread,
             )
         }
+        CirclePinSource.XoraNetwork -> {
+            val friend = xoraNetwork.acceptedFriends.firstOrNull {
+                it.username.equals(pin.id, ignoreCase = true)
+            }
+            val unread = xoraNetwork.dm.peerUsername.equals(pin.id, ignoreCase = true) &&
+                xoraNetwork.dm.messages.isNotEmpty()
+            CircleMemberUi(
+                pin = pin,
+                displayName = friend?.displayName ?: pin.id,
+                avatarUrl = friend?.resolvedAvatarUrl,
+                presence = xoraFriendPresence(friend),
+                activityLabel = xoraFriendActivity(friend),
+                hasUnread = unread,
+            )
+        }
+    }
+}
+
+fun xoraFriendPresence(friend: com.arcadia.shell.xoranetwork.XoraFriend?): SocialPresence {
+    if (friend == null || !friend.online) return SocialPresence.Offline
+    val raw = friend.status.trim()
+    return when {
+        raw.equals("Away", ignoreCase = true) -> SocialPresence.Away
+        raw.equals("Busy", ignoreCase = true) -> SocialPresence.Busy
+        raw.startsWith("Playing ", ignoreCase = true) -> SocialPresence.InGame
+        else -> SocialPresence.Online
+    }
+}
+
+fun xoraFriendActivity(friend: com.arcadia.shell.xoranetwork.XoraFriend?): String? {
+    if (friend == null || !friend.online) return null
+    val raw = friend.status.trim()
+    return when {
+        raw.isBlank() || raw.equals("Online", ignoreCase = true) -> "Online"
+        else -> raw
     }
 }
 

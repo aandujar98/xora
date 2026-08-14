@@ -93,6 +93,7 @@ import com.arcadia.shell.feature.home.buildSystemPanelRows
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.retroachievements.RaCompletionGame
 import com.arcadia.shell.retroachievements.RaRecentUnlock
+import com.arcadia.shell.xoranetwork.xoraAppearanceLabel
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -101,6 +102,8 @@ import java.util.concurrent.TimeUnit
 
 private val ScoreAmber = Color(0xFFFFA22B)
 private val OnlineGreen = Color(0xFF37D6A0)
+private val AwayAmber = Color(0xFFFFC24B)
+private val BusyRose = Color(0xFFFF5C6C)
 private val FocusRing = Color(0xFF4AE39A)
 private val BadgeBorder = Color(0xFFF0A030)
 
@@ -392,12 +395,12 @@ private fun ProfileCardHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
-                val presenceOnline = !systemProfile.xoraNetworkSignedIn || systemProfile.xoraNetworkOnline
+                val presenceColor = xoraPresenceColor(systemProfile)
                 Box(
                     modifier = Modifier
                         .size(13.dp)
                         .clip(CircleShape)
-                        .background(if (presenceOnline) OnlineGreen else FooterInk)
+                        .background(presenceColor)
                         .border(1.5.dp, OutlineInk.copy(alpha = 0.55f), CircleShape),
                 )
                 XoraOutlinedText(
@@ -416,11 +419,16 @@ private fun ProfileCardHeader(
                 )
             }
             if (systemProfile.xoraNetworkSignedIn) {
+                val presenceColor = xoraPresenceColor(systemProfile)
+                val presenceLabel = xoraAppearanceLabel(
+                    systemProfile.xoraPresenceMode,
+                    systemProfile.xoraNetworkOnline,
+                ).uppercase()
                 Text(
-                    text = if (systemProfile.xoraNetworkOnline) "ONLINE · XOrA NETWORK" else "OFFLINE · XOrA NETWORK",
+                    text = "$presenceLabel · XOrA NETWORK",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (systemProfile.xoraNetworkOnline) OnlineGreen else FooterInk,
+                    color = presenceColor,
                     maxLines = 1,
                 )
             }
@@ -1096,6 +1104,16 @@ private fun BatteryGlyph(
             size = Size((bodyW - pad * 2) * fillFrac, bodyH - pad * 2),
             cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx()),
         )
+    }
+}
+
+private fun xoraPresenceColor(systemProfile: SystemProfileCardState): Color {
+    if (!systemProfile.xoraNetworkSignedIn) return OnlineGreen
+    return when (xoraAppearanceLabel(systemProfile.xoraPresenceMode, systemProfile.xoraNetworkOnline)) {
+        "Away" -> AwayAmber
+        "Busy" -> BusyRose
+        "Online" -> OnlineGreen
+        else -> FooterInk
     }
 }
 

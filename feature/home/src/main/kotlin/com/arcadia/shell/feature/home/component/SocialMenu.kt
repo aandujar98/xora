@@ -70,6 +70,8 @@ import com.arcadia.shell.feature.home.SocialPresence
 import com.arcadia.shell.feature.home.SteamFriendEntry
 import com.arcadia.shell.feature.home.discordFriendActivity
 import com.arcadia.shell.feature.home.discordFriendPresence
+import com.arcadia.shell.feature.home.xoraFriendActivity
+import com.arcadia.shell.feature.home.xoraFriendPresence
 import com.arcadia.shell.launcher.conversations.ConversationSource
 import com.arcadia.shell.launcher.conversations.NotificationConversation
 import com.arcadia.shell.launcher.discord.DiscordDmMessage
@@ -162,7 +164,7 @@ fun SocialMenuPanel(
                 )
             }
         } else {
-            val showSearch = social.tab != SocialMenuTab.XoraNetwork && !social.isDiscordDmOpen
+            val showSearch = !social.isDiscordDmOpen && !social.isXoraDmOpen
             SocialTabSearchBar(
                 selected = social.tab,
                 onSelect = onSelectTab,
@@ -209,6 +211,7 @@ fun SocialMenuPanel(
         Text(
             text = when {
                 social.notificationsOpen -> "B closes"
+                social.isXoraDmOpen -> "A send · B back · type to message"
                 social.isDiscordDmOpen -> "A send · B back · type to message"
                 social.isReplying -> "A send · B cancel reply · type on keyboard"
                 social.managingCircle -> "A pin/unpin · Done to finish · L/R tabs"
@@ -418,6 +421,7 @@ private fun PinnedFriendsRow(
                         sourceTint = when (member.pin.source) {
                             CirclePinSource.Steam -> SteamAccent
                             CirclePinSource.Discord -> DiscordAccent
+                            CirclePinSource.XoraNetwork -> XoraAccent
                         },
                     )
                     Text(
@@ -464,8 +468,7 @@ private fun EmptyCircleSlot(selected: Boolean) {
 }
 
 /**
- * Combined platform-tab + friend-search pill. Search is hidden on the XOrA Network tab and
- * while a Discord DM is open (both replace the friend list with different content).
+ * Combined platform-tab + friend-search pill. Search hides while a DM thread is open.
  */
 @Composable
 private fun SocialTabSearchBar(
@@ -1096,6 +1099,7 @@ private fun XoraNetworkTabContent(
     onActivateRow: (Int?) -> Unit,
     onReplyDraftChange: (String) -> Unit,
 ) {
+    val network = social.xoraNetwork
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = "XOrA Network",
@@ -1104,20 +1108,172 @@ private fun XoraNetworkTabContent(
             fontWeight = FontWeight.Bold,
             color = XoraAccent,
         )
-        ConversationsSection(
-            title = "Conversations",
-            conversations = social.conversations.conversations,
-            listenerEnabled = social.conversations.listenerEnabled,
-            accountRows = accountRows,
-            selectedRowIndex = selectedRowIndex,
-            glassMuted = glassMuted,
-            emptyWhenEnabled = "No recent message notifications yet",
-            reply = social.reply,
-            onActivateRow = onActivateRow,
-            onReplyDraftChange = onReplyDraftChange,
-            footnote = "Shows message previews when notification access is on",
+
+        if (!network.signedIn) {
+            val signInIndex = accountRows.indexOfFirst { it is AccountPanelRow.XoraNetworkSignIn }
+            SocialListRow(
+                title = "Sign in to XOrA Network",
+                subtitle = "Open Dashboard to use the same account as the website",
+                selected = signInIndex >= 0 && signInIndex == selectedRowIndex,
+                accent = XoraAccent,
+                onClick = {
+                    if (signInIndex >= 0) onActivateRow(signInIndex)
+                },
+            )
+            return
+        }
+
+        if (network.dm.isOpen) {
+            XoraDmPane(
+                social = social,
+                accountRows = accountRows,
+                selectedRowIndex = selectedRowIndex,
+                glassMuted = glassMuted,
+                onActivateRow = onActivateRow,
+                onDraftChange = onReplyDraftChange,
+            )
+            return
+        }
+
+        FriendsOnlineHeader(
+            online = network.onlineFriendCount,
+            total = network.acceptedFriends.size,
+            muted = glassMuted,
         )
+
+        val friends = if (social.managingCircle) {
+            social.filteredXoraFriends
+        } else {
+            social.filteredXoraFriends.filter {
+                CirclePin(CirclePinSource.XoraNetwork, it.username).key !in social.circlePinKeys
+            }
+        }
+        when {
+            network.friendsLoading && friends.isEmpty() -> {
+                Text(
+                    text = "Loading friends…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = glassMuted,
+                )
+            }
+            network.friendsError != null && friends.isEmpty() -> {
+                Text(
+                    text = network.friendsError.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = BusyRose,
+                )
+            }
+            friends.isEmpty() -> {
+                Text(
+                    text = if (social.friendSearchQuery.isNotBlank()) {
+                        "No matches"
+                    } else if (social.managingCircle) {
+                        "No XOrA Network friends yet"
+                    } else {
+                        "Add friends from Dashboard — they show up here"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = glassMuted,
+                )
+            }
+            else -> {
+                friends.forEach { friend ->
+                    val pin = CirclePin(CirclePinSource.XoraNetwork, friend.username)
+                    val inCircle = pin.key in social.circlePinKeys
+                    val rowIndex = accountRows.indexOfFirst { row ->
+                        when {
+                            social.managingCircle && inCircle ->
+                                row is AccountPanelRow.RemoveFromCircle && row.pin.key == pin.key
+                            social.managingCircle && !inCircle ->
+                                row is AccountPanelRow.AddToCircle && row.pin.key == pin.key
+                            else ->
+                                row is AccountPanelRow.XoraFriend && row.username == friend.username
+                        }
+                    }
+                    XoraFriendRow(
+                        friend = friend,
+                        selected = rowIndex >= 0 && rowIndex == selectedRowIndex,
+                        trailingHint = when {
+                            social.managingCircle && inCircle -> "Unpin"
+                            social.managingCircle && !inCircle ->
+                                if (social.circleSlotsFilled >= CIRCLE_FRIEND_LIMIT) "Full" else "Pin"
+                            else -> null
+                        },
+                        hasUnread = network.notifications.any { item ->
+                            !item.read &&
+                                item.type.equals("message", ignoreCase = true) &&
+                                item.fromUsername.equals(friend.username, ignoreCase = true)
+                        },
+                        onClick = {
+                            if (rowIndex >= 0) onActivateRow(rowIndex)
+                        },
+                    )
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun XoraDmPane(
+    social: SocialMenuUiState,
+    accountRows: List<AccountPanelRow>,
+    selectedRowIndex: Int,
+    glassMuted: Color,
+    onActivateRow: (Int?) -> Unit,
+    onDraftChange: (String) -> Unit,
+) {
+    val dm = social.xoraNetwork.dm
+    val closeIndex = accountRows.indexOfFirst { it is AccountPanelRow.XoraDmClose }
+    val sendIndex = accountRows.indexOfFirst { it is AccountPanelRow.XoraDmSend }
+    Text(
+        text = dm.peerDisplayName.ifBlank { dm.peerUsername.orEmpty() },
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = Color.White,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+    if (dm.loading) {
+        Text(text = "Loading conversation…", style = MaterialTheme.typography.bodySmall, color = glassMuted)
+    } else if (dm.messages.isEmpty()) {
+        Text(text = "No messages yet — say hello.", style = MaterialTheme.typography.bodySmall, color = glassMuted)
+    } else {
+        dm.messages.takeLast(8).forEach { message ->
+            val mine = message.fromUsername.equals(
+                social.xoraNetwork.account?.username,
+                ignoreCase = true,
+            )
+            Text(
+                text = if (mine) "You: ${message.body}" else message.body,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (mine) Color.White.copy(alpha = 0.8f) else Color.White,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+    if (!dm.error.isNullOrBlank()) {
+        Text(text = dm.error.orEmpty(), style = MaterialTheme.typography.bodySmall, color = BusyRose)
+    }
+    ReplyComposer(
+        title = dm.peerDisplayName.ifBlank { "friend" },
+        draft = dm.draft,
+        selected = sendIndex >= 0 && sendIndex == selectedRowIndex,
+        onDraftChange = onDraftChange,
+        onSend = {
+            if (sendIndex >= 0) onActivateRow(sendIndex)
+        },
+    )
+    SocialListRow(
+        title = "Close conversation",
+        subtitle = "B also backs out",
+        selected = closeIndex >= 0 && closeIndex == selectedRowIndex,
+        accent = XoraAccent,
+        onClick = {
+            if (closeIndex >= 0) onActivateRow(closeIndex)
+        },
+    )
 }
 
 /** LT notification center — recent shell notifications, then conversations. Shown in place of tabs/friends. */
@@ -1396,6 +1552,27 @@ private fun SteamFriendRow(
 }
 
 @Composable
+private fun XoraFriendRow(
+    friend: com.arcadia.shell.xoranetwork.XoraFriend,
+    selected: Boolean,
+    onClick: () -> Unit,
+    trailingHint: String? = null,
+    hasUnread: Boolean = false,
+) {
+    FriendListRow(
+        displayName = friend.displayName.ifBlank { friend.username },
+        avatarUrl = friend.resolvedAvatarUrl,
+        presence = xoraFriendPresence(friend),
+        activityLabel = xoraFriendActivity(friend),
+        sourceTint = XoraAccent,
+        selected = selected,
+        hasUnread = hasUnread,
+        trailingHint = trailingHint,
+        onClick = onClick,
+    )
+}
+
+@Composable
 private fun DiscordFriendRow(
     friend: DiscordFriendEntry,
     selected: Boolean,
@@ -1448,7 +1625,12 @@ private fun FriendListRow(
         !activityLabel.isNullOrBlank() -> activityLabel.uppercase()
         else -> presenceLabel(presence).uppercase()
     }
-    val statusColor = if (offline) Color.White.copy(alpha = 0.45f) else ActivityGreen
+    val statusColor = when {
+        offline -> Color.White.copy(alpha = 0.45f)
+        presence == SocialPresence.Away -> AwayAmber
+        presence == SocialPresence.Busy -> BusyRose
+        else -> ActivityGreen
+    }
 
     Row(
         modifier = Modifier

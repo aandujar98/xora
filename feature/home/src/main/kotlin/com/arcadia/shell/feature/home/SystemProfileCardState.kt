@@ -21,6 +21,8 @@ data class SystemProfileCardState(
     val xoraNetworkSignedIn: Boolean = false,
     /** Live Nakama presence — only meaningful when [xoraNetworkSignedIn]. */
     val xoraNetworkOnline: Boolean = false,
+    val xoraPresenceMode: com.arcadia.shell.xoranetwork.XoraPresenceMode =
+        com.arcadia.shell.xoranetwork.XoraPresenceMode.Online,
 )
 
 data class SystemFavoriteGame(
