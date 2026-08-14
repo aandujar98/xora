@@ -99,6 +99,7 @@ fun hintsForPage(
             xmbDepth == XoraXmbDepth.MusicTracks -> XoraMusicBrowseHints
         xmbDepth == XoraXmbDepth.NowPlaying -> XoraNowPlayingHints
         xmbDepth == XoraXmbDepth.Photos -> XoraPhotoHints
+        xmbDepth == XoraXmbDepth.Dashboard -> XoraDashboardHints
         else -> XoraXmbHints
     }
     HomePage.GameSelector -> if (displayMode == DisplayMode.Single) {
@@ -154,6 +155,15 @@ val XoraPhotoHints: List<Pair<String, String>> = listOf(
     "A" to "View",
     "X" to "Options",
     "Y" to "Slideshow",
+    "B" to "Back",
+    "Start" to "Settings",
+)
+
+/** XOrA Network → Dashboard. */
+val XoraDashboardHints: List<Pair<String, String>> = listOf(
+    "U/D/L/R" to "Tile",
+    "A" to "Select",
+    "X" to "Remove",
     "B" to "Back",
     "Start" to "Settings",
 )

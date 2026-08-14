@@ -471,6 +471,7 @@ fun ArcadiaShell(
                         homeViewModel::loginRetroAchievementsWithApiKey,
                     onSignOutRetroAchievements = homeViewModel::signOutRetroAchievements,
                     onPhotoCommand = homeViewModel::onPhotoCommand,
+                    onDashboardCommand = homeViewModel::onDashboardCommand,
                 )
             }
 
@@ -1004,6 +1005,7 @@ private fun PaneForRole(
                     onAdjustShortcutRows = homeViewModel::adjustShortcutGridRows,
                     onFocusShortcutCustomizeChrome = homeViewModel::focusShortcutCustomizeChrome,
                     onPhotoCommand = homeViewModel::onPhotoCommand,
+                    onDashboardCommand = homeViewModel::onDashboardCommand,
                     showWallpaperBackdrop = state.homePage == HomePage.Home,
                     // XMB owns its own launch hold; fading the whole Grid pane wiped the art.
                     modifier = if (state.homePage == HomePage.Home) {

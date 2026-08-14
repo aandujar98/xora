@@ -102,6 +102,9 @@ import com.arcadia.shell.retroachievements.RaCompletionGame
 import com.arcadia.shell.retroachievements.RetroAchievementsClient
 import com.arcadia.shell.retroachievements.RetroAchievementsRepository
 import com.arcadia.shell.scanner.LibraryRootManager
+import com.arcadia.shell.xoranetwork.XoraFriendState
+import com.arcadia.shell.xoranetwork.XoraNetworkClient
+import com.arcadia.shell.xoranetwork.XoraNetworkRepository
 import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scanner.StorageAccess
 import com.arcadia.shell.scraper.LibraryHashScheduler
@@ -213,6 +216,7 @@ class HomeViewModel @Inject constructor(
     private val platformEmulatorDetector: PlatformEmulatorDetector,
     private val playerSeeder: PlayerSeeder,
     private val gameCompanionController: GameCompanionController,
+    private val xoraNetwork: XoraNetworkRepository,
     val gamepadDispatcher: GamepadDispatcher,
 ) : ViewModel() {
 
@@ -754,6 +758,12 @@ class HomeViewModel @Inject constructor(
 
     /** Media → Photos gallery / viewer / edit / delete state. */
     private val photosUi = MutableStateFlow(PhotosUiState())
+
+    /** XOrA Network → Dashboard navigation + form state (account data lives in the repository). */
+    private val dashboardUi = MutableStateFlow(XoraDashboardUiState())
+    private val dashboardFlow = combine(dashboardUi, xoraNetwork.state) { ui, network ->
+        ui.copy(network = network)
+    }
     private var photoSlideshowJob: Job? = null
     private var photoControlsHideJob: Job? = null
     private var pendingDeletePhotoId: String? = null
@@ -835,6 +845,13 @@ class HomeViewModel @Inject constructor(
         val unreadCount: Int,
     )
 
+    private data class AuxChrome(
+        val welcomeAndNotif: Pair<Boolean, NotificationChrome>,
+        val systemProfile: SystemProfileCardState,
+        val photos: PhotosUiState,
+        val dashboard: XoraDashboardUiState,
+    )
+
     val uiState: StateFlow<HomeUiState> = combine(
         libraryUiState,
         trailerPlayback,
@@ -844,12 +861,12 @@ class HomeViewModel @Inject constructor(
             combine(welcomeBackOpen, notificationChrome) { welcome, notif -> welcome to notif },
             systemProfileChromeFlow(),
             photosUi,
-        ) { welcomeAndNotif, systemProfile, photos ->
-            Triple(welcomeAndNotif, systemProfile, photos)
+            dashboardFlow,
+        ) { welcomeAndNotif, systemProfile, photos, dashboard ->
+            AuxChrome(welcomeAndNotif, systemProfile, photos, dashboard)
         },
-    ) { base, trailer, insight, systemIndex, welcomeProfilePhotos ->
-        val (welcomeAndNotif, systemProfile, photos) = welcomeProfilePhotos
-        val (welcomeBack, notif) = welcomeAndNotif
+    ) { base, trailer, insight, systemIndex, aux ->
+        val (welcomeBack, notif) = aux.welcomeAndNotif
         base.copy(
             trailer = trailer,
             insight = insight,
@@ -860,8 +877,9 @@ class HomeViewModel @Inject constructor(
             notificationUnreadCount = notif.unreadCount,
             notificationHistorySelectedIndex = notif.selectedIndex
                 .coerceIn(0, (notif.history.size - 1).coerceAtLeast(0)),
-            systemProfile = systemProfile,
-            photos = photos,
+            systemProfile = aux.systemProfile,
+            photos = aux.photos,
+            dashboard = aux.dashboard,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -874,6 +892,8 @@ class HomeViewModel @Inject constructor(
         // Warm the feed in the background; Home must not wait on network at startup.
         refreshRssFeed()
         migrateTrailerPipeline()
+        // Restore the persisted XOrA Network session so sign-in survives process death.
+        viewModelScope.launch { xoraNetwork.restore() }
 
         scraperScheduler.isRunning()
             .onEach { isScraping.value = it }
@@ -1390,6 +1410,8 @@ class HomeViewModel @Inject constructor(
             XoraXmbDepth.NowPlaying -> emptyList()
             // The gallery pane draws itself; the rung carries no list.
             XoraXmbDepth.Photos -> emptyList()
+            // The dashboard pane draws itself; the rung carries no list.
+            XoraXmbDepth.Dashboard -> emptyList()
         }
         val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
         val xoraSelected = xoraItems.getOrNull(xoraItemIndex)
@@ -2001,6 +2023,16 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        // XOrA Network Dashboard captures the pad the same way Photos does; LT/RT still work.
+        if (state.homePage == HomePage.Home && state.xoraXmb.depth == XoraXmbDepth.Dashboard) {
+            when (action) {
+                NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                else -> onDashboardNavAction(action)
+            }
+            return
+        }
+
         // On XOrA XMB home, LB/RB cycle categories. Elsewhere they retain page jumps.
         when (action) {
             NavAction.PreviousPlatform -> {
@@ -2310,9 +2342,7 @@ class HomeViewModel @Inject constructor(
                 xoraDrilledPlatformId.value = null
             }
             is XoraXmbAction.LinkDspAccount -> linkDspAccount(action.provider)
-            XoraXmbAction.OpenFriends -> {
-                if (!accountPanelExpanded.value) toggleAccountPanel()
-            }
+            XoraXmbAction.OpenDashboard -> openDashboardRung()
             XoraXmbAction.StoreStub ->
                 emit(HomeEvent.ShowMessage("XOrA Store — coming soon."))
             XoraXmbAction.OpenNews -> setHomePage(HomePage.RssFeed)
@@ -2444,6 +2474,13 @@ class HomeViewModel @Inject constructor(
                         deleteConfirmOpen = false,
                         edit = null,
                     )
+                }
+                xoraDepth.value = XoraXmbDepth.Category
+                xoraItemIndex.value = 0
+            }
+            XoraXmbDepth.Dashboard -> {
+                dashboardUi.update {
+                    it.copy(view = DashboardView.Tiles, busy = false, error = null, notice = null)
                 }
                 xoraDepth.value = XoraXmbDepth.Category
                 xoraItemIndex.value = 0
@@ -2870,6 +2907,422 @@ class HomeViewModel @Inject constructor(
                     else -> drillOutXora()
                 }
             }
+        }
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // XOrA Network Dashboard (Network → Dashboard)
+    // -------------------------------------------------------------------------------------------
+
+    /** Slides into the Dashboard and refreshes account, friends, RA chrome, and play history. */
+    private fun openDashboardRung() {
+        xoraDepth.value = XoraXmbDepth.Dashboard
+        xoraItemIndex.value = 0
+        dashboardUi.update {
+            it.copy(view = DashboardView.Tiles, tileIndex = 0, busy = false, error = null, notice = null)
+        }
+        viewModelScope.launch {
+            val games = libraryRepository.observeGames().first()
+            val played = games
+                .filter { !it.isAndroidApp && it.lastPlayedAt != null }
+                .sortedByDescending { it.lastPlayedAt }
+            dashboardUi.update {
+                it.copy(
+                    recentGames = played.take(8),
+                    gamesPlayedCount = played.size,
+                    totalPlayTimeMs = played.sumOf { game -> game.playTimeMs },
+                )
+            }
+        }
+        viewModelScope.launch {
+            if (xoraNetwork.state.value.signedIn) {
+                xoraNetwork.refreshAccount()
+                xoraNetwork.refreshFriends()
+                xoraNetwork.refreshNotifications()
+            }
+        }
+        // RA points + avatar for the RetroAchievements tile without opening the X pill.
+        refreshSystemPanelRaChrome()
+    }
+
+    /** Layer priority: signed-out auth card → sub-views (Friends / Edit profile) → tile board. */
+    private fun onDashboardNavAction(action: NavAction) {
+        val ui = dashboardUi.value
+        val network = xoraNetwork.state.value
+        if (!network.configured || network.restoring) {
+            if (action == NavAction.Cancel) drillOutXora()
+            return
+        }
+        if (!network.signedIn) {
+            when (action) {
+                NavAction.Up -> focusAuthRow(ui.auth.focusIndex - 1)
+                NavAction.Down -> focusAuthRow(ui.auth.focusIndex + 1)
+                NavAction.Confirm -> activateAuthRow(ui.auth.focusIndex)
+                NavAction.Cancel -> drillOutXora()
+                else -> Unit
+            }
+            return
+        }
+        when (ui.view) {
+            DashboardView.Friends -> when (action) {
+                NavAction.Up -> focusFriendRow(ui.friendsIndex - 1)
+                NavAction.Down -> focusFriendRow(ui.friendsIndex + 1)
+                NavAction.Confirm -> activateFriendRow(ui.friendsIndex)
+                NavAction.ToggleAchievementsPanel, NavAction.Options -> removeFriendRow(ui.friendsIndex)
+                NavAction.Cancel -> closeDashboardSubView()
+                else -> Unit
+            }
+            DashboardView.EditProfile -> when (action) {
+                NavAction.Up -> focusEditRow(ui.edit.focusIndex - 1)
+                NavAction.Down -> focusEditRow(ui.edit.focusIndex + 1)
+                NavAction.Confirm -> activateEditRow(ui.edit.focusIndex)
+                NavAction.Cancel -> closeDashboardSubView()
+                else -> Unit
+            }
+            DashboardView.Tiles -> when (action) {
+                NavAction.Left -> focusDashboardTile(ui.tileIndex - 1)
+                NavAction.Right -> focusDashboardTile(ui.tileIndex + 1)
+                NavAction.Up -> moveDashboardTileRow(-1)
+                NavAction.Down -> moveDashboardTileRow(1)
+                NavAction.Confirm -> activateDashboardTile(ui.tileIndex)
+                NavAction.Cancel -> drillOutXora()
+                else -> Unit
+            }
+        }
+    }
+
+    /** Touch / click entry point — the Dashboard pane funnels every tap through here. */
+    fun onDashboardCommand(command: DashboardCommand) {
+        noteUserActivity()
+        when (command) {
+            is DashboardCommand.FocusTile -> focusDashboardTile(command.index)
+            is DashboardCommand.ActivateTile -> {
+                focusDashboardTile(command.index)
+                activateDashboardTile(command.index)
+            }
+            is DashboardCommand.FocusAuthRow -> focusAuthRow(command.index)
+            is DashboardCommand.ActivateAuthRow -> {
+                focusAuthRow(command.index)
+                activateAuthRow(command.index)
+            }
+            is DashboardCommand.EditField -> editDashboardField(command.field, command.value)
+            DashboardCommand.SubmitAuth -> submitDashboardAuth()
+            DashboardCommand.SwitchAuthMode -> switchDashboardAuthMode()
+            is DashboardCommand.FocusFriendRow -> focusFriendRow(command.index)
+            is DashboardCommand.ActivateFriendRow -> {
+                focusFriendRow(command.index)
+                activateFriendRow(command.index)
+            }
+            is DashboardCommand.RemoveFriendRow -> removeFriendRow(command.index)
+            DashboardCommand.SubmitAddFriend -> submitAddFriend()
+            is DashboardCommand.FocusEditRow -> focusEditRow(command.index)
+            is DashboardCommand.ActivateEditRow -> {
+                focusEditRow(command.index)
+                activateEditRow(command.index)
+            }
+            DashboardCommand.Refresh -> refreshDashboardNetwork()
+            DashboardCommand.Back -> {
+                val ui = dashboardUi.value
+                if (ui.view != DashboardView.Tiles && xoraNetwork.state.value.signedIn) {
+                    closeDashboardSubView()
+                } else {
+                    drillOutXora()
+                }
+            }
+        }
+    }
+
+    private fun focusDashboardTile(index: Int) {
+        dashboardUi.update { it.copy(tileIndex = index.coerceIn(0, DASHBOARD_TILES.lastIndex)) }
+    }
+
+    private fun moveDashboardTileRow(delta: Int) {
+        val current = DASHBOARD_TILES.getOrNull(dashboardUi.value.tileIndex) ?: return
+        val rowIndex = DASHBOARD_TILE_ROWS.indexOfFirst { current in it }
+        if (rowIndex < 0) return
+        val column = DASHBOARD_TILE_ROWS[rowIndex].indexOf(current)
+        val targetRow = DASHBOARD_TILE_ROWS.getOrNull(rowIndex + delta) ?: return
+        val target = targetRow[column.coerceIn(0, targetRow.lastIndex)]
+        focusDashboardTile(DASHBOARD_TILES.indexOf(target))
+    }
+
+    private fun activateDashboardTile(index: Int) {
+        val tile = DASHBOARD_TILES.getOrNull(index) ?: return
+        when (tile) {
+            DashboardTile.Profile -> {
+                val account = xoraNetwork.state.value.account
+                dashboardUi.update {
+                    it.copy(
+                        view = DashboardView.EditProfile,
+                        edit = DashboardEditProfileState(
+                            displayName = account?.displayName.orEmpty(),
+                            username = account?.username.orEmpty(),
+                            location = account?.location.orEmpty(),
+                        ),
+                        error = null,
+                        notice = null,
+                    )
+                }
+            }
+            DashboardTile.Friends -> {
+                dashboardUi.update {
+                    it.copy(view = DashboardView.Friends, friendsIndex = 0, error = null, notice = null)
+                }
+                viewModelScope.launch { xoraNetwork.refreshFriends() }
+            }
+            DashboardTile.Achievements -> toggleAchievementsPanel()
+            DashboardTile.RecentGames ->
+                emit(HomeEvent.ShowMessage("Launch games from the Games column."))
+            DashboardTile.Notifications -> refreshDashboardNetwork()
+            DashboardTile.CloudSaves ->
+                emit(HomeEvent.ShowMessage("Cloud Saves aren't enabled yet."))
+            DashboardTile.Netplay ->
+                emit(HomeEvent.ShowMessage("Netplay invites aren't enabled yet."))
+            DashboardTile.Sharing ->
+                emit(HomeEvent.ShowMessage("XOrA Network sharing isn't enabled yet."))
+            DashboardTile.DeviceLink ->
+                emit(HomeEvent.ShowMessage("Device linking is coming soon."))
+            DashboardTile.ManageAccount -> {
+                if (!openExternalUrl(XoraNetworkClient.MANAGE_ACCOUNT_URL)) {
+                    emit(HomeEvent.ShowError("No browser available for account.xoranetwork.com."))
+                }
+            }
+            DashboardTile.SignOut -> viewModelScope.launch {
+                dashboardUi.update { it.copy(busy = true, error = null, notice = null) }
+                xoraNetwork.signOut()
+                dashboardUi.update {
+                    it.copy(
+                        busy = false,
+                        view = DashboardView.Tiles,
+                        tileIndex = 0,
+                        auth = DashboardAuthFormState(),
+                        notice = "Signed out of XOrA Network.",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun focusAuthRow(index: Int) {
+        dashboardUi.update {
+            it.copy(auth = it.auth.copy(focusIndex = index.coerceIn(0, it.auth.rows.lastIndex)))
+        }
+    }
+
+    private fun activateAuthRow(index: Int) {
+        when (dashboardUi.value.auth.rows.getOrNull(index)) {
+            DashboardAuthRow.Email,
+            DashboardAuthRow.Password,
+            DashboardAuthRow.Username,
+            DashboardAuthRow.DisplayName,
+            -> dashboardUi.update {
+                it.copy(auth = it.auth.copy(focusIndex = index, fieldFocusTick = it.auth.fieldFocusTick + 1))
+            }
+            DashboardAuthRow.Submit -> submitDashboardAuth()
+            DashboardAuthRow.SwitchMode -> switchDashboardAuthMode()
+            DashboardAuthRow.ForgotPassword -> {
+                // Password reset is website-only; the app never calls recovery RPCs.
+                openExternalUrl(XoraNetworkClient.FORGOT_PASSWORD_URL)
+            }
+            DashboardAuthRow.ManageAccount -> {
+                openExternalUrl(XoraNetworkClient.MANAGE_ACCOUNT_URL)
+            }
+            null -> Unit
+        }
+    }
+
+    private fun switchDashboardAuthMode() {
+        dashboardUi.update {
+            val next = if (it.auth.mode == DashboardAuthMode.SignIn) {
+                DashboardAuthMode.Register
+            } else {
+                DashboardAuthMode.SignIn
+            }
+            it.copy(auth = it.auth.copy(mode = next, focusIndex = 0), error = null, notice = null)
+        }
+    }
+
+    private fun submitDashboardAuth() {
+        val ui = dashboardUi.value
+        if (ui.busy) return
+        dashboardUi.update { it.copy(busy = true, error = null, notice = null) }
+        viewModelScope.launch {
+            val auth = ui.auth
+            val result = if (auth.mode == DashboardAuthMode.SignIn) {
+                xoraNetwork.signIn(auth.email, auth.password)
+            } else {
+                xoraNetwork.register(auth.email, auth.password, auth.username, auth.displayName)
+            }
+            result.fold(
+                onSuccess = {
+                    val username = xoraNetwork.state.value.account?.username
+                    dashboardUi.update {
+                        it.copy(
+                            busy = false,
+                            auth = DashboardAuthFormState(),
+                            view = DashboardView.Tiles,
+                            tileIndex = 0,
+                            notice = username?.let { name -> "Signed in as $name." },
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    dashboardUi.update { it.copy(busy = false, error = error.message) }
+                },
+            )
+        }
+    }
+
+    private fun editDashboardField(field: DashboardField, value: String) {
+        dashboardUi.update { ui ->
+            when (field) {
+                DashboardField.Email -> ui.copy(auth = ui.auth.copy(email = value))
+                DashboardField.Password -> ui.copy(auth = ui.auth.copy(password = value))
+                DashboardField.Username ->
+                    if (ui.view == DashboardView.EditProfile) {
+                        ui.copy(edit = ui.edit.copy(username = value))
+                    } else {
+                        ui.copy(auth = ui.auth.copy(username = value))
+                    }
+                DashboardField.DisplayName ->
+                    if (ui.view == DashboardView.EditProfile) {
+                        ui.copy(edit = ui.edit.copy(displayName = value))
+                    } else {
+                        ui.copy(auth = ui.auth.copy(displayName = value))
+                    }
+                DashboardField.Location -> ui.copy(edit = ui.edit.copy(location = value))
+                DashboardField.FriendQuery -> ui.copy(addFriendQuery = value)
+            }
+        }
+    }
+
+    private fun focusFriendRow(index: Int) {
+        dashboardUi.update { it.copy(friendsIndex = index.coerceIn(0, it.friendRows.size)) }
+    }
+
+    private fun activateFriendRow(index: Int) {
+        val ui = dashboardUi.value
+        if (index == 0) {
+            if (ui.addFriendQuery.isBlank()) {
+                dashboardUi.update { it.copy(friendFieldFocusTick = it.friendFieldFocusTick + 1) }
+            } else {
+                submitAddFriend()
+            }
+            return
+        }
+        val friend = ui.friendRows.getOrNull(index - 1) ?: return
+        when (friend.state) {
+            XoraFriendState.IncomingInvite -> viewModelScope.launch {
+                dashboardUi.update { it.copy(busy = true, error = null, notice = null) }
+                val result = xoraNetwork.addFriend(friend.username)
+                dashboardUi.update {
+                    it.copy(
+                        busy = false,
+                        notice = result.fold({ "You and ${friend.username} are now friends." }, { null }),
+                        error = result.exceptionOrNull()?.message,
+                    )
+                }
+            }
+            XoraFriendState.OutgoingInvite ->
+                dashboardUi.update { it.copy(notice = "Invite sent — press X to cancel it.") }
+            else ->
+                dashboardUi.update { it.copy(notice = "${friend.username} is already a friend — X removes.") }
+        }
+    }
+
+    private fun removeFriendRow(index: Int) {
+        val friend = dashboardUi.value.friendRows.getOrNull(index - 1) ?: return
+        viewModelScope.launch {
+            dashboardUi.update { it.copy(busy = true, error = null, notice = null) }
+            val result = xoraNetwork.removeFriend(friend.username)
+            dashboardUi.update {
+                it.copy(
+                    busy = false,
+                    error = result.exceptionOrNull()?.message,
+                    notice = result.fold(
+                        {
+                            when (friend.state) {
+                                XoraFriendState.IncomingInvite -> "Declined ${friend.username}'s invite."
+                                XoraFriendState.OutgoingInvite -> "Cancelled the invite to ${friend.username}."
+                                else -> "Removed ${friend.username}."
+                            }
+                        },
+                        { null },
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun submitAddFriend() {
+        val query = dashboardUi.value.addFriendQuery.trim()
+        viewModelScope.launch {
+            dashboardUi.update { it.copy(busy = true, error = null, notice = null) }
+            val result = xoraNetwork.addFriend(query)
+            dashboardUi.update {
+                it.copy(
+                    busy = false,
+                    addFriendQuery = if (result.isSuccess) "" else it.addFriendQuery,
+                    notice = result.fold({ "Friend request sent to $query." }, { null }),
+                    error = result.exceptionOrNull()?.message,
+                )
+            }
+        }
+    }
+
+    private fun focusEditRow(index: Int) {
+        dashboardUi.update {
+            it.copy(
+                edit = it.edit.copy(
+                    focusIndex = index.coerceIn(0, DashboardEditProfileState.ROW_COUNT - 1),
+                ),
+            )
+        }
+    }
+
+    private fun activateEditRow(index: Int) {
+        when (index) {
+            0, 1, 2 -> dashboardUi.update {
+                it.copy(edit = it.edit.copy(focusIndex = index, fieldFocusTick = it.edit.fieldFocusTick + 1))
+            }
+            3 -> submitDashboardProfile()
+            4 -> closeDashboardSubView()
+        }
+    }
+
+    private fun submitDashboardProfile() {
+        val ui = dashboardUi.value
+        if (ui.busy) return
+        viewModelScope.launch {
+            dashboardUi.update { it.copy(busy = true, error = null, notice = null) }
+            val result = xoraNetwork.updateProfile(
+                displayName = ui.edit.displayName,
+                username = ui.edit.username,
+                location = ui.edit.location,
+            )
+            dashboardUi.update {
+                it.copy(
+                    busy = false,
+                    view = if (result.isSuccess) DashboardView.Tiles else it.view,
+                    notice = result.fold({ "Profile updated." }, { null }),
+                    error = result.exceptionOrNull()?.message,
+                )
+            }
+        }
+    }
+
+    private fun closeDashboardSubView() {
+        dashboardUi.update { it.copy(view = DashboardView.Tiles, error = null, notice = null) }
+    }
+
+    private fun refreshDashboardNetwork() {
+        viewModelScope.launch {
+            if (!xoraNetwork.state.value.signedIn) return@launch
+            dashboardUi.update { it.copy(busy = true) }
+            xoraNetwork.refreshAccount()
+            xoraNetwork.refreshFriends()
+            xoraNetwork.refreshNotifications()
+            dashboardUi.update { it.copy(busy = false, notice = "Refreshed.") }
         }
     }
 

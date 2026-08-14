@@ -58,6 +58,8 @@ enum class XoraXmbDepth {
     NowPlaying,
     /** Media → Photos — full-bleed PSP-style gallery over the wallpaper. */
     Photos,
+    /** XOrA Network → Dashboard — Metro-style tile board over the wallpaper. */
+    Dashboard,
 }
 
 /** One focusable row in the XMB vertical list. */
@@ -115,7 +117,8 @@ sealed interface XoraXmbAction {
     data object DrillDspAccounts : XoraXmbAction
     /** DSP provider card — start OAuth / show linked state. */
     data class LinkDspAccount(val provider: DspProvider) : XoraXmbAction
-    data object OpenFriends : XoraXmbAction
+    /** XOrA Network → Dashboard — profile, friends, games & RA over the wallpaper. */
+    data object OpenDashboard : XoraXmbAction
     data object StoreStub : XoraXmbAction
     data object OpenNews : XoraXmbAction
     data class DrillSystem(val platformId: String) : XoraXmbAction
@@ -407,10 +410,10 @@ fun buildXoraCategoryItems(
     )
     XoraXmbCategory.Network -> listOf(
         XoraXmbItem(
-            id = "friends",
+            id = "dashboard",
             title = "Dashboard",
-            subtitle = "Pinned Friends, Steam & Discord",
-            action = XoraXmbAction.OpenFriends,
+            subtitle = "Profile, friends & games on XOrA Network",
+            action = XoraXmbAction.OpenDashboard,
             icon = XmbIcon.Friends,
         ),
         XoraXmbItem(

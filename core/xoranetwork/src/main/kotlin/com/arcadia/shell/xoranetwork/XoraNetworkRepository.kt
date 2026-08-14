@@ -1,0 +1,301 @@
+package com.arcadia.shell.xoranetwork
+
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * The one XOrA Network identity for the launcher. Wraps [XoraNetworkClient] with session
+ * restore/refresh (survives process death), and exposes friendly [Result]s — callers never see
+ * raw gateway errors. Public identity is the username; the Nakama UUID stays inside this module.
+ */
+@Singleton
+class XoraNetworkRepository @Inject constructor(
+    private val client: XoraNetworkClient,
+    private val sessionStore: XoraSessionStore,
+    private val json: Json,
+) {
+    private val mutableState = MutableStateFlow(
+        XoraNetworkState(
+            configured = XoraNetworkClient.isConfigured,
+            restoring = XoraNetworkClient.isConfigured,
+        ),
+    )
+    val state: StateFlow<XoraNetworkState> = mutableState.asStateFlow()
+
+    private var session: StoredXoraSession? = null
+    private val sessionMutex = Mutex()
+
+    /** Restores the persisted session on launch and hydrates account + friends. */
+    suspend fun restore() {
+        if (!XoraNetworkClient.isConfigured) {
+            mutableState.update { it.copy(restoring = false) }
+            return
+        }
+        val stored = sessionStore.read()
+        if (stored == null) {
+            mutableState.update { it.copy(restoring = false, signedIn = false) }
+            return
+        }
+        session = stored
+        val refreshed = runCatching { validAccessToken() }
+        if (refreshed.isFailure) {
+            mutableState.update { it.copy(restoring = false, signedIn = false) }
+            return
+        }
+        mutableState.update { it.copy(signedIn = true) }
+        refreshAccount()
+        mutableState.update { it.copy(restoring = false) }
+        refreshFriends()
+        refreshNotifications()
+    }
+
+    /** Login only — `create=false` so this path can never mint a new account. */
+    suspend fun signIn(email: String, password: String): Result<Unit> {
+        XoraIdentityRules.emailError(email)?.let { return Result.failure(XoraNetworkException(it)) }
+        if (password.isEmpty()) {
+            return Result.failure(XoraNetworkException("Enter your password."))
+        }
+        return runCatching {
+            val dto = client.authenticateEmail(email, password, create = false)
+            adoptSession(StoredXoraSession(dto.token, dto.refreshToken))
+        }.mapFriendly { statusCode ->
+            when (statusCode) {
+                401, 404 -> "Email or password is incorrect."
+                else -> null
+            }
+        }
+    }
+
+    /**
+     * Registration via `authenticateEmail(create = true, username)`. When the gateway reports the
+     * session was NOT created, that email already exists — the accidental session is logged out
+     * and the user is told to sign in instead (never silently signed in).
+     */
+    suspend fun register(
+        email: String,
+        password: String,
+        username: String,
+        displayName: String,
+    ): Result<Unit> {
+        XoraIdentityRules.emailError(email)?.let { return Result.failure(XoraNetworkException(it)) }
+        XoraIdentityRules.passwordError(password)?.let { return Result.failure(XoraNetworkException(it)) }
+        XoraIdentityRules.usernameError(username.trim())?.let { return Result.failure(XoraNetworkException(it)) }
+        XoraIdentityRules.displayNameError(displayName.trim())?.let { return Result.failure(XoraNetworkException(it)) }
+        return runCatching {
+            val dto = client.authenticateEmail(email, password, create = true, username = username.trim())
+            if (!dto.created) {
+                runCatching { client.logout(dto.token, dto.refreshToken) }
+                throw XoraNetworkException(
+                    "That email already has an XOrA Network account. Sign in instead.",
+                )
+            }
+            adoptSession(StoredXoraSession(dto.token, dto.refreshToken))
+            runCatching { client.updateAccount(accessToken = dto.token, displayName = displayName.trim()) }
+            refreshAccount()
+        }.mapFriendly { null }
+    }
+
+    /** Full sign-out: server-side session invalidation plus local token deletion. */
+    suspend fun signOut() {
+        val current = session
+        if (current != null) {
+            runCatching { client.logout(current.accessToken, current.refreshToken) }
+        }
+        session = null
+        sessionStore.clear()
+        mutableState.update {
+            XoraNetworkState(configured = it.configured, restoring = false)
+        }
+    }
+
+    suspend fun refreshAccount(): Result<Unit> = authenticated { token ->
+        val dto = client.getAccount(token)
+        val account = XoraAccount(
+            username = dto.user.username,
+            displayName = dto.user.displayName.ifBlank { dto.user.username },
+            email = dto.email,
+            location = dto.user.location,
+            avatarUrl = dto.user.avatarUrl,
+        )
+        mutableState.update { it.copy(signedIn = true, account = account) }
+    }
+
+    suspend fun updateProfile(
+        displayName: String,
+        username: String,
+        location: String,
+    ): Result<Unit> {
+        val trimmedDisplay = displayName.trim()
+        val trimmedUsername = username.trim()
+        XoraIdentityRules.displayNameError(trimmedDisplay)?.let {
+            return Result.failure(XoraNetworkException(it))
+        }
+        XoraIdentityRules.usernameError(trimmedUsername)?.let {
+            return Result.failure(XoraNetworkException(it))
+        }
+        return authenticated { token ->
+            val current = mutableState.value.account
+            client.updateAccount(
+                accessToken = token,
+                displayName = trimmedDisplay.takeIf { it != current?.displayName },
+                username = trimmedUsername.takeIf { it != current?.username },
+                location = location.trim().takeIf { it != current?.location },
+            )
+            refreshAccount()
+        }
+    }
+
+    suspend fun refreshFriends(): Result<Unit> {
+        mutableState.update { it.copy(friendsLoading = true) }
+        val result = authenticated { token ->
+            val friends = client.listFriends(token).mapNotNull { dto ->
+                val friendState = when (dto.state) {
+                    0 -> XoraFriendState.Friend
+                    1 -> XoraFriendState.OutgoingInvite
+                    2 -> XoraFriendState.IncomingInvite
+                    else -> return@mapNotNull null // banned edges stay hidden
+                }
+                XoraFriend(
+                    username = dto.user.username,
+                    displayName = dto.user.displayName.ifBlank { dto.user.username },
+                    avatarUrl = dto.user.avatarUrl,
+                    online = dto.user.online,
+                    state = friendState,
+                )
+            }.sortedWith(
+                compareBy<XoraFriend> { it.state != XoraFriendState.IncomingInvite }
+                    .thenBy { !it.online }
+                    .thenBy { it.username.lowercase() },
+            )
+            mutableState.update { it.copy(friends = friends) }
+        }
+        mutableState.update { it.copy(friendsLoading = false) }
+        return result
+    }
+
+    /** Sends an invite, or accepts one when [username] already has an incoming edge. */
+    suspend fun addFriend(username: String): Result<Unit> {
+        val target = username.trim()
+        if (target.isEmpty()) {
+            return Result.failure(XoraNetworkException("Enter a username first."))
+        }
+        val self = mutableState.value.account?.username
+        if (self != null && target.equals(self, ignoreCase = true)) {
+            return Result.failure(XoraNetworkException("That's you — add someone else."))
+        }
+        return authenticated { token ->
+            client.addFriends(token, listOf(target))
+            refreshFriends()
+        }
+    }
+
+    /** Removes a friend, cancels an outgoing invite, or declines an incoming one. */
+    suspend fun removeFriend(username: String): Result<Unit> = authenticated { token ->
+        client.deleteFriends(token, listOf(username.trim()))
+        refreshFriends()
+    }
+
+    /**
+     * Reads the website's `xora_notifications` inbox for this user. The website may write it
+     * server-side (system-owned) or per-user, so both owners are queried and merged. Failures
+     * degrade to an empty inbox — never block sign-in/friends on this.
+     */
+    suspend fun refreshNotifications(): Result<Unit> = authenticated { token ->
+        val usernameLower = (
+            mutableState.value.account?.username
+                ?: XoraJwt.username(token, json)
+            ).lowercase()
+        if (usernameLower.isBlank()) return@authenticated
+        val ownUuid = XoraJwt.userId(token, json)
+        val objects = runCatching {
+            client.readStorageObjects(
+                accessToken = token,
+                collection = XoraNetworkClient.NOTIFICATIONS_COLLECTION,
+                key = "inbox:$usernameLower",
+                ownerIds = listOf(null, ownUuid.takeIf { it.isNotBlank() }),
+            )
+        }.getOrDefault(emptyList())
+        val items = objects
+            .flatMap { obj ->
+                runCatching { json.decodeFromString<InboxValueDto>(obj.value).items }
+                    .getOrDefault(emptyList())
+            }
+            .distinctBy { it.id.ifBlank { it.createdAt + it.fromUsername + it.body } }
+            .map { dto ->
+                XoraNotificationItem(
+                    id = dto.id,
+                    type = dto.type,
+                    fromUsername = dto.fromUsername,
+                    fromDisplayName = dto.fromDisplayName.ifBlank { dto.fromUsername },
+                    body = dto.body,
+                    createdAt = dto.createdAt,
+                    read = dto.read,
+                )
+            }
+            .sortedByDescending { it.createdAt }
+        mutableState.update { it.copy(notifications = items) }
+    }
+
+    // -------------------------------------------------------------------------------------------
+
+    private suspend fun adoptSession(newSession: StoredXoraSession) {
+        session = newSession
+        sessionStore.write(newSession)
+        mutableState.update { it.copy(signedIn = true) }
+        refreshAccount()
+        refreshFriends()
+        refreshNotifications()
+    }
+
+    /** Runs [block] with a valid access token, refreshing (or signing out) as needed. */
+    private suspend fun authenticated(block: suspend (String) -> Unit): Result<Unit> {
+        return runCatching {
+            val token = validAccessToken()
+            block(token)
+        }.mapFriendly { null }
+    }
+
+    private suspend fun validAccessToken(): String = sessionMutex.withLock {
+        val current = session ?: throw XoraNetworkException("Sign in to XOrA Network first.")
+        val expiresAt = XoraJwt.expirySeconds(current.accessToken, json)
+        val now = System.currentTimeMillis() / 1000
+        if (expiresAt > now + 60) return current.accessToken
+        val refreshed = runCatching { client.refreshSession(current.refreshToken) }.getOrElse {
+            // Refresh token rejected — the session is gone for good. Clean sign-out locally.
+            session = null
+            sessionStore.clear()
+            mutableState.update {
+                XoraNetworkState(configured = it.configured, restoring = false)
+            }
+            throw XoraNetworkException("Your XOrA Network session expired. Sign in again.")
+        }
+        val next = StoredXoraSession(refreshed.token, refreshed.refreshToken.ifBlank { current.refreshToken })
+        session = next
+        sessionStore.write(next)
+        next.accessToken
+    }
+
+    /** Rewraps unexpected failures with friendly copy; [override] can specialise by HTTP status. */
+    private fun <T> Result<T>.mapFriendly(override: (Int) -> String?): Result<Unit> = fold(
+        onSuccess = { Result.success(Unit) },
+        onFailure = { error ->
+            val friendly = when (error) {
+                is XoraNetworkException -> {
+                    val replacement = override(error.statusCode)
+                    if (replacement != null) XoraNetworkException(replacement, error.statusCode) else error
+                }
+                else -> XoraNetworkException(
+                    "Couldn't reach XOrA Network. Check your connection and try again.",
+                )
+            }
+            Result.failure(friendly)
+        },
+    )
+}

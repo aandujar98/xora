@@ -25,8 +25,8 @@ android {
         minSdk = 29
         targetSdk = 37
         // Bump for every Desktop sideload so PackageManager accepts the update.
-        versionCode = 110
-        versionName = "0.2.33"
+        versionCode = 111
+        versionName = "0.2.34"
         // Deep-link scheme for Discord Social SDK AuthenticationActivity.
         manifestPlaceholders["discordApplicationId"] = "1531690290526683176"
     }
@@ -112,6 +112,7 @@ dependencies {
     implementation(project(":core:retroachievements"))
     implementation(project(":core:input"))
     implementation(project(":core:scraper"))
+    implementation(project(":core:xoranetwork"))
     implementation(project(":feature:home"))
     implementation(project(":feature:settings"))
 

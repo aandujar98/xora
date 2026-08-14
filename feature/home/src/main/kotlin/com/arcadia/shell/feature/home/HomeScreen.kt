@@ -128,6 +128,7 @@ fun HomeScreen(
     onLoginRetroAchievementsWithApiKey: (username: String, apiKey: String) -> Unit,
     onSignOutRetroAchievements: () -> Unit,
     onPhotoCommand: (PhotoPaneCommand) -> Unit = {},
+    onDashboardCommand: (DashboardCommand) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val contentTween = arcadiaTween<Float>(ArcadiaMotion.Medium)
@@ -246,6 +247,7 @@ fun HomeScreen(
                                 onAdjustShortcutRows = onAdjustShortcutRows,
                                 onFocusShortcutCustomizeChrome = onFocusShortcutCustomizeChrome,
                                 onPhotoCommand = onPhotoCommand,
+                                onDashboardCommand = onDashboardCommand,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -598,6 +600,7 @@ fun HomePageContent(
     onAdjustShortcutRows: (Int) -> Unit = {},
     onFocusShortcutCustomizeChrome: (ShortcutCustomizeChrome) -> Unit = {},
     onPhotoCommand: (PhotoPaneCommand) -> Unit = {},
+    onDashboardCommand: (DashboardCommand) -> Unit = {},
     showWallpaperBackdrop: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -652,6 +655,7 @@ fun HomePageContent(
                         onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
                         onSignOutRetroAchievements = onSignOutRetroAchievements,
                         onPhotoCommand = onPhotoCommand,
+                        onDashboardCommand = onDashboardCommand,
                         onToggleNowPlaying = onToggleNowPlaying,
                         onSkipPreviousTrack = onSkipPreviousTrack,
                         onSkipNextTrack = onSkipNextTrack,

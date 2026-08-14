@@ -263,6 +263,8 @@ data class HomeUiState(
     val music: MusicUiState = MusicUiState(),
     /** Media → Photos gallery, viewer, and edit / delete flows. */
     val photos: PhotosUiState = PhotosUiState(),
+    /** XOrA Network → Dashboard tile board (account, friends, games, RA). */
+    val dashboard: XoraDashboardUiState = XoraDashboardUiState(),
     val trailer: HeroTrailerState = HeroTrailerState(),
     val rss: RssUiState = RssUiState(),
     val guide: GuideUiState = GuideUiState(),

@@ -35,6 +35,7 @@ dependencies {
     implementation(project(":core:display"))
     implementation(project(":core:retroachievements"))
     implementation(project(":core:scraper"))
+    implementation(project(":core:xoranetwork"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
