@@ -103,6 +103,7 @@ fun VerticalGameSelectorPane(
     onRequestLocalAvatar: () -> Unit,
     onUseRaAvatar: () -> Unit,
     onUseDiscordAvatar: () -> Unit,
+    onUseXoraAvatar: () -> Unit,
     onClearAvatar: () -> Unit,
     onFriendSearchChange: (String) -> Unit,
     onReplyDraftChange: (String) -> Unit,
@@ -316,7 +317,9 @@ fun VerticalGameSelectorPane(
                     onRequestPhoto = onRequestLocalAvatar,
                     onUseRaAvatar = onUseRaAvatar,
                     onUseDiscordAvatar = onUseDiscordAvatar,
+                    onUseXoraAvatar = onUseXoraAvatar,
                     onClearAvatar = onClearAvatar,
+                    xoraSignedIn = state.dashboard.network.signedIn,
                 )
             }
         }

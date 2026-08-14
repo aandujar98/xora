@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,6 +60,7 @@ import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.xoranetwork.XoraFriend
 import com.arcadia.shell.xoranetwork.XoraFriendState
+import com.arcadia.shell.xoranetwork.XoraNetworkClient
 
 private val TileShape = RoundedCornerShape(14.dp)
 private val Ink = Color.White
@@ -99,21 +102,23 @@ fun XoraDashboardPane(
     ) {
         DashboardHeader(state)
         Spacer(modifier = Modifier.height(14.dp))
-        when {
-            !network.configured -> DashboardMessageCard(
-                title = "XOrA Network isn't configured",
-                body = "This build was made without the XOrA Network client key, so sign-in is " +
-                    "unavailable. Accounts are managed at account.xoranetwork.com.",
-            )
-            network.restoring -> DashboardMessageCard(
-                title = "Connecting to XOrA Network…",
-                body = "Restoring your session.",
-                showSpinner = true,
-            )
-            !network.signedIn -> DashboardAuthCard(state, onCommand)
-            state.view == DashboardView.Friends -> DashboardFriendsView(state, onCommand)
-            state.view == DashboardView.EditProfile -> DashboardEditProfileView(state, onCommand)
-            else -> DashboardTileBoard(state, achievements, onCommand)
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when {
+                !network.configured -> DashboardMessageCard(
+                    title = "XOrA Network isn't configured",
+                    body = "This build was made without the XOrA Network client key, so sign-in is " +
+                        "unavailable. Accounts are managed at account.xoranetwork.com.",
+                )
+                network.restoring -> DashboardMessageCard(
+                    title = "Connecting to XOrA Network…",
+                    body = "Restoring your session.",
+                    showSpinner = true,
+                )
+                !network.signedIn -> DashboardAuthCard(state, onCommand)
+                state.view == DashboardView.Friends -> DashboardFriendsView(state, onCommand)
+                state.view == DashboardView.EditProfile -> DashboardEditProfileView(state, onCommand)
+                else -> DashboardTileBoard(state, achievements, onCommand)
+            }
         }
     }
 }
@@ -154,7 +159,7 @@ private fun DashboardHeader(state: XoraDashboardUiState) {
             XoraNetworkAvatar(
                 username = account.username,
                 displayName = account.displayName,
-                avatarUrl = account.avatarUrl,
+                avatarUrl = account.resolvedAvatarUrl,
                 size = 44.dp,
             )
         }
@@ -285,7 +290,7 @@ private fun ProfileTileContent(state: XoraDashboardUiState) {
         XoraNetworkAvatar(
             username = account.username,
             displayName = account.displayName,
-            avatarUrl = account.avatarUrl,
+            avatarUrl = account.resolvedAvatarUrl,
             size = 96.dp,
         )
         Spacer(modifier = Modifier.width(16.dp))
@@ -343,7 +348,7 @@ private fun FriendsTileContent(state: XoraDashboardUiState) {
                     XoraNetworkAvatar(
                         username = friend.username,
                         displayName = friend.displayName,
-                        avatarUrl = friend.avatarUrl,
+                        avatarUrl = friend.resolvedAvatarUrl,
                         size = 40.dp,
                     )
                 }
@@ -713,28 +718,54 @@ private fun DashboardFriendsView(
                 onClick = { onCommand(DashboardCommand.SubmitAddFriend) },
             )
         }
-        Column(
+        LazyColumn(
             verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
-                .weight(1f, fill = false)
-                .verticalScroll(rememberScrollState()),
+                .weight(1f)
+                .fillMaxWidth(),
         ) {
             val rows = state.friendRows
-            if (rows.isEmpty() && !state.network.friendsLoading) {
-                Text(
-                    text = "No friends yet. Invites you send and receive show up here and on the website.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = InkMuted,
-                    modifier = Modifier.padding(top = 10.dp),
-                )
-            }
-            rows.forEachIndexed { rowIndex, friend ->
-                FriendRow(
-                    friend = friend,
-                    focused = state.friendsIndex == rowIndex + 1,
-                    onClick = { onCommand(DashboardCommand.ActivateFriendRow(rowIndex + 1)) },
-                    onRemove = { onCommand(DashboardCommand.RemoveFriendRow(rowIndex + 1)) },
-                )
+            when {
+                rows.isEmpty() && state.network.friendsLoading -> {
+                    item {
+                        Text(
+                            text = "Loading friends…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
+                }
+                rows.isEmpty() && state.network.friendsError != null -> {
+                    item {
+                        Text(
+                            text = state.network.friendsError.orEmpty(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFFFF8A80),
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
+                }
+                rows.isEmpty() -> {
+                    item {
+                        Text(
+                            text = "No friends yet. Invites you send and receive show up here and on the website.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
+                }
+                else -> {
+                    itemsIndexed(rows, key = { _, friend -> friend.username }) { rowIndex, friend ->
+                        FriendRow(
+                            friend = friend,
+                            focused = state.friendsIndex == rowIndex + 1,
+                            onClick = { onCommand(DashboardCommand.ActivateFriendRow(rowIndex + 1)) },
+                            onRemove = { onCommand(DashboardCommand.RemoveFriendRow(rowIndex + 1)) },
+                        )
+                    }
+                }
             }
         }
         Text(
@@ -764,7 +795,7 @@ private fun FriendRow(
         XoraNetworkAvatar(
             username = friend.username,
             displayName = friend.displayName,
-            avatarUrl = friend.avatarUrl,
+            avatarUrl = friend.resolvedAvatarUrl,
             size = 38.dp,
         )
         Spacer(modifier = Modifier.width(10.dp))
@@ -1033,8 +1064,8 @@ private fun DashboardButton(
 }
 
 /**
- * Avatar with initials fallback: tries the Nakama avatar_url (or the website avatar endpoint),
- * and if the fetch 401s or fails, draws initials — profile and friends never block on avatars.
+ * Avatar with initials fallback. Prefers a public https avatar_url; otherwise the website
+ * `/api/avatars/{username}` endpoint (Coil attaches the Nakama session cookies).
  */
 @Composable
 fun XoraNetworkAvatar(
@@ -1045,7 +1076,7 @@ fun XoraNetworkAvatar(
     modifier: Modifier = Modifier,
 ) {
     val model = avatarUrl?.takeIf { it.isNotBlank() }
-        ?: "https://account.xoranetwork.com/api/avatars/${username.trim()}"
+        ?: XoraNetworkClient.avatarUrlFor(username)
     var failed by remember(model) { mutableStateOf(false) }
     Box(
         modifier = modifier

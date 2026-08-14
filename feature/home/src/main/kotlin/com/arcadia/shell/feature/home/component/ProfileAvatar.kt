@@ -11,6 +11,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +43,7 @@ fun ProfileAvatar(
     val preset = avatarPreset(presetId)
     val initial = displayName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
     val platformContext = LocalPlatformContext.current
+    var imageFailed by remember(imageModel) { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -51,7 +56,7 @@ fun ProfileAvatar(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        if (!imageModel.isNullOrBlank()) {
+        if (!imageModel.isNullOrBlank() && !imageFailed) {
             AsyncImage(
                 model = ImageRequest.Builder(platformContext)
                     .data(imageModel)
@@ -59,6 +64,7 @@ fun ProfileAvatar(
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                onError = { imageFailed = true },
                 modifier = Modifier.fillMaxSize().clip(CircleShape),
             )
         } else {

@@ -22,6 +22,7 @@ import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.AppForegroundTracker
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
+import com.arcadia.shell.xoranetwork.XoraNetworkAuthCookies
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,7 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var appForegroundTracker: AppForegroundTracker
     @Inject lateinit var shellSystemNotifier: ShellSystemNotifier
     @Inject lateinit var gameCompanionController: GameCompanionController
+    @Inject lateinit var xoraNetworkAuthCookies: XoraNetworkAuthCookies
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -108,7 +110,13 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
      */
     override fun newImageLoader(context: Context): ImageLoader =
         ImageLoader.Builder(context)
-            .components { add(AnimatedImageDecoder.Factory()) }
+            .components {
+                add(AnimatedImageDecoder.Factory())
+                val cookies = runCatching { xoraNetworkAuthCookies }.getOrNull()
+                if (cookies != null) {
+                    add(XoraNetworkAvatarInterceptor(cookies))
+                }
+            }
             .memoryCache {
                 MemoryCache.Builder()
                     .maxSizePercent(context, MEMORY_CACHE_PERCENT)

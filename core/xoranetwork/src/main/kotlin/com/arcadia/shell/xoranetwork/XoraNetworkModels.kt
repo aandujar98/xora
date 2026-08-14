@@ -1,7 +1,16 @@
 package com.arcadia.shell.xoranetwork
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 /**
  * User-facing failure from the XOrA Network gateway. [message] is always a friendly sentence —
@@ -23,11 +32,11 @@ data class XoraAccount(
     val displayName: String,
     val email: String,
     val location: String,
-    /** Nakama avatar_url when set; may be a website-hosted avatar that 401s outside a web session. */
+    /** Nakama avatar_url when set; may be relative (`/api/avatars/…`) or a public https URL. */
     val avatarUrl: String,
 ) {
-    /** Website avatar endpoint fallback; the UI shows initials if neither URL loads. */
-    val websiteAvatarUrl: String get() = XoraNetworkClient.avatarUrlFor(username)
+    /** Absolute URL Coil can fetch (website avatars need the Nakama session cookies). */
+    val resolvedAvatarUrl: String get() = resolveXoraAvatarUrl(username, avatarUrl)
 }
 
 data class XoraFriend(
@@ -37,7 +46,7 @@ data class XoraFriend(
     val online: Boolean,
     val state: XoraFriendState,
 ) {
-    val websiteAvatarUrl: String get() = XoraNetworkClient.avatarUrlFor(username)
+    val resolvedAvatarUrl: String get() = resolveXoraAvatarUrl(username, avatarUrl)
 }
 
 /** One entry from the website's `xora_notifications` storage inbox. */
@@ -62,6 +71,8 @@ data class XoraNetworkState(
     val account: XoraAccount? = null,
     val friends: List<XoraFriend> = emptyList(),
     val friendsLoading: Boolean = false,
+    /** Friendly copy when the friends refresh failed; null when the last load succeeded. */
+    val friendsError: String? = null,
     val notifications: List<XoraNotificationItem> = emptyList(),
 ) {
     val acceptedFriends: List<XoraFriend>
@@ -139,12 +150,37 @@ internal data class ApiAccountDto(
 internal data class ApiFriendDto(
     val user: ApiUserDto = ApiUserDto(),
     /** 0 friend, 1 outgoing invite, 2 incoming invite, 3 banned. Omitted = 0. */
+    @Serializable(with = FriendStateAsIntSerializer::class)
     val state: Int = 0,
 )
 
 @Serializable
 internal data class ApiFriendListDto(
     val friends: List<ApiFriendDto> = emptyList(),
+    val cursor: String = "",
+)
+
+/** Website `/api/friends` envelope — same accounts as Nakama, camelCase + string states. */
+@Serializable
+internal data class WebsiteFriendsResponseDto(
+    val ok: Boolean = false,
+    val data: WebsiteFriendsDataDto = WebsiteFriendsDataDto(),
+)
+
+@Serializable
+internal data class WebsiteFriendsDataDto(
+    val friends: List<WebsiteFriendDto> = emptyList(),
+    val incoming: List<WebsiteFriendDto> = emptyList(),
+    val outgoing: List<WebsiteFriendDto> = emptyList(),
+)
+
+@Serializable
+internal data class WebsiteFriendDto(
+    val username: String = "",
+    val displayName: String = "",
+    val avatarUrl: String = "",
+    val online: Boolean = false,
+    val state: String = "",
 )
 
 @Serializable
@@ -184,3 +220,121 @@ internal data class InboxItemDto(
     val createdAt: String = "",
     val read: Boolean = false,
 )
+
+/** Nakama uses ints; the website uses `"friend"` / `"incoming"` / `"outgoing"`. */
+internal fun parseXoraFriendState(raw: Int): XoraFriendState? = when (raw) {
+    0 -> XoraFriendState.Friend
+    1 -> XoraFriendState.OutgoingInvite
+    2 -> XoraFriendState.IncomingInvite
+    else -> null
+}
+
+internal fun parseXoraFriendState(raw: String): XoraFriendState? {
+    raw.toIntOrNull()?.let { return parseXoraFriendState(it) }
+    return when (raw.trim().lowercase()) {
+        "friend" -> XoraFriendState.Friend
+        "outgoing", "invite_sent", "invite sent" -> XoraFriendState.OutgoingInvite
+        "incoming", "invite_received", "invite received" -> XoraFriendState.IncomingInvite
+        else -> null
+    }
+}
+
+internal fun resolveXoraAvatarUrl(username: String, avatarUrl: String): String {
+    val raw = avatarUrl.trim()
+    return when {
+        raw.startsWith("https://", ignoreCase = true) ||
+            raw.startsWith("http://", ignoreCase = true) -> raw
+        raw.startsWith("/") -> "${XoraNetworkClient.ACCOUNT_SITE}$raw"
+        username.isNotBlank() -> XoraNetworkClient.avatarUrlFor(username)
+        else -> raw
+    }
+}
+
+internal fun ApiFriendDto.toXoraFriend(): XoraFriend? {
+    val username = user.username.trim()
+    if (username.isEmpty()) return null
+    val friendState = parseXoraFriendState(state) ?: return null
+    return XoraFriend(
+        username = username,
+        displayName = user.displayName.ifBlank { username },
+        avatarUrl = user.avatarUrl,
+        online = user.online,
+        state = friendState,
+    )
+}
+
+internal fun WebsiteFriendDto.toXoraFriend(fallbackState: XoraFriendState): XoraFriend? {
+    val name = username.trim()
+    if (name.isEmpty()) return null
+    val friendState = parseXoraFriendState(state) ?: fallbackState
+    return XoraFriend(
+        username = name,
+        displayName = displayName.ifBlank { name },
+        avatarUrl = avatarUrl,
+        online = online,
+        state = friendState,
+    )
+}
+
+internal fun mergeXoraFriends(vararg groups: List<XoraFriend>): List<XoraFriend> {
+    val byUsername = LinkedHashMap<String, XoraFriend>()
+    groups.forEach { group ->
+        group.forEach { friend ->
+            val key = friend.username.lowercase()
+            val existing = byUsername[key]
+            byUsername[key] = if (existing == null) {
+                friend
+            } else {
+                existing.copy(
+                    displayName = existing.displayName.ifBlank { friend.displayName },
+                    avatarUrl = existing.avatarUrl.ifBlank { friend.avatarUrl },
+                    online = existing.online || friend.online,
+                    state = mergeFriendState(existing.state, friend.state),
+                )
+            }
+        }
+    }
+    return byUsername.values.sortedWith(
+        compareBy<XoraFriend> { it.state != XoraFriendState.IncomingInvite }
+            .thenBy { !it.online }
+            .thenBy { it.username.lowercase() },
+    )
+}
+
+private fun mergeFriendState(a: XoraFriendState, b: XoraFriendState): XoraFriendState = when {
+    a == XoraFriendState.Friend || b == XoraFriendState.Friend -> XoraFriendState.Friend
+    a == XoraFriendState.IncomingInvite || b == XoraFriendState.IncomingInvite ->
+        XoraFriendState.IncomingInvite
+    a == XoraFriendState.OutgoingInvite || b == XoraFriendState.OutgoingInvite ->
+        XoraFriendState.OutgoingInvite
+    else -> a
+}
+
+/**
+ * Accepts Nakama's integer `state` and the website's string enum so a single DTO can parse both
+ * shapes if a gateway ever mixes them.
+ */
+internal object FriendStateAsIntSerializer : KSerializer<Int> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("XoraFriendStateInt", PrimitiveKind.INT)
+
+    override fun serialize(encoder: Encoder, value: Int) {
+        encoder.encodeInt(value)
+    }
+
+    override fun deserialize(decoder: Decoder): Int {
+        val jsonDecoder = decoder as? JsonDecoder
+        if (jsonDecoder != null) {
+            val primitive = jsonDecoder.decodeJsonElement() as? JsonPrimitive ?: return 0
+            primitive.intOrNull?.let { return it }
+            return when (parseXoraFriendState(primitive.content)) {
+                XoraFriendState.Friend -> 0
+                XoraFriendState.OutgoingInvite -> 1
+                XoraFriendState.IncomingInvite -> 2
+                XoraFriendState.Blocked -> 3
+                null -> 0
+            }
+        }
+        return decoder.decodeInt()
+    }
+}

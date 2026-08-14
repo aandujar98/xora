@@ -74,6 +74,7 @@ fun HeroPane(
     profileAvatarModel: String?,
     raConfigured: Boolean,
     discordLinked: Boolean = false,
+    xoraSignedIn: Boolean = false,
     accountPanelExpanded: Boolean,
     systemPanelExpanded: Boolean,
     achievementsPanelExpanded: Boolean,
@@ -108,6 +109,7 @@ fun HeroPane(
     onRequestLocalAvatar: () -> Unit,
     onUseRaAvatar: () -> Unit,
     onUseDiscordAvatar: () -> Unit,
+    onUseXoraAvatar: () -> Unit,
     onClearAvatar: () -> Unit,
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
@@ -284,7 +286,9 @@ fun HeroPane(
                 onRequestPhoto = onRequestLocalAvatar,
                 onUseRaAvatar = onUseRaAvatar,
                 onUseDiscordAvatar = onUseDiscordAvatar,
+                onUseXoraAvatar = onUseXoraAvatar,
                 onClearAvatar = onClearAvatar,
+                xoraSignedIn = xoraSignedIn,
             )
         }
     }

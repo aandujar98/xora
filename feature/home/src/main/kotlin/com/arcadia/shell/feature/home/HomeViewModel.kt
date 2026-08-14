@@ -371,13 +371,18 @@ class HomeViewModel @Inject constructor(
         refreshTrigger,
     ) { playerName, launching, _ -> playerName to launching }
 
-    /** The stored profile plus the linked Discord avatar it may be pointing at. */
+    /** The stored profile plus the linked Discord / XOrA Network avatars it may be pointing at. */
     private val profileIdentityFlow = combine(
         preferences.profile,
         discordRichPresence.state
             .map { it.currentUserAvatarUrl }
             .distinctUntilChanged(),
-    ) { profile, discordAvatarUrl -> profile to discordAvatarUrl }
+        xoraNetwork.state
+            .map { it.account?.resolvedAvatarUrl }
+            .distinctUntilChanged(),
+    ) { profile, discordAvatarUrl, xoraAvatarUrl ->
+        Triple(profile, discordAvatarUrl, xoraAvatarUrl)
+    }
 
     private val panelFlow = combine(
         accountPanelExpanded,
@@ -392,6 +397,7 @@ class HomeViewModel @Inject constructor(
             achievementsExpanded = achievementsOpen,
             profile = identity.first,
             discordAvatarUrl = identity.second,
+            xoraAvatarUrl = identity.third,
             achievements = achievements,
         )
     }
@@ -419,6 +425,7 @@ class HomeViewModel @Inject constructor(
                     panels.achievements.credentials.isConfigured
                 },
                 discordAvatarUrl = panels.discordAvatarUrl,
+                xoraAvatarUrl = panels.xoraAvatarUrl,
             ),
             achievements = panels.achievements,
         )
@@ -430,6 +437,7 @@ class HomeViewModel @Inject constructor(
         val achievementsExpanded: Boolean,
         val profile: LocalProfile,
         val discordAvatarUrl: String?,
+        val xoraAvatarUrl: String?,
         val achievements: AchievementsUiState,
     )
 
@@ -898,7 +906,12 @@ class HomeViewModel @Inject constructor(
         refreshRssFeed()
         migrateTrailerPipeline()
         // Restore the persisted XOrA Network session so sign-in survives process death.
-        viewModelScope.launch { xoraNetwork.restore() }
+        viewModelScope.launch {
+            xoraNetwork.restore()
+            if (xoraNetwork.state.value.signedIn) {
+                applyXoraNetworkIdentity(forceAvatar = false)
+            }
+        }
         // Friend-online / friend-request / message / netplay banners from XOrA Network state diffs.
         xoraNetwork.state
             .onEach { emitXoraNetworkBanners(it) }
@@ -1266,7 +1279,7 @@ class HomeViewModel @Inject constructor(
                     id = "xora-online:$key:${SystemClock.elapsedRealtime()}",
                     displayName = friend.displayName.ifBlank { friend.username },
                     network = FriendNetwork.Xora,
-                    avatarUrl = friend.avatarUrl.ifBlank { friend.websiteAvatarUrl },
+                    avatarUrl = friend.resolvedAvatarUrl,
                 ),
             )
         }
@@ -1283,7 +1296,7 @@ class HomeViewModel @Inject constructor(
                 ShellNotification.XoraFriendRequest(
                     id = "xora-request:$key:${SystemClock.elapsedRealtime()}",
                     displayName = invite.displayName.ifBlank { invite.username },
-                    avatarUrl = invite.avatarUrl.ifBlank { invite.websiteAvatarUrl },
+                    avatarUrl = invite.resolvedAvatarUrl,
                 ),
             )
         }
@@ -3192,7 +3205,11 @@ class HomeViewModel @Inject constructor(
                 dashboardUi.update {
                     it.copy(view = DashboardView.Friends, friendsIndex = 0, error = null, notice = null)
                 }
-                viewModelScope.launch { xoraNetwork.refreshFriends() }
+                viewModelScope.launch {
+                    xoraNetwork.refreshFriends().onFailure { error ->
+                        dashboardUi.update { it.copy(error = error.message) }
+                    }
+                }
             }
             DashboardTile.Achievements -> toggleAchievementsPanel()
             DashboardTile.RecentGames ->
@@ -3214,6 +3231,7 @@ class HomeViewModel @Inject constructor(
             DashboardTile.SignOut -> viewModelScope.launch {
                 dashboardUi.update { it.copy(busy = true, error = null, notice = null) }
                 xoraNetwork.signOut()
+                clearXoraNetworkIdentityIfNeeded()
                 dashboardUi.update {
                     it.copy(
                         busy = false,
@@ -3279,6 +3297,7 @@ class HomeViewModel @Inject constructor(
             }
             result.fold(
                 onSuccess = {
+                    applyXoraNetworkIdentity(forceAvatar = true)
                     val username = xoraNetwork.state.value.account?.username
                     dashboardUi.update {
                         it.copy(
@@ -6278,6 +6297,42 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun useXoraAvatar() {
+        viewModelScope.launch {
+            if (!xoraNetwork.state.value.signedIn) {
+                emit(HomeEvent.ShowError("Sign in to XOrA Network first."))
+                return@launch
+            }
+            applyXoraNetworkIdentity(forceAvatar = true)
+            avatarStore.clear()
+        }
+    }
+
+    /**
+     * RT pill identity follows the signed-in XOrA Network username + avatar. [forceAvatar] is true
+     * on a fresh sign-in/register; restore only overwrites the default / already-XOrA avatar so a
+     * user-picked RA / Discord / photo stays put.
+     */
+    private suspend fun applyXoraNetworkIdentity(forceAvatar: Boolean) {
+        val account = xoraNetwork.state.value.account ?: return
+        val username = account.username.trim().ifBlank { return }
+        val current = preferences.profile.first()
+        preferences.setProfile(username.take(24), current.avatarPresetId)
+        val shouldSetAvatar = forceAvatar ||
+            current.avatarSource == AvatarSource.Default ||
+            current.avatarSource == AvatarSource.XoraNetwork
+        if (shouldSetAvatar) {
+            preferences.setProfileAvatar(AvatarSource.XoraNetwork)
+        }
+    }
+
+    private suspend fun clearXoraNetworkIdentityIfNeeded() {
+        val current = preferences.profile.first()
+        if (current.avatarSource == AvatarSource.XoraNetwork) {
+            preferences.setProfileAvatar(AvatarSource.Default)
+        }
+    }
+
     fun clearAvatar() {
         viewModelScope.launch {
             preferences.setProfileAvatar(AvatarSource.Default)
@@ -6289,6 +6344,7 @@ class HomeViewModel @Inject constructor(
         profile: LocalProfile,
         raUsername: String?,
         discordAvatarUrl: String?,
+        xoraAvatarUrl: String?,
     ): String? =
         when (profile.avatarSource) {
             AvatarSource.Default -> null
@@ -6297,6 +6353,7 @@ class HomeViewModel @Inject constructor(
             AvatarSource.RetroAchievements ->
                 raUsername?.takeIf { it.isNotBlank() }?.let(RaProfile::userPicUrlFor)
             AvatarSource.Discord -> discordAvatarUrl?.takeIf { it.isNotBlank() }
+            AvatarSource.XoraNetwork -> xoraAvatarUrl?.takeIf { it.isNotBlank() }
         }
 
     fun selectAchievementsTab(tab: AchievementsPaneTab) {

@@ -55,7 +55,9 @@ fun ProfileEditSheet(
     onRequestPhoto: () -> Unit,
     onUseRaAvatar: () -> Unit,
     onUseDiscordAvatar: () -> Unit,
+    onUseXoraAvatar: () -> Unit = {},
     onClearAvatar: () -> Unit,
+    xoraSignedIn: Boolean = false,
 ) {
     var name by remember(profile.displayName) { mutableStateOf(profile.displayName) }
     var presetId by remember(profile.avatarPresetId) { mutableStateOf(profile.avatarPresetId) }
@@ -114,6 +116,7 @@ fun ProfileEditSheet(
                             AvatarSource.Local -> "Custom photo"
                             AvatarSource.RetroAchievements -> "RetroAchievements"
                             AvatarSource.Discord -> "Discord"
+                            AvatarSource.XoraNetwork -> "XOrA Network"
                         },
                         color = Color.White.copy(alpha = 0.55f),
                     )
@@ -126,6 +129,20 @@ fun ProfileEditSheet(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(text = "Choose photo")
+            }
+
+            OutlinedButton(
+                onClick = onUseXoraAvatar,
+                enabled = xoraSignedIn,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(text = "Use XOrA Network avatar")
+            }
+            if (!xoraSignedIn) {
+                Text(
+                    text = "Sign in to XOrA Network (Dashboard) to use that avatar.",
+                    color = Color.White.copy(alpha = 0.55f),
+                )
             }
 
             OutlinedButton(

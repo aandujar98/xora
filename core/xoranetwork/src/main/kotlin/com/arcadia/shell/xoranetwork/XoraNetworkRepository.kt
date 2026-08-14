@@ -19,6 +19,7 @@ import javax.inject.Singleton
 class XoraNetworkRepository @Inject constructor(
     private val client: XoraNetworkClient,
     private val sessionStore: XoraSessionStore,
+    private val authCookies: XoraNetworkAuthCookies,
     private val json: Json,
 ) {
     private val mutableState = MutableStateFlow(
@@ -44,6 +45,7 @@ class XoraNetworkRepository @Inject constructor(
             return
         }
         session = stored
+        authCookies.update(stored)
         val refreshed = runCatching { validAccessToken() }
         if (refreshed.isFailure) {
             mutableState.update { it.copy(restoring = false, signedIn = false) }
@@ -108,8 +110,9 @@ class XoraNetworkRepository @Inject constructor(
         if (current != null) {
             runCatching { client.logout(current.accessToken, current.refreshToken) }
         }
-        session = null
-        sessionStore.clear()
+            session = null
+            sessionStore.clear()
+            authCookies.clear()
         mutableState.update {
             XoraNetworkState(configured = it.configured, restoring = false)
         }
@@ -153,30 +156,32 @@ class XoraNetworkRepository @Inject constructor(
     }
 
     suspend fun refreshFriends(): Result<Unit> {
-        mutableState.update { it.copy(friendsLoading = true) }
+        mutableState.update { it.copy(friendsLoading = true, friendsError = null) }
         val result = authenticated { token ->
-            val friends = client.listFriends(token).mapNotNull { dto ->
-                val friendState = when (dto.state) {
-                    0 -> XoraFriendState.Friend
-                    1 -> XoraFriendState.OutgoingInvite
-                    2 -> XoraFriendState.IncomingInvite
-                    else -> return@mapNotNull null // banned edges stay hidden
-                }
-                XoraFriend(
-                    username = dto.user.username,
-                    displayName = dto.user.displayName.ifBlank { dto.user.username },
-                    avatarUrl = dto.user.avatarUrl,
-                    online = dto.user.online,
-                    state = friendState,
-                )
-            }.sortedWith(
-                compareBy<XoraFriend> { it.state != XoraFriendState.IncomingInvite }
-                    .thenBy { !it.online }
-                    .thenBy { it.username.lowercase() },
-            )
-            mutableState.update { it.copy(friends = friends) }
+            val refresh = session?.refreshToken.orEmpty()
+            val fromNakama = runCatching {
+                client.listFriends(token).mapNotNull { it.toXoraFriend() }
+            }.getOrDefault(emptyList())
+            val fromWebsite = if (refresh.isNotBlank()) {
+                runCatching { client.listWebsiteFriends(token, refresh) }
+                    .getOrDefault(WebsiteFriendsDataDto())
+                    .let { data ->
+                        data.incoming.mapNotNull { it.toXoraFriend(XoraFriendState.IncomingInvite) } +
+                            data.outgoing.mapNotNull { it.toXoraFriend(XoraFriendState.OutgoingInvite) } +
+                            data.friends.mapNotNull { it.toXoraFriend(XoraFriendState.Friend) }
+                    }
+            } else {
+                emptyList()
+            }
+            val friends = mergeXoraFriends(fromNakama, fromWebsite)
+            mutableState.update { it.copy(friends = friends, friendsError = null) }
         }
-        mutableState.update { it.copy(friendsLoading = false) }
+        mutableState.update { current ->
+            current.copy(
+                friendsLoading = false,
+                friendsError = result.exceptionOrNull()?.message,
+            )
+        }
         return result
     }
 
@@ -248,6 +253,7 @@ class XoraNetworkRepository @Inject constructor(
     private suspend fun adoptSession(newSession: StoredXoraSession) {
         session = newSession
         sessionStore.write(newSession)
+        authCookies.update(newSession)
         mutableState.update { it.copy(signedIn = true) }
         refreshAccount()
         refreshFriends()
@@ -271,6 +277,7 @@ class XoraNetworkRepository @Inject constructor(
             // Refresh token rejected — the session is gone for good. Clean sign-out locally.
             session = null
             sessionStore.clear()
+            authCookies.clear()
             mutableState.update {
                 XoraNetworkState(configured = it.configured, restoring = false)
             }
@@ -279,6 +286,7 @@ class XoraNetworkRepository @Inject constructor(
         val next = StoredXoraSession(refreshed.token, refreshed.refreshToken.ifBlank { current.refreshToken })
         session = next
         sessionStore.write(next)
+        authCookies.update(next)
         next.accessToken
     }
 

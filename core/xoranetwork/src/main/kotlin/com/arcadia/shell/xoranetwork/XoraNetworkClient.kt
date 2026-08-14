@@ -47,9 +47,12 @@ class XoraNetworkClient @Inject constructor(
         val isConfigured: Boolean
             get() = BuildConfig.XORA_NETWORK_SERVER_KEY.isNotBlank()
 
-        /** Website-hosted avatar; may 401 without a web session — callers fall back to initials. */
+        /** Website-hosted avatar. Requires Nakama access+refresh cookies; otherwise 401s. */
         fun avatarUrlFor(username: String): String =
             "$ACCOUNT_SITE/api/avatars/${username.trim()}"
+
+        internal fun websiteCookieHeader(accessToken: String, refreshToken: String): String =
+            "xora_at=$accessToken; xora_rt=$refreshToken"
     }
 
     private fun serverKeyAuth(): String =
@@ -136,18 +139,67 @@ class XoraNetworkClient @Inject constructor(
         )
     }
 
-    internal suspend fun listFriends(accessToken: String, limit: Int = 200): List<ApiFriendDto> {
-        val url = "$BASE_URL/friend".toHttpUrl().newBuilder()
-            .addQueryParameter("limit", limit.toString())
-            .build()
-        val list: ApiFriendListDto = execute(
+    internal suspend fun listFriends(accessToken: String, limit: Int = 100): List<ApiFriendDto> {
+        val collected = ArrayList<ApiFriendDto>()
+        var cursor: String? = null
+        var pages = 0
+        do {
+            val url = "$BASE_URL/friend".toHttpUrl().newBuilder()
+                .addQueryParameter("limit", limit.toString())
+                .apply { if (!cursor.isNullOrBlank()) addQueryParameter("cursor", cursor) }
+                .build()
+            val page: ApiFriendListDto = execute(
+                Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Bearer $accessToken")
+                    .get()
+                    .build(),
+            )
+            collected += page.friends
+            cursor = page.cursor.takeIf { it.isNotBlank() }
+            pages++
+        } while (cursor != null && pages < 20)
+
+        if (collected.isEmpty()) {
+            // Some gateways omit mixed-state rows unless `state` is set explicitly.
+            for (state in 0..2) {
+                val url = "$BASE_URL/friend".toHttpUrl().newBuilder()
+                    .addQueryParameter("limit", limit.toString())
+                    .addQueryParameter("state", state.toString())
+                    .build()
+                val page: ApiFriendListDto = execute(
+                    Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Bearer $accessToken")
+                        .get()
+                        .build(),
+                )
+                collected += page.friends
+            }
+        }
+        return collected.distinctBy { it.user.username.ifBlank { it.user.id } }
+    }
+
+    /**
+     * Website friends list (same Nakama graph). Auth is the `xora_at` + `xora_rt` cookies, not
+     * Bearer — a Bearer token 401s even when the JWTs are valid.
+     */
+    internal suspend fun listWebsiteFriends(
+        accessToken: String,
+        refreshToken: String,
+    ): WebsiteFriendsDataDto {
+        val envelope: WebsiteFriendsResponseDto = execute(
             Request.Builder()
-                .url(url)
-                .header("Authorization", "Bearer $accessToken")
+                .url("$ACCOUNT_SITE/api/friends")
+                .header("Cookie", websiteCookieHeader(accessToken, refreshToken))
+                .header("Accept", "application/json")
                 .get()
                 .build(),
         )
-        return list.friends
+        if (!envelope.ok) {
+            throw XoraNetworkException("Couldn't load friends right now.")
+        }
+        return envelope.data
     }
 
     /** Also accepts an incoming invite when called with that username. */
