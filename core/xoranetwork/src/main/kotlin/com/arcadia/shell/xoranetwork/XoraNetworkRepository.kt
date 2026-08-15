@@ -356,7 +356,13 @@ class XoraNetworkRepository @Inject constructor(
         }
         val expiresAt = XoraJwt.expirySeconds(current.accessToken, json)
         val nowSec = nowMs / 1000
-        if (expiresAt > nowSec + 60) {
+        // The server mints refresh tokens that die BEFORE the access token (~1h vs ~2h). Rotate
+        // while the refresh token is still alive; waiting for the access token to expire always
+        // landed on a dead refresh token and forced the password re-auth path.
+        val refreshExpiresAt = XoraJwt.expirySeconds(current.refreshToken, json)
+        val refreshDyingSoon = refreshExpiresAt > 0 &&
+            refreshExpiresAt <= nowSec + REFRESH_ROTATE_MARGIN_SECONDS
+        if (expiresAt > nowSec + 60 && !refreshDyingSoon) {
             touchLastActiveLocked(nowMs)
             return current.accessToken
         }
@@ -383,6 +389,12 @@ class XoraNetworkRepository @Inject constructor(
                 ?: XoraNetworkException("Couldn't reach XOrA Network. Check your connection and try again.")
         }
         silentReauthLocked(current, nowMs)?.let { return it }
+        // A proactive rotation that failed must not sign out a still-valid access token —
+        // keep using it and retry the rotation on the next call.
+        if (expiresAt > nowSec + 60) {
+            touchLastActiveLocked(nowMs)
+            return current.accessToken
+        }
         clearSessionLocked()
         throw XoraNetworkException("Your XOrA Network session expired. Sign in again.")
     }
@@ -548,6 +560,36 @@ class XoraNetworkRepository @Inject constructor(
         mutableState.update { it.copy(dm = XoraDmUiState()) }
     }
 
+    /**
+     * Silent re-pull of the open thread so a live chat shows the peer's replies — banners are
+     * suppressed for the open peer, so without this the conversation never updated until it was
+     * closed and reopened. No loading flag, keeps the draft, and skips the swap mid-send so a
+     * stale poll can't briefly erase a just-sent message. Failures keep the current messages.
+     */
+    suspend fun refreshOpenDirectMessage(): Result<Unit> {
+        val peer = mutableState.value.dm.peerUsername?.trim().orEmpty()
+        if (peer.isEmpty()) return Result.success(Unit)
+        return authenticated { token ->
+            val refresh = session?.refreshToken.orEmpty()
+            val data = client.getMessageThread(token, refresh, peer)
+            mutableState.update { state ->
+                val dm = state.dm
+                val samePeer = dm.peerUsername?.equals(peer, ignoreCase = true) == true
+                if (!samePeer || dm.sending) {
+                    state
+                } else {
+                    state.copy(
+                        dm = dm.copy(
+                            peerDisplayName = data.displayName.ifBlank { dm.peerDisplayName },
+                            messages = data.messages.map { it.toDirectMessage() },
+                            loading = false,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
     fun updateDirectMessageDraft(draft: String) {
         mutableState.update { it.copy(dm = it.dm.copy(draft = draft.take(500))) }
     }
@@ -656,3 +698,6 @@ private fun WebsiteMessageDto.toDirectMessage(): XoraDirectMessage = XoraDirectM
     body = body,
     createdAt = createdAt,
 )
+
+/** Rotate the session while the refresh token still has at least this long to live. */
+private const val REFRESH_ROTATE_MARGIN_SECONDS = 10L * 60

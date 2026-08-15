@@ -955,6 +955,25 @@ class HomeViewModel @Inject constructor(
                     }
             }
         }
+        // Live chat: while an XOrA DM is open in the foreground, poll that thread so the peer's
+        // replies appear in place. Banners are suppressed for the open peer, so without this the
+        // conversation looked dead — both sides thought messages weren't going through.
+        viewModelScope.launch {
+            appForegroundTracker.isForeground.collectLatest { foreground ->
+                if (!foreground) return@collectLatest
+                xoraNetwork.state
+                    .map { it.dm.peerUsername }
+                    .distinctUntilChanged()
+                    .collectLatest { peer ->
+                        if (peer.isNullOrBlank()) return@collectLatest
+                        while (isActive) {
+                            // openDirectMessage just loaded the thread; wait before re-pulling.
+                            delay(XORA_DM_POLL_MS)
+                            xoraNetwork.refreshOpenDirectMessage()
+                        }
+                    }
+            }
+        }
 
         scraperScheduler.isRunning()
             .onEach { isScraping.value = it }
@@ -7150,6 +7169,8 @@ class HomeViewModel @Inject constructor(
         const val XORA_SOCIAL_POLL_MS = 60_000L
         /** Website DMs land in `/api/notifications`; poll faster than the site's 30s bell. */
         const val XORA_INBOX_POLL_MS = 20_000L
+        /** Open-conversation refresh — chat cadence, only while the DM pane is on screen. */
+        const val XORA_DM_POLL_MS = 4_000L
         /** Ignore brief pauses (permission sheets, quick app switches). */
         const val WELCOME_BACK_THRESHOLD_MS = 45_000L
         /** One press must not fire through two Photo Viewer layers. */
