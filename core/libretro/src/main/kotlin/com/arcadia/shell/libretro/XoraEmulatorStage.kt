@@ -25,6 +25,8 @@ class XoraEmulatorStage @JvmOverloads constructor(
         setBackgroundColor(Color.BLACK)
         scaleType = ImageView.ScaleType.FIT_XY
         adjustViewBounds = false
+        // Software layer so a sibling Compose overlay cannot leave a hardware wash on the pixels.
+        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
     }
     val bezelView: NsoBezelView = NsoBezelView(context)
 
@@ -66,6 +68,7 @@ class XoraEmulatorStage @JvmOverloads constructor(
 
     init {
         setBackgroundColor(Color.BLACK)
+        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         addView(
             bezelView,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),

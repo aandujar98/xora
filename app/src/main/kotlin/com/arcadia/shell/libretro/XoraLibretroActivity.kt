@@ -146,6 +146,7 @@ class XoraLibretroActivity : ComponentActivity() {
     /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
     private var menuMessage by mutableStateOf<String?>(null)
     private var menuMessageJob: Job? = null
+    private var dismissScrubJob: Job? = null
     private var saveSlots by mutableStateOf(List(10) { EmulatorSaveSlotUi(it, false, "Empty") })
     private var joinAddress by mutableStateOf("")
     private var netplayUi by mutableStateOf(XoraNetplayUiState())
@@ -210,6 +211,8 @@ class XoraLibretroActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK),
         )
+        // enableEdgeToEdge can flip the window to a translucent format; pin it opaque immediately.
+        window.setFormat(PixelFormat.OPAQUE)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
@@ -286,7 +289,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 Gravity.START,
             )
-            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             visibility = View.GONE
         }
         xmbOverlay = xmb
@@ -499,7 +502,7 @@ class XoraLibretroActivity : ComponentActivity() {
         super.onWindowFocusChanged(hasFocus)
         // Regaining focus is exactly when a toast or system window has just gone away, which is
         // when the wash used to appear — so restore the whole window state, not just immersive.
-        if (hasFocus && !menuOpen) restoreImmersiveFocus()
+        if (hasFocus && !menuOpen) applyOpaqueWindow()
     }
 
     override fun onPause() {
@@ -727,11 +730,17 @@ class XoraLibretroActivity : ComponentActivity() {
         if (menuOpen || isFinishing) return
         val root = gameRoot ?: return
         val overlay = xmbOverlay ?: return
+        dismissScrubJob?.cancel()
         refreshSaveSlots()
+        overlay.layoutParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            Gravity.START,
+        )
+        overlay.setBackgroundColor(AndroidColor.BLACK)
         if (overlay.parent == null) {
             root.addView(overlay)
         }
-        overlay.setBackgroundColor(AndroidColor.BLACK)
         overlay.visibility = View.VISIBLE
         root.bringChildToFront(overlay)
         listenOverlayLayout(overlay, true)
@@ -765,18 +774,25 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun closeMenu() {
-        if (!menuOpen && xmbOverlay?.parent == null) return
+        if (!menuOpen) return
         menuOpen = false
         syncPaused()
         val overlay = xmbOverlay
         listenOverlayLayout(overlay, false)
+        // Stay attached and GONE. removeView + DisposeOnDetach was tearing a white hardware layer
+        // across the full game the moment Resume ran — the in-menu scrub then looked fine.
         overlay?.visibility = View.GONE
-        (overlay?.parent as? ViewGroup)?.removeView(overlay)
+        overlay?.layoutParams = FrameLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            Gravity.START,
+        )
+        overlay?.setBackgroundColor(AndroidColor.BLACK)
         menuMessageJob?.cancel()
         menuMessage = null
         applyGameStageInsets()
-        scrubOverlayWash()
-        primaryGameView?.post { if (!menuOpen && !isFinishing) scrubOverlayWash() }
+        applyOpaqueWindow()
+        scheduleDismissScrub()
     }
 
     private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
@@ -1020,15 +1036,10 @@ class XoraLibretroActivity : ComponentActivity() {
     }.getOrNull()
 
     /**
-     * Puts the window back exactly as gameplay needs it.
-     *
-     * Opening the in-game XMB (especially Settings / XOrA Emulator depth) can leave the window
-     * with a translucent surface format or the system's light contrast scrims back on. The result
-     * is a washed-out picture with grey letterbox bars instead of black — a full-window lift, not
-     * a tint on the frame alone. Re-stating all of it is cheap, so do it on every return rather
-     * than only once at startup.
+     * Opaque window + black chrome. Do **not** call enableEdgeToEdge here — that switches the
+     * window to a translucent format and is what painted the game white after Resume.
      */
-    private fun restoreImmersiveFocus() {
+    private fun applyOpaqueWindow() {
         window.setFormat(PixelFormat.OPAQUE)
         @Suppress("DEPRECATION")
         window.clearFlags(
@@ -1037,12 +1048,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 WindowManager.LayoutParams.FLAG_DIM_BEHIND,
         )
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-        // Re-assert dark edge-to-edge bars. A light nav scrim after overlay dismiss is what made
-        // letterboxes read grey even when the ImageView itself was fine.
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(AndroidColor.BLACK),
-            navigationBarStyle = SystemBarStyle.dark(AndroidColor.BLACK),
-        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
@@ -1055,19 +1060,29 @@ class XoraLibretroActivity : ComponentActivity() {
         window.setBackgroundDrawableResource(android.R.color.black)
         window.decorView.setBackgroundColor(AndroidColor.BLACK)
         ImmersiveMode.apply(window)
-        window.decorView.requestFocus()
         gameRoot?.setBackgroundColor(AndroidColor.BLACK)
         xmbOverlay?.setBackgroundColor(AndroidColor.BLACK)
+        pinGameViewOpaque()
+        window.decorView.requestFocus()
+    }
+
+    private fun restoreImmersiveFocus() {
+        applyOpaqueWindow()
+    }
+
+    private fun pinGameViewOpaque() {
         primaryGameView?.apply {
-            setLayerType(View.LAYER_TYPE_NONE, null)
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
             setBackgroundColor(AndroidColor.BLACK)
             alpha = 1f
             colorFilter = null
             imageAlpha = 255
-            invalidate()
         }
-        stage?.setBackgroundColor(AndroidColor.BLACK)
-        stage?.invalidate()
+        stage?.apply {
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+            setBackgroundColor(AndroidColor.BLACK)
+        }
+        stage?.bezelView?.setBackgroundColor(AndroidColor.BLACK)
     }
 
     /**
@@ -1111,24 +1126,36 @@ class XoraLibretroActivity : ComponentActivity() {
         }
     }
 
-    /** Rebind the framebuffer and kill leftover compositor wash after pause submenus. */
+    private fun scheduleDismissScrub() {
+        dismissScrubJob?.cancel()
+        dismissScrubJob = lifecycleScope.launch(Dispatchers.Main.immediate) {
+            scrubOverlayWash()
+            delay(16)
+            if (menuOpen || isFinishing) return@launch
+            scrubOverlayWash()
+            delay(48)
+            if (menuOpen || isFinishing) return@launch
+            scrubOverlayWash()
+        }
+    }
+
+    /** Rebind the framebuffer after the pause sheet is gone so Resume is not a white frame. */
     private fun scrubOverlayWash() {
-        restoreImmersiveFocus()
+        applyOpaqueWindow()
         applyGameStageInsets()
         synchronized(bitmapLock) {
             val src = gameBitmap
             val view = primaryGameView
             if (src != null && !src.isRecycled && view != null) {
                 view.setImageDrawable(null)
-                view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                 view.setImageBitmap(src)
-                view.setLayerType(View.LAYER_TYPE_NONE, null)
                 view.invalidate()
             }
         }
         stage?.invalidate()
         stage?.bezelView?.invalidate()
         gameRoot?.invalidate()
+        window.decorView.invalidate()
     }
 
     private fun startAudio() {
@@ -1328,6 +1355,7 @@ class XoraLibretroActivity : ComponentActivity() {
         inputManager = null
         netplaySession?.stop()
         netplaySession = null
+        dismissScrubJob?.cancel()
         closeMenu()
         runJob?.cancel()
         runJob = null
