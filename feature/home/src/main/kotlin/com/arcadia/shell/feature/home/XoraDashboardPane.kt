@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -698,8 +699,18 @@ private fun DashboardFriendsView(
     onCommand: (DashboardCommand) -> Unit,
 ) {
     val fieldRequester = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    val rows = state.friendRows
     LaunchedEffect(state.friendFieldFocusTick) {
         if (state.friendFieldFocusTick > 0) runCatching { fieldRequester.requestFocus() }
+    }
+    // Gamepad Up/Down only moved friendsIndex — the list never followed, so rows below the
+    // fold were unreachable. Keep the focused friend (index 0 is the add field) on screen.
+    LaunchedEffect(state.friendsIndex, rows.size) {
+        val listIndex = state.friendsIndex - 1
+        if (listIndex in rows.indices) {
+            listState.animateScrollToItem(listIndex)
+        }
     }
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -778,52 +789,58 @@ private fun DashboardFriendsView(
                 onClick = { onCommand(DashboardCommand.SubmitAddFriend) },
             )
         }
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+        // Bounded viewport so the list actually scrolls instead of growing off the card.
+        Box(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp)),
         ) {
-            val rows = state.friendRows
-            when {
-                rows.isEmpty() && state.network.friendsLoading -> {
-                    item {
-                        Text(
-                            text = "Loading friends…",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = InkMuted,
-                            modifier = Modifier.padding(top = 10.dp),
-                        )
+            LazyColumn(
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                when {
+                    rows.isEmpty() && state.network.friendsLoading -> {
+                        item {
+                            Text(
+                                text = "Loading friends…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = InkMuted,
+                                modifier = Modifier.padding(top = 10.dp),
+                            )
+                        }
                     }
-                }
-                rows.isEmpty() && state.network.friendsError != null -> {
-                    item {
-                        Text(
-                            text = state.network.friendsError.orEmpty(),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFFFF8A80),
-                            modifier = Modifier.padding(top = 10.dp),
-                        )
+                    rows.isEmpty() && state.network.friendsError != null -> {
+                        item {
+                            Text(
+                                text = state.network.friendsError.orEmpty(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFFFF8A80),
+                                modifier = Modifier.padding(top = 10.dp),
+                            )
+                        }
                     }
-                }
-                rows.isEmpty() -> {
-                    item {
-                        Text(
-                            text = "No friends yet. Invites you send and receive show up here and on the website.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = InkMuted,
-                            modifier = Modifier.padding(top = 10.dp),
-                        )
+                    rows.isEmpty() -> {
+                        item {
+                            Text(
+                                text = "No friends yet. Invites you send and receive show up here and on the website.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = InkMuted,
+                                modifier = Modifier.padding(top = 10.dp),
+                            )
+                        }
                     }
-                }
-                else -> {
-                    itemsIndexed(rows, key = { _, friend -> friend.username }) { rowIndex, friend ->
-                        FriendRow(
-                            friend = friend,
-                            focused = state.friendsIndex == rowIndex + 1,
-                            onClick = { onCommand(DashboardCommand.ActivateFriendRow(rowIndex + 1)) },
-                            onRemove = { onCommand(DashboardCommand.RemoveFriendRow(rowIndex + 1)) },
-                        )
+                    else -> {
+                        itemsIndexed(rows, key = { _, friend -> friend.username }) { rowIndex, friend ->
+                            FriendRow(
+                                friend = friend,
+                                focused = state.friendsIndex == rowIndex + 1,
+                                onClick = { onCommand(DashboardCommand.ActivateFriendRow(rowIndex + 1)) },
+                                onRemove = { onCommand(DashboardCommand.RemoveFriendRow(rowIndex + 1)) },
+                            )
+                        }
                     }
                 }
             }
