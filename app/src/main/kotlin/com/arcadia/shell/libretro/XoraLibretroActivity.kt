@@ -1314,8 +1314,8 @@ class XoraLibretroActivity : ComponentActivity() {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         val chip = FrameLayout(this).apply {
-            layoutParams = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.END).apply {
-                rightMargin = pad
+            layoutParams = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.START).apply {
+                leftMargin = pad
                 topMargin = pad
             }
             foreground = GradientDrawable().apply {
