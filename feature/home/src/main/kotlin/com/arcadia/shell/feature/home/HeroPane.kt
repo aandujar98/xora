@@ -112,6 +112,7 @@ fun HeroPane(
     onUseXoraAvatar: () -> Unit,
     onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit,
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit,
@@ -226,6 +227,7 @@ fun HeroPane(
             onActivateRow = onActivateAccountRow,
             onFriendSearchChange = onFriendSearchChange,
             onReplyDraftChange = onReplyDraftChange,
+            onClearNotifications = onClearNotifications,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(horizontal = 16.dp, vertical = 12.dp)

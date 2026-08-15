@@ -106,6 +106,7 @@ fun VerticalGameSelectorPane(
     onUseXoraAvatar: () -> Unit,
     onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit,
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit,
     onReplyDraftChange: (String) -> Unit,
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit,
@@ -254,6 +255,7 @@ fun VerticalGameSelectorPane(
                 onActivateRow = onActivateAccountRow,
                 onFriendSearchChange = onFriendSearchChange,
                 onReplyDraftChange = onReplyDraftChange,
+                onClearNotifications = onClearNotifications,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(horizontal = 14.dp, vertical = 8.dp)

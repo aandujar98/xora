@@ -44,7 +44,15 @@ object XoraNetplayProtocol {
         val ly: Short = 0,
         val rx: Short = 0,
         val ry: Short = 0,
-    )
+        /** 0 = unknown/legacy, 1 = host, 2 = joiner. Used to drop Nakama INPUT echoes. */
+        val role: Int = ROLE_UNKNOWN,
+    ) {
+        companion object {
+            const val ROLE_UNKNOWN: Int = 0
+            const val ROLE_HOST: Int = 1
+            const val ROLE_JOINER: Int = 2
+        }
+    }
 
     fun encodeHello(hello: Hello): ByteArray {
         val body = listOf(
@@ -69,13 +77,14 @@ object XoraNetplayProtocol {
     }
 
     fun encodePadFrame(frame: PadFrame): ByteArray {
-        val out = ByteArray(14)
+        val out = ByteArray(15)
         writeInt(out, 0, frame.frame)
         writeShort(out, 4, frame.buttons and 0xFFFF)
         writeShort(out, 6, frame.lx.toInt() and 0xFFFF)
         writeShort(out, 8, frame.ly.toInt() and 0xFFFF)
         writeShort(out, 10, frame.rx.toInt() and 0xFFFF)
         writeShort(out, 12, frame.ry.toInt() and 0xFFFF)
+        out[14] = (frame.role and 0xFF).toByte()
         return out
     }
 
@@ -88,6 +97,7 @@ object XoraNetplayProtocol {
             ly = readShort(payload, 8).toShort(),
             rx = readShort(payload, 10).toShort(),
             ry = readShort(payload, 12).toShort(),
+            role = if (payload.size >= 15) payload[14].toInt() and 0xFF else PadFrame.ROLE_UNKNOWN,
         )
     }
 

@@ -280,6 +280,9 @@ data class HomeUiState(
     val profileEditRequest: Int = 0,
     /** Wake/resume greeting overlay on the primary display. */
     val welcomeBackOpen: Boolean = false,
+    /** Latest online netplay invite waiting for Join / Not now. */
+    val pendingNetplayInvite: NetplayInvitePrompt? = null,
+    val netplayInvitePromptOpen: Boolean = false,
 ) {
     val selectedGame: Game? get() = games.getOrNull(selectedGameIndex)
 
@@ -302,6 +305,16 @@ data class HomeUiState(
     val anyHeroPanelExpanded: Boolean
         get() = accountPanelExpanded || systemPanelExpanded || achievementsPanelExpanded
 }
+
+/** Join/decline copy for an online netplay invite popup. */
+data class NetplayInvitePrompt(
+    val hostName: String,
+    val gameTitle: String,
+    val sessionCode: String,
+    val platformId: String = "",
+    val coreName: String = "",
+    val fromUsername: String = "",
+)
 
 sealed interface HomeEvent {
     data class ShowMessage(val message: String) : HomeEvent

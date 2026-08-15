@@ -65,6 +65,7 @@ import com.arcadia.shell.feature.home.XoraXmbHeroDetail
 import com.arcadia.shell.feature.home.component.GuidePanel
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.feature.home.component.NotificationHistoryPanel
+import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
 import com.arcadia.shell.feature.home.component.DiscordConversationWindow
 import com.arcadia.shell.feature.home.component.XoraConversationWindow
 import com.arcadia.shell.feature.home.component.StartSettingsPanel
@@ -466,6 +467,7 @@ fun ArcadiaShell(
                     onUseXoraAvatar = homeViewModel::useXoraAvatar,
                     onXoraPresenceMode = homeViewModel::setXoraPresenceMode,
                     onClearAvatar = homeViewModel::clearAvatar,
+                    onClearNotifications = homeViewModel::clearNotificationHistory,
                     onFriendSearchChange = homeViewModel::updateFriendSearchQuery,
                     onReplyDraftChange = homeViewModel::updateConversationReplyDraft,
                     onSelectAchievementsTab = homeViewModel::selectAchievementsTab,
@@ -533,8 +535,14 @@ fun ArcadiaShell(
                     onSelectIndex = homeViewModel::selectNotificationHistoryIndex,
                     onActivate = homeViewModel::activateSelectedNotificationHistory,
                     onClear = homeViewModel::clearNotificationHistory,
+                    onDismissItem = homeViewModel::dismissNotificationHistoryItem,
                     onDismiss = homeViewModel::closeNotificationHistory,
                     modifier = Modifier.fillMaxSize(),
+                )
+                NetplayInvitePromptDialog(
+                    prompt = state.pendingNetplayInvite.takeIf { state.netplayInvitePromptOpen },
+                    onJoin = homeViewModel::confirmNetplayInvitePrompt,
+                    onDecline = homeViewModel::dismissNetplayInvitePrompt,
                 )
                 DiscordConversationWindow(
                     open = state.socialMenu.isDiscordDmOpen,
@@ -869,6 +877,7 @@ private fun PaneForRole(
                         onUseXoraAvatar = homeViewModel::useXoraAvatar,
                         onXoraPresenceMode = homeViewModel::setXoraPresenceMode,
                         onClearAvatar = homeViewModel::clearAvatar,
+                        onClearNotifications = homeViewModel::clearNotificationHistory,
                         onFriendSearchChange = homeViewModel::updateFriendSearchQuery,
                         onReplyDraftChange = homeViewModel::updateConversationReplyDraft,
                         onSelectAchievementsTab = homeViewModel::selectAchievementsTab,
@@ -924,6 +933,7 @@ private fun PaneForRole(
                         onUseXoraAvatar = homeViewModel::useXoraAvatar,
                         onXoraPresenceMode = homeViewModel::setXoraPresenceMode,
                         onClearAvatar = homeViewModel::clearAvatar,
+                        onClearNotifications = homeViewModel::clearNotificationHistory,
                         onFriendSearchChange = homeViewModel::updateFriendSearchQuery,
                         onReplyDraftChange = homeViewModel::updateConversationReplyDraft,
                         onSelectAchievementsTab = homeViewModel::selectAchievementsTab,
@@ -994,6 +1004,7 @@ private fun PaneForRole(
                     onUseXoraAvatar = homeViewModel::useXoraAvatar,
                     onXoraPresenceMode = homeViewModel::setXoraPresenceMode,
                     onClearAvatar = homeViewModel::clearAvatar,
+                    onClearNotifications = homeViewModel::clearNotificationHistory,
                     onFriendSearchChange = homeViewModel::updateFriendSearchQuery,
                     onReplyDraftChange = homeViewModel::updateConversationReplyDraft,
                     onSelectAchievementsTab = homeViewModel::selectAchievementsTab,

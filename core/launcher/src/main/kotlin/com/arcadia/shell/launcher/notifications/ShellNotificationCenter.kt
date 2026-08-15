@@ -131,10 +131,27 @@ class ShellNotificationCenter @Inject constructor(
         _unreadCount.value = 0
     }
 
+    fun removeFromHistory(id: String) {
+        if (id.isBlank()) return
+        _history.update { list -> list.filterNot { it.notification.id == id } }
+        _recent.update { list -> list.filterNot { it.id == id } }
+        _unreadCount.value = _history.value.count { !it.read }
+        recentIds.remove(id)
+        if (_active.value?.id == id) {
+            holdJob?.cancel()
+            holdJob = null
+            _active.value = null
+        }
+    }
+
     fun clearHistory() {
         _history.value = emptyList()
         _unreadCount.value = 0
         _recent.value = emptyList()
+        recentIds.clear()
+        holdJob?.cancel()
+        holdJob = null
+        _active.value = null
     }
 
     private fun recordHistory(notification: ShellNotification) {

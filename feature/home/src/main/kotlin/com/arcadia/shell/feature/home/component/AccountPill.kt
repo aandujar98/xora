@@ -76,6 +76,7 @@ fun AccountPill(
     onActivateRow: (Int?) -> Unit,
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
+    onClearNotifications: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
@@ -195,6 +196,7 @@ fun AccountPill(
                     onActivateRow = onActivateRow,
                     onFriendSearchChange = onFriendSearchChange,
                     onReplyDraftChange = onReplyDraftChange,
+                    onClearNotifications = onClearNotifications,
                     maxHeight = panelCap,
                     modifier = Modifier
                         .padding(top = 8.dp)

@@ -35,6 +35,7 @@ class XoraNetplayProtocolTest {
             ly = 20,
             rx = 32767,
             ry = -32768,
+            role = XoraNetplayProtocol.PadFrame.ROLE_HOST,
         )
         val decoded = XoraNetplayProtocol.decodePadFrame(XoraNetplayProtocol.encodePadFrame(frame))
         assertEquals(frame.frame, decoded.frame)
@@ -43,6 +44,19 @@ class XoraNetplayProtocolTest {
         assertEquals(frame.ly, decoded.ly)
         assertEquals(frame.rx, decoded.rx)
         assertEquals(frame.ry, decoded.ry)
+        assertEquals(XoraNetplayProtocol.PadFrame.ROLE_HOST, decoded.role)
+    }
+
+    @Test
+    fun padFrameDecodesLegacy14BytePayload() {
+        val legacy = XoraNetplayProtocol.encodePadFrame(
+            XoraNetplayProtocol.PadFrame(frame = 9, buttons = 4, role = 0),
+        )
+        val withoutRole = legacy.copyOf(14)
+        val decoded = XoraNetplayProtocol.decodePadFrame(withoutRole)
+        assertEquals(9, decoded.frame)
+        assertEquals(4, decoded.buttons)
+        assertEquals(XoraNetplayProtocol.PadFrame.ROLE_UNKNOWN, decoded.role)
     }
 
     @Test

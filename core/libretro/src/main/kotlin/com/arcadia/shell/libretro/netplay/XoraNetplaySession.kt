@@ -322,7 +322,7 @@ class XoraNetplaySession(
         gen: Int,
     ) {
         link.send(XoraNetplayProtocol.TYPE_HELLO, XoraNetplayProtocol.encodeHello(hello))
-        val (helloType, helloPayload) = link.receive(15_000)
+        val (helloType, helloPayload) = receiveControl(link, 15_000)
         if (helloType != XoraNetplayProtocol.TYPE_HELLO) {
             fail("Peer did not send hello", gen)
             return
@@ -340,7 +340,7 @@ class XoraNetplaySession(
             return
         }
         link.send(XoraNetplayProtocol.TYPE_STATE, savestate)
-        val (startType, _) = link.receive(30_000)
+        val (startType, _) = receiveControl(link, 30_000)
         if (startType != XoraNetplayProtocol.TYPE_START) {
             fail("Peer failed to start", gen)
             return
@@ -357,7 +357,7 @@ class XoraNetplaySession(
         helloTimeoutMs: Int,
         gen: Int,
     ) {
-        val (helloType, helloPayload) = link.receive(helloTimeoutMs)
+        val (helloType, helloPayload) = receiveControl(link, helloTimeoutMs)
         if (helloType != XoraNetplayProtocol.TYPE_HELLO) {
             fail("Host did not send hello", gen)
             return
@@ -375,7 +375,7 @@ class XoraNetplaySession(
             return
         }
         link.send(XoraNetplayProtocol.TYPE_HELLO, XoraNetplayProtocol.encodeHello(hello))
-        val (stateType, statePayload) = link.receive(60_000)
+        val (stateType, statePayload) = receiveControl(link, 60_000)
         if (stateType != XoraNetplayProtocol.TYPE_STATE) {
             fail("Host did not send a save state", gen)
             return
@@ -389,7 +389,7 @@ class XoraNetplaySession(
         }
         if (generation.get() != gen) return
         link.send(XoraNetplayProtocol.TYPE_START, ByteArray(0))
-        val (goType, _) = link.receive(15_000)
+        val (goType, _) = receiveControl(link, 15_000)
         if (goType != XoraNetplayProtocol.TYPE_GO && goType != XoraNetplayProtocol.TYPE_START) {
             fail("Host did not start the session", gen)
             return
@@ -423,18 +423,7 @@ class XoraNetplaySession(
             while (running.get() && generation.get() == gen) {
                 val (type, payload) = link.receive()
                 when (type) {
-                    XoraNetplayProtocol.TYPE_INPUT -> {
-                        runCatching { XoraNetplayProtocol.decodePadFrame(payload) }
-                            .getOrNull()
-                            ?.let { pad ->
-                                pendingRemote[pad.frame] = pad
-                                if (pendingRemote.size > 64) {
-                                    val minKeep = pad.frame - 32
-                                    pendingRemote.keys.filter { it < minKeep }
-                                        .forEach { pendingRemote.remove(it) }
-                                }
-                            }
-                    }
+                    XoraNetplayProtocol.TYPE_INPUT -> stashRemoteInput(payload)
                     XoraNetplayProtocol.TYPE_GO, XoraNetplayProtocol.TYPE_START -> Unit
                     XoraNetplayProtocol.TYPE_BYE, XoraNetplayProtocol.TYPE_ERROR -> {
                         val message = if (type == XoraNetplayProtocol.TYPE_ERROR) {
@@ -454,11 +443,61 @@ class XoraNetplaySession(
 
     private fun writeInput(frame: XoraNetplayProtocol.PadFrame) {
         val link = linkRef.get() ?: return
+        val tagged = frame.copy(
+            role = if (isHost.get()) {
+                XoraNetplayProtocol.PadFrame.ROLE_HOST
+            } else {
+                XoraNetplayProtocol.PadFrame.ROLE_JOINER
+            },
+        )
         runCatching {
             link.send(
                 XoraNetplayProtocol.TYPE_INPUT,
-                XoraNetplayProtocol.encodePadFrame(frame),
+                XoraNetplayProtocol.encodePadFrame(tagged),
             )
+        }
+    }
+
+    private fun selfPadRole(): Int =
+        if (isHost.get()) {
+            XoraNetplayProtocol.PadFrame.ROLE_HOST
+        } else {
+            XoraNetplayProtocol.PadFrame.ROLE_JOINER
+        }
+
+    private fun stashRemoteInput(payload: ByteArray) {
+        val pad = runCatching { XoraNetplayProtocol.decodePadFrame(payload) }.getOrNull() ?: return
+        if (pad.role != XoraNetplayProtocol.PadFrame.ROLE_UNKNOWN && pad.role == selfPadRole()) {
+            return
+        }
+        pendingRemote[pad.frame] = pad
+        if (pendingRemote.size > 64) {
+            val minKeep = pad.frame - 32
+            pendingRemote.keys.filter { it < minKeep }.forEach { pendingRemote.remove(it) }
+        }
+    }
+
+    /**
+     * Handshake receive that parks INPUT packets instead of treating them as HELLO/GO.
+     * Nakama can deliver pad frames while the savestate is still applying.
+     */
+    private fun receiveControl(link: XoraNetplayLink, timeoutMs: Int): Pair<Int, ByteArray> {
+        val deadline = if (timeoutMs <= 0) Long.MAX_VALUE else System.currentTimeMillis() + timeoutMs
+        while (true) {
+            if (timeoutMs > 0 && System.currentTimeMillis() >= deadline) {
+                throw SocketTimeoutException("Timed out waiting for the other player")
+            }
+            val wait = if (timeoutMs <= 0) {
+                0
+            } else {
+                (deadline - System.currentTimeMillis()).toInt().coerceAtLeast(1)
+            }
+            val (type, payload) = link.receive(wait)
+            if (type == XoraNetplayProtocol.TYPE_INPUT) {
+                stashRemoteInput(payload)
+                continue
+            }
+            return type to payload
         }
     }
 

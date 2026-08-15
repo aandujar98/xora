@@ -287,6 +287,8 @@ class HomeViewModel @Inject constructor(
     private val systemPanelSelectedIndex = MutableStateFlow(0)
     private val notificationHistoryOpen = MutableStateFlow(false)
     private val notificationHistorySelectedIndex = MutableStateFlow(0)
+    private val pendingNetplayInvite = MutableStateFlow<NetplayInvitePrompt?>(null)
+    private val netplayInvitePromptOpen = MutableStateFlow(false)
     private val systemStatusEditorOpen = MutableStateFlow(false)
     private val systemStatusDraft = MutableStateFlow("")
     private val systemFavoritePickerOpen = MutableStateFlow(false)
@@ -857,8 +859,9 @@ class HomeViewModel @Inject constructor(
         notificationHistorySelectedIndex,
         shellNotifications.history,
         shellNotifications.unreadCount,
-    ) { open, selected, history, unread ->
-        NotificationChrome(open, selected, history, unread)
+        combine(pendingNetplayInvite, netplayInvitePromptOpen, ::Pair),
+    ) { open, selected, history, unread, invite ->
+        NotificationChrome(open, selected, history, unread, invite.first, invite.second)
     }
 
     private data class NotificationChrome(
@@ -866,6 +869,8 @@ class HomeViewModel @Inject constructor(
         val selectedIndex: Int,
         val history: List<com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem>,
         val unreadCount: Int,
+        val pendingInvite: NetplayInvitePrompt?,
+        val invitePromptOpen: Boolean,
     )
 
     private data class AuxChrome(
@@ -899,7 +904,9 @@ class HomeViewModel @Inject constructor(
             notificationHistory = notif.history,
             notificationUnreadCount = notif.unreadCount,
             notificationHistorySelectedIndex = notif.selectedIndex
-                .coerceIn(0, (notif.history.size - 1).coerceAtLeast(0)),
+                .coerceIn(0, if (notif.history.isEmpty()) 0 else notif.history.size),
+            pendingNetplayInvite = notif.pendingInvite,
+            netplayInvitePromptOpen = notif.invitePromptOpen,
             systemProfile = aux.systemProfile,
             photos = aux.photos,
             dashboard = aux.dashboard,
@@ -1351,7 +1358,24 @@ class HomeViewModel @Inject constructor(
             knownXoraNotificationIds.addAll(notificationIds)
             knownNetplayInviteKeys.addAll(netplayInviteKeys)
             xoraSocialSeeded = true
-            network.netplayInvites.maxByOrNull { it.createdAtMs }?.let { rememberPendingNetplayJoin(it) }
+            network.netplayInvites.maxByOrNull { it.createdAtMs }?.let { invite ->
+                rememberNetplayInvitePrompt(invite)
+                if (XoraNetplayInvites.hasJoinableCode(invite)) {
+                    val sender = invite.fromDisplayName.ifBlank { invite.fromUsername }
+                    shellNotifications.emit(
+                        ShellNotification.XoraNetplayInvite(
+                            id = "xora-netplay:${invite.dedupeKey()}",
+                            displayName = sender,
+                            gameTitle = invite.gameTitle,
+                            avatarUrl = XoraNetworkClient.avatarUrlFor(invite.fromUsername),
+                            sessionCode = invite.code,
+                            platformId = invite.platformId,
+                            coreName = invite.coreName,
+                            fromUsername = invite.fromUsername,
+                        ),
+                    )
+                }
+            }
             return
         }
 
@@ -1441,8 +1465,8 @@ class HomeViewModel @Inject constructor(
             val key = invite.dedupeKey()
             if (key in knownNetplayInviteKeys) continue
             knownNetplayInviteKeys.add(key)
-            rememberPendingNetplayJoin(invite)
             val sender = invite.fromDisplayName.ifBlank { invite.fromUsername }
+            rememberNetplayInvitePrompt(invite)
             shellNotifications.emit(
                 ShellNotification.XoraNetplayInvite(
                     id = "xora-netplay:$key",
@@ -1459,9 +1483,16 @@ class HomeViewModel @Inject constructor(
         knownNetplayInviteKeys.retainAll(netplayInviteKeys)
     }
 
-    private fun rememberPendingNetplayJoin(invite: XoraNetplayInviteRecord) {
+    private fun rememberNetplayInvitePrompt(invite: XoraNetplayInviteRecord) {
         if (!XoraNetplayInvites.hasJoinableCode(invite)) return
-        viewModelScope.launch { persistPendingNetplayJoin(invite) }
+        pendingNetplayInvite.value = NetplayInvitePrompt(
+            hostName = invite.fromDisplayName.ifBlank { invite.fromUsername }.ifBlank { "a friend" },
+            gameTitle = invite.gameTitle,
+            sessionCode = invite.code.trim(),
+            platformId = invite.platformId,
+            coreName = invite.coreName,
+            fromUsername = invite.fromUsername.ifBlank { invite.fromDisplayName },
+        )
     }
 
     private suspend fun persistPendingNetplayJoin(invite: XoraNetplayInviteRecord) {
@@ -1480,14 +1511,73 @@ class HomeViewModel @Inject constructor(
 
     fun activateShellNotification(notification: ShellNotification) {
         if (notification is ShellNotification.XoraNetplayInvite) {
-            viewModelScope.launch { joinNetplayInvite(notification) }
+            openNetplayInvitePrompt(notification)
         }
     }
 
     fun activateSelectedNotificationHistory() {
         val history = uiState.value.notificationHistory
-        val item = history.getOrNull(notificationHistorySelectedIndex.value) ?: return
+        val selected = notificationHistorySelectedIndex.value
+        if (history.isNotEmpty() && selected <= 0) {
+            clearNotificationHistory()
+            return
+        }
+        val item = history.getOrNull((selected - 1).coerceAtLeast(0)) ?: return
         activateShellNotification(item.notification)
+    }
+
+    fun dismissNotificationHistoryItem(id: String) {
+        noteUserActivity()
+        shellNotifications.removeFromHistory(id)
+        val last = if (uiState.value.notificationHistory.isEmpty()) {
+            0
+        } else {
+            uiState.value.notificationHistory.size
+        }
+        notificationHistorySelectedIndex.update { it.coerceIn(0, last) }
+    }
+
+    fun openNetplayInvitePrompt(notification: ShellNotification.XoraNetplayInvite) {
+        noteUserActivity()
+        pendingNetplayInvite.value = NetplayInvitePrompt(
+            hostName = notification.displayName.ifBlank { notification.fromUsername }
+                .ifBlank { "a friend" },
+            gameTitle = notification.gameTitle,
+            sessionCode = notification.sessionCode.trim(),
+            platformId = notification.platformId,
+            coreName = notification.coreName,
+            fromUsername = notification.fromUsername.ifBlank { notification.displayName },
+        )
+        netplayInvitePromptOpen.value = true
+        closeNotificationHistory()
+        shellNotifications.dismiss()
+    }
+
+    fun confirmNetplayInvitePrompt() {
+        val prompt = pendingNetplayInvite.value ?: return
+        noteUserActivity()
+        netplayInvitePromptOpen.value = false
+        pendingNetplayInvite.value = null
+        viewModelScope.launch {
+            joinNetplayInvite(
+                ShellNotification.XoraNetplayInvite(
+                    id = "xora-netplay-join:${prompt.sessionCode}",
+                    displayName = prompt.hostName,
+                    gameTitle = prompt.gameTitle,
+                    sessionCode = prompt.sessionCode,
+                    platformId = prompt.platformId,
+                    coreName = prompt.coreName,
+                    fromUsername = prompt.fromUsername,
+                ),
+            )
+        }
+    }
+
+    fun dismissNetplayInvitePrompt() {
+        noteUserActivity()
+        netplayInvitePromptOpen.value = false
+        pendingNetplayInvite.value = null
+        viewModelScope.launch { preferences.clearPendingNetplayJoin() }
     }
 
     private suspend fun joinNetplayInvite(notification: ShellNotification.XoraNetplayInvite) {
@@ -2282,6 +2372,33 @@ class HomeViewModel @Inject constructor(
             if (action == NavAction.Cancel || action == NavAction.Confirm) {
                 dismissWelcomeBack()
             }
+            return
+        }
+
+        if (state.netplayInvitePromptOpen) {
+            noteUserActivity()
+            when (action) {
+                NavAction.Confirm -> confirmNetplayInvitePrompt()
+                NavAction.Cancel -> dismissNetplayInvitePrompt()
+                else -> Unit
+            }
+            return
+        }
+
+        if (action == NavAction.Cancel &&
+            state.pendingNetplayInvite != null &&
+            !state.notificationHistoryOpen &&
+            !state.startSettingsOpen &&
+            !state.guideOpen &&
+            !state.accountPanelExpanded &&
+            !state.systemPanelExpanded &&
+            !state.achievementsPanelExpanded &&
+            !bottomSheetNavOpen.value &&
+            discordRichPresence.dmThread.value.peerUserId == null &&
+            !xoraNetwork.state.value.dm.isOpen
+        ) {
+            noteUserActivity()
+            netplayInvitePromptOpen.value = true
             return
         }
 
@@ -5049,7 +5166,8 @@ class HomeViewModel @Inject constructor(
         systemPanelExpanded.value = false
         accountPanelExpanded.value = false
         achievementsPanelExpanded.value = false
-        notificationHistorySelectedIndex.value = 0
+        notificationHistorySelectedIndex.value =
+            if (uiState.value.notificationHistory.isEmpty()) 0 else 1
         notificationHistoryOpen.value = true
         shellNotifications.markAllRead()
     }
@@ -5061,7 +5179,11 @@ class HomeViewModel @Inject constructor(
 
     fun selectNotificationHistoryIndex(index: Int) {
         noteUserActivity()
-        val last = (uiState.value.notificationHistory.size - 1).coerceAtLeast(0)
+        val last = if (uiState.value.notificationHistory.isEmpty()) {
+            0
+        } else {
+            uiState.value.notificationHistory.size
+        }
         notificationHistorySelectedIndex.value = index.coerceIn(0, last)
     }
 
@@ -5072,17 +5194,31 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun onNotificationHistoryNavAction(action: NavAction) {
+        val last = if (uiState.value.notificationHistory.isEmpty()) {
+            0
+        } else {
+            uiState.value.notificationHistory.size
+        }
         when (action) {
             NavAction.Up -> {
-                val last = (uiState.value.notificationHistory.size - 1).coerceAtLeast(0)
                 notificationHistorySelectedIndex.update { (it - 1).coerceIn(0, last) }
             }
             NavAction.Down -> {
-                val last = (uiState.value.notificationHistory.size - 1).coerceAtLeast(0)
                 notificationHistorySelectedIndex.update { (it + 1).coerceIn(0, last) }
             }
             NavAction.Cancel, NavAction.ToggleSystemPanel -> closeNotificationHistory()
             NavAction.Confirm -> activateSelectedNotificationHistory()
+            NavAction.Options, NavAction.SwapScreens -> {
+                val selected = notificationHistorySelectedIndex.value
+                val history = uiState.value.notificationHistory
+                if (selected <= 0 || history.isEmpty()) {
+                    clearNotificationHistory()
+                } else {
+                    history.getOrNull(selected - 1)?.notification?.id?.let { id ->
+                        dismissNotificationHistoryItem(id)
+                    }
+                }
+            }
             else -> Unit
         }
     }

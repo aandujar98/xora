@@ -399,31 +399,25 @@ class XoraNetworkClient @Inject constructor(
     /**
      * Writes one storage object. [permissionRead] 1 lets other signed-in accounts read it
      * (friends poll our netplay invite outbox). [permissionWrite] 0 is owner-only.
+     *
+     * Nakama's protobuf `WriteStorageObject.value` is a **string**. Passing a JSON object here
+     * makes the gateway reject the body with `invalid value for string field value: {`.
      */
     internal suspend fun writeStorageObject(
         accessToken: String,
         collection: String,
         key: String,
-        value: JsonObject,
+        value: String,
         permissionRead: Int = 1,
         permissionWrite: Int = 0,
     ) {
-        val body = buildJsonObject {
-            put(
-                "objects",
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("collection", collection)
-                            put("key", key)
-                            put("value", value)
-                            put("permission_read", permissionRead)
-                            put("permission_write", permissionWrite)
-                        },
-                    )
-                },
-            )
-        }
+        val body = buildStorageWriteBody(
+            collection = collection,
+            key = key,
+            valueJson = value,
+            permissionRead = permissionRead,
+            permissionWrite = permissionWrite,
+        )
         executeUnit(
             Request.Builder()
                 .url("$BASE_URL/storage")
@@ -505,7 +499,12 @@ class XoraNetworkClient @Inject constructor(
                 "XOrA Network sign-in expired or was rejected."
             statusCode == 409 || rawMessage.contains("already in use", ignoreCase = true) ->
                 "That username or email is already taken."
-            rawMessage.contains("invalid", ignoreCase = true) && rawMessage.length <= 120 ->
+            rawMessage.contains("proto:", ignoreCase = true) ||
+                rawMessage.contains("invalid value for string field", ignoreCase = true) ->
+                "Couldn't send that invite."
+            rawMessage.contains("invalid", ignoreCase = true) &&
+                rawMessage.length <= 120 &&
+                looksLikePlainSentence(rawMessage) ->
                 sanitizeMessage(rawMessage)
             statusCode >= 500 ->
                 "XOrA Network is having trouble right now. Try again in a bit."
@@ -522,6 +521,33 @@ class XoraNetworkClient @Inject constructor(
 
     private fun sanitizeMessage(message: String): String =
         message.trim().let { if (it.endsWith('.')) it else "$it." }
+}
+
+/**
+ * Nakama storage PUT body. [valueJson] must be a JSON **string** (the serialized object),
+ * not a nested JSON object — protobuf `WriteStorageObject.value` is `string`.
+ */
+internal fun buildStorageWriteBody(
+    collection: String,
+    key: String,
+    valueJson: String,
+    permissionRead: Int = 1,
+    permissionWrite: Int = 0,
+): JsonObject = buildJsonObject {
+    put(
+        "objects",
+        buildJsonArray {
+            add(
+                buildJsonObject {
+                    put("collection", collection)
+                    put("key", key)
+                    put("value", valueJson)
+                    put("permission_read", permissionRead)
+                    put("permission_write", permissionWrite)
+                },
+            )
+        },
+    )
 }
 
 /** Parses the payload segment of a Nakama JWT without any signature checks (client-side expiry). */

@@ -54,10 +54,11 @@ internal class XoraNakamaNetplayLink(
     override fun send(type: Int, payload: ByteArray) {
         if (closed.get()) return
         if (type == XoraNetplayProtocol.TYPE_INPUT) {
-            try {
-                if (!closed.get()) inputQueue.put(payload)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
+            if (closed.get()) return
+            // Never block the emu thread; drop the oldest pad if the socket is behind.
+            if (!inputQueue.offer(payload)) {
+                inputQueue.poll()
+                inputQueue.offer(payload)
             }
             return
         }

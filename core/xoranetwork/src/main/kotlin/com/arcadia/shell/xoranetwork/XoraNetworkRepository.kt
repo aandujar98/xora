@@ -345,13 +345,11 @@ class XoraNetworkRepository @Inject constructor(
                 createdAtMs = System.currentTimeMillis(),
             )
             val encoded = XoraNetplayInvites.encodeValue(invite, json)
-            val value = json.parseToJsonElement(encoded) as? kotlinx.serialization.json.JsonObject
-                ?: throw XoraNetworkException("Couldn't send that invite.")
             client.writeStorageObject(
                 accessToken = token,
                 collection = XoraNetplayInvites.COLLECTION,
                 key = XoraNetplayInvites.recipientKey(target),
-                value = value,
+                value = encoded,
             )
         }
     }

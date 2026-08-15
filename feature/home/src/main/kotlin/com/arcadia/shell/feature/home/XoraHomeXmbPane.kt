@@ -127,6 +127,7 @@ fun XoraHomeXmbPane(
     onUseXoraAvatar: () -> Unit = {},
     onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit = {},
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit = {},
@@ -322,6 +323,7 @@ fun XoraHomeXmbPane(
                 onUseXoraAvatar = onUseXoraAvatar,
                 onXoraPresenceMode = onXoraPresenceMode,
                 onClearAvatar = onClearAvatar,
+                onClearNotifications = onClearNotifications,
                 onFriendSearchChange = onFriendSearchChange,
                 onReplyDraftChange = onReplyDraftChange,
                 onSelectAchievementsTab = onSelectAchievementsTab,
@@ -357,6 +359,7 @@ fun XoraXmbHeroDetail(
     onUseXoraAvatar: () -> Unit = {},
     onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit = {},
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit = {},
@@ -493,6 +496,7 @@ fun XoraXmbHeroDetail(
                 onUseXoraAvatar = onUseXoraAvatar,
                 onXoraPresenceMode = onXoraPresenceMode,
                 onClearAvatar = onClearAvatar,
+                onClearNotifications = onClearNotifications,
                 onFriendSearchChange = onFriendSearchChange,
                 onReplyDraftChange = onReplyDraftChange,
                 onSelectAchievementsTab = onSelectAchievementsTab,
@@ -1167,6 +1171,7 @@ private fun XoraXmbPillChrome(
     onUseXoraAvatar: () -> Unit,
     onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit,
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit,
     onReplyDraftChange: (String) -> Unit,
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit,
@@ -1200,6 +1205,7 @@ private fun XoraXmbPillChrome(
             onActivateRow = onActivateAccountRow,
             onFriendSearchChange = onFriendSearchChange,
             onReplyDraftChange = onReplyDraftChange,
+            onClearNotifications = onClearNotifications,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .heightIn(max = paneMaxHeight - 24.dp)

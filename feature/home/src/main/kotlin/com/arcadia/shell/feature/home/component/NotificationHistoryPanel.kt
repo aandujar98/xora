@@ -26,7 +26,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -54,6 +53,10 @@ import java.util.Locale
 private val FocusRing = Color(0xFF4AE39A)
 private val BellAccent = Color(0xFFFFC857)
 private val UnreadDot = Color(0xFFE53935)
+private val ClearTint = Color(0xFFFF8A80)
+
+/** Row 0 is Clear all when the list is not empty; items follow at index + 1. */
+const val NOTIFICATION_CLEAR_ALL_ROW = 0
 
 /**
  * RT notification center — full list of shell banners (Discord, Steam, trophies, etc.).
@@ -66,15 +69,17 @@ fun NotificationHistoryPanel(
     onSelectIndex: (Int) -> Unit,
     onActivate: () -> Unit,
     onClear: () -> Unit,
+    onDismissItem: (String) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.Surface)
     val listState = rememberLazyListState()
+    val rowCount = if (items.isEmpty()) 0 else items.size + 1
 
-    LaunchedEffect(selectedIndex, items.size, open) {
-        if (!open || items.isEmpty()) return@LaunchedEffect
-        listState.animateScrollToItem(selectedIndex.coerceIn(0, items.lastIndex))
+    LaunchedEffect(selectedIndex, rowCount, open) {
+        if (!open || rowCount == 0) return@LaunchedEffect
+        listState.animateScrollToItem(selectedIndex.coerceIn(0, rowCount - 1))
     }
 
     AnimatedVisibility(
@@ -123,15 +128,27 @@ fun NotificationHistoryPanel(
                             text = if (items.isEmpty()) {
                                 "No notifications yet"
                             } else {
-                                "${items.size} recent · RT / B close"
+                                "${items.size} recent · A open · Y clear all · B close"
                             },
                             style = MaterialTheme.typography.labelMedium,
                             color = glass.contentMuted,
                         )
                     }
                     if (items.isNotEmpty()) {
-                        TextButton(onClick = onClear) {
-                            Text("Clear")
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(ClearTint.copy(alpha = 0.18f))
+                                .clickable(onClick = onClear)
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "Clear all",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ClearTint,
+                            )
                         }
                     }
                 }
@@ -158,19 +175,30 @@ fun NotificationHistoryPanel(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(bottom = 4.dp),
                     ) {
+                        item(key = "clear-all") {
+                            ClearAllRow(
+                                selected = selectedIndex == NOTIFICATION_CLEAR_ALL_ROW,
+                                onClick = {
+                                    onSelectIndex(NOTIFICATION_CLEAR_ALL_ROW)
+                                    onClear()
+                                },
+                            )
+                        }
                         itemsIndexed(
                             items = items,
                             key = { _, item -> item.notification.id },
                         ) { index, item ->
-                            val selected = index == selectedIndex
+                            val rowIndex = index + 1
+                            val selected = rowIndex == selectedIndex
                             NotificationHistoryRow(
                                 item = item,
                                 selected = selected,
                                 muted = glass.contentMuted,
                                 onClick = {
-                                    onSelectIndex(index)
+                                    onSelectIndex(rowIndex)
                                     onActivate()
                                 },
+                                onDismiss = { onDismissItem(item.notification.id) },
                             )
                         }
                     }
@@ -181,11 +209,53 @@ fun NotificationHistoryPanel(
 }
 
 @Composable
+private fun ClearAllRow(
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                if (selected) ClearTint.copy(alpha = 0.22f)
+                else Color.White.copy(alpha = 0.06f),
+            )
+            .then(
+                if (selected) {
+                    Modifier.border(1.5.dp, ClearTint.copy(alpha = 0.75f), RoundedCornerShape(14.dp))
+                } else {
+                    Modifier
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "Clear all notifications",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "Y",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = ClearTint,
+        )
+    }
+}
+
+@Composable
 private fun NotificationHistoryRow(
     item: ShellNotificationHistoryItem,
     selected: Boolean,
     muted: Color,
     onClick: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val copy = item.notification.toCopy()
     val time = DateFormat.getTimeInstance(DateFormat.SHORT, Locale.getDefault())
@@ -246,6 +316,21 @@ private fun NotificationHistoryRow(
             style = MaterialTheme.typography.labelSmall,
             color = muted,
         )
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.08f))
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "×",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White.copy(alpha = 0.85f),
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 

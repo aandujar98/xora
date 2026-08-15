@@ -115,6 +115,7 @@ fun SocialMenuPanel(
     onActivateRow: (Int?) -> Unit,
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
+    onClearNotifications: () -> Unit = {},
     maxHeight: Dp = 520.dp,
     modifier: Modifier = Modifier,
 ) {
@@ -161,6 +162,7 @@ fun SocialMenuPanel(
                     glassMuted = glass.contentMuted,
                     onActivateRow = onActivateRow,
                     onReplyDraftChange = onReplyDraftChange,
+                    onClearNotifications = onClearNotifications,
                 )
             }
         } else {
@@ -1212,14 +1214,34 @@ private fun NotificationCenterPanel(
     glassMuted: Color,
     onActivateRow: (Int?) -> Unit,
     onReplyDraftChange: (String) -> Unit,
+    onClearNotifications: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "NOTIFICATIONS",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = glassContent,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "NOTIFICATIONS",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = glassContent,
+                modifier = Modifier.weight(1f),
+            )
+            if (social.recentNotifications.isNotEmpty()) {
+                Text(
+                    text = "Clear all",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = NotificationRed,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable(onClick = onClearNotifications)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+        }
 
         if (social.recentNotifications.isEmpty()) {
             Text(

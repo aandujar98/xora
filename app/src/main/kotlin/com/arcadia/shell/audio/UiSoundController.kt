@@ -53,6 +53,8 @@ class UiSoundController @Inject constructor(
     private var ngId: Int = 0
     /** Friend online / download complete / RA unlock banner chime (`notif_banner.wav`). */
     private var notificationId: Int = 0
+    /** Online invite sent/received and player-joined cue (`error_popup.wav`). */
+    private var netplayInviteId: Int = 0
 
     private var volume: Float = DEFAULT_UI_SFX_VOLUME
     private var notificationSoundEnabled: Boolean = true
@@ -104,7 +106,12 @@ class UiSoundController @Inject constructor(
         scope.launch {
             notificationCenter.active.collect { active ->
                 if (active != null && notificationSoundEnabled && foreground) {
-                    playNotificationChime()
+                    when (active) {
+                        is com.arcadia.shell.launcher.notifications.ShellNotification.XoraNetplayInvite,
+                        is com.arcadia.shell.launcher.notifications.ShellNotification.XoraSessionJoined,
+                        -> playNetplayInviteCue()
+                        else -> playNotificationChime()
+                    }
                 }
             }
         }
@@ -133,11 +140,17 @@ class UiSoundController @Inject constructor(
         okId = 0
         ngId = 0
         notificationId = 0
+        netplayInviteId = 0
     }
 
     /** Banner appear chime — friend online, download complete, RetroAchievement unlock. */
     fun playNotificationChime() {
         play(if (notificationId != 0) notificationId else okId)
+    }
+
+    /** Invite sent/received and a player joining the online session. */
+    fun playNetplayInviteCue() {
+        play(if (netplayInviteId != 0) netplayInviteId else okId)
     }
 
     /** Select / confirm one-shot — launcher Confirm and XOrA Emulator overlay activate. */
@@ -232,6 +245,7 @@ class UiSoundController @Inject constructor(
                     okId = created.loadQuietly(R.raw.snd_system_ok)
                     ngId = created.loadQuietly(R.raw.snd_system_ng)
                     notificationId = created.loadQuietly(R.raw.notif_banner)
+                    netplayInviteId = created.loadQuietly(R.raw.error_popup)
                 }
         }.getOrNull()
         soundPool = pool
