@@ -145,6 +145,8 @@ class XoraLibretroActivity : ComponentActivity() {
     private var netplaySession: XoraNetplaySession? = null
     private val inGameXmbController = XoraInGameXmbController()
     private val bitmapLock = Any()
+    /** Keeps pinning the window opaque while this activity is in the foreground. */
+    private var washGuardJob: Job? = null
 
     /**
      * Dedicated emu thread for every Libretro JNI call (load / run / serialize / unload).
@@ -276,6 +278,7 @@ class XoraLibretroActivity : ComponentActivity() {
 
         setContentView(root)
         applyOpaqueWindow()
+        startWashGuard()
         netplaySession = XoraNetplaySession(lifecycleScope)
         lifecycleScope.launch {
             netplaySession?.state?.collect { ui ->
@@ -467,9 +470,10 @@ class XoraLibretroActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         activityInBackground = false
-        ImmersiveMode.apply(window)
+        applyOpaqueWindow()
+        startWashGuard()
         uiSounds.onForeground()
-        window.decorView.requestFocus()
+        if (!menuOpen) window.decorView.requestFocus()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -970,6 +974,12 @@ class XoraLibretroActivity : ComponentActivity() {
      * and is what painted white over the game after Resume.
      */
     private fun applyOpaqueWindow() {
+        pinOpaqueWindow()
+        if (!menuOpen) window.decorView.requestFocus()
+    }
+
+    private fun pinOpaqueWindow() {
+        if (isFinishing) return
         window.setFormat(PixelFormat.OPAQUE)
         @Suppress("DEPRECATION")
         window.clearFlags(
@@ -992,6 +1002,7 @@ class XoraLibretroActivity : ComponentActivity() {
         ImmersiveMode.apply(window)
         gameRoot?.setBackgroundColor(AndroidColor.BLACK)
         xmbOverlay?.setBackgroundColor(AndroidColor.BLACK)
+        xmbOverlay?.alpha = 1f
         primaryGameView?.apply {
             setLayerType(View.LAYER_TYPE_NONE, null)
             setBackgroundColor(AndroidColor.BLACK)
@@ -999,8 +1010,34 @@ class XoraLibretroActivity : ComponentActivity() {
             colorFilter = null
             imageAlpha = 255
         }
-        stage?.setBackgroundColor(AndroidColor.BLACK)
-        window.decorView.requestFocus()
+        stage?.apply {
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            setBackgroundColor(AndroidColor.BLACK)
+            alpha = 1f
+        }
+        synchronized(bitmapLock) {
+            val src = gameBitmap
+            val view = primaryGameView
+            if (src != null && !src.isRecycled && view != null) {
+                view.invalidate()
+            }
+        }
+    }
+
+    /**
+     * Repeats [pinOpaqueWindow] while the emulator is in the foreground so a system scrim
+     * cannot sit on the game after pause submenus / Resume.
+     */
+    private fun startWashGuard() {
+        if (washGuardJob?.isActive == true) return
+        washGuardJob = lifecycleScope.launch(Dispatchers.Main.immediate) {
+            while (isActive) {
+                if (!activityInBackground && !isFinishing) {
+                    pinOpaqueWindow()
+                }
+                delay(WASH_GUARD_MS)
+            }
+        }
     }
 
     private fun startAudio() {
@@ -1200,6 +1237,8 @@ class XoraLibretroActivity : ComponentActivity() {
         inputManager = null
         netplaySession?.stop()
         netplaySession = null
+        washGuardJob?.cancel()
+        washGuardJob = null
         closeMenu()
         runJob?.cancel()
         runJob = null
@@ -1226,6 +1265,8 @@ class XoraLibretroActivity : ComponentActivity() {
         /** Loop tick while paused / backgrounded, where no frames are produced. */
         private const val IDLE_TICK_MS = 200L
         private const val MENU_MESSAGE_MS = 2_600L
+        /** How often to re-pin the window opaque while the emulator is on screen. */
+        private const val WASH_GUARD_MS = 48L
         private val chordKeys = setOf(
             KeyEvent.KEYCODE_BUTTON_SELECT,
             KeyEvent.KEYCODE_BUTTON_START,
