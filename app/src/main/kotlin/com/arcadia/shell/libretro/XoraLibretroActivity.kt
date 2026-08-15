@@ -52,6 +52,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.arcadia.shell.audio.UiSoundController
 import com.arcadia.shell.database.repository.LibraryRepository
 import com.arcadia.shell.datastore.AvatarSource
+import com.arcadia.shell.datastore.DEFAULT_NETPLAY_PORT
 import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.ShellPreferences
@@ -69,16 +70,18 @@ import com.arcadia.shell.feature.home.EmulatorSaveSlotUi
 import com.arcadia.shell.feature.home.LocalInGameXmbController
 import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
 import com.arcadia.shell.feature.home.XoraInGameXmbController
-import com.arcadia.shell.libretro.netplay.nudgeIpv4
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
+import com.arcadia.shell.libretro.netplay.formatJoinHostPort
+import com.arcadia.shell.libretro.netplay.parseJoinHostPort
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaProfile
 import com.arcadia.shell.retroachievements.RetroAchievementsRepository
 import com.arcadia.shell.scraper.RomHasher
+import com.arcadia.shell.xoranetwork.XoraNetworkAuthCookies
 import com.arcadia.shell.xoranetwork.XoraNetworkRepository
 import com.arcadia.shell.xoranetwork.XoraNetworkState
 import dagger.hilt.android.AndroidEntryPoint
@@ -125,6 +128,7 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var saveFileImporter: SaveFileImporter
     @Inject lateinit var avatarStore: ProfileAvatarStore
     @Inject lateinit var xoraNetwork: XoraNetworkRepository
+    @Inject lateinit var xoraCookies: XoraNetworkAuthCookies
 
     @Volatile private var menuOpen = false
     /** True while the in-game menu is showing or the user left Pause on. */
@@ -158,6 +162,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var menuMessageJob: Job? = null
     private var saveSlots by mutableStateOf(List(10) { EmulatorSaveSlotUi(it, false, "Empty") })
     private var joinAddress by mutableStateOf("")
+    private var joinPort by mutableStateOf(DEFAULT_NETPLAY_PORT)
     private var netplayUi by mutableStateOf(XoraNetplayUiState())
     private var netplaySession: XoraNetplaySession? = null
     private var xoraNetworkUi by mutableStateOf(XoraNetworkState())
@@ -333,7 +338,19 @@ class XoraLibretroActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
-            xoraNetwork.state.collect { xoraNetworkUi = it }
+            var avatarKey: String? = null
+            xoraNetwork.state.collect { state ->
+                xoraNetworkUi = state
+                val key = if (state.signedIn) {
+                    state.account?.resolvedAvatarUrl?.ifBlank { "signed-in" } ?: "signed-in"
+                } else {
+                    "signed-out"
+                }
+                if (key != avatarKey) {
+                    avatarKey = key
+                    loadProfileAvatar()
+                }
+            }
         }
         lifecycleScope.launch {
             if (!xoraNetwork.state.value.signedIn) {
@@ -343,7 +360,10 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         lifecycleScope.launch {
             profileName = preferences.profile.first().displayName
-            joinAddress = preferences.xoraEmulatorSettings.first().netplayHostAddress
+            val stored = preferences.xoraEmulatorSettings.first()
+            val parsed = parseJoinHostPort(stored.netplayHostAddress, stored.netplayPort)
+            joinAddress = parsed.host
+            joinPort = parsed.port
             refreshOverlayFile()
             loadProfileAvatar()
         }
@@ -363,9 +383,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 refreshExpandTopology()
                 applyStageSettings(xora)
                 applyAudioVolume(xora.audioVolume)
-                if (joinAddress.isBlank() && xora.netplayHostAddress.isNotBlank()) {
-                    joinAddress = xora.netplayHostAddress
-                }
             }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
 
@@ -432,7 +449,8 @@ class XoraLibretroActivity : ComponentActivity() {
                         settings = xora,
                         saveSlots = saveSlots,
                         netplay = netplayUi,
-                        joinAddress = joinAddress.ifBlank { xora.netplayHostAddress },
+                        joinAddress = joinAddress,
+                        joinPort = joinPort,
                         message = menuMessage,
                         onAction = { handleEmulatorMenuAction(it) },
                         onDismiss = { closeMenu() },
@@ -878,11 +896,11 @@ class XoraLibretroActivity : ComponentActivity() {
             EmulatorMenuAction.ToggleSpectator -> lifecycleScope.launch {
                 preferences.setXoraNetplaySpectator(!xoraSettings.netplaySpectator)
             }
-            is EmulatorMenuAction.NudgeJoinOctet -> lifecycleScope.launch {
-                val current = joinAddress.ifBlank { xoraSettings.netplayHostAddress }
-                val next = nudgeIpv4(current, action.octetIndex, action.delta)
-                joinAddress = next
-                preferences.setXoraNetplayHostAddress(next)
+            is EmulatorMenuAction.SetJoinTarget -> applyJoinTarget(action.address, action.port)
+            EmulatorMenuAction.ClearJoinTarget -> lifecycleScope.launch {
+                joinAddress = ""
+                joinPort = DEFAULT_NETPLAY_PORT
+                preferences.setXoraNetplayHostAddress("")
             }
             EmulatorMenuAction.CyclePreferredController -> lifecycleScope.launch {
                 val names = listOf("") + LibretroPad.connectedControllerNames()
@@ -977,21 +995,37 @@ class XoraLibretroActivity : ComponentActivity() {
         }
     }
 
+    private fun applyJoinTarget(address: String, port: Int) {
+        val parsed = parseJoinHostPort(address, port)
+        joinAddress = parsed.host
+        joinPort = parsed.port
+        lifecycleScope.launch {
+            preferences.setXoraNetplayHostAddress(formatJoinHostPort(parsed.host, parsed.port))
+        }
+    }
+
     private fun startJoinNetplay() {
-        val address = joinAddress.ifBlank { xoraSettings.netplayHostAddress }
+        val parsed = parseJoinHostPort(
+            joinAddress.ifBlank { xoraSettings.netplayHostAddress },
+            joinPort,
+        )
+        val address = parsed.host
         if (address.isBlank()) {
-            showMenuMessage("Set a join IP first")
+            showMenuMessage("Type a join IP first")
             return
         }
+        joinAddress = address
+        joinPort = parsed.port
         lifecycleScope.launch {
             disableHardcoreForNetplay()
             preferences.setXoraNetplayEnabled(true)
+            preferences.setXoraNetplayHostAddress(formatJoinHostPort(address, parsed.port))
             withContext(Dispatchers.Main.immediate) {
                 val hello = netplayHello()
-                netplaySession?.join(address, xoraSettings.netplayPort, hello) { bytes ->
+                netplaySession?.join(address, parsed.port, hello) { bytes ->
                     withContext(emuDispatcher) { LibretroNative.nativeUnserialize(bytes) }
                 }
-                showMenuMessage("Joining $address…")
+                showMenuMessage("Joining $address:${parsed.port}…")
             }
         }
     }
@@ -1076,7 +1110,13 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private suspend fun loadProfileAvatar() {
         val profile = preferences.profile.first()
-        val initial = profile.displayName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "P"
+        val network = xoraNetwork.state.value
+        val initial = when {
+            network.signedIn -> network.account?.displayName?.trim()?.firstOrNull()
+                ?: network.account?.username?.trim()?.firstOrNull()
+                ?: profile.displayName.trim().firstOrNull()
+            else -> profile.displayName.trim().firstOrNull()
+        }?.uppercaseChar()?.toString() ?: "P"
         val fill = when (profile.avatarPresetId) {
             "preset_1" -> AndroidColor.rgb(55, 214, 160)
             "preset_2" -> AndroidColor.rgb(255, 194, 75)
@@ -1086,14 +1126,22 @@ class XoraLibretroActivity : ComponentActivity() {
             else -> AndroidColor.rgb(110, 123, 255)
         }
         val bitmap = withContext(Dispatchers.IO) {
-            when (profile.avatarSource) {
-                AvatarSource.Local -> avatarStore.resolveFile(profile.localAvatarFileName)
-                    ?.let { BitmapFactory.decodeFile(it.absolutePath) }
-                AvatarSource.RetroAchievements -> {
-                    val user = preferences.retroAchievements.first().username
-                    if (user.isBlank()) null else decodeBitmapUrl(RaProfile.userPicUrlFor(user))
+            val networkUrl = network.account?.resolvedAvatarUrl.orEmpty()
+            if (network.signedIn && networkUrl.isNotBlank()) {
+                decodeBitmapUrl(networkUrl)
+            } else {
+                when (profile.avatarSource) {
+                    AvatarSource.Local -> avatarStore.resolveFile(profile.localAvatarFileName)
+                        ?.let { BitmapFactory.decodeFile(it.absolutePath) }
+                    AvatarSource.RetroAchievements -> {
+                        val user = preferences.retroAchievements.first().username
+                        if (user.isBlank()) null else decodeBitmapUrl(RaProfile.userPicUrlFor(user))
+                    }
+                    AvatarSource.XoraNetwork -> {
+                        if (networkUrl.isBlank()) null else decodeBitmapUrl(networkUrl)
+                    }
+                    else -> null
                 }
-                else -> null
             }
         }
         withContext(Dispatchers.Main.immediate) {
@@ -1103,7 +1151,12 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun decodeBitmapUrl(url: String): Bitmap? = runCatching {
-        okHttpClient.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { response ->
+        val builder = okhttp3.Request.Builder().url(url)
+        val cookie = xoraCookies.cookieHeader()
+        if (!cookie.isNullOrBlank() && url.contains("account.xoranetwork.com", ignoreCase = true)) {
+            builder.header("Cookie", cookie)
+        }
+        okHttpClient.newCall(builder.build()).execute().use { response ->
             if (!response.isSuccessful) return@use null
             response.body?.bytes()?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
         }
@@ -1261,8 +1314,8 @@ class XoraLibretroActivity : ComponentActivity() {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         val chip = FrameLayout(this).apply {
-            layoutParams = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.START).apply {
-                leftMargin = pad
+            layoutParams = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.END).apply {
+                rightMargin = pad
                 topMargin = pad
             }
             foreground = GradientDrawable().apply {

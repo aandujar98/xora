@@ -20,4 +20,31 @@ class NetplayAddressTest {
         assertEquals(0, parts[2])
         assertEquals(0, parts[3])
     }
+
+    @Test
+    fun parseJoinHostPortSplitsHostAndPort() {
+        val parsed = parseJoinHostPort("192.168.1.10:56000", 55435)
+        assertEquals("192.168.1.10", parsed.host)
+        assertEquals(56000, parsed.port)
+    }
+
+    @Test
+    fun parseJoinHostPortKeepsBareHost() {
+        val parsed = parseJoinHostPort("10.0.0.4", 55435)
+        assertEquals("10.0.0.4", parsed.host)
+        assertEquals(55435, parsed.port)
+    }
+
+    @Test
+    fun parseJoinHostPortClearsBlank() {
+        val parsed = parseJoinHostPort("  ", 55435)
+        assertEquals("", parsed.host)
+        assertEquals(55435, parsed.port)
+    }
+
+    @Test
+    fun formatJoinHostPortOmitsBlankHost() {
+        assertEquals("", formatJoinHostPort("  ", 55435))
+        assertEquals("192.168.1.10:55435", formatJoinHostPort("192.168.1.10", 55435))
+    }
 }

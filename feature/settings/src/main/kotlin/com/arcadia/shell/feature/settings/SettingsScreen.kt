@@ -1453,8 +1453,9 @@ fun SettingsScreen(
                 Text(
                     text = "Host or join from the in-game side menu (Pause → Netplay). " +
                         "The host shares a save state, then both sides exchange pad input " +
-                        "each frame — the same idea as RetroArch netplay. Set your join IP " +
-                        "here or nudge it in-game. Nickname is shared with Libretro cores.",
+                        "each frame — the same idea as RetroArch netplay. Type the join IP " +
+                        "and port in-game (or here); Clear empties the target. Nickname is " +
+                        "shared with Libretro cores.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1505,7 +1506,7 @@ fun SettingsScreen(
                     onValueChange = { hostDraft = it.take(128) },
                     singleLine = true,
                     enabled = xora.netplayEnabled,
-                    placeholder = { Text("192.168.1.10") },
+                    placeholder = { Text("192.168.1.10 or 192.168.1.10:55435") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .onFocusChanged { focus ->

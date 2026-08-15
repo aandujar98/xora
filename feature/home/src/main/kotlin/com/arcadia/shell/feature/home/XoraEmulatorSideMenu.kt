@@ -16,6 +16,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,16 +31,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.arcadia.shell.datastore.DEFAULT_NETPLAY_PORT
+import com.arcadia.shell.datastore.MAX_NETPLAY_PORT
+import com.arcadia.shell.datastore.MIN_NETPLAY_PORT
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.label
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
-import com.arcadia.shell.libretro.netplay.parseIpv4
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.xoranetwork.XoraFriendState
 import com.arcadia.shell.xoranetwork.XoraNetworkState
@@ -78,7 +90,8 @@ sealed class EmulatorMenuAction {
     data object JoinNetplay : EmulatorMenuAction()
     data object DisconnectNetplay : EmulatorMenuAction()
     data object ToggleSpectator : EmulatorMenuAction()
-    data class NudgeJoinOctet(val octetIndex: Int, val delta: Int) : EmulatorMenuAction()
+    data class SetJoinTarget(val address: String, val port: Int) : EmulatorMenuAction()
+    data object ClearJoinTarget : EmulatorMenuAction()
     data object ToggleRaHardcore : EmulatorMenuAction()
     data class ShowAchievement(val title: String, val description: String) : EmulatorMenuAction()
     data object CyclePreferredController : EmulatorMenuAction()
@@ -111,6 +124,7 @@ fun XoraEmulatorSideMenu(
     saveSlots: List<EmulatorSaveSlotUi>,
     netplay: XoraNetplayUiState,
     joinAddress: String,
+    joinPort: Int = DEFAULT_NETPLAY_PORT,
     message: String?,
     onAction: (EmulatorMenuAction) -> Unit,
     onDismiss: () -> Unit,
@@ -217,6 +231,7 @@ fun XoraEmulatorSideMenu(
         saveSlots = saveSlots,
         netplay = netplay,
         joinAddress = joinAddress,
+        joinPort = joinPort,
         hardcore = hardcore,
         network = network,
         achievements = achievements,
@@ -228,6 +243,19 @@ fun XoraEmulatorSideMenu(
     val rootFocus = rootIndex.coerceIn(0, rootRows.lastIndex)
     val rootListState = rememberLazyListState()
     val paneListState = rememberLazyListState()
+    val keyboard = LocalSoftwareKeyboardController.current
+    val ipFocus = remember { FocusRequester() }
+    val portFocus = remember { FocusRequester() }
+    var ipDraft by remember(joinAddress) { mutableStateOf(joinAddress) }
+    var portDraft by remember(joinPort) { mutableStateOf(joinPort.toString()) }
+
+    fun parsedJoinPort(): Int =
+        portDraft.toIntOrNull()?.coerceIn(MIN_NETPLAY_PORT, MAX_NETPLAY_PORT)
+            ?: DEFAULT_NETPLAY_PORT
+
+    fun commitJoinDrafts() {
+        onAction(EmulatorMenuAction.SetJoinTarget(ipDraft.trim(), parsedJoinPort()))
+    }
 
     LaunchedEffect(rootFocus, pane) {
         if (pane == EmulatorMenuPane.None && rootRows.isNotEmpty()) {
@@ -251,15 +279,43 @@ fun XoraEmulatorSideMenu(
         }
     }
 
-    fun activatePane() {
-        val row = paneRows.getOrNull(paneFocus) ?: return
-        when {
-            row.pane != null -> {
-                pane = row.pane
-                paneIndex = 0
+    fun activatePaneAt(index: Int) {
+        paneIndex = index
+        val row = paneRows.getOrNull(index) ?: return
+        when (row.id) {
+            "np-ip" -> {
+                runCatching {
+                    ipFocus.requestFocus()
+                    keyboard?.show()
+                }
             }
-            row.action != null -> onAction(row.action)
+            "np-port" -> {
+                runCatching {
+                    portFocus.requestFocus()
+                    keyboard?.show()
+                }
+            }
+            "np-join" -> {
+                commitJoinDrafts()
+                onAction(EmulatorMenuAction.JoinNetplay)
+            }
+            "np-clear" -> {
+                ipDraft = ""
+                portDraft = DEFAULT_NETPLAY_PORT.toString()
+                onAction(EmulatorMenuAction.ClearJoinTarget)
+            }
+            else -> when {
+                row.pane != null -> {
+                    pane = row.pane
+                    paneIndex = 0
+                }
+                row.action != null -> onAction(row.action)
+            }
         }
+    }
+
+    fun activatePane() {
+        activatePaneAt(paneFocus)
     }
 
     fun back() {
@@ -387,16 +443,46 @@ fun XoraEmulatorSideMenu(
                         .fillMaxWidth(),
                 ) {
                     itemsIndexed(paneRows, key = { _, row -> row.id }) { index, row ->
-                        SideMenuRow(
-                            row = row,
-                            selected = index == paneFocus,
-                            compact = true,
-                            subtitleLines = if (pane == EmulatorMenuPane.Achievements) 2 else 1,
-                            onClick = {
-                                paneIndex = index
-                                activatePane()
-                            },
-                        )
+                        val selected = index == paneFocus
+                        when (row.id) {
+                            "np-ip" -> JoinTargetField(
+                                label = "Join IP",
+                                value = ipDraft,
+                                selected = selected,
+                                placeholder = "192.168.1.10",
+                                keyboardType = KeyboardType.Uri,
+                                imeAction = ImeAction.Next,
+                                focusRequester = ipFocus,
+                                onValueChange = { ipDraft = it.filter { ch ->
+                                    ch.isLetterOrDigit() || ch in ".:-[]"
+                                }.take(128) },
+                                onCommit = { commitJoinDrafts() },
+                                onNext = {
+                                    portFocus.requestFocus()
+                                    keyboard?.show()
+                                },
+                                onClick = { activatePaneAt(index) },
+                            )
+                            "np-port" -> JoinTargetField(
+                                label = "Join port",
+                                value = portDraft,
+                                selected = selected,
+                                placeholder = DEFAULT_NETPLAY_PORT.toString(),
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Done,
+                                focusRequester = portFocus,
+                                onValueChange = { portDraft = it.filter { ch -> ch.isDigit() }.take(5) },
+                                onCommit = { commitJoinDrafts() },
+                                onClick = { activatePaneAt(index) },
+                            )
+                            else -> SideMenuRow(
+                                row = row,
+                                selected = selected,
+                                compact = true,
+                                subtitleLines = if (pane == EmulatorMenuPane.Achievements) 2 else 1,
+                                onClick = { activatePaneAt(index) },
+                            )
+                        }
                     }
                 }
             }
@@ -538,6 +624,7 @@ private fun paneRows(
     saveSlots: List<EmulatorSaveSlotUi>,
     netplay: XoraNetplayUiState,
     joinAddress: String,
+    joinPort: Int,
     hardcore: Boolean,
     network: XoraNetworkState,
     achievements: List<RaAchievement>,
@@ -607,37 +694,32 @@ private fun paneRows(
         MenuRow(
             id = "np-join",
             title = "Join session",
-            subtitle = joinAddress.ifBlank { "Set join address below" },
+            subtitle = if (joinAddress.isBlank()) {
+                "Type IP and port below"
+            } else {
+                "$joinAddress:$joinPort"
+            },
             icon = XmbIcon.Friends,
             action = EmulatorMenuAction.JoinNetplay,
         ),
         MenuRow(
-            id = "np-oct0",
-            title = "Join IP octet 1",
-            subtitle = octetLabel(joinAddress, 0),
+            id = "np-ip",
+            title = "Join IP",
+            subtitle = joinAddress.ifBlank { "Host IP or hostname" },
             icon = XmbIcon.Network,
-            action = EmulatorMenuAction.NudgeJoinOctet(0, 1),
         ),
         MenuRow(
-            id = "np-oct1",
-            title = "Join IP octet 2",
-            subtitle = octetLabel(joinAddress, 1),
+            id = "np-port",
+            title = "Join port",
+            subtitle = joinPort.toString(),
             icon = XmbIcon.Network,
-            action = EmulatorMenuAction.NudgeJoinOctet(1, 1),
         ),
         MenuRow(
-            id = "np-oct2",
-            title = "Join IP octet 3",
-            subtitle = octetLabel(joinAddress, 2),
-            icon = XmbIcon.Network,
-            action = EmulatorMenuAction.NudgeJoinOctet(2, 1),
-        ),
-        MenuRow(
-            id = "np-oct3",
-            title = "Join IP octet 4",
-            subtitle = octetLabel(joinAddress, 3),
-            icon = XmbIcon.Network,
-            action = EmulatorMenuAction.NudgeJoinOctet(3, 1),
+            id = "np-clear",
+            title = "Clear join target",
+            subtitle = "Erase IP and reset port",
+            icon = XmbIcon.Settings,
+            action = EmulatorMenuAction.ClearJoinTarget,
         ),
         MenuRow(
             id = "np-spec",
@@ -872,9 +954,94 @@ private fun paneRows(
     )
 }
 
-private fun octetLabel(address: String, index: Int): String {
-    val parts = parseIpv4(address)
-    return parts.getOrNull(index)?.toString() ?: "0"
+@Composable
+private fun JoinTargetField(
+    label: String,
+    value: String,
+    selected: Boolean,
+    placeholder: String,
+    keyboardType: KeyboardType,
+    imeAction: ImeAction,
+    focusRequester: FocusRequester,
+    onValueChange: (String) -> Unit,
+    onCommit: () -> Unit,
+    onClick: () -> Unit,
+    onNext: (() -> Unit)? = null,
+) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    var hadFocus by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+            .clickable(
+                interactionSource = remember(label) { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (selected) Accent else Color.Transparent),
+            )
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = if (selected) 16.sp else 15.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            )
+        }
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            placeholder = {
+                Text(text = placeholder, color = Color.White.copy(alpha = 0.35f))
+            },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = keyboardType,
+                imeAction = imeAction,
+            ),
+            keyboardActions = KeyboardActions(
+                onNext = { onNext?.invoke() },
+                onDone = {
+                    onCommit()
+                    keyboard?.hide()
+                },
+            ),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                cursorColor = Accent,
+                focusedBorderColor = Accent,
+                unfocusedBorderColor = Color.White.copy(alpha = 0.25f),
+                focusedLabelColor = Accent,
+                unfocusedLabelColor = Color.White.copy(alpha = 0.45f),
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 15.dp, top = 6.dp)
+                .focusRequester(focusRequester)
+                .onFocusChanged { focus ->
+                    if (focus.isFocused) {
+                        hadFocus = true
+                    } else if (hadFocus) {
+                        onCommit()
+                    }
+                },
+        )
+    }
 }
 
 private val SidebarInk = Color(0xFF10131A)

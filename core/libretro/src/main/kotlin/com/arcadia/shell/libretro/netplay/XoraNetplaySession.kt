@@ -1,5 +1,7 @@
 package com.arcadia.shell.libretro.netplay
 
+import com.arcadia.shell.datastore.MAX_NETPLAY_PORT
+import com.arcadia.shell.datastore.MIN_NETPLAY_PORT
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,6 +53,30 @@ fun nudgeIpv4(address: String, octetIndex: Int, delta: Int): String {
     val i = octetIndex.coerceIn(0, 3)
     parts[i] = (parts[i] + delta).mod(256)
     return formatIpv4(parts)
+}
+
+data class JoinHostPort(val host: String, val port: Int)
+
+/** Split `host` or `host:port` so join fields can be typed instead of octet-nudged. */
+fun parseJoinHostPort(raw: String, fallbackPort: Int): JoinHostPort {
+    val fallback = fallbackPort.coerceIn(MIN_NETPLAY_PORT, MAX_NETPLAY_PORT)
+    val trimmed = raw.trim()
+    if (trimmed.isBlank()) return JoinHostPort("", fallback)
+    val colon = trimmed.lastIndexOf(':')
+    if (colon > 0 && colon < trimmed.lastIndex) {
+        val host = trimmed.substring(0, colon).trim()
+        val port = trimmed.substring(colon + 1).trim().toIntOrNull()
+        if (host.isNotBlank() && !host.startsWith("[") && port != null) {
+            return JoinHostPort(host, port.coerceIn(MIN_NETPLAY_PORT, MAX_NETPLAY_PORT))
+        }
+    }
+    return JoinHostPort(trimmed, fallback)
+}
+
+fun formatJoinHostPort(host: String, port: Int): String {
+    val h = host.trim()
+    if (h.isBlank()) return ""
+    return "$h:${port.coerceIn(MIN_NETPLAY_PORT, MAX_NETPLAY_PORT)}"
 }
 
 /**
