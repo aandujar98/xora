@@ -167,6 +167,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var saveSlots by mutableStateOf(List(10) { EmulatorSaveSlotUi(it, false, "Empty") })
     private var joinAddress by mutableStateOf("")
     private var joinPort by mutableStateOf(DEFAULT_NETPLAY_PORT)
+    private var joinCode by mutableStateOf("")
     private var netplayUi by mutableStateOf(XoraNetplayUiState())
     private var netplaySession: XoraNetplaySession? = null
     private var pendingNetplayHost = false
@@ -471,6 +472,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         netplay = netplayUi,
                         joinAddress = joinAddress,
                         joinPort = joinPort,
+                        joinCode = joinCode,
                         message = menuMessage,
                         onAction = { handleEmulatorMenuAction(it) },
                         onDismiss = { closeMenu() },
@@ -909,6 +911,8 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             EmulatorMenuAction.HostNetplay -> startHostNetplay()
             EmulatorMenuAction.JoinNetplay -> startJoinNetplay()
+            EmulatorMenuAction.HostOnlineNetplay -> startHostOnlineNetplay()
+            EmulatorMenuAction.JoinOnlineNetplay -> startJoinOnlineNetplay()
             EmulatorMenuAction.DisconnectNetplay -> {
                 netplaySession?.stop()
                 showMenuMessage("Netplay disconnected")
@@ -917,6 +921,9 @@ class XoraLibretroActivity : ComponentActivity() {
                 preferences.setXoraNetplaySpectator(!xoraSettings.netplaySpectator)
             }
             is EmulatorMenuAction.SetJoinTarget -> applyJoinTarget(action.address, action.port)
+            is EmulatorMenuAction.SetJoinCode -> {
+                joinCode = XoraNetplayProtocol.filterSessionCodeDraft(action.code)
+            }
             EmulatorMenuAction.ClearJoinTarget -> lifecycleScope.launch {
                 joinAddress = ""
                 joinPort = DEFAULT_NETPLAY_PORT
@@ -1083,6 +1090,68 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
                 showMenuMessage("Joining $address:${parsed.port}…")
             }
+        }
+    }
+
+    private fun startHostOnlineNetplay() {
+        if (!xoraNetwork.state.value.signedIn) {
+            showMenuMessage("Sign in to XOrA Network first")
+            return
+        }
+        lifecycleScope.launch {
+            disableHardcoreForNetplay()
+            preferences.setXoraNetplayEnabled(true)
+            xoraNetwork.setRealtimeEnabled(true)
+            val code = XoraNetplayProtocol.generateSessionCode()
+            val match = xoraNetwork.openNamedMatch(
+                XoraNetplayProtocol.matchNameForSessionCode(code),
+            ).getOrElse { error ->
+                showMenuMessage(error.message ?: "Couldn't start an online session")
+                return@launch
+            }
+            val link = XoraNakamaNetplayLink(xoraNetwork, match.matchId)
+            netplaySession?.hostOnLink(
+                link = link,
+                hello = netplayHello(),
+                sessionCode = code,
+                waitForPeer = { xoraNetwork.waitForMatchPeer(match.matchId, match.selfUserId) },
+            ) {
+                withContext(emuDispatcher) { LibretroNative.nativeSerialize() }
+            }
+            showMenuMessage("Code $code — share it")
+        }
+    }
+
+    private fun startJoinOnlineNetplay() {
+        if (!xoraNetwork.state.value.signedIn) {
+            showMenuMessage("Sign in to XOrA Network first")
+            return
+        }
+        val code = XoraNetplayProtocol.normalizeSessionCode(joinCode)
+        if (code == null) {
+            showMenuMessage("Type the 6-character session code")
+            return
+        }
+        joinCode = code
+        lifecycleScope.launch {
+            disableHardcoreForNetplay()
+            preferences.setXoraNetplayEnabled(true)
+            xoraNetwork.setRealtimeEnabled(true)
+            val match = xoraNetwork.openNamedMatch(
+                XoraNetplayProtocol.matchNameForSessionCode(code),
+            ).getOrElse { error ->
+                showMenuMessage(error.message ?: "Couldn't join that online session")
+                return@launch
+            }
+            val link = XoraNakamaNetplayLink(xoraNetwork, match.matchId)
+            netplaySession?.joinOnLink(
+                link = link,
+                hello = netplayHello(),
+                sessionCode = code,
+            ) { bytes ->
+                withContext(emuDispatcher) { LibretroNative.nativeUnserialize(bytes) }
+            }
+            showMenuMessage("Joining $code…")
         }
     }
 

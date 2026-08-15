@@ -48,6 +48,8 @@ import com.arcadia.shell.datastore.MIN_NETPLAY_PORT
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.label
+import com.arcadia.shell.libretro.netplay.XoraNetplayRole
+import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.xoranetwork.XoraFriendState
@@ -88,9 +90,12 @@ sealed class EmulatorMenuAction {
     data object ToggleNetplayEnabled : EmulatorMenuAction()
     data object HostNetplay : EmulatorMenuAction()
     data object JoinNetplay : EmulatorMenuAction()
+    data object HostOnlineNetplay : EmulatorMenuAction()
+    data object JoinOnlineNetplay : EmulatorMenuAction()
     data object DisconnectNetplay : EmulatorMenuAction()
     data object ToggleSpectator : EmulatorMenuAction()
     data class SetJoinTarget(val address: String, val port: Int) : EmulatorMenuAction()
+    data class SetJoinCode(val code: String) : EmulatorMenuAction()
     data object ClearJoinTarget : EmulatorMenuAction()
     data object ToggleRaHardcore : EmulatorMenuAction()
     data class ShowAchievement(val title: String, val description: String) : EmulatorMenuAction()
@@ -125,6 +130,7 @@ fun XoraEmulatorSideMenu(
     netplay: XoraNetplayUiState,
     joinAddress: String,
     joinPort: Int = DEFAULT_NETPLAY_PORT,
+    joinCode: String = "",
     message: String?,
     onAction: (EmulatorMenuAction) -> Unit,
     onDismiss: () -> Unit,
@@ -232,6 +238,7 @@ fun XoraEmulatorSideMenu(
         netplay = netplay,
         joinAddress = joinAddress,
         joinPort = joinPort,
+        joinCode = joinCode,
         hardcore = hardcore,
         network = network,
         achievements = achievements,
@@ -246,8 +253,10 @@ fun XoraEmulatorSideMenu(
     val keyboard = LocalSoftwareKeyboardController.current
     val ipFocus = remember { FocusRequester() }
     val portFocus = remember { FocusRequester() }
+    val codeFocus = remember { FocusRequester() }
     var ipDraft by remember(joinAddress) { mutableStateOf(joinAddress) }
     var portDraft by remember(joinPort) { mutableStateOf(joinPort.toString()) }
+    var codeDraft by remember(joinCode) { mutableStateOf(joinCode) }
 
     fun parsedJoinPort(): Int =
         portDraft.toIntOrNull()?.coerceIn(MIN_NETPLAY_PORT, MAX_NETPLAY_PORT)
@@ -255,6 +264,10 @@ fun XoraEmulatorSideMenu(
 
     fun commitJoinDrafts() {
         onAction(EmulatorMenuAction.SetJoinTarget(ipDraft.trim(), parsedJoinPort()))
+    }
+
+    fun commitJoinCode() {
+        onAction(EmulatorMenuAction.SetJoinCode(codeDraft))
     }
 
     LaunchedEffect(rootFocus, pane) {
@@ -298,6 +311,16 @@ fun XoraEmulatorSideMenu(
             "np-join" -> {
                 commitJoinDrafts()
                 onAction(EmulatorMenuAction.JoinNetplay)
+            }
+            "np-code" -> {
+                runCatching {
+                    codeFocus.requestFocus()
+                    keyboard?.show()
+                }
+            }
+            "np-join-online" -> {
+                commitJoinCode()
+                onAction(EmulatorMenuAction.JoinOnlineNetplay)
             }
             "np-clear" -> {
                 ipDraft = ""
@@ -475,6 +498,20 @@ fun XoraEmulatorSideMenu(
                                 onCommit = { commitJoinDrafts() },
                                 onClick = { activatePaneAt(index) },
                             )
+                            "np-code" -> JoinTargetField(
+                                label = "Session code",
+                                value = codeDraft,
+                                selected = selected,
+                                placeholder = "K7M2QX",
+                                keyboardType = KeyboardType.Ascii,
+                                imeAction = ImeAction.Done,
+                                focusRequester = codeFocus,
+                                onValueChange = {
+                                    codeDraft = XoraNetplayProtocol.filterSessionCodeDraft(it)
+                                },
+                                onCommit = { commitJoinCode() },
+                                onClick = { activatePaneAt(index) },
+                            )
                             else -> SideMenuRow(
                                 row = row,
                                 selected = selected,
@@ -625,6 +662,7 @@ private fun paneRows(
     netplay: XoraNetplayUiState,
     joinAddress: String,
     joinPort: Int,
+    joinCode: String,
     hardcore: Boolean,
     network: XoraNetworkState,
     achievements: List<RaAchievement>,
@@ -721,6 +759,35 @@ private fun paneRows(
             subtitle = "Erase IP and reset port",
             icon = XmbIcon.Settings,
             action = EmulatorMenuAction.ClearJoinTarget,
+        ),
+        MenuRow(
+            id = "np-host-online",
+            title = "Host online",
+            subtitle = when {
+                !network.signedIn -> "Sign in to XOrA Network first"
+                netplay.online && netplay.sessionCode.isNotBlank() && netplay.role == XoraNetplayRole.Host ->
+                    "Code ${netplay.sessionCode} — share this"
+                else -> "Anyone, anywhere — share a 6-character code"
+            },
+            icon = XmbIcon.Play,
+            action = EmulatorMenuAction.HostOnlineNetplay,
+        ),
+        MenuRow(
+            id = "np-join-online",
+            title = "Join online",
+            subtitle = when {
+                !network.signedIn -> "Sign in to XOrA Network first"
+                joinCode.isBlank() -> "Type the host's code below"
+                else -> "Code $joinCode"
+            },
+            icon = XmbIcon.Friends,
+            action = EmulatorMenuAction.JoinOnlineNetplay,
+        ),
+        MenuRow(
+            id = "np-code",
+            title = "Session code",
+            subtitle = joinCode.ifBlank { "6 characters from the host" },
+            icon = XmbIcon.Network,
         ),
         MenuRow(
             id = "np-spec",

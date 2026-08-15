@@ -10,10 +10,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
-import java.io.DataInputStream
-import java.io.DataOutputStream
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -35,6 +31,8 @@ data class XoraNetplayUiState(
     val status: String = "Off",
     val localAddresses: List<String> = emptyList(),
     val error: String? = null,
+    val sessionCode: String = "",
+    val online: Boolean = false,
 )
 
 fun parseIpv4(address: String): IntArray {
@@ -94,10 +92,11 @@ class XoraNetplaySession(
     private val running = AtomicBoolean(false)
     private val linked = AtomicBoolean(false)
     private val isHost = AtomicBoolean(false)
+    private val generation = AtomicInteger(0)
     private var networkJob: Job? = null
     private var server: ServerSocket? = null
     private var socket: Socket? = null
-    private val output = AtomicReference<DataOutputStream?>(null)
+    private val linkRef = AtomicReference<XoraNetplayLink?>(null)
 
     private val pendingRemote = ConcurrentHashMap<Int, XoraNetplayProtocol.PadFrame>()
     private val lastRemote = AtomicReference(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
@@ -112,6 +111,7 @@ class XoraNetplaySession(
         captureState: suspend () -> ByteArray?,
     ) {
         stop()
+        val gen = generation.get()
         running.set(true)
         isHost.set(true)
         val addresses = localIpv4Addresses()
@@ -127,7 +127,7 @@ class XoraNetplaySession(
                 listener.bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), port), 8)
                 listener.soTimeout = 500
                 var client: Socket? = null
-                while (isActive && running.get() && client == null) {
+                while (isActive && running.get() && generation.get() == gen && client == null) {
                     client = try {
                         listener.accept()
                     } catch (_: SocketTimeoutException) {
@@ -137,52 +137,47 @@ class XoraNetplaySession(
                 val sock = client ?: return@launch
                 socket = sock
                 sock.tcpNoDelay = true
-                val input = DataInputStream(BufferedInputStream(sock.getInputStream()))
-                val out = DataOutputStream(BufferedOutputStream(sock.getOutputStream())).also {
-                    output.set(it)
-                }
-                XoraNetplayProtocol.writeMessage(
-                    out,
-                    XoraNetplayProtocol.TYPE_HELLO,
-                    XoraNetplayProtocol.encodeHello(hello),
-                )
-                val (helloType, helloPayload) = XoraNetplayProtocol.readMessage(input)
-                if (helloType != XoraNetplayProtocol.TYPE_HELLO) {
-                    fail("Peer did not send hello")
-                    return@launch
-                }
-                val peer = XoraNetplayProtocol.decodeHello(helloPayload)
-                if (peer.version != XoraNetplayProtocol.VERSION) {
-                    fail("Netplay version mismatch")
-                    return@launch
-                }
-                val savestate = captureState()
-                if (savestate == null) {
-                    fail("Could not capture save state")
-                    return@launch
-                }
-                XoraNetplayProtocol.writeMessage(out, XoraNetplayProtocol.TYPE_STATE, savestate)
-                val (startType, _) = XoraNetplayProtocol.readMessage(input)
-                if (startType != XoraNetplayProtocol.TYPE_START) {
-                    fail("Peer failed to start")
-                    return@launch
-                }
-                frameCounter.set(0)
-                pendingRemote.clear()
-                linked.set(true)
-                _state.value = _state.value.copy(
-                    linked = true,
-                    peerName = peer.nickname,
-                    status = "Playing with ${peer.nickname.ifBlank { "P2" }}",
-                    error = null,
-                )
-                readLoop(input)
+                val link = XoraTcpNetplayLink(sock).also { linkRef.set(it) }
+                runHostHandshake(link, hello, captureState, gen)
+                if (generation.get() != gen || !linked.get() || !running.get()) return@launch
+                readLoop(link, gen)
             } catch (t: Throwable) {
-                if (running.get()) fail(t.message ?: "Host failed")
-            } finally {
-                if (running.get() && isHost.get() && !linked.get()) {
-                    // Keep listening status if we dropped before a peer arrived.
+                if (generation.get() == gen) fail(t.message ?: "Host failed", gen)
+            }
+        }
+    }
+
+    fun hostOnLink(
+        link: XoraNetplayLink,
+        hello: XoraNetplayProtocol.Hello,
+        sessionCode: String,
+        waitForPeer: suspend () -> Result<Unit>,
+        captureState: suspend () -> ByteArray?,
+    ) {
+        stop()
+        val gen = generation.get()
+        running.set(true)
+        isHost.set(true)
+        linkRef.set(link)
+        _state.value = XoraNetplayUiState(
+            role = XoraNetplayRole.Host,
+            status = "Code $sessionCode — waiting for a player",
+            sessionCode = sessionCode,
+            online = true,
+        )
+        networkJob = scope.launch(Dispatchers.IO) {
+            try {
+                waitForPeer().getOrElse { error ->
+                    fail(error.message ?: "Nobody joined with that code.", gen)
+                    return@launch
                 }
+                if (generation.get() != gen || !running.get()) return@launch
+                _state.value = _state.value.copy(status = "Connecting…")
+                runHostHandshake(link, hello, captureState, gen)
+                if (generation.get() != gen || !linked.get() || !running.get()) return@launch
+                readLoop(link, gen)
+            } catch (t: Throwable) {
+                if (generation.get() == gen) fail(t.message ?: "Host failed", gen)
             }
         }
     }
@@ -194,6 +189,7 @@ class XoraNetplaySession(
         applyState: suspend (ByteArray) -> Boolean,
     ) {
         stop()
+        val gen = generation.get()
         running.set(true)
         isHost.set(false)
         _state.value = XoraNetplayUiState(
@@ -207,55 +203,40 @@ class XoraNetplaySession(
                 sock.connect(InetSocketAddress(InetAddress.getByName(address.trim()), port), 12_000)
                 sock.tcpNoDelay = true
                 socket = sock
-                val input = DataInputStream(BufferedInputStream(sock.getInputStream()))
-                val out = DataOutputStream(BufferedOutputStream(sock.getOutputStream())).also {
-                    output.set(it)
-                }
-                val (helloType, helloPayload) = XoraNetplayProtocol.readMessage(input)
-                if (helloType != XoraNetplayProtocol.TYPE_HELLO) {
-                    fail("Host did not send hello")
-                    return@launch
-                }
-                val peer = XoraNetplayProtocol.decodeHello(helloPayload)
-                if (peer.version != XoraNetplayProtocol.VERSION) {
-                    fail("Netplay version mismatch")
-                    return@launch
-                }
-                if (peer.coreName.isNotBlank() &&
-                    hello.coreName.isNotBlank() &&
-                    !peer.coreName.equals(hello.coreName, ignoreCase = true)
-                ) {
-                    fail("Core mismatch (${peer.coreName})")
-                    return@launch
-                }
-                XoraNetplayProtocol.writeMessage(
-                    out,
-                    XoraNetplayProtocol.TYPE_HELLO,
-                    XoraNetplayProtocol.encodeHello(hello),
-                )
-                val (stateType, statePayload) = XoraNetplayProtocol.readMessage(input)
-                if (stateType != XoraNetplayProtocol.TYPE_STATE) {
-                    fail("Host did not send a save state")
-                    return@launch
-                }
-                val applied = applyState(statePayload)
-                if (!applied) {
-                    fail("Could not load host save state")
-                    return@launch
-                }
-                XoraNetplayProtocol.writeMessage(out, XoraNetplayProtocol.TYPE_START, ByteArray(0))
-                frameCounter.set(0)
-                pendingRemote.clear()
-                linked.set(true)
-                _state.value = _state.value.copy(
-                    linked = true,
-                    peerName = peer.nickname,
-                    status = "Joined ${peer.nickname.ifBlank { "host" }}",
-                    error = null,
-                )
-                readLoop(input)
+                val link = XoraTcpNetplayLink(sock).also { linkRef.set(it) }
+                runJoinHandshake(link, hello, applyState, helloTimeoutMs = 12_000, gen = gen)
+                if (generation.get() != gen || !linked.get() || !running.get()) return@launch
+                readLoop(link, gen)
             } catch (t: Throwable) {
-                if (running.get()) fail(joinFailureMessage(address, port, t))
+                if (generation.get() == gen) fail(joinFailureMessage(address, port, t), gen)
+            }
+        }
+    }
+
+    fun joinOnLink(
+        link: XoraNetplayLink,
+        hello: XoraNetplayProtocol.Hello,
+        sessionCode: String,
+        applyState: suspend (ByteArray) -> Boolean,
+    ) {
+        stop()
+        val gen = generation.get()
+        running.set(true)
+        isHost.set(false)
+        linkRef.set(link)
+        _state.value = XoraNetplayUiState(
+            role = XoraNetplayRole.Client,
+            status = "Looking for session $sessionCode…",
+            sessionCode = sessionCode,
+            online = true,
+        )
+        networkJob = scope.launch(Dispatchers.IO) {
+            try {
+                runJoinHandshake(link, hello, applyState, helloTimeoutMs = 15_000, gen = gen)
+                if (generation.get() != gen || !linked.get() || !running.get()) return@launch
+                readLoop(link, gen)
+            } catch (t: Throwable) {
+                if (generation.get() == gen) fail(onlineJoinFailureMessage(t), gen)
             }
         }
     }
@@ -282,17 +263,15 @@ class XoraNetplaySession(
     fun nextFrameIndex(): Int = frameCounter.getAndIncrement()
 
     fun stop() {
+        generation.incrementAndGet()
         running.set(false)
         linked.set(false)
         isHost.set(false)
         networkJob?.cancel()
         networkJob = null
-        runCatching {
-            output.get()?.let {
-                XoraNetplayProtocol.writeMessage(it, XoraNetplayProtocol.TYPE_BYE, ByteArray(0))
-            }
-        }
-        output.set(null)
+        val link = linkRef.getAndSet(null)
+        runCatching { link?.send(XoraNetplayProtocol.TYPE_BYE, ByteArray(0)) }
+        runCatching { link?.close() }
         runCatching { socket?.close() }
         socket = null
         runCatching { server?.close() }
@@ -305,10 +284,98 @@ class XoraNetplaySession(
         )
     }
 
-    private suspend fun readLoop(input: DataInputStream) {
+    private suspend fun runHostHandshake(
+        link: XoraNetplayLink,
+        hello: XoraNetplayProtocol.Hello,
+        captureState: suspend () -> ByteArray?,
+        gen: Int,
+    ) {
+        link.send(XoraNetplayProtocol.TYPE_HELLO, XoraNetplayProtocol.encodeHello(hello))
+        val (helloType, helloPayload) = link.receive(15_000)
+        if (helloType != XoraNetplayProtocol.TYPE_HELLO) {
+            fail("Peer did not send hello", gen)
+            return
+        }
+        val peer = XoraNetplayProtocol.decodeHello(helloPayload)
+        if (peer.version != XoraNetplayProtocol.VERSION) {
+            fail("Netplay version mismatch", gen)
+            return
+        }
+        val savestate = captureState()
+        if (savestate == null) {
+            fail("Could not capture save state", gen)
+            return
+        }
+        link.send(XoraNetplayProtocol.TYPE_STATE, savestate)
+        val (startType, _) = link.receive(30_000)
+        if (startType != XoraNetplayProtocol.TYPE_START) {
+            fail("Peer failed to start", gen)
+            return
+        }
+        if (generation.get() != gen) return
+        markLinked(peer.nickname, host = true)
+    }
+
+    private suspend fun runJoinHandshake(
+        link: XoraNetplayLink,
+        hello: XoraNetplayProtocol.Hello,
+        applyState: suspend (ByteArray) -> Boolean,
+        helloTimeoutMs: Int,
+        gen: Int,
+    ) {
+        val (helloType, helloPayload) = link.receive(helloTimeoutMs)
+        if (helloType != XoraNetplayProtocol.TYPE_HELLO) {
+            fail("Host did not send hello", gen)
+            return
+        }
+        val peer = XoraNetplayProtocol.decodeHello(helloPayload)
+        if (peer.version != XoraNetplayProtocol.VERSION) {
+            fail("Netplay version mismatch", gen)
+            return
+        }
+        if (peer.coreName.isNotBlank() &&
+            hello.coreName.isNotBlank() &&
+            !peer.coreName.equals(hello.coreName, ignoreCase = true)
+        ) {
+            fail("Core mismatch (${peer.coreName})", gen)
+            return
+        }
+        link.send(XoraNetplayProtocol.TYPE_HELLO, XoraNetplayProtocol.encodeHello(hello))
+        val (stateType, statePayload) = link.receive(60_000)
+        if (stateType != XoraNetplayProtocol.TYPE_STATE) {
+            fail("Host did not send a save state", gen)
+            return
+        }
+        val applied = applyState(statePayload)
+        if (!applied) {
+            fail("Could not load host save state", gen)
+            return
+        }
+        if (generation.get() != gen) return
+        link.send(XoraNetplayProtocol.TYPE_START, ByteArray(0))
+        markLinked(peer.nickname, host = false)
+    }
+
+    private fun markLinked(peerName: String, host: Boolean) {
+        frameCounter.set(0)
+        pendingRemote.clear()
+        linked.set(true)
+        _state.value = _state.value.copy(
+            linked = true,
+            peerName = peerName,
+            status = if (host) {
+                "Playing with ${peerName.ifBlank { "P2" }}"
+            } else {
+                "Joined ${peerName.ifBlank { "host" }}"
+            },
+            error = null,
+        )
+    }
+
+    private fun readLoop(link: XoraNetplayLink, gen: Int) {
         try {
-            while (running.get()) {
-                val (type, payload) = XoraNetplayProtocol.readMessage(input)
+            while (running.get() && generation.get() == gen) {
+                val (type, payload) = link.receive()
                 when (type) {
                     XoraNetplayProtocol.TYPE_INPUT -> {
                         val pad = XoraNetplayProtocol.decodePadFrame(payload)
@@ -324,30 +391,28 @@ class XoraNetplaySession(
                         } else {
                             "Peer disconnected"
                         }
-                        fail(message)
+                        fail(message, gen)
                         return
                     }
                 }
             }
         } catch (t: Throwable) {
-            if (running.get()) fail(t.message ?: "Connection lost")
+            if (generation.get() == gen) fail(t.message ?: "Connection lost", gen)
         }
     }
 
     private fun writeInput(frame: XoraNetplayProtocol.PadFrame) {
-        val out = output.get() ?: return
+        val link = linkRef.get() ?: return
         runCatching {
-            synchronized(out) {
-                XoraNetplayProtocol.writeMessage(
-                    out,
-                    XoraNetplayProtocol.TYPE_INPUT,
-                    XoraNetplayProtocol.encodePadFrame(frame),
-                )
-            }
+            link.send(
+                XoraNetplayProtocol.TYPE_INPUT,
+                XoraNetplayProtocol.encodePadFrame(frame),
+            )
         }
     }
 
-    private fun fail(message: String) {
+    private fun fail(message: String, gen: Int) {
+        if (generation.get() != gen) return
         linked.set(false)
         running.set(false)
         _state.value = _state.value.copy(
@@ -355,6 +420,7 @@ class XoraNetplaySession(
             status = "Disconnected",
             error = message,
         )
+        runCatching { linkRef.get()?.close() }
         runCatching { socket?.close() }
         runCatching { server?.close() }
     }
@@ -402,6 +468,19 @@ class XoraNetplaySession(
                     error is java.net.ConnectException ->
                     "Couldn't reach $target. Allow Nearby devices / local network, stay on the same Wi‑Fi, and match the host port."
                 else -> raw.ifBlank { "Join failed" }
+            }
+        }
+
+        fun onlineJoinFailureMessage(error: Throwable): String {
+            val raw = error.message.orEmpty()
+            return when {
+                error is SocketTimeoutException ||
+                    raw.contains("Timed out", ignoreCase = true) ->
+                    "No host for that code. Check the 6 characters, and make sure they tapped Host online."
+                raw.contains("left", ignoreCase = true) ->
+                    "The other player left."
+                raw.isBlank() -> "Couldn't join that online session."
+                else -> raw
             }
         }
     }

@@ -1,6 +1,7 @@
 package com.arcadia.shell.libretro.netplay
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -58,5 +59,48 @@ class XoraNetplayProtocolTest {
         )
         assertEquals(XoraNetplayProtocol.TYPE_STATE, type)
         assertEquals(payload.toList(), body.toList())
+    }
+
+    @Test
+    fun sessionCodeNormalizesAndRejectsTypos() {
+        assertEquals("K7M2QX", XoraNetplayProtocol.normalizeSessionCode(" k7m-2qx "))
+        assertEquals("K7M2QX", XoraNetplayProtocol.normalizeSessionCode("k7m2qx"))
+        assertEquals(null, XoraNetplayProtocol.normalizeSessionCode("K7M2Q"))
+        assertEquals(null, XoraNetplayProtocol.normalizeSessionCode("hello!"))
+        assertEquals("K7M2QX", XoraNetplayProtocol.filterSessionCodeDraft("k7m2qx extra"))
+        assertEquals(
+            "xora-np-K7M2QX",
+            XoraNetplayProtocol.matchNameForSessionCode("K7M2QX"),
+        )
+        val generated = XoraNetplayProtocol.generateSessionCode()
+        assertEquals(6, generated.length)
+        assertTrue(generated.all { it in XoraNetplayProtocol.SESSION_CODE_ALPHABET })
+    }
+
+    @Test
+    fun relayChunksRoundTrip() {
+        val original = ByteArray(2500) { i -> (i * 13).toByte() }
+        val size = XoraNetplayProtocol.RELAY_CHUNK_BYTES
+        val count = (original.size + size - 1) / size
+        val parts = HashMap<Int, ByteArray>()
+        for (i in 0 until count) {
+            val start = i * size
+            val end = minOf(start + size, original.size)
+            val encoded = XoraNetplayProtocol.encodeChunk(
+                originalType = XoraNetplayProtocol.TYPE_STATE,
+                index = i,
+                count = count,
+                total = original.size,
+                slice = original.copyOfRange(start, end),
+            )
+            val decoded = XoraNetplayProtocol.decodeChunk(encoded)
+            assertEquals(XoraNetplayProtocol.TYPE_STATE, decoded.originalType)
+            assertEquals(i, decoded.index)
+            assertEquals(count, decoded.count)
+            assertEquals(original.size, decoded.total)
+            parts[decoded.index] = decoded.slice
+        }
+        val assembled = XoraNetplayProtocol.assembleChunks(parts, original.size)
+        assertEquals(original.toList(), assembled.toList())
     }
 }

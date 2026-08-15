@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets
 object XoraNetplayProtocol {
     const val VERSION: Int = 1
     const val MAX_PAYLOAD: Int = 32 * 1024 * 1024
+    /** Nakama match data is small; savestates go out as [TYPE_CHUNK] pieces. */
+    const val RELAY_CHUNK_BYTES: Int = 900
 
     const val TYPE_HELLO: Int = 1
     const val TYPE_STATE: Int = 2
@@ -19,6 +21,11 @@ object XoraNetplayProtocol {
     const val TYPE_START: Int = 4
     const val TYPE_ERROR: Int = 5
     const val TYPE_BYE: Int = 6
+    const val TYPE_CHUNK: Int = 100
+
+    const val SESSION_CODE_ALPHABET: String = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    const val SESSION_CODE_LENGTH: Int = 6
+    const val MATCH_NAME_PREFIX: String = "xora-np-"
 
     data class Hello(
         val nickname: String,
@@ -80,6 +87,64 @@ object XoraNetplayProtocol {
             rx = readShort(payload, 10).toShort(),
             ry = readShort(payload, 12).toShort(),
         )
+    }
+
+    fun generateSessionCode(random: java.security.SecureRandom = java.security.SecureRandom()): String {
+        val alphabet = SESSION_CODE_ALPHABET
+        return CharArray(SESSION_CODE_LENGTH) {
+            alphabet[random.nextInt(alphabet.length)]
+        }.concatToString()
+    }
+
+    /** Uppercase, strip spaces/dashes; null unless it is exactly 6 valid characters. */
+    fun normalizeSessionCode(raw: String): String? {
+        val cleaned = raw.trim().uppercase().filter { it in SESSION_CODE_ALPHABET }
+        return cleaned.takeIf { it.length == SESSION_CODE_LENGTH }
+    }
+
+    fun filterSessionCodeDraft(raw: String): String =
+        raw.uppercase().filter { it in SESSION_CODE_ALPHABET }.take(SESSION_CODE_LENGTH)
+
+    fun matchNameForSessionCode(code: String): String = "$MATCH_NAME_PREFIX$code"
+
+    data class ChunkPart(
+        val originalType: Int,
+        val index: Int,
+        val count: Int,
+        val total: Int,
+        val slice: ByteArray,
+    )
+
+    fun encodeChunk(originalType: Int, index: Int, count: Int, total: Int, slice: ByteArray): ByteArray {
+        val out = ByteArray(9 + slice.size)
+        out[0] = originalType.toByte()
+        writeShort(out, 1, index)
+        writeShort(out, 3, count)
+        writeInt(out, 5, total)
+        if (slice.isNotEmpty()) System.arraycopy(slice, 0, out, 9, slice.size)
+        return out
+    }
+
+    fun decodeChunk(payload: ByteArray): ChunkPart {
+        require(payload.size >= 9) { "chunk too short" }
+        return ChunkPart(
+            originalType = payload[0].toInt() and 0xFF,
+            index = readShort(payload, 1),
+            count = readShort(payload, 3),
+            total = readInt(payload, 5),
+            slice = payload.copyOfRange(9, payload.size),
+        )
+    }
+
+    fun assembleChunks(parts: Map<Int, ByteArray>, total: Int): ByteArray {
+        val out = ByteArray(total)
+        var offset = 0
+        for (i in 0 until parts.size) {
+            val slice = parts[i] ?: error("missing chunk $i")
+            System.arraycopy(slice, 0, out, offset, slice.size)
+            offset += slice.size
+        }
+        return out
     }
 
     fun writeMessage(out: DataOutputStream, type: Int, payload: ByteArray) {

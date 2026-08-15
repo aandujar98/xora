@@ -1452,10 +1452,11 @@ fun SettingsScreen(
             SettingsCard(title = "XOrA · Netplay", modifier = Modifier.animateItem()) {
                 Text(
                     text = "Host or join from the in-game side menu (Pause → Netplay). " +
-                        "The host shares a save state, then both sides exchange pad input " +
-                        "each frame — the same idea as RetroArch netplay. Type the join IP " +
-                        "and port in-game (or here); Clear empties the target. Nickname is " +
-                        "shared with Libretro cores.",
+                        "Same Wi‑Fi uses Host session / Join session with an IP and port. " +
+                        "Worldwide play uses Host online — share the 6-character code; the " +
+                        "other player signs into XOrA Network and taps Join online. Traffic " +
+                        "goes through XOrA Network, so no port forwarding. Nickname is shared " +
+                        "with Libretro cores.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1524,18 +1525,6 @@ fun SettingsScreen(
                     Switch(
                         checked = xora.netplaySpectator,
                         onCheckedChange = viewModel::setXoraNetplaySpectator,
-                        enabled = xora.netplayEnabled,
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(text = "Prefer relay / MITM", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = xora.netplayUseRelay,
-                        onCheckedChange = viewModel::setXoraNetplayUseRelay,
                         enabled = xora.netplayEnabled,
                     )
                 }

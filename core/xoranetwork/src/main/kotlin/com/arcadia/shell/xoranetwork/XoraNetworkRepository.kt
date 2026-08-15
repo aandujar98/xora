@@ -518,6 +518,68 @@ class XoraNetworkRepository @Inject constructor(
         if (presenceMode == XoraPresenceMode.Online) publishStatus()
     }
 
+    /**
+     * Creates or joins a named Nakama match on the already-open realtime socket.
+     * Two devices that use the same name land in the same relayed match.
+     */
+    suspend fun openNamedMatch(name: String): Result<XoraNetworkMatchSession> {
+        if (!mutableState.value.signedIn) {
+            return Result.failure(XoraNetworkException("Sign in to XOrA Network first."))
+        }
+        setRealtimeEnabled(true)
+        return runCatching {
+            validAccessToken()
+            connectRealtime()
+            if (!realtime.awaitConnected(8_000L)) {
+                throw XoraNetworkException("XOrA Network isn't online yet. Check your connection.")
+            }
+            realtime.createNamedMatch(name.trim())
+        }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { error ->
+                Result.failure(
+                    if (error is XoraNetworkException) {
+                        error
+                    } else {
+                        XoraNetworkException(
+                            "Couldn't reach XOrA Network. Check your connection and try again.",
+                        )
+                    },
+                )
+            },
+        )
+    }
+
+    suspend fun waitForMatchPeer(
+        matchId: String,
+        selfUserId: String,
+        timeoutMs: Long = 180_000L,
+    ): Result<Unit> = runCatching {
+        realtime.waitForMatchPeer(matchId, selfUserId, timeoutMs)
+    }.fold(
+        onSuccess = { Result.success(Unit) },
+        onFailure = { error ->
+            Result.failure(
+                if (error is XoraNetworkException) {
+                    error
+                } else {
+                    XoraNetworkException("Nobody joined with that code.")
+                },
+            )
+        },
+    )
+
+    fun sendMatchData(matchId: String, opcode: Int, data: ByteArray, reliable: Boolean = true) {
+        realtime.sendMatchData(matchId, opcode, data, reliable)
+    }
+
+    fun receiveMatchData(matchId: String, timeoutMs: Int): Pair<Int, ByteArray> =
+        realtime.receiveMatchData(matchId, timeoutMs)
+
+    fun leaveMatch(matchId: String) {
+        realtime.leaveMatch(matchId)
+    }
+
     suspend fun openDirectMessage(username: String): Result<Unit> {
         val target = username.trim()
         if (target.isEmpty()) {
