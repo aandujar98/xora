@@ -31,14 +31,17 @@ if [ ! -x "$SDKMANAGER" ]; then
 fi
 
 # Accept licenses (idempotent) and install the exact components the modules pin:
-# platform 37 (compileSdk = 37; both published minor revisions), build-tools 37,
-# both NDKs (core:launcher pins 27 to match the Discord Social SDK AAR prefab,
-# core:libretro uses the AGP default 28) and CMake 3.22.1 for the native hosts.
+# platform 37 (compileSdk = 37; both published minor revisions); build-tools 36
+# (the version AGP 9.3.1 pulls by default) and 37; both NDKs (core:launcher pins
+# 27 to match the Discord Social SDK AAR prefab, core:libretro uses the AGP
+# default 28) and CMake 3.22.1 for the native hosts. Pinning build-tools 36 keeps
+# the SDK self-contained so no Gradle build has to download it on demand.
 yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
 "$SDKMANAGER" --install \
   "platform-tools" \
   "platforms;android-37.0" \
   "platforms;android-37.1" \
+  "build-tools;36.0.0" \
   "build-tools;37.0.0" \
   "ndk;27.0.12077973" \
   "ndk;28.2.13676358" \
