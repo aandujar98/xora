@@ -69,7 +69,7 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
 
     is ShellNotification.XoraSessionJoined -> ShellNotificationCopy(
         category = "Netplay",
-        body = "$displayName joined the session",
+        body = detail.ifBlank { "$displayName joined the session" },
         subtitle = "XOrA Network",
     )
 

@@ -900,15 +900,32 @@ private fun paneRows(
                 ),
             )
             if (netplay.linked && netplay.playerSlot >= 1) {
+                val hostName = netplay.playerNames[1].orEmpty()
                 add(
                     MenuRow(
                         id = "np-slot",
                         title = "You are Player ${netplay.playerSlot}",
-                        subtitle = "Host is Player 1 · ${netplay.playerCount} " +
-                            if (netplay.playerCount == 1) "player connected" else "players connected",
+                        subtitle = buildString {
+                            append(if (hostName.isBlank()) "Host is Player 1" else "Host: $hostName (P1)")
+                            append(" · ${netplay.playerCount} ")
+                            append(if (netplay.playerCount == 1) "player connected" else "players connected")
+                        },
                         icon = XmbIcon.GamePad,
                     ),
                 )
+                netplay.playerNames.entries
+                    .filter { it.key != 1 }
+                    .sortedBy { it.key }
+                    .forEach { (slot, name) ->
+                        add(
+                            MenuRow(
+                                id = "np-player-$slot",
+                                title = "Player $slot · $name",
+                                subtitle = if (slot == netplay.playerSlot) "You" else "In session",
+                                icon = XmbIcon.User,
+                            ),
+                        )
+                    }
             }
             add(
                 MenuRow(

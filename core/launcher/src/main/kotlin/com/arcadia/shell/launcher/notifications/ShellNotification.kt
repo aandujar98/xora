@@ -76,6 +76,8 @@ sealed interface ShellNotification {
         override val id: String,
         val displayName: String,
         val avatarUrl: String? = null,
+        /** Full line like "angel joined pal's session"; blank falls back to a generic line. */
+        val detail: String = "",
     ) : ShellNotification
 
     data class FriendOnline(

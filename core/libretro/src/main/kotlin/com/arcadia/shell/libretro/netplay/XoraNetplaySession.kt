@@ -40,6 +40,8 @@ data class XoraNetplayUiState(
     val playerSlot: Int = 0,
     /** Players currently in the session (including this device). */
     val playerCount: Int = 0,
+    /** XOrA Network usernames by slot (1 = host) for everyone in the session. */
+    val playerNames: Map<Int, String> = emptyMap(),
 )
 
 /** Pads to apply this frame after netplay delay; index = libretro port (slot − 1). */
@@ -554,9 +556,18 @@ class XoraNetplaySession(
         }
         val newEpoch = (epoch.get() + 1) and 0xFF
         val mask = XoraNetplayProtocol.slotsMaskOf(joinerSlots + 1)
-        link.send(XoraNetplayProtocol.TYPE_GO, XoraNetplayProtocol.encodeGo(newEpoch, mask))
+        link.send(
+            XoraNetplayProtocol.TYPE_GO,
+            XoraNetplayProtocol.encodeGo(newEpoch, mask, sessionRoster()),
+        )
         applyGo(newEpoch, mask)
         refreshLinkedState()
+    }
+
+    /** Slot → XOrA username roster the host broadcasts with every GO. */
+    private fun sessionRoster(): Map<Int, String> = buildMap {
+        lastSelfHello.get()?.nickname?.takeIf { it.isNotBlank() }?.let { put(1, it) }
+        peerNames.forEach { (slot, name) -> if (name.isNotBlank()) put(slot, name) }
     }
 
     private suspend fun drainParkedHellos(
@@ -585,6 +596,7 @@ class XoraNetplaySession(
             peerName = "",
             status = status,
             playerCount = 1,
+            playerNames = sessionRoster(),
         )
     }
 
@@ -686,7 +698,7 @@ class XoraNetplaySession(
             when (type) {
                 XoraNetplayProtocol.TYPE_GO -> {
                     val go = XoraNetplayProtocol.decodeGo(payload)
-                    applyGo(go.epoch, go.slotsMask)
+                    applyGo(go.epoch, go.slotsMask, go.names)
                     refreshLinkedState()
                     return
                 }
@@ -766,7 +778,7 @@ class XoraNetplaySession(
                 XoraNetplayProtocol.TYPE_GO -> {
                     if (!isHost.get()) {
                         val go = XoraNetplayProtocol.decodeGo(payload)
-                        applyGo(go.epoch, go.slotsMask)
+                        applyGo(go.epoch, go.slotsMask, go.names)
                         refreshLinkedState()
                     }
                 }
@@ -789,7 +801,7 @@ class XoraNetplaySession(
                                 runCatching {
                                     link.send(
                                         XoraNetplayProtocol.TYPE_GO,
-                                        XoraNetplayProtocol.encodeGo(epoch.get(), mask),
+                                        XoraNetplayProtocol.encodeGo(epoch.get(), mask, sessionRoster()),
                                     )
                                 }
                                 refreshLinkedState()
@@ -820,7 +832,12 @@ class XoraNetplaySession(
     }
 
     /** GO barrier: same epoch = mask-only update, new epoch = full lockstep restart. */
-    private fun applyGo(newEpoch: Int, mask: Int) {
+    private fun applyGo(newEpoch: Int, mask: Int, names: Map<Int, String> = emptyMap()) {
+        if (!isHost.get() && names.isNotEmpty()) {
+            names[1]?.let { hostName.set(it) }
+            peerNames.clear()
+            peerNames.putAll(names)
+        }
         val changed = newEpoch != epoch.get() || !linked.get()
         epoch.set(newEpoch)
         activeSlotsMask.set(mask)
@@ -841,20 +858,29 @@ class XoraNetplaySession(
     private fun refreshLinkedState() {
         val slot = mySlot.get()
         val count = Integer.bitCount(activeSlotsMask.get()).coerceAtLeast(1)
-        val names = if (isHost.get()) {
-            peerNames.entries.sortedBy { it.key }.joinToString(", ") { it.value }
+        val roster = if (isHost.get()) {
+            sessionRoster()
         } else {
-            hostName.get().ifBlank { "host" }
+            peerNames.toMap().ifEmpty {
+                hostName.get().takeIf { it.isNotBlank() }?.let { mapOf(1 to it) }.orEmpty()
+            }
         }
+        val host = roster[1] ?: hostName.get()
+        val others = roster.entries
+            .filter { it.key != slot }
+            .sortedBy { it.key }
+            .joinToString(", ") { it.value }
         _state.value = _state.value.copy(
             linked = true,
-            peerName = names,
+            peerName = others.ifBlank { if (isHost.get()) "" else host },
             playerSlot = slot,
             playerCount = count,
+            playerNames = roster,
             status = if (isHost.get()) {
-                "Playing with ${names.ifBlank { "players" }} · You are Player 1"
+                "Hosting as ${host.ifBlank { "Player 1" }} · " +
+                    "Playing with ${others.ifBlank { "players" }} · You are Player 1"
             } else {
-                "Joined ${names.ifBlank { "host" }} · You are Player $slot"
+                "Joined ${host.ifBlank { "the host" }}'s session · You are Player $slot"
             },
             error = null,
         )

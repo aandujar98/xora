@@ -359,22 +359,34 @@ class XoraLibretroActivity : ComponentActivity() {
         lifecycleScope.launch {
             var wasLinked = false
             var lastPlayerCount = 1
+            var lastPlayerNames = emptyMap<Int, String>()
             netplaySession?.state?.collect { ui ->
                 netplayUi = ui
                 ui.error?.let { showMenuMessage(it) }
                 if (ui.linked) {
                     lifecycleScope.launch { disableHardcoreForNetplay() }
                 }
+                val hostUsername = ui.playerNames[1]
+                    ?.takeIf { it.isNotBlank() } ?: "the host"
                 if (ui.linked && wasLinked && ui.playerCount > lastPlayerCount) {
                     // A third or fourth player joined an already-linked session.
                     lifecycleScope.launch(emuDispatcher) {
                         LibretroNative.nativePlugControllers()
                     }
-                    showMenuMessage("A player joined · ${ui.playerCount} players in session")
+                    val newSlots = ui.playerNames.keys - lastPlayerNames.keys - ui.playerSlot
+                    val joined = newSlots.sorted()
+                        .firstNotNullOfOrNull { ui.playerNames[it] } ?: "A player"
+                    val line = if (ui.playerSlot == 1) {
+                        "$joined joined your session · ${ui.playerCount} players"
+                    } else {
+                        "$joined joined $hostUsername's session · ${ui.playerCount} players"
+                    }
+                    showMenuMessage(line)
                     shellNotifications.emit(
                         ShellNotification.XoraSessionJoined(
                             id = "xora-joined:${ui.playerCount}:${SystemClock.elapsedRealtime()}",
-                            displayName = ui.peerName.ifBlank { "A player" },
+                            displayName = joined,
+                            detail = line,
                         ),
                     )
                 }
@@ -385,16 +397,21 @@ class XoraLibretroActivity : ComponentActivity() {
                     audioTrack?.play()
                     hideSoftKeyboard()
                     window.decorView.requestFocus()
-                    val name = if (ui.role == XoraNetplayRole.Host) {
-                        ui.peerName.ifBlank { "A player" }
+                    val line: String
+                    val bannerName: String
+                    if (ui.role == XoraNetplayRole.Host) {
+                        bannerName = ui.peerName.ifBlank { "A player" }
+                        line = "$bannerName joined your session"
                     } else {
-                        xoraSettings.netplayNickname.ifBlank { "You" }
+                        bannerName = hostUsername
+                        line = "Joined $hostUsername's session — you are Player ${ui.playerSlot}"
                     }
-                    showMenuMessage("$name joined the session")
+                    showMenuMessage(line)
                     shellNotifications.emit(
                         ShellNotification.XoraSessionJoined(
                             id = "xora-joined:${ui.peerName}:${SystemClock.elapsedRealtime()}",
-                            displayName = name,
+                            displayName = bannerName,
+                            detail = line,
                         ),
                     )
                     if (menuOpen) {
@@ -404,6 +421,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
                 wasLinked = ui.linked
                 lastPlayerCount = if (ui.linked) ui.playerCount.coerceAtLeast(1) else 1
+                lastPlayerNames = if (ui.linked) ui.playerNames else emptyMap()
             }
         }
         lifecycleScope.launch {
@@ -1488,7 +1506,10 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun netplayHello() = XoraNetplayProtocol.Hello(
-        nickname = xoraSettings.netplayNickname,
+        // Sessions are announced by XOrA Network username ("angel joined pal's session");
+        // the local netplay nickname is only a fallback for signed-out LAN play.
+        nickname = xoraNetworkUi.account?.username?.takeIf { it.isNotBlank() }
+            ?: xoraSettings.netplayNickname,
         coreName = coreName,
         platformId = platformId,
         romName = gameTitle,

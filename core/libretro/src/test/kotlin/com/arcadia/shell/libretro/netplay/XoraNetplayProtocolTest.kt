@@ -94,9 +94,22 @@ class XoraNetplayProtocolTest {
         val go = XoraNetplayProtocol.decodeGo(XoraNetplayProtocol.encodeGo(epoch = 9, slotsMask = 0b1011))
         assertEquals(9, go.epoch)
         assertEquals(0b1011, go.slotsMask)
+        assertEquals(emptyMap<Int, String>(), go.names)
         // Legacy empty GO means a 1v1 session.
         val legacy = XoraNetplayProtocol.decodeGo(ByteArray(0))
         assertEquals(XoraNetplayProtocol.slotsMaskOf(listOf(1, 2)), legacy.slotsMask)
+
+        // GO can carry the XOrA-username roster so everyone knows who the host is.
+        val roster = XoraNetplayProtocol.decodeGo(
+            XoraNetplayProtocol.encodeGo(
+                epoch = 3,
+                slotsMask = 0b0111,
+                names = mapOf(1 to "angel", 2 to "pal", 3 to "thirdguy", 9 to "ignored"),
+            ),
+        )
+        assertEquals(3, roster.epoch)
+        assertEquals(0b0111, roster.slotsMask)
+        assertEquals(mapOf(1 to "angel", 2 to "pal", 3 to "thirdguy"), roster.names)
 
         assertEquals(2, XoraNetplayProtocol.decodeByeSlot(XoraNetplayProtocol.encodeBye(2)))
         assertEquals(0, XoraNetplayProtocol.decodeByeSlot(ByteArray(0)))

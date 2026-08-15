@@ -145,20 +145,52 @@ object XoraNetplayProtocol {
     fun decodeStartSlot(payload: ByteArray): Int =
         if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0
 
-    /** GO payload: new epoch + bitmask of active player slots (bit 0 = Player 1). */
-    fun encodeGo(epoch: Int, slotsMask: Int): ByteArray =
-        byteArrayOf((epoch and 0xFF).toByte(), (slotsMask and 0xFF).toByte())
+    /**
+     * GO payload: new epoch + bitmask of active player slots (bit 0 = Player 1), followed by
+     * an optional UTF-8 roster (`slot=name` pairs, NUL-separated) so every device can show
+     * who the host is and who just joined by XOrA Network username.
+     */
+    fun encodeGo(epoch: Int, slotsMask: Int, names: Map<Int, String> = emptyMap()): ByteArray {
+        val head = byteArrayOf((epoch and 0xFF).toByte(), (slotsMask and 0xFF).toByte())
+        val roster = names.entries
+            .filter { (slot, name) -> slot in 1..MAX_PLAYERS && name.isNotBlank() }
+            .sortedBy { it.key }
+            .joinToString("\u0000") { (slot, name) ->
+                "$slot=" + name.replace("\u0000", "").replace("=", "").trim()
+            }
+        if (roster.isEmpty()) return head
+        return head + roster.toByteArray(StandardCharsets.UTF_8)
+    }
 
-    data class Go(val epoch: Int, val slotsMask: Int)
-
-    fun decodeGo(payload: ByteArray): Go = Go(
-        epoch = if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0,
-        slotsMask = if (payload.size >= 2) {
-            payload[1].toInt() and 0xFF
-        } else {
-            slotsMaskOf(listOf(1, 2))
-        },
+    data class Go(
+        val epoch: Int,
+        val slotsMask: Int,
+        val names: Map<Int, String> = emptyMap(),
     )
+
+    fun decodeGo(payload: ByteArray): Go {
+        val names = if (payload.size > 2) {
+            String(payload, 2, payload.size - 2, StandardCharsets.UTF_8)
+                .split('\u0000')
+                .mapNotNull { pair ->
+                    val slot = pair.substringBefore('=').toIntOrNull() ?: return@mapNotNull null
+                    val name = pair.substringAfter('=', "").trim()
+                    if (slot in 1..MAX_PLAYERS && name.isNotEmpty()) slot to name else null
+                }
+                .toMap()
+        } else {
+            emptyMap()
+        }
+        return Go(
+            epoch = if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0,
+            slotsMask = if (payload.size >= 2) {
+                payload[1].toInt() and 0xFF
+            } else {
+                slotsMaskOf(listOf(1, 2))
+            },
+            names = names,
+        )
+    }
 
     /** BYE payload: the slot that is leaving (0 = unknown → treat as session over). */
     fun encodeBye(slot: Int): ByteArray = byteArrayOf((slot and 0xFF).toByte())
