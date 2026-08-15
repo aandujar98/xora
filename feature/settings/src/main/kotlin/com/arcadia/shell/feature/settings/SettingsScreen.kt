@@ -1452,11 +1452,10 @@ fun SettingsScreen(
             SettingsCard(title = "XOrA · Netplay", modifier = Modifier.animateItem()) {
                 Text(
                     text = "Host or join from the in-game side menu (Pause → Netplay). " +
-                        "Same Wi‑Fi uses Host session / Join session with an IP and port. " +
-                        "Worldwide play uses Host online — share the 6-character code; the " +
-                        "other player signs into XOrA Network and taps Join online. Traffic " +
-                        "goes through XOrA Network, so no port forwarding. Nickname is shared " +
-                        "with Libretro cores.",
+                        "Toggle Online or Local Wireless there. Online uses a 6-character " +
+                        "XOrA Network code (any Wi‑Fi or cellular, no port forwarding). " +
+                        "Local Wireless uses an IP and port on the same Wi‑Fi. Nickname is " +
+                        "shared with Libretro cores.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1469,6 +1468,21 @@ fun SettingsScreen(
                     Switch(
                         checked = xora.netplayEnabled,
                         onCheckedChange = viewModel::setXoraNetplayEnabled,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (xora.netplayUseRelay) "Online" else "Local Wireless",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Switch(
+                        checked = xora.netplayUseRelay,
+                        onCheckedChange = viewModel::setXoraNetplayUseRelay,
+                        enabled = xora.netplayEnabled,
                     )
                 }
                 SettingsFieldLabel("Nickname")

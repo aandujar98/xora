@@ -88,6 +88,7 @@ sealed class EmulatorMenuAction {
     data object CycleIntegerScale : EmulatorMenuAction()
     data object ToggleExpandDual : EmulatorMenuAction()
     data object ToggleNetplayEnabled : EmulatorMenuAction()
+    data object ToggleNetplayOnline : EmulatorMenuAction()
     data object HostNetplay : EmulatorMenuAction()
     data object JoinNetplay : EmulatorMenuAction()
     data object HostOnlineNetplay : EmulatorMenuAction()
@@ -147,6 +148,7 @@ fun XoraEmulatorSideMenu(
     val rootRows = remember(
         paused,
         settings.netplayEnabled,
+        settings.netplayUseRelay,
         gameTitle,
         hardcore,
         settings.aspectMode,
@@ -188,7 +190,11 @@ fun XoraEmulatorSideMenu(
             MenuRow(
                 id = "netplay",
                 title = "Netplay",
-                subtitle = if (settings.netplayEnabled) "On · hardcore off" else "Off",
+                subtitle = when {
+                    !settings.netplayEnabled -> "Off"
+                    settings.netplayUseRelay -> "On · Online"
+                    else -> "On · Local Wireless"
+                },
                 icon = XmbIcon.Network,
                 pane = EmulatorMenuPane.Netplay,
             ),
@@ -309,18 +315,19 @@ fun XoraEmulatorSideMenu(
                 }
             }
             "np-join" -> {
-                commitJoinDrafts()
-                onAction(EmulatorMenuAction.JoinNetplay)
+                if (settings.netplayUseRelay) {
+                    commitJoinCode()
+                    onAction(EmulatorMenuAction.JoinOnlineNetplay)
+                } else {
+                    commitJoinDrafts()
+                    onAction(EmulatorMenuAction.JoinNetplay)
+                }
             }
             "np-code" -> {
                 runCatching {
                     codeFocus.requestFocus()
                     keyboard?.show()
                 }
-            }
-            "np-join-online" -> {
-                commitJoinCode()
-                onAction(EmulatorMenuAction.JoinOnlineNetplay)
             }
             "np-clear" -> {
                 ipDraft = ""
@@ -712,104 +719,127 @@ private fun paneRows(
             action = EmulatorMenuAction.ToggleBezel,
         ),
     )
-    EmulatorMenuPane.Netplay -> listOf(
-        MenuRow(
-            id = "np-enable",
-            title = if (settings.netplayEnabled) "Netplay on" else "Netplay off",
-            subtitle = "Turns hardcore off when enabled",
-            icon = XmbIcon.Network,
-            action = EmulatorMenuAction.ToggleNetplayEnabled,
-        ),
-        MenuRow(
-            id = "np-host",
-            title = "Host session",
-            subtitle = netplay.localAddresses.take(2)
-                .joinToString(" · ") { "$it:${settings.netplayPort}" }
-                .ifBlank { "Port ${settings.netplayPort}" }
-                .let { "$it · same Wi‑Fi" },
-            icon = XmbIcon.Play,
-            action = EmulatorMenuAction.HostNetplay,
-        ),
-        MenuRow(
-            id = "np-join",
-            title = "Join session",
-            subtitle = if (joinAddress.isBlank()) {
-                "Type IP and port below"
-            } else {
-                "$joinAddress:$joinPort"
-            },
-            icon = XmbIcon.Friends,
-            action = EmulatorMenuAction.JoinNetplay,
-        ),
-        MenuRow(
-            id = "np-ip",
-            title = "Join IP",
-            subtitle = joinAddress.ifBlank { "Host IP or hostname" },
-            icon = XmbIcon.Network,
-        ),
-        MenuRow(
-            id = "np-port",
-            title = "Join port",
-            subtitle = joinPort.toString(),
-            icon = XmbIcon.Network,
-        ),
-        MenuRow(
-            id = "np-clear",
-            title = "Clear join target",
-            subtitle = "Erase IP and reset port",
-            icon = XmbIcon.Settings,
-            action = EmulatorMenuAction.ClearJoinTarget,
-        ),
-        MenuRow(
-            id = "np-host-online",
-            title = "Host online",
-            subtitle = when {
-                !network.signedIn -> "Sign in to XOrA Network first"
-                netplay.online && netplay.sessionCode.isNotBlank() && netplay.role == XoraNetplayRole.Host ->
-                    "Code ${netplay.sessionCode} — share this"
-                else -> "Anyone, anywhere — share a 6-character code"
-            },
-            icon = XmbIcon.Play,
-            action = EmulatorMenuAction.HostOnlineNetplay,
-        ),
-        MenuRow(
-            id = "np-join-online",
-            title = "Join online",
-            subtitle = when {
-                !network.signedIn -> "Sign in to XOrA Network first"
-                joinCode.isBlank() -> "Type the host's code below"
-                else -> "Code $joinCode"
-            },
-            icon = XmbIcon.Friends,
-            action = EmulatorMenuAction.JoinOnlineNetplay,
-        ),
-        MenuRow(
-            id = "np-code",
-            title = "Session code",
-            subtitle = joinCode.ifBlank { "6 characters from the host" },
-            icon = XmbIcon.Network,
-        ),
-        MenuRow(
-            id = "np-spec",
-            title = if (settings.netplaySpectator) "Spectator on" else "Spectator off",
-            subtitle = "Join without sending input",
-            icon = XmbIcon.User,
-            action = EmulatorMenuAction.ToggleSpectator,
-        ),
-        MenuRow(
-            id = "np-status",
-            title = netplay.status,
-            subtitle = netplay.error ?: netplay.peerName.ifBlank { "Not connected" },
-            icon = XmbIcon.Notifications,
-        ),
-        MenuRow(
-            id = "np-disc",
-            title = "Disconnect",
-            subtitle = if (netplay.linked) "Drop the current session" else "No session",
-            icon = XmbIcon.Settings,
-            action = EmulatorMenuAction.DisconnectNetplay,
-        ),
-    )
+    EmulatorMenuPane.Netplay -> {
+        val online = settings.netplayUseRelay
+        val modeRows = if (online) {
+            listOf(
+                MenuRow(
+                    id = "np-host",
+                    title = "Host session",
+                    subtitle = when {
+                        !network.signedIn -> "Sign in to XOrA Network first"
+                        netplay.online && netplay.sessionCode.isNotBlank() &&
+                            netplay.role == XoraNetplayRole.Host ->
+                            "Code ${netplay.sessionCode} — share this"
+                        else -> "Share a 6-character code"
+                    },
+                    icon = XmbIcon.Play,
+                    action = EmulatorMenuAction.HostOnlineNetplay,
+                ),
+                MenuRow(
+                    id = "np-join",
+                    title = "Join session",
+                    subtitle = when {
+                        !network.signedIn -> "Sign in to XOrA Network first"
+                        joinCode.isBlank() -> "Type the host's code below"
+                        else -> "Code $joinCode"
+                    },
+                    icon = XmbIcon.Friends,
+                    action = EmulatorMenuAction.JoinOnlineNetplay,
+                ),
+                MenuRow(
+                    id = "np-code",
+                    title = "Session code",
+                    subtitle = joinCode.ifBlank { "6 characters from the host" },
+                    icon = XmbIcon.Network,
+                ),
+            )
+        } else {
+            listOf(
+                MenuRow(
+                    id = "np-host",
+                    title = "Host session",
+                    subtitle = netplay.localAddresses.take(2)
+                        .joinToString(" · ") { "$it:${settings.netplayPort}" }
+                        .ifBlank { "Port ${settings.netplayPort}" }
+                        .let { "$it · same Wi‑Fi" },
+                    icon = XmbIcon.Play,
+                    action = EmulatorMenuAction.HostNetplay,
+                ),
+                MenuRow(
+                    id = "np-join",
+                    title = "Join session",
+                    subtitle = if (joinAddress.isBlank()) {
+                        "Type IP and port below"
+                    } else {
+                        "$joinAddress:$joinPort"
+                    },
+                    icon = XmbIcon.Friends,
+                    action = EmulatorMenuAction.JoinNetplay,
+                ),
+                MenuRow(
+                    id = "np-ip",
+                    title = "Join IP",
+                    subtitle = joinAddress.ifBlank { "Host IP or hostname" },
+                    icon = XmbIcon.Network,
+                ),
+                MenuRow(
+                    id = "np-port",
+                    title = "Join port",
+                    subtitle = joinPort.toString(),
+                    icon = XmbIcon.Network,
+                ),
+                MenuRow(
+                    id = "np-clear",
+                    title = "Clear join target",
+                    subtitle = "Erase IP and reset port",
+                    icon = XmbIcon.Settings,
+                    action = EmulatorMenuAction.ClearJoinTarget,
+                ),
+            )
+        }
+        listOf(
+            MenuRow(
+                id = "np-enable",
+                title = if (settings.netplayEnabled) "Netplay on" else "Netplay off",
+                subtitle = "Turns hardcore off when enabled",
+                icon = XmbIcon.Network,
+                action = EmulatorMenuAction.ToggleNetplayEnabled,
+            ),
+            MenuRow(
+                id = "np-mode",
+                title = if (online) "Online" else "Local Wireless",
+                subtitle = if (online) {
+                    "XOrA Network · 6-character code"
+                } else {
+                    "Same Wi‑Fi · IP and port"
+                },
+                icon = XmbIcon.Network,
+                action = EmulatorMenuAction.ToggleNetplayOnline,
+            ),
+        ) + modeRows + listOf(
+            MenuRow(
+                id = "np-spec",
+                title = if (settings.netplaySpectator) "Spectator on" else "Spectator off",
+                subtitle = "Join without sending input",
+                icon = XmbIcon.User,
+                action = EmulatorMenuAction.ToggleSpectator,
+            ),
+            MenuRow(
+                id = "np-status",
+                title = netplay.status,
+                subtitle = netplay.error ?: netplay.peerName.ifBlank { "Not connected" },
+                icon = XmbIcon.Notifications,
+            ),
+            MenuRow(
+                id = "np-disc",
+                title = "Disconnect",
+                subtitle = if (netplay.linked) "Drop the current session" else "No session",
+                icon = XmbIcon.Settings,
+                action = EmulatorMenuAction.DisconnectNetplay,
+            ),
+        )
+    }
     EmulatorMenuPane.RetroAchievements -> listOf(
         MenuRow(
             id = "ra-hardcore",

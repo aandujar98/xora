@@ -909,6 +909,9 @@ class XoraLibretroActivity : ComponentActivity() {
                 if (enable) disableHardcoreForNetplay()
                 preferences.setXoraNetplayEnabled(enable)
             }
+            EmulatorMenuAction.ToggleNetplayOnline -> lifecycleScope.launch {
+                preferences.setXoraNetplayUseRelay(!xoraSettings.netplayUseRelay)
+            }
             EmulatorMenuAction.HostNetplay -> startHostNetplay()
             EmulatorMenuAction.JoinNetplay -> startJoinNetplay()
             EmulatorMenuAction.HostOnlineNetplay -> startHostOnlineNetplay()

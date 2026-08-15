@@ -40,7 +40,7 @@ data class XoraEmulatorSettings(
     val netplayPort: Int = DEFAULT_NETPLAY_PORT,
     /** Prefer spectator mode when joining. */
     val netplaySpectator: Boolean = false,
-    /** Use MITM/relay when direct connect fails (frontend hint). */
+    /** True = Online (XOrA Network session code). False = Local Wireless (same Wi‑Fi IP:port). */
     val netplayUseRelay: Boolean = false,
     /** Last host address typed in Join (IP or hostname). */
     val netplayHostAddress: String = "",
