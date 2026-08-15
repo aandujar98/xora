@@ -55,8 +55,7 @@ import kotlinx.coroutines.launch
 /**
  * PS3-style Cross Media Bar over a live/frozen game session.
  *
- * In-game overlay is now [XoraEmulatorMenuView] on the emulator stage. This XMB remains for
- * reference / unused.
+ * In-game overlay is now [XoraEmulatorSideMenu]. This XMB remains for reference / unused.
  */
 @Composable
 fun XoraInGameXmbOverlay(

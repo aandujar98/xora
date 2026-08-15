@@ -1426,23 +1426,6 @@ fun SettingsScreen(
                         onCheckedChange = viewModel::setXoraBezelsEnabled,
                     )
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(text = "Block white tint", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = xora.blockOverlayWash,
-                        onCheckedChange = viewModel::setXoraBlockOverlayWash,
-                    )
-                }
-                Text(
-                    text = "Keeps the pause menu on the emulator stage, beside the game. " +
-                        "In-game, Display → Remove white tint re-pins the window opaque.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 SettingsFieldLabel(
                     "Bezel strength (${(xora.bezelOpacity * 100f).roundToInt()}%)",
                 )

@@ -21,8 +21,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,7 +58,8 @@ import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.SecondaryDisplayPane
 import com.arcadia.shell.feature.home.EmulatorMenuAction
 import com.arcadia.shell.feature.home.EmulatorSaveSlotUi
-import com.arcadia.shell.feature.home.XoraEmulatorMenuView
+import com.arcadia.shell.feature.home.LocalInGameXmbController
+import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
 import com.arcadia.shell.feature.home.XoraInGameXmbController
 import com.arcadia.shell.libretro.netplay.nudgeIpv4
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
@@ -96,8 +95,8 @@ import kotlin.coroutines.coroutineContext
  * In-process Libretro session.
  *
  * The framebuffer lives on an opaque [ImageView] inside [XoraEmulatorStage]. Back / PS-style
- * chord opens an Azahar-style side menu as a **child of that same stage** — left strip, game
- * in the remaining rect. A stacked Compose overlay was what left the milky white wash.
+ * chord opens an Azahar-style side menu that never covers the game with a translucent Compose
+ * sheet — that stacking is what left the milky white wash after Resume.
  */
 @AndroidEntryPoint
 class XoraLibretroActivity : ComponentActivity() {
@@ -119,6 +118,7 @@ class XoraLibretroActivity : ComponentActivity() {
     @Volatile private var paused = false
     /** Stays paused after the side menu closes until Resume is chosen. */
     @Volatile private var userPaused = false
+    private var userPausedUi by mutableStateOf(false)
     /** True while the activity is backgrounded (home/recents) — pauses the frame loop. */
     @Volatile private var activityInBackground = false
     private var gameLoaded = false
@@ -134,7 +134,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var secondaryGameView: ImageView? = null
     private var gameRoot: FrameLayout? = null
     private var stage: XoraEmulatorStage? = null
-    private var pauseMenu: XoraEmulatorMenuView? = null
+    private var xmbOverlay: ComposeView? = null
     private var profileName by mutableStateOf("Player")
     /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
     private var menuMessage by mutableStateOf<String?>(null)
@@ -197,20 +197,10 @@ class XoraLibretroActivity : ComponentActivity() {
             com.arcadia.shell.libretro.R.anim.xora_fade_in,
             com.arcadia.shell.libretro.R.anim.xora_hold,
         )
-        // Force dark system-bar scrims. Transparent bars were leaving a near-white contrast
-        // overlay on the letterboxed game after pause submenus.
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK),
-        )
-        // enableEdgeToEdge can flip the window to a translucent format; pin it opaque immediately.
-        window.setFormat(PixelFormat.OPAQUE)
+        // Never enableEdgeToEdge here. That call switches the window to a translucent format
+        // and is what painted a white wash over the game after the pause menu closed.
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            window.isNavigationBarContrastEnforced = false
-            window.isStatusBarContrastEnforced = false
-        }
-        ImmersiveMode.apply(window)
+        applyOpaqueWindow()
 
         val romPath = intent.getStringExtra(XoraLibretroPlayers.EXTRA_ROM_PATH)
         romFilePath = romPath
@@ -231,8 +221,6 @@ class XoraLibretroActivity : ComponentActivity() {
         window.setFormat(PixelFormat.OPAQUE)
         val root = FrameLayout(this).apply {
             setBackgroundColor(AndroidColor.BLACK)
-            clipChildren = true
-            clipToPadding = true
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -254,16 +242,6 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         stage = stageView
         primaryGameView = stageView.gameView
-        val menu = XoraEmulatorMenuView(this).apply {
-            onAction = { handleEmulatorMenuAction(it) }
-            onDismiss = { closeMenu() }
-        }
-        pauseMenu = menu
-        stageView.attachMenu(menu)
-        inGameXmbController.moveCategory = { menu.moveCategory(it) }
-        inGameXmbController.moveItem = { menu.moveItem(it) }
-        inGameXmbController.confirm = { menu.confirm() }
-        inGameXmbController.cancel = { menu.cancel() }
         root.addView(stageView)
 
         // Wrap-content host for RA unlock banners + secondary display + preference effects.
@@ -281,12 +259,27 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         root.addView(banners)
 
+        val xmb = ComposeView(this).apply {
+            // Opaque wrap-content side menu. A transparent Compose host is what washed the game.
+            setBackgroundColor(AndroidColor.BLACK)
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.START,
+            )
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            visibility = View.GONE
+        }
+        xmbOverlay = xmb
+        root.addView(xmb)
+
         setContentView(root)
+        applyOpaqueWindow()
         netplaySession = XoraNetplaySession(lifecycleScope)
         lifecycleScope.launch {
             netplaySession?.state?.collect { ui ->
                 netplayUi = ui
-                refreshPauseMenu()
                 ui.error?.let { showMenuMessage(it) }
                 if (ui.linked && menuOpen) {
                     setUserPaused(false)
@@ -320,12 +313,8 @@ class XoraLibretroActivity : ComponentActivity() {
                 if (joinAddress.isBlank() && xora.netplayHostAddress.isNotBlank()) {
                     joinAddress = xora.netplayHostAddress
                 }
-                refreshPauseMenu()
             }
-            LaunchedEffect(raPrefs) {
-                raSettings = raPrefs
-                refreshPauseMenu()
-            }
+            LaunchedEffect(raPrefs) { raSettings = raPrefs }
 
             if (expandActive) {
                 SecondaryDisplayPane(displayId = secondaryDisplayId) {
@@ -360,6 +349,41 @@ class XoraLibretroActivity : ComponentActivity() {
                     Box(modifier = Modifier.wrapContentSize(align = Alignment.TopStart)) {
                         NotificationBannerHost(center = shellNotifications)
                     }
+                }
+            }
+        }
+
+        xmb.setContent {
+            val settings by preferences.settings.collectAsStateWithLifecycle(
+                initialValue = ShellSettings(),
+            )
+            val xora by preferences.xoraEmulatorSettings.collectAsStateWithLifecycle(
+                initialValue = XoraEmulatorSettings(),
+            )
+            val raPrefs by preferences.retroAchievementsSettings.collectAsStateWithLifecycle(
+                initialValue = RetroAchievementsSettings(),
+            )
+            ArcadiaTheme(
+                darkTheme = true,
+                shellThemeId = settings.shellThemeId,
+                uiTextScale = settings.uiTextScale,
+            ) {
+                CompositionLocalProvider(
+                    LocalArcadiaHaze provides null,
+                    LocalInGameXmbController provides inGameXmbController,
+                ) {
+                    XoraEmulatorSideMenu(
+                        gameTitle = gameTitle,
+                        paused = userPausedUi,
+                        hardcore = raPrefs.hardcore && raPrefs.enabled,
+                        settings = xora,
+                        saveSlots = saveSlots,
+                        netplay = netplayUi,
+                        joinAddress = joinAddress.ifBlank { xora.netplayHostAddress },
+                        message = menuMessage,
+                        onAction = { handleEmulatorMenuAction(it) },
+                        onDismiss = { closeMenu() },
+                    )
                 }
             }
         }
@@ -678,10 +702,11 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun openMenu() {
         if (menuOpen || isFinishing) return
+        val overlay = xmbOverlay ?: return
         refreshSaveSlots()
-        refreshPauseMenu()
+        overlay.visibility = View.VISIBLE
+        overlay.bringToFront()
         menuOpen = true
-        stage?.menuVisible = true
         syncPaused()
         uiSounds.playConfirm()
     }
@@ -695,43 +720,27 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun setUserPaused(value: Boolean) {
         userPaused = value
+        userPausedUi = value
         syncPaused()
-        refreshPauseMenu()
     }
 
     private fun showMenuMessage(text: String) {
         menuMessage = text
-        refreshPauseMenu()
         menuMessageJob?.cancel()
         menuMessageJob = lifecycleScope.launch {
             delay(MENU_MESSAGE_MS)
             menuMessage = null
-            refreshPauseMenu()
         }
     }
 
     private fun closeMenu() {
         if (!menuOpen) return
         menuOpen = false
-        pauseMenu?.resetPane()
-        stage?.menuVisible = false
         syncPaused()
+        xmbOverlay?.visibility = View.GONE
+        menuMessageJob?.cancel()
+        menuMessage = null
         applyOpaqueWindow()
-    }
-
-    private fun refreshPauseMenu() {
-        val menu = pauseMenu ?: return
-        menu.bind(
-            gameTitle = gameTitle,
-            paused = userPaused,
-            hardcore = raSettings.hardcore && raSettings.enabled,
-            settings = xoraSettings,
-            saveSlots = saveSlots,
-            netplay = netplayUi,
-            joinAddress = joinAddress.ifBlank { xoraSettings.netplayHostAddress },
-            message = menuMessage,
-        )
-        if (menuOpen) stage?.requestLayout()
     }
 
     private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
@@ -750,21 +759,6 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             EmulatorMenuAction.ToggleBezel -> lifecycleScope.launch {
                 preferences.setXoraBezelsEnabled(!xoraSettings.bezelsEnabled)
-            }
-            EmulatorMenuAction.ClearWhiteTint -> {
-                lifecycleScope.launch {
-                    preferences.setXoraBlockOverlayWash(true)
-                }
-                applyOpaqueWindow()
-                showMenuMessage("White tint cleared")
-            }
-            EmulatorMenuAction.ToggleBlockOverlayWash -> lifecycleScope.launch {
-                val next = !xoraSettings.blockOverlayWash
-                preferences.setXoraBlockOverlayWash(next)
-                withContext(Dispatchers.Main.immediate) {
-                    if (next) applyOpaqueWindow()
-                    showMenuMessage(if (next) "White tint blocked" else "Tint block off")
-                }
             }
             EmulatorMenuAction.CycleInternalResolution -> lifecycleScope.launch {
                 val values = XoraInternalResolution.entries
@@ -795,7 +789,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 val current = joinAddress.ifBlank { xoraSettings.netplayHostAddress }
                 val next = nudgeIpv4(current, action.octetIndex, action.delta)
                 joinAddress = next
-                refreshPauseMenu()
                 preferences.setXoraNetplayHostAddress(next)
             }
             EmulatorMenuAction.CyclePreferredController -> lifecycleScope.launch {
@@ -911,7 +904,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 EmulatorSaveSlotUi(slot = slot, occupied = false, subtitle = "Empty")
             }
         }
-        refreshPauseMenu()
     }
 
     private fun applyStageSettings(xora: XoraEmulatorSettings) {
@@ -974,8 +966,8 @@ class XoraLibretroActivity : ComponentActivity() {
     }.getOrNull()
 
     /**
-     * Opaque window + black chrome. Do **not** call enableEdgeToEdge here — that switches the
-     * window to a translucent format and is what painted the game white after Resume.
+     * Opaque black window. Do **not** call enableEdgeToEdge — that flips the window translucent
+     * and is what painted white over the game after Resume.
      */
     private fun applyOpaqueWindow() {
         window.setFormat(PixelFormat.OPAQUE)
@@ -999,11 +991,7 @@ class XoraLibretroActivity : ComponentActivity() {
         window.decorView.setBackgroundColor(AndroidColor.BLACK)
         ImmersiveMode.apply(window)
         gameRoot?.setBackgroundColor(AndroidColor.BLACK)
-        pinGameViewOpaque()
-        window.decorView.requestFocus()
-    }
-
-    private fun pinGameViewOpaque() {
+        xmbOverlay?.setBackgroundColor(AndroidColor.BLACK)
         primaryGameView?.apply {
             setLayerType(View.LAYER_TYPE_NONE, null)
             setBackgroundColor(AndroidColor.BLACK)
@@ -1011,14 +999,8 @@ class XoraLibretroActivity : ComponentActivity() {
             colorFilter = null
             imageAlpha = 255
         }
-        stage?.apply {
-            setLayerType(View.LAYER_TYPE_NONE, null)
-            setBackgroundColor(AndroidColor.BLACK)
-        }
-        stage?.bezelView?.apply {
-            setLayerType(View.LAYER_TYPE_NONE, null)
-            setBackgroundColor(AndroidColor.BLACK)
-        }
+        stage?.setBackgroundColor(AndroidColor.BLACK)
+        window.decorView.requestFocus()
     }
 
     private fun startAudio() {

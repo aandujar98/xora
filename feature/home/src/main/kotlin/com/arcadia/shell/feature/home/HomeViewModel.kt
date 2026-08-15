@@ -2651,8 +2651,6 @@ class HomeViewModel @Inject constructor(
                 }
                 XoraEmulatorXmbSetting.Bezels ->
                     preferences.setXoraBezelsEnabled(!current.bezelsEnabled)
-                XoraEmulatorXmbSetting.BlockOverlayWash ->
-                    preferences.setXoraBlockOverlayWash(!current.blockOverlayWash)
                 XoraEmulatorXmbSetting.BezelOpacity -> {
                     val stepped = ((current.bezelOpacity * 100f).toInt() + 10).let { raw ->
                         if (raw > 100) 40 else raw

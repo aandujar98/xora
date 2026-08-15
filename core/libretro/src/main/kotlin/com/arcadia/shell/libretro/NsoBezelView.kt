@@ -47,12 +47,6 @@ class NsoBezelView @JvmOverloads constructor(
     private var showAvatar = true
     private var overlayPath: String? = null
 
-    init {
-        setBackgroundColor(Color.BLACK)
-        setLayerType(LAYER_TYPE_NONE, null)
-        setWillNotDraw(false)
-    }
-
     fun setGameRect(left: Int, top: Int, right: Int, bottom: Int) {
         if (gameRect.left == left && gameRect.top == top &&
             gameRect.right == right && gameRect.bottom == bottom
@@ -92,8 +86,7 @@ class NsoBezelView @JvmOverloads constructor(
         } else {
             drawHalftonePillars(canvas, w, h)
         }
-        // NSO PNGs often fill the screen hole with white/light pixels. Paint that rect
-        // black so it cannot bleed through the ImageView sitting on top.
+        // NSO PNGs fill the LCD hole with white. Keep that rect black under the ImageView.
         if (!gameRect.isEmpty) {
             mattePaint.color = Color.BLACK
             canvas.drawRect(gameRect, mattePaint)

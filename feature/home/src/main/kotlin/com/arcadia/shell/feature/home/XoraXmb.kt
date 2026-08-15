@@ -141,7 +141,6 @@ enum class XoraEmulatorXmbSetting {
     Aspect,
     Bezels,
     BezelOpacity,
-    BlockOverlayWash,
     InternalResolution,
     ExpandDualDisplay,
     PreferredController,
@@ -555,17 +554,6 @@ fun buildXoraEmulatorItems(
             subtitle = if (settings.bezelsEnabled) "On" else "Off",
             action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.Bezels),
             icon = XmbIcon.Emulator,
-        ),
-        XoraXmbItem(
-            id = "emu_block_wash",
-            title = "Block white tint",
-            subtitle = if (settings.blockOverlayWash) {
-                "On · pause menu sits on the emulator stage"
-            } else {
-                "Off · tap to block the wash"
-            },
-            action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.BlockOverlayWash),
-            icon = XmbIcon.Display,
         ),
         XoraXmbItem(
             id = "emu_bezel_opacity",
