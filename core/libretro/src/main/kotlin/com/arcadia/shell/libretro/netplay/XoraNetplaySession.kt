@@ -498,7 +498,7 @@ class XoraNetplaySession(
     }
 
     companion object {
-        private const val ONLINE_INPUT_DELAY = 8
+        private const val ONLINE_INPUT_DELAY = 12
         private const val INPUT_STALL_NS = 5_000_000_000L // 5s
 
         fun localIpv4Addresses(): List<String> = runCatching {

@@ -345,17 +345,25 @@ class XoraLibretroActivity : ComponentActivity() {
         startWashGuard()
         netplaySession = XoraNetplaySession(lifecycleScope)
         lifecycleScope.launch {
+            var wasLinked = false
             netplaySession?.state?.collect { ui ->
                 netplayUi = ui
                 ui.error?.let { showMenuMessage(it) }
                 if (ui.linked) {
                     lifecycleScope.launch { disableHardcoreForNetplay() }
                 }
+                if (ui.linked && !wasLinked) {
+                    lifecycleScope.launch(emuDispatcher) {
+                        LibretroNative.nativePlugControllers()
+                    }
+                    audioTrack?.play()
+                }
                 if (ui.linked && menuOpen) {
                     setUserPaused(false)
                     closeMenu()
                     showMenuMessage("Netplay linked · ${ui.peerName.ifBlank { "P2" }}")
                 }
+                wasLinked = ui.linked
             }
         }
         lifecycleScope.launch {
@@ -842,7 +850,13 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun syncPaused() {
         paused = menuOpen || userPaused
         runCatching {
-            if (paused) audioTrack?.pause() else audioTrack?.play()
+            if (netplaySession?.linkedNow == true) {
+                audioTrack?.play()
+            } else if (paused) {
+                audioTrack?.pause()
+            } else {
+                audioTrack?.play()
+            }
         }
     }
 
@@ -1527,6 +1541,7 @@ class XoraLibretroActivity : ComponentActivity() {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT,
         )
+        val netplayCushion = (sampleRate * 2 * 2 * 150) / 1000 // ~150ms stereo s16
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -1541,7 +1556,8 @@ class XoraLibretroActivity : ComponentActivity() {
                     .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                     .build(),
             )
-            .setBufferSizeInBytes(minBuf * 2)
+            .setBufferSizeInBytes(maxOf(minBuf * 4, netplayCushion))
+            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
             .also {

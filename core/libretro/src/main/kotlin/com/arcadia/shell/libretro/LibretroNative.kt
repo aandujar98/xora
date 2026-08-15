@@ -31,6 +31,8 @@ object LibretroNative {
     external fun nativeSerialize(): ByteArray?
     external fun nativeUnserialize(data: ByteArray): Boolean
     external fun nativeLastError(): String?
+    /** Plug libretro ports 0 and 1 so the joiner is a real P2, not an empty socket. */
+    external fun nativePlugControllers()
 
     /** Clear frontend core-option overrides (call before applying a fresh set). */
     external fun nativeClearCoreVariables()

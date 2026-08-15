@@ -483,6 +483,12 @@ size_t audio_sample_batch(const int16_t* data, size_t frames) {
 
 void input_poll() {}
 
+void plug_controllers() {
+    if (!g_api.set_controller_port_device) return;
+    g_api.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+    g_api.set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
+}
+
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port > 1) return 0;
     if (device == RETRO_DEVICE_JOYPAD) {
@@ -616,6 +622,17 @@ bool environment(unsigned cmd, void* data) {
             // some cores treat the callback as supported and then query JOYPAD_MASK (256),
             // which previously always returned 0 and made pads appear dead.
             if (data) *static_cast<bool*>(data) = true;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS: {
+            if (!data) return false;
+            *static_cast<unsigned*>(data) = 2u;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
+            if (!data) return false;
+            *static_cast<uint64_t*>(data) =
+                (1ULL << RETRO_DEVICE_JOYPAD) | (1ULL << RETRO_DEVICE_ANALOG);
             return true;
         }
         case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
@@ -1016,6 +1033,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadGame(
     }
 
     g_game_loaded = true;
+    plug_controllers();
     unsigned hw_w = 640;
     unsigned hw_h = 480;
     if (g_api.get_system_av_info) {
@@ -1178,12 +1196,20 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeUnserialize(
     if (len <= 0) return JNI_FALSE;
     std::vector<uint8_t> buf(static_cast<size_t>(len));
     env->GetByteArrayRegion(data, 0, len, reinterpret_cast<jbyte*>(buf.data()));
-    return g_api.unserialize(buf.data(), buf.size()) ? JNI_TRUE : JNI_FALSE;
+    if (!g_api.unserialize(buf.data(), buf.size())) return JNI_FALSE;
+    plug_controllers();
+    return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeLastError(JNIEnv* env, jclass) {
     return env->NewStringUTF(g_last_error.c_str());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativePlugControllers(JNIEnv*, jclass) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_game_loaded) plug_controllers();
 }
 
 extern "C" JNIEXPORT void JNICALL

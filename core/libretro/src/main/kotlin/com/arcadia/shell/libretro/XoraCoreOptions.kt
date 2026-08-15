@@ -50,6 +50,8 @@ object XoraCoreOptions {
         out["mupen64plus-aspect"] = "4:3"
         out["mupen64plus-EnableNativeResFactor"] = "0"
         out["mupen64plus-FrameDuping"] = "False"
+        out["mupen64plus-pak1"] = "memory"
+        out["mupen64plus-pak2"] = "memory"
         // ParaLLEl: software RDP avoids Vulkan (unsupported by the XOrA GLES host).
         out["parallel-n64-gfx"] = "angrylion"
     }
