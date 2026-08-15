@@ -40,6 +40,7 @@ import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.libretro.GameSaveKind
 import com.arcadia.shell.model.Game
+import com.arcadia.shell.model.RomSoundBiteLocator
 import com.arcadia.shell.scraper.ScraperPreference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
@@ -181,10 +182,12 @@ fun RomOptionsSheet(
             )
             MediaRow(
                 title = "Sound bite",
-                status = pathStatus(game.soundBitePath),
+                status = soundBiteStatus(game),
                 onChange = onPickSoundBite,
                 onClear = onClearSoundBite.takeIf { !game.soundBitePath.isNullOrBlank() },
-                onExtra = onPreviewSoundBite.takeIf { !game.soundBitePath.isNullOrBlank() },
+                onExtra = onPreviewSoundBite.takeIf {
+                    RomSoundBiteLocator.resolve(game) != null
+                },
                 extraLabel = "Preview",
             )
 
@@ -392,6 +395,12 @@ private fun PreferenceChips(
 
 private fun pathStatus(path: String?): String =
     if (path.isNullOrBlank()) "Not set" else path.substringAfterLast('/')
+
+private fun soundBiteStatus(game: Game): String {
+    if (!game.soundBitePath.isNullOrBlank()) return pathStatus(game.soundBitePath)
+    val sidecar = RomSoundBiteLocator.resolve(game) ?: return "Not set — drop Game name.mp3 in the ROMs folder"
+    return "ROMs folder · ${sidecar.substringAfterLast('/')}"
+}
 
 private fun formatSaveMeta(entry: GameSaveEntry): String {
     val size = formatBytes(entry.sizeBytes)

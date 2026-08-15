@@ -36,7 +36,10 @@ data class Game(
     val heroImagePath: String? = null,
     val logoImagePath: String? = null,
     val boxArtPath: String? = null,
-    /** Optional short audio clip played when this ROM is focused in the XMB. */
+    /**
+     * Imported hover clip (Select → ROM options). If unset, the shell also looks next to the ROM
+     * for `Game name.mp3` / `.wav` — see [RomSoundBiteLocator].
+     */
     val soundBitePath: String? = null,
     /**
      * Encoded trailer reference ([TrailerRefs]): direct media URI/path or `youtube:` id.

@@ -84,6 +84,7 @@ import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.GamePlatform
+import com.arcadia.shell.model.RomSoundBiteLocator
 import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.HomeShortcutKind
 import com.arcadia.shell.model.LaunchDisplayPreference
@@ -1064,16 +1065,48 @@ class HomeViewModel @Inject constructor(
             }
             .launchIn(viewModelScope)
 
-        // Focused ROM sound bite (customized via Select → ROM options).
-        uiState
-            .map { state ->
-                val game = state.xoraXmb.focusGame
-                    ?.takeIf { state.xoraXmb.depth == XoraXmbDepth.Roms }
-                    ?: state.selectedGame?.takeIf { state.homePage == HomePage.GameSelector }
-                game?.id to game?.soundBitePath
+        // Focused ROM sound bite: imported clip, or Game name.mp3 / .wav next to the ROM.
+        combine(
+            uiState
+                .map { state ->
+                    if (state.isLaunching) return@map null
+                    val game = state.xoraXmb.focusGame
+                        ?.takeIf { !it.isAndroidApp }
+                        ?.takeIf {
+                            state.xoraXmb.depth == XoraXmbDepth.Roms ||
+                                state.xoraXmb.selectedItem?.action is XoraXmbAction.LaunchGame ||
+                                state.xoraXmb.selectedItem?.action is
+                                    XoraXmbAction.LaunchContinueOrFavorite
+                        }
+                        ?: state.selectedGame?.takeIf {
+                            state.homePage == HomePage.GameSelector && !it.isAndroidApp
+                        }
+                    game?.let { focused ->
+                        SoundBiteFocus(
+                            id = focused.id,
+                            importedPath = focused.soundBitePath,
+                            romFilePath = focused.filePath,
+                            title = focused.title,
+                            fileName = focused.fileName,
+                        )
+                    }
+                }
+                .distinctUntilChanged(),
+            appForegroundTracker.isForeground,
+        ) { focus, foreground ->
+            if (!foreground || focus == null) {
+                null
+            } else {
+                RomSoundBiteLocator.resolve(
+                    explicitPath = focus.importedPath,
+                    romFilePath = focus.romFilePath,
+                    title = focus.title,
+                    romFileName = focus.fileName,
+                )
             }
+        }
             .distinctUntilChanged()
-            .onEach { (_, path) ->
+            .onEach { path ->
                 if (!path.isNullOrBlank()) gameSoundBitePlayer.play(path)
                 else gameSoundBitePlayer.stop()
             }
@@ -7002,7 +7035,8 @@ class HomeViewModel @Inject constructor(
 
     fun previewGameSoundBite(gameId: String) {
         viewModelScope.launch {
-            val path = libraryRepository.findById(gameId)?.soundBitePath
+            val game = libraryRepository.findById(gameId)
+            val path = game?.let(RomSoundBiteLocator::resolve)
             if (path.isNullOrBlank()) {
                 emit(HomeEvent.ShowMessage("No sound bite set."))
             } else {
@@ -7215,3 +7249,12 @@ class HomeViewModel @Inject constructor(
     }
 
 }
+
+/** Identity of the focused ROM used to look up a hover sound bite without listing dirs every frame. */
+private data class SoundBiteFocus(
+    val id: String,
+    val importedPath: String?,
+    val romFilePath: String?,
+    val title: String,
+    val fileName: String,
+)
