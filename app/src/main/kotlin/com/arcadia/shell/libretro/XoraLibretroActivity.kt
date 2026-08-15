@@ -80,6 +80,7 @@ import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
+import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplaySession
@@ -183,6 +184,8 @@ class XoraLibretroActivity : ComponentActivity() {
     private var pendingInvitePrompt by mutableStateOf<NetplayInvitePrompt?>(null)
     private var invitePromptOpen by mutableStateOf(false)
     private val consumedNetplayInviteKeys = linkedSetOf<String>()
+    private var notificationHistory by mutableStateOf<List<ShellNotificationHistoryItem>>(emptyList())
+    private var notificationUnread by mutableIntStateOf(0)
     private val localNetworkPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -355,11 +358,25 @@ class XoraLibretroActivity : ComponentActivity() {
         netplaySession = XoraNetplaySession(lifecycleScope)
         lifecycleScope.launch {
             var wasLinked = false
+            var lastPlayerCount = 1
             netplaySession?.state?.collect { ui ->
                 netplayUi = ui
                 ui.error?.let { showMenuMessage(it) }
                 if (ui.linked) {
                     lifecycleScope.launch { disableHardcoreForNetplay() }
+                }
+                if (ui.linked && wasLinked && ui.playerCount > lastPlayerCount) {
+                    // A third or fourth player joined an already-linked session.
+                    lifecycleScope.launch(emuDispatcher) {
+                        LibretroNative.nativePlugControllers()
+                    }
+                    showMenuMessage("A player joined · ${ui.playerCount} players in session")
+                    shellNotifications.emit(
+                        ShellNotification.XoraSessionJoined(
+                            id = "xora-joined:${ui.playerCount}:${SystemClock.elapsedRealtime()}",
+                            displayName = ui.peerName.ifBlank { "A player" },
+                        ),
+                    )
                 }
                 if (ui.linked && !wasLinked) {
                     lifecycleScope.launch(emuDispatcher) {
@@ -386,7 +403,14 @@ class XoraLibretroActivity : ComponentActivity() {
                     }
                 }
                 wasLinked = ui.linked
+                lastPlayerCount = if (ui.linked) ui.playerCount.coerceAtLeast(1) else 1
             }
+        }
+        lifecycleScope.launch {
+            shellNotifications.history.collect { notificationHistory = it }
+        }
+        lifecycleScope.launch {
+            shellNotifications.unreadCount.collect { notificationUnread = it }
         }
         lifecycleScope.launch {
             var avatarKey: String? = null
@@ -533,6 +557,8 @@ class XoraLibretroActivity : ComponentActivity() {
                         achievements = raAchievements,
                         achievementSummary = raAchievementSummary,
                         raStatus = raStatusLine,
+                        notifications = notificationHistory,
+                        notificationUnread = notificationUnread,
                     )
                 }
             }
@@ -1087,6 +1113,35 @@ class XoraLibretroActivity : ComponentActivity() {
             is EmulatorMenuAction.MessageFriendComingSoon -> {
                 showMenuMessage("Messaging is coming soon")
             }
+            is EmulatorMenuAction.OpenNotification -> openNotificationFromMenu(action.id)
+            EmulatorMenuAction.ClearAllNotifications -> {
+                shellNotifications.clearHistory()
+                showMenuMessage("Notifications cleared")
+            }
+            EmulatorMenuAction.NotificationsSeen -> shellNotifications.markAllRead()
+        }
+    }
+
+    /** A on a notification row: netplay invites open the Join / Not now window. */
+    private fun openNotificationFromMenu(id: String) {
+        val item = notificationHistory.firstOrNull { it.notification.id == id } ?: return
+        val notification = item.notification
+        if (notification is ShellNotification.XoraNetplayInvite) {
+            pendingInvitePrompt = NetplayInvitePrompt(
+                hostName = notification.displayName
+                    .ifBlank { notification.fromUsername }
+                    .ifBlank { "a friend" },
+                gameTitle = notification.gameTitle,
+                sessionCode = notification.sessionCode,
+                platformId = notification.platformId,
+                coreName = notification.coreName,
+                fromUsername = notification.fromUsername.ifBlank { notification.displayName },
+            )
+            invitePromptOpen = true
+            closeMenu()
+        } else {
+            shellNotifications.removeFromHistory(id)
+            showMenuMessage("Notification cleared")
         }
     }
 
@@ -1379,8 +1434,14 @@ class XoraLibretroActivity : ComponentActivity() {
         fromUsername: String,
     ) {
         if (!gameLoaded) return
-        if (netplayUi.linked) return
-        if (netplayUi.online && netplayUi.role == XoraNetplayRole.Host) return
+        if (netplayUi.linked) {
+            showMenuMessage("Already in a session — disconnect first")
+            return
+        }
+        if (netplayUi.online && netplayUi.role == XoraNetplayRole.Host) {
+            showMenuMessage("You are hosting — disconnect to join someone else")
+            return
+        }
         val normalized = XoraNetplayProtocol.normalizeSessionCode(code) ?: return
         val consumeKey = inviteConsumeKey(fromUsername, normalized)
         if (consumeKey in consumedNetplayInviteKeys) return
@@ -1838,12 +1899,9 @@ class XoraLibretroActivity : ComponentActivity() {
                             ry = if (mute) 0 else local.ry,
                         )
                         val pads = session.exchange(sent)
-                        if (session.hosting) {
-                            applyNativePad(0, pads.local)
-                            applyNativePad(1, pads.remote)
-                        } else {
-                            applyNativePad(0, pads.remote)
-                            applyNativePad(1, pads.local)
+                        // Port = player slot − 1: host pad drives port 0, joiners 2..4 drive 1..3.
+                        pads.pads.forEachIndexed { port, pad ->
+                            applyNativePad(port, pad)
                         }
                     } else {
                         if (emuFrameIndex % 180 == 0) {

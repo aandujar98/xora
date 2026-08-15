@@ -25,7 +25,9 @@ internal class XoraNakamaNetplayLink(
     private val matchId: String,
 ) : XoraNetplayLink {
     private val closed = AtomicBoolean(false)
-    private val inputQueue = ArrayBlockingQueue<ByteArray>(48)
+    // Large enough that a brief websocket stall doesn't drop pad frames — a dropped frame
+    // means every other player holds/zeroes that slot for its lockstep window.
+    private val inputQueue = ArrayBlockingQueue<ByteArray>(256)
     private val inputSender = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "xora-np-input").apply { isDaemon = true }
     }
@@ -87,12 +89,16 @@ internal class XoraNakamaNetplayLink(
         }
     }
 
+    // Chunk reassembly must survive across receive() calls: other players keep streaming
+    // INPUT while a savestate is chunking through, and each interrupted call used to throw
+    // the collected pieces away — the state could then never finish assembling.
+    private val chunkParts = LinkedHashMap<Int, ByteArray>()
+    private var chunkType = -1
+    private var chunkExpected = -1
+    private var chunkTotal = 0
+
     override fun receive(timeoutMs: Int): Pair<Int, ByteArray> {
         val deadline = if (timeoutMs <= 0) Long.MAX_VALUE else System.currentTimeMillis() + timeoutMs
-        val chunks = LinkedHashMap<Int, ByteArray>()
-        var expected = -1
-        var originalType = -1
-        var total = 0
         while (true) {
             if (timeoutMs > 0 && System.currentTimeMillis() >= deadline) {
                 throw SocketTimeoutException("Timed out waiting for the other player")
@@ -108,12 +114,21 @@ internal class XoraNakamaNetplayLink(
                 return type to body
             }
             val part = XoraNetplayProtocol.decodeChunk(payload)
-            originalType = part.originalType
-            expected = part.count
-            total = part.total
-            chunks[part.index] = part.slice
-            if (expected > 0 && chunks.size == expected) {
-                val assembled = XoraNetplayProtocol.assembleChunks(chunks, total)
+            if (part.originalType != chunkType || part.count != chunkExpected) {
+                // A new transfer started; drop any stale partial one.
+                chunkParts.clear()
+                chunkType = part.originalType
+                chunkExpected = part.count
+                chunkTotal = part.total
+            }
+            chunkParts[part.index] = part.slice
+            if (chunkExpected > 0 && chunkParts.size == chunkExpected) {
+                val assembled = XoraNetplayProtocol.assembleChunks(chunkParts, chunkTotal)
+                val originalType = chunkType
+                chunkParts.clear()
+                chunkType = -1
+                chunkExpected = -1
+                chunkTotal = 0
                 val body = if (originalType == XoraNetplayProtocol.TYPE_STATE) {
                     maybeGunzip(assembled)
                 } else {

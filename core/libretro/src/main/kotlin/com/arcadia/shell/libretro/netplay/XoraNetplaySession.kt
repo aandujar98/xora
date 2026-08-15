@@ -17,9 +17,11 @@ import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
+import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicIntegerArray
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.LockSupport
 
@@ -34,12 +36,15 @@ data class XoraNetplayUiState(
     val error: String? = null,
     val sessionCode: String = "",
     val online: Boolean = false,
+    /** This device's player number: host is always 1, joiners get 2..4 in join order. */
+    val playerSlot: Int = 0,
+    /** Players currently in the session (including this device). */
+    val playerCount: Int = 0,
 )
 
-/** Local + remote pads to apply this frame after netplay delay. */
+/** Pads to apply this frame after netplay delay; index = libretro port (slot − 1). */
 data class XoraNetplayExchange(
-    val local: XoraNetplayProtocol.PadFrame,
-    val remote: XoraNetplayProtocol.PadFrame,
+    val pads: List<XoraNetplayProtocol.PadFrame>,
 )
 
 fun parseIpv4(address: String): IntArray {
@@ -86,9 +91,13 @@ fun formatJoinHostPort(host: String, port: Int): String {
 }
 
 /**
- * RetroArch-style host/join: TCP handshake + savestate, then per-frame pad exchange.
+ * RetroArch-style host/join: handshake + savestate, then per-frame pad exchange.
  *
- * The emu thread calls [exchange] once per frame; a dedicated IO coroutine owns the socket.
+ * The host is always Player 1; each joiner is assigned the next free slot (2..4 online,
+ * 2 on LAN TCP). Every join re-syncs all devices from a fresh host savestate behind an
+ * epoch barrier, so pad frames from before a resync can never be confused with new ones.
+ *
+ * The emu thread calls [exchange] once per frame; a dedicated IO coroutine owns the link.
  */
 class XoraNetplaySession(
     private val scope: CoroutineScope,
@@ -105,17 +114,38 @@ class XoraNetplaySession(
     private var socket: Socket? = null
     private val linkRef = AtomicReference<XoraNetplayLink?>(null)
 
-    private val pendingRemote = ConcurrentHashMap<Int, XoraNetplayProtocol.PadFrame>()
+    private val mySlot = AtomicInteger(0)
+    private val epoch = AtomicInteger(0)
+    private val activeSlotsMask = AtomicInteger(0)
+    private val maxPlayersNow = AtomicInteger(2)
+    private val hostName = AtomicReference("")
+    private val peerNames = ConcurrentHashMap<Int, String>()
+    private val joinerSlots: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+    private val parkedHellos = ArrayDeque<XoraNetplayProtocol.Hello>()
+
+    /** Remote pads per slot, keyed by (epoch << 32 | frame) so resyncs can't collide. */
+    private val pendingRemote = Array(XoraNetplayProtocol.MAX_PLAYERS) {
+        ConcurrentHashMap<Long, XoraNetplayProtocol.PadFrame>()
+    }
+    private val lastRemote = Array(XoraNetplayProtocol.MAX_PLAYERS) {
+        AtomicReference(EMPTY_PAD)
+    }
+    private val missStreak = AtomicIntegerArray(XoraNetplayProtocol.MAX_PLAYERS)
+    private val lastConsumed = AtomicIntegerArray(XoraNetplayProtocol.MAX_PLAYERS)
     private val pendingLocal = ConcurrentHashMap<Int, XoraNetplayProtocol.PadFrame>()
-    private val lastLocal = AtomicReference(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
-    private val lastRemote = AtomicReference(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
+    private val lastLocal = AtomicReference(EMPTY_PAD)
     private val frameCounter = AtomicInteger(0)
     private val inputDelay = AtomicInteger(0)
     private val freezeCore = AtomicBoolean(false)
 
+    private val captureStateRef = AtomicReference<(suspend () -> ByteArray?)?>(null)
+    private val applyStateRef = AtomicReference<(suspend (ByteArray) -> Boolean)?>(null)
+    /** Host hello reused when admitting late joiners from the read loop. */
+    private val lastSelfHello = AtomicReference<XoraNetplayProtocol.Hello?>(null)
+
     val linkedNow: Boolean get() = linked.get()
     val hosting: Boolean get() = isHost.get() && running.get()
-    /** True while the savestate is in flight — the core must not advance. */
+    /** True while a savestate is in flight — the core must not advance. */
     val holdEmulation: Boolean get() = freezeCore.get()
 
     fun host(
@@ -125,14 +155,14 @@ class XoraNetplaySession(
     ) {
         stop()
         val gen = generation.get()
-        running.set(true)
-        isHost.set(true)
-        inputDelay.set(0)
+        beginHostState(online = false, maxPlayers = 2, hello = hello, captureState = captureState)
         val addresses = localIpv4Addresses()
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Host,
             status = hostStatus(addresses, port),
             localAddresses = addresses,
+            playerSlot = 1,
+            playerCount = 1,
         )
         networkJob = scope.launch(Dispatchers.IO) {
             try {
@@ -152,8 +182,8 @@ class XoraNetplaySession(
                 socket = sock
                 sock.tcpNoDelay = true
                 val link = XoraTcpNetplayLink(sock).also { linkRef.set(it) }
-                runHostHandshake(link, hello, captureState, gen)
-                if (generation.get() != gen || !linked.get() || !running.get()) return@launch
+                runHostHandshake(link, hello, gen)
+                if (generation.get() != gen || !running.get()) return@launch
                 readLoop(link, gen)
             } catch (t: Throwable) {
                 if (generation.get() == gen) fail(t.message ?: "Host failed", gen)
@@ -170,8 +200,12 @@ class XoraNetplaySession(
     ) {
         stop()
         val gen = generation.get()
-        running.set(true)
-        isHost.set(true)
+        beginHostState(
+            online = true,
+            maxPlayers = XoraNetplayProtocol.MAX_PLAYERS,
+            hello = hello,
+            captureState = captureState,
+        )
         inputDelay.set(ONLINE_INPUT_DELAY)
         linkRef.set(link)
         _state.value = XoraNetplayUiState(
@@ -179,6 +213,8 @@ class XoraNetplaySession(
             status = "Code $sessionCode — waiting for a player",
             sessionCode = sessionCode,
             online = true,
+            playerSlot = 1,
+            playerCount = 1,
         )
         networkJob = scope.launch(Dispatchers.IO) {
             try {
@@ -188,8 +224,8 @@ class XoraNetplaySession(
                 }
                 if (generation.get() != gen || !running.get()) return@launch
                 _state.value = _state.value.copy(status = "Connecting…")
-                runHostHandshake(link, hello, captureState, gen)
-                if (generation.get() != gen || !linked.get() || !running.get()) return@launch
+                runHostHandshake(link, hello, gen)
+                if (generation.get() != gen || !running.get()) return@launch
                 readLoop(link, gen)
             } catch (t: Throwable) {
                 if (generation.get() == gen) fail(t.message ?: "Host failed", gen)
@@ -205,10 +241,7 @@ class XoraNetplaySession(
     ) {
         stop()
         val gen = generation.get()
-        running.set(true)
-        isHost.set(false)
-        inputDelay.set(0)
-        freezeCore.set(true)
+        beginJoinState(applyState)
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Client,
             status = "Connecting to $address:$port…",
@@ -221,7 +254,7 @@ class XoraNetplaySession(
                 sock.tcpNoDelay = true
                 socket = sock
                 val link = XoraTcpNetplayLink(sock).also { linkRef.set(it) }
-                runJoinHandshake(link, hello, applyState, helloTimeoutMs = 12_000, gen = gen)
+                runJoinHandshake(link, hello, helloTimeoutMs = 20_000, gen = gen)
                 if (generation.get() != gen || !linked.get() || !running.get()) return@launch
                 readLoop(link, gen)
             } catch (t: Throwable) {
@@ -238,10 +271,8 @@ class XoraNetplaySession(
     ) {
         stop()
         val gen = generation.get()
-        running.set(true)
-        isHost.set(false)
+        beginJoinState(applyState)
         inputDelay.set(ONLINE_INPUT_DELAY)
-        freezeCore.set(true)
         linkRef.set(link)
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Client,
@@ -251,7 +282,7 @@ class XoraNetplaySession(
         )
         networkJob = scope.launch(Dispatchers.IO) {
             try {
-                runJoinHandshake(link, hello, applyState, helloTimeoutMs = 15_000, gen = gen)
+                runJoinHandshake(link, hello, helloTimeoutMs = 25_000, gen = gen)
                 if (generation.get() != gen || !linked.get() || !running.get()) return@launch
                 readLoop(link, gen)
             } catch (t: Throwable) {
@@ -261,34 +292,42 @@ class XoraNetplaySession(
     }
 
     /**
-     * Send the current local pad and return the pads both sides must apply this frame.
+     * Send the current local pad and return the pads every port must apply this frame.
      *
      * Online buffers [ONLINE_INPUT_DELAY] frames so RTT does not hitch, then waits for the
-     * matching remote pad of that delayed frame. Guessing a different frame's input would
-     * split the two devices into separate games.
+     * matching remote pads of that delayed frame. A slot that misses its window briefly holds
+     * its last pad; a slot silent for [ZERO_AFTER_MISSES] frames goes neutral, and one silent
+     * for [STALL_SKIP_FRAMES] frames stops being waited on until its input reappears.
      */
     fun exchange(local: XoraNetplayProtocol.PadFrame): XoraNetplayExchange {
+        val slot = mySlot.get().coerceIn(1, XoraNetplayProtocol.MAX_PLAYERS)
+        val currentEpoch = epoch.get()
         val idle = XoraNetplayProtocol.PadFrame(frame = local.frame, buttons = 0)
-        if (!linked.get()) return XoraNetplayExchange(local = idle, remote = idle)
+        val pads = Array(XoraNetplayProtocol.MAX_PLAYERS) { idle }
+        if (!linked.get()) return XoraNetplayExchange(pads.toList())
         val frame = local.frame
-        pendingLocal[frame] = local
-        writeInput(local)
-        trimBuffers(frame)
+        val tagged = local.copy(slot = slot, epoch = currentEpoch)
+        pendingLocal[frame] = tagged
+        writeInput(tagged)
+        trimLocal(frame)
         val delay = inputDelay.get().coerceAtLeast(0)
         val target = frame - delay
         if (target < 0) {
-            return XoraNetplayExchange(local = idle, remote = idle)
+            return XoraNetplayExchange(pads.toList())
         }
-        val delayedLocal = pendingLocal[target] ?: lastLocal.get().let { pad ->
-            if (pad.frame >= 0) pad else idle
-        }
+        val delayedLocal = pendingLocal[target]
+            ?: lastLocal.get().takeIf { it.frame >= 0 }
+            ?: idle
         lastLocal.set(delayedLocal)
-        return XoraNetplayExchange(local = delayedLocal, remote = waitForRemote(target))
+        pads[slot - 1] = delayedLocal
+        collectRemotePads(pads, currentEpoch, target, slot, idle)
+        return XoraNetplayExchange(pads.toList())
     }
 
     fun nextFrameIndex(): Int = frameCounter.getAndIncrement()
 
     fun stop() {
+        val leavingSlot = mySlot.get()
         generation.incrementAndGet()
         running.set(false)
         linked.set(false)
@@ -296,190 +335,635 @@ class XoraNetplaySession(
         networkJob?.cancel()
         networkJob = null
         val link = linkRef.getAndSet(null)
-        runCatching { link?.send(XoraNetplayProtocol.TYPE_BYE, ByteArray(0)) }
+        if (leavingSlot >= 1) {
+            // Unassigned joiners must stay silent: BYE(0) would read as "the host left".
+            runCatching {
+                link?.send(
+                    XoraNetplayProtocol.TYPE_BYE,
+                    XoraNetplayProtocol.encodeBye(leavingSlot),
+                )
+            }
+        }
         runCatching { link?.close() }
         runCatching { socket?.close() }
         socket = null
         runCatching { server?.close() }
         server = null
-        pendingRemote.clear()
-        pendingLocal.clear()
-        lastLocal.set(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
-        lastRemote.set(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
+        resetPadBuffers()
+        mySlot.set(0)
+        epoch.set(0)
+        activeSlotsMask.set(0)
+        peerNames.clear()
+        joinerSlots.clear()
+        parkedHellos.clear()
+        hostName.set("")
         frameCounter.set(0)
         inputDelay.set(0)
         freezeCore.set(false)
+        captureStateRef.set(null)
+        applyStateRef.set(null)
+        lastSelfHello.set(null)
         _state.value = XoraNetplayUiState(
             status = "Off",
             localAddresses = localIpv4Addresses(),
         )
     }
 
-    private suspend fun runHostHandshake(
-        link: XoraNetplayLink,
+    private fun beginHostState(
+        online: Boolean,
+        maxPlayers: Int,
         hello: XoraNetplayProtocol.Hello,
         captureState: suspend () -> ByteArray?,
+    ) {
+        running.set(true)
+        isHost.set(true)
+        mySlot.set(1)
+        maxPlayersNow.set(maxPlayers.coerceIn(2, XoraNetplayProtocol.MAX_PLAYERS))
+        inputDelay.set(if (online) ONLINE_INPUT_DELAY else 0)
+        captureStateRef.set(captureState)
+        lastSelfHello.set(hello)
+    }
+
+    private fun beginJoinState(applyState: suspend (ByteArray) -> Boolean) {
+        running.set(true)
+        isHost.set(false)
+        inputDelay.set(0)
+        freezeCore.set(true)
+        applyStateRef.set(applyState)
+    }
+
+    private fun resetPadBuffers() {
+        pendingRemote.forEach { it.clear() }
+        lastRemote.forEach { it.set(EMPTY_PAD) }
+        for (i in 0 until XoraNetplayProtocol.MAX_PLAYERS) {
+            missStreak.set(i, 0)
+            lastConsumed.set(i, -1)
+        }
+        pendingLocal.clear()
+        lastLocal.set(EMPTY_PAD)
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Host side
+    // ---------------------------------------------------------------------------------------
+
+    /** Waits for the first joiner HELLO, then runs the shared admission barrier. */
+    private suspend fun runHostHandshake(
+        link: XoraNetplayLink,
+        selfHello: XoraNetplayProtocol.Hello,
         gen: Int,
     ) {
-        link.send(XoraNetplayProtocol.TYPE_HELLO, XoraNetplayProtocol.encodeHello(hello))
-        val (helloType, helloPayload) = receiveControl(link, 15_000)
-        if (helloType != XoraNetplayProtocol.TYPE_HELLO) {
-            fail("Peer did not send hello", gen)
+        val deadline = System.currentTimeMillis() + 30_000L
+        while (running.get() && generation.get() == gen) {
+            val remaining = (deadline - System.currentTimeMillis()).toInt()
+            if (remaining <= 0) {
+                fail("Peer did not send hello", gen)
+                return
+            }
+            val (type, payload) = receiveControl(link, remaining)
+            if (type != XoraNetplayProtocol.TYPE_HELLO) continue
+            val peer = XoraNetplayProtocol.decodeHello(payload)
+            if (peer.token == 0) continue // own broadcast echo
+            admitJoiner(link, selfHello, peer, gen)
+            drainParkedHellos(link, selfHello, gen)
             return
         }
-        val peer = XoraNetplayProtocol.decodeHello(helloPayload)
+    }
+
+    /**
+     * Admission barrier: assign a slot, broadcast a fresh savestate, wait for every joiner's
+     * START, then GO with a new epoch so all devices restart lockstep from frame 0 together.
+     */
+    private suspend fun admitJoiner(
+        link: XoraNetplayLink,
+        selfHello: XoraNetplayProtocol.Hello,
+        peer: XoraNetplayProtocol.Hello,
+        gen: Int,
+    ) {
+        // Token 0 is the host's own hello — Nakama can echo it back with a blank sender.
+        if (peer.token == 0) return
         if (peer.version != XoraNetplayProtocol.VERSION) {
-            fail("Netplay version mismatch", gen)
+            runCatching {
+                link.send(
+                    XoraNetplayProtocol.TYPE_ASSIGN,
+                    XoraNetplayProtocol.encodeAssign(
+                        peer.token,
+                        0,
+                        XoraNetplayProtocol.REJECT_VERSION,
+                    ),
+                )
+            }
+            if (joinerSlots.isEmpty()) {
+                fail("Netplay version mismatch — both devices need the same XOrA build", gen)
+            }
+            return
+        }
+        if (peer.coreName.isNotBlank() &&
+            selfHello.coreName.isNotBlank() &&
+            !peer.coreName.equals(selfHello.coreName, ignoreCase = true)
+        ) {
+            runCatching {
+                link.send(
+                    XoraNetplayProtocol.TYPE_ASSIGN,
+                    XoraNetplayProtocol.encodeAssign(peer.token, 0, XoraNetplayProtocol.REJECT_CORE),
+                )
+            }
+            if (joinerSlots.isEmpty()) fail("Core mismatch (${peer.coreName})", gen)
+            return
+        }
+        val slot = nextFreeSlot()
+        if (slot == null) {
+            runCatching {
+                link.send(
+                    XoraNetplayProtocol.TYPE_ASSIGN,
+                    XoraNetplayProtocol.encodeAssign(peer.token, 0, XoraNetplayProtocol.REJECT_FULL),
+                )
+            }
             return
         }
         freezeCore.set(true)
-        _state.value = _state.value.copy(status = "Sending game state…")
-        val savestate = captureState()
+        _state.value = _state.value.copy(
+            status = "Syncing ${peer.nickname.ifBlank { "Player $slot" }}…",
+        )
+        link.send(XoraNetplayProtocol.TYPE_HELLO, XoraNetplayProtocol.encodeHello(selfHello))
+        link.send(
+            XoraNetplayProtocol.TYPE_ASSIGN,
+            XoraNetplayProtocol.encodeAssign(peer.token, slot),
+        )
+        val savestate = captureStateRef.get()?.invoke()
         if (savestate == null) {
             fail("Could not capture save state", gen)
             return
         }
         link.send(XoraNetplayProtocol.TYPE_STATE, savestate)
-        val (startType, _) = receiveControl(link, 30_000)
-        if (startType != XoraNetplayProtocol.TYPE_START) {
-            fail("Peer failed to start", gen)
+
+        val expected = (joinerSlots + slot).toMutableSet()
+        val confirmed = mutableSetOf<Int>()
+        val deadline = System.currentTimeMillis() + START_BARRIER_TIMEOUT_MS
+        while (confirmed != expected &&
+            expected.isNotEmpty() &&
+            running.get() &&
+            generation.get() == gen
+        ) {
+            val remaining = (deadline - System.currentTimeMillis()).toInt()
+            if (remaining <= 0) break
+            val (type, payload) = try {
+                receiveControl(link, remaining)
+            } catch (_: SocketTimeoutException) {
+                break
+            }
+            when (type) {
+                XoraNetplayProtocol.TYPE_START -> {
+                    val startSlot = XoraNetplayProtocol.decodeStartSlot(payload)
+                    // Legacy empty START means the single joiner in a 1v1 handshake.
+                    val resolved = if (startSlot == 0 && expected.size == 1) {
+                        expected.first()
+                    } else {
+                        startSlot
+                    }
+                    if (resolved in expected) confirmed += resolved
+                }
+                XoraNetplayProtocol.TYPE_HELLO ->
+                    parkedHellos.addLast(XoraNetplayProtocol.decodeHello(payload))
+                XoraNetplayProtocol.TYPE_BYE -> {
+                    val gone = XoraNetplayProtocol.decodeByeSlot(payload)
+                    if (gone != mySlot.get()) {
+                        expected.remove(gone)
+                        confirmed.remove(gone)
+                        joinerSlots.remove(gone)
+                        peerNames.remove(gone)
+                    }
+                }
+                else -> Unit
+            }
+        }
+        if (generation.get() != gen || !running.get()) return
+
+        // Anyone who never confirmed the barrier is dropped so the game does not hang on them.
+        (expected - confirmed).forEach { lost ->
+            joinerSlots.remove(lost)
+            peerNames.remove(lost)
+        }
+        if (slot in confirmed) {
+            joinerSlots.add(slot)
+            peerNames[slot] = peer.nickname.ifBlank { "Player $slot" }
+        }
+        if (joinerSlots.isEmpty()) {
+            softUnlink("Nobody finished joining — still open")
             return
         }
-        if (generation.get() != gen) return
-        link.send(XoraNetplayProtocol.TYPE_GO, ByteArray(0))
-        markLinked(peer.nickname, host = true)
+        val newEpoch = (epoch.get() + 1) and 0xFF
+        val mask = XoraNetplayProtocol.slotsMaskOf(joinerSlots + 1)
+        link.send(XoraNetplayProtocol.TYPE_GO, XoraNetplayProtocol.encodeGo(newEpoch, mask))
+        applyGo(newEpoch, mask)
+        refreshLinkedState()
     }
+
+    private suspend fun drainParkedHellos(
+        link: XoraNetplayLink,
+        selfHello: XoraNetplayProtocol.Hello,
+        gen: Int,
+    ) {
+        while (running.get() && generation.get() == gen) {
+            val next = parkedHellos.removeFirstOrNull() ?: return
+            admitJoiner(link, selfHello, next, gen)
+        }
+    }
+
+    private fun nextFreeSlot(): Int? =
+        (2..maxPlayersNow.get()).firstOrNull { it !in joinerSlots }
+
+    /** Host keeps the lobby open with no joiners; play continues single-player. */
+    private fun softUnlink(status: String) {
+        linked.set(false)
+        freezeCore.set(false)
+        joinerSlots.clear()
+        peerNames.clear()
+        activeSlotsMask.set(XoraNetplayProtocol.slotsMaskOf(listOf(1)))
+        _state.value = _state.value.copy(
+            linked = false,
+            peerName = "",
+            status = status,
+            playerCount = 1,
+        )
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Joiner side
+    // ---------------------------------------------------------------------------------------
 
     private suspend fun runJoinHandshake(
         link: XoraNetplayLink,
         hello: XoraNetplayProtocol.Hello,
-        applyState: suspend (ByteArray) -> Boolean,
         helloTimeoutMs: Int,
         gen: Int,
     ) {
-        val (helloType, helloPayload) = receiveControl(link, helloTimeoutMs)
-        if (helloType != XoraNetplayProtocol.TYPE_HELLO) {
-            fail("Host did not send hello", gen)
-            return
+        val token = generateJoinToken()
+        link.send(
+            XoraNetplayProtocol.TYPE_HELLO,
+            XoraNetplayProtocol.encodeHello(hello.copy(token = token)),
+        )
+        var host: XoraNetplayProtocol.Hello? = null
+        var slot = 0
+        var statePayload: ByteArray? = null
+        var deadline = System.currentTimeMillis() + helloTimeoutMs
+        while (statePayload == null) {
+            if (generation.get() != gen || !running.get()) return
+            val remaining = (deadline - System.currentTimeMillis()).toInt()
+            if (remaining <= 0) {
+                fail("Timed out waiting for the host", gen)
+                return
+            }
+            val (type, payload) = receiveControl(link, remaining)
+            when (type) {
+                XoraNetplayProtocol.TYPE_HELLO -> {
+                    val decoded = XoraNetplayProtocol.decodeHello(payload)
+                    if (decoded.token == token) continue // own broadcast echo
+                    if (decoded.version != XoraNetplayProtocol.VERSION) {
+                        fail("Netplay version mismatch — both devices need the same XOrA build", gen)
+                        return
+                    }
+                    if (decoded.coreName.isNotBlank() &&
+                        hello.coreName.isNotBlank() &&
+                        !decoded.coreName.equals(hello.coreName, ignoreCase = true)
+                    ) {
+                        fail("Core mismatch (${decoded.coreName})", gen)
+                        return
+                    }
+                    host = decoded
+                }
+                XoraNetplayProtocol.TYPE_ASSIGN -> {
+                    val assign = XoraNetplayProtocol.decodeAssign(payload)
+                    if (assign.token != token) continue // another joiner's slot
+                    if (assign.slot == 0) {
+                        fail(
+                            when (assign.reason) {
+                                XoraNetplayProtocol.REJECT_VERSION ->
+                                    "Netplay version mismatch — both devices need the same XOrA build"
+                                XoraNetplayProtocol.REJECT_CORE ->
+                                    "The host is playing with a different core."
+                                else -> "That session is full."
+                            },
+                            gen,
+                        )
+                        return
+                    }
+                    slot = assign.slot
+                    // The savestate download can be large; give it its own window.
+                    deadline = maxOf(deadline, System.currentTimeMillis() + STATE_DOWNLOAD_TIMEOUT_MS)
+                }
+                XoraNetplayProtocol.TYPE_STATE -> {
+                    // A state broadcast before our ASSIGN belongs to another joiner's barrier.
+                    if (slot != 0) statePayload = payload
+                }
+                else -> Unit
+            }
         }
-        val peer = XoraNetplayProtocol.decodeHello(helloPayload)
-        if (peer.version != XoraNetplayProtocol.VERSION) {
-            fail("Netplay version mismatch", gen)
-            return
-        }
-        if (peer.coreName.isNotBlank() &&
-            hello.coreName.isNotBlank() &&
-            !peer.coreName.equals(hello.coreName, ignoreCase = true)
-        ) {
-            fail("Core mismatch (${peer.coreName})", gen)
-            return
-        }
-        link.send(XoraNetplayProtocol.TYPE_HELLO, XoraNetplayProtocol.encodeHello(hello))
-        val (stateType, statePayload) = receiveControl(link, 60_000)
-        if (stateType != XoraNetplayProtocol.TYPE_STATE) {
-            fail("Host did not send a save state", gen)
-            return
-        }
+        mySlot.set(slot)
+        hostName.set(host?.nickname.orEmpty())
         freezeCore.set(true)
         _state.value = _state.value.copy(status = "Loading host game…")
-        val applied = applyState(statePayload)
+        val applied = applyStateRef.get()?.invoke(statePayload) ?: false
         if (!applied) {
             fail("Could not load host save state", gen)
             return
         }
         if (generation.get() != gen) return
-        link.send(XoraNetplayProtocol.TYPE_START, ByteArray(0))
-        val (goType, _) = receiveControl(link, 15_000)
-        if (goType != XoraNetplayProtocol.TYPE_GO && goType != XoraNetplayProtocol.TYPE_START) {
-            fail("Host did not start the session", gen)
-            return
-        }
-        if (generation.get() != gen) return
-        markLinked(peer.nickname, host = false)
+        link.send(XoraNetplayProtocol.TYPE_START, XoraNetplayProtocol.encodeStart(slot))
+        awaitGo(link, gen, timeoutMs = START_BARRIER_TIMEOUT_MS)
     }
 
-    private fun markLinked(peerName: String, host: Boolean) {
-        frameCounter.set(0)
-        pendingRemote.clear()
-        pendingLocal.clear()
-        lastLocal.set(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
-        lastRemote.set(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
+    /** Wait for GO; a fresh STATE mid-wait means another joiner triggered a newer barrier. */
+    private suspend fun awaitGo(link: XoraNetplayLink, gen: Int, timeoutMs: Long) {
+        var deadline = System.currentTimeMillis() + timeoutMs
+        while (running.get() && generation.get() == gen) {
+            val remaining = (deadline - System.currentTimeMillis()).toInt()
+            if (remaining <= 0) {
+                fail("Host did not start the session", gen)
+                return
+            }
+            val (type, payload) = receiveControl(link, remaining)
+            when (type) {
+                XoraNetplayProtocol.TYPE_GO -> {
+                    val go = XoraNetplayProtocol.decodeGo(payload)
+                    applyGo(go.epoch, go.slotsMask)
+                    refreshLinkedState()
+                    return
+                }
+                XoraNetplayProtocol.TYPE_STATE -> {
+                    val applied = applyStateRef.get()?.invoke(payload) ?: false
+                    if (!applied) {
+                        fail("Could not load host save state", gen)
+                        return
+                    }
+                    link.send(
+                        XoraNetplayProtocol.TYPE_START,
+                        XoraNetplayProtocol.encodeStart(mySlot.get()),
+                    )
+                    // A newer barrier restarted the wait.
+                    deadline = System.currentTimeMillis() + timeoutMs
+                }
+                XoraNetplayProtocol.TYPE_BYE -> {
+                    val gone = XoraNetplayProtocol.decodeByeSlot(payload)
+                    if (gone == 1 || gone == 0) {
+                        fail("The host left", gen)
+                        return
+                    }
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Shared read loop + barrier plumbing
+    // ---------------------------------------------------------------------------------------
+
+    private suspend fun readLoop(link: XoraNetplayLink, gen: Int) {
+        while (running.get() && generation.get() == gen) {
+            val (type, payload) = try {
+                link.receive()
+            } catch (t: Throwable) {
+                if (generation.get() != gen) return
+                if (isHost.get() && _state.value.online && running.get()) {
+                    // Nakama reports "everyone left"; keep the code open for the next joiner.
+                    softUnlink(
+                        "Everyone left — code ${_state.value.sessionCode.ifBlank { "open" }} still live",
+                    )
+                    continue
+                }
+                fail(t.message ?: "Connection lost", gen)
+                return
+            }
+            when (type) {
+                XoraNetplayProtocol.TYPE_INPUT -> stashRemoteInput(payload)
+                XoraNetplayProtocol.TYPE_HELLO -> {
+                    if (isHost.get()) {
+                        val peer = XoraNetplayProtocol.decodeHello(payload)
+                        val selfHello = lastSelfHello.get()
+                        if (selfHello != null) {
+                            admitJoiner(link, selfHello, peer, gen)
+                            drainParkedHellos(link, selfHello, gen)
+                        }
+                    }
+                }
+                XoraNetplayProtocol.TYPE_STATE -> {
+                    if (!isHost.get()) {
+                        // Host is running a barrier for a new joiner — re-sync and confirm.
+                        freezeCore.set(true)
+                        _state.value = _state.value.copy(status = "Re-syncing with host…")
+                        val applied = applyStateRef.get()?.invoke(payload) ?: false
+                        if (!applied) {
+                            fail("Could not load host save state", gen)
+                            return
+                        }
+                        link.send(
+                            XoraNetplayProtocol.TYPE_START,
+                            XoraNetplayProtocol.encodeStart(mySlot.get()),
+                        )
+                    }
+                }
+                XoraNetplayProtocol.TYPE_GO -> {
+                    if (!isHost.get()) {
+                        val go = XoraNetplayProtocol.decodeGo(payload)
+                        applyGo(go.epoch, go.slotsMask)
+                        refreshLinkedState()
+                    }
+                }
+                XoraNetplayProtocol.TYPE_ASSIGN, XoraNetplayProtocol.TYPE_START -> Unit
+                XoraNetplayProtocol.TYPE_BYE -> {
+                    val gone = XoraNetplayProtocol.decodeByeSlot(payload)
+                    when {
+                        gone == mySlot.get() -> Unit // own broadcast echo
+                        isHost.get() -> {
+                            joinerSlots.remove(gone)
+                            peerNames.remove(gone)
+                            if (joinerSlots.isEmpty()) {
+                                softUnlink(
+                                    "Everyone left — code " +
+                                        "${_state.value.sessionCode.ifBlank { "open" }} still live",
+                                )
+                            } else {
+                                val mask = XoraNetplayProtocol.slotsMaskOf(joinerSlots + 1)
+                                activeSlotsMask.set(mask)
+                                runCatching {
+                                    link.send(
+                                        XoraNetplayProtocol.TYPE_GO,
+                                        XoraNetplayProtocol.encodeGo(epoch.get(), mask),
+                                    )
+                                }
+                                refreshLinkedState()
+                            }
+                        }
+                        gone == 1 || gone == 0 -> {
+                            fail("The host left", gen)
+                            return
+                        }
+                        else -> {
+                            // Another joiner left; stop waiting on their slot.
+                            val mask = activeSlotsMask.get() and
+                                (1 shl (gone - 1)).inv()
+                            activeSlotsMask.set(mask)
+                            peerNames.remove(gone)
+                            refreshLinkedState()
+                        }
+                    }
+                }
+                XoraNetplayProtocol.TYPE_ERROR -> {
+                    if (!isHost.get()) {
+                        fail(String(payload).ifBlank { "Session error" }, gen)
+                        return
+                    }
+                }
+            }
+        }
+    }
+
+    /** GO barrier: same epoch = mask-only update, new epoch = full lockstep restart. */
+    private fun applyGo(newEpoch: Int, mask: Int) {
+        val changed = newEpoch != epoch.get() || !linked.get()
+        epoch.set(newEpoch)
+        activeSlotsMask.set(mask)
+        if (changed) {
+            frameCounter.set(0)
+            pendingLocal.clear()
+            lastLocal.set(EMPTY_PAD)
+            for (i in 0 until XoraNetplayProtocol.MAX_PLAYERS) {
+                missStreak.set(i, 0)
+                lastConsumed.set(i, -1)
+                lastRemote[i].set(EMPTY_PAD)
+            }
+        }
         freezeCore.set(false)
         linked.set(true)
+    }
+
+    private fun refreshLinkedState() {
+        val slot = mySlot.get()
+        val count = Integer.bitCount(activeSlotsMask.get()).coerceAtLeast(1)
+        val names = if (isHost.get()) {
+            peerNames.entries.sortedBy { it.key }.joinToString(", ") { it.value }
+        } else {
+            hostName.get().ifBlank { "host" }
+        }
         _state.value = _state.value.copy(
             linked = true,
-            peerName = peerName,
-            status = if (host) {
-                "Playing with ${peerName.ifBlank { "P2" }}"
+            peerName = names,
+            playerSlot = slot,
+            playerCount = count,
+            status = if (isHost.get()) {
+                "Playing with ${names.ifBlank { "players" }} · You are Player 1"
             } else {
-                "Joined ${peerName.ifBlank { "host" }}"
+                "Joined ${names.ifBlank { "host" }} · You are Player $slot"
             },
             error = null,
         )
     }
 
-    private fun readLoop(link: XoraNetplayLink, gen: Int) {
-        try {
-            while (running.get() && generation.get() == gen) {
-                val (type, payload) = link.receive()
-                when (type) {
-                    XoraNetplayProtocol.TYPE_INPUT -> stashRemoteInput(payload)
-                    XoraNetplayProtocol.TYPE_GO, XoraNetplayProtocol.TYPE_START -> Unit
-                    XoraNetplayProtocol.TYPE_BYE, XoraNetplayProtocol.TYPE_ERROR -> {
-                        val message = if (type == XoraNetplayProtocol.TYPE_ERROR) {
-                            String(payload)
-                        } else {
-                            "Peer disconnected"
-                        }
-                        fail(message, gen)
-                        return
-                    }
-                }
-            }
-        } catch (t: Throwable) {
-            if (generation.get() == gen) fail(t.message ?: "Connection lost", gen)
-        }
-    }
-
     private fun writeInput(frame: XoraNetplayProtocol.PadFrame) {
         val link = linkRef.get() ?: return
-        val tagged = frame.copy(
-            role = if (isHost.get()) {
-                XoraNetplayProtocol.PadFrame.ROLE_HOST
-            } else {
-                XoraNetplayProtocol.PadFrame.ROLE_JOINER
-            },
-        )
         runCatching {
             link.send(
                 XoraNetplayProtocol.TYPE_INPUT,
-                XoraNetplayProtocol.encodePadFrame(tagged),
+                XoraNetplayProtocol.encodePadFrame(frame),
             )
         }
     }
 
-    private fun selfPadRole(): Int =
-        if (isHost.get()) {
-            XoraNetplayProtocol.PadFrame.ROLE_HOST
-        } else {
-            XoraNetplayProtocol.PadFrame.ROLE_JOINER
-        }
-
     private fun stashRemoteInput(payload: ByteArray) {
         val pad = runCatching { XoraNetplayProtocol.decodePadFrame(payload) }.getOrNull() ?: return
-        if (pad.role != XoraNetplayProtocol.PadFrame.ROLE_UNKNOWN && pad.role == selfPadRole()) {
-            return
+        val slot = pad.slot
+        if (slot !in 1..XoraNetplayProtocol.MAX_PLAYERS) return
+        if (slot == mySlot.get()) return // Nakama can echo our own INPUT back
+        val map = pendingRemote[slot - 1]
+        map[padKey(pad.epoch, pad.frame)] = pad
+        pruneRemote(map, slot - 1)
+    }
+
+    /** Never prune frames the consumer still needs — only consumed or stale-epoch entries. */
+    private fun pruneRemote(
+        map: ConcurrentHashMap<Long, XoraNetplayProtocol.PadFrame>,
+        slotIndex: Int,
+    ) {
+        if (map.size <= REMOTE_PRUNE_THRESHOLD) return
+        val currentEpoch = epoch.get()
+        val consumed = lastConsumed.get(slotIndex)
+        map.keys.removeAll { key ->
+            val keyEpoch = (key ushr 32).toInt()
+            val keyFrame = key.toInt()
+            keyEpoch != currentEpoch || keyFrame < consumed - 60
         }
-        pendingRemote[pad.frame] = pad
-        if (pendingRemote.size > 64) {
-            val minKeep = pad.frame - 32
-            pendingRemote.keys.filter { it < minKeep }.forEach { pendingRemote.remove(it) }
+        if (map.size > REMOTE_HARD_CAP) {
+            map.keys.sorted().take(map.size - REMOTE_PRUNE_THRESHOLD).forEach { map.remove(it) }
         }
     }
 
+    private fun trimLocal(frame: Int) {
+        val minKeep = frame - inputDelay.get() - 30
+        if (minKeep <= 0) return
+        pendingLocal.keys.removeAll { it < minKeep }
+    }
+
+    private fun collectRemotePads(
+        pads: Array<XoraNetplayProtocol.PadFrame>,
+        currentEpoch: Int,
+        target: Int,
+        selfSlot: Int,
+        idle: XoraNetplayProtocol.PadFrame,
+    ) {
+        val gen = generation.get()
+        val remoteSlots = XoraNetplayProtocol.slotsInMask(activeSlotsMask.get())
+            .filter { it != selfSlot }
+        if (remoteSlots.isEmpty()) return
+        val waiting = ArrayList<Int>(remoteSlots.size)
+        for (slot in remoteSlots) {
+            val pad = takeRemote(slot, currentEpoch, target)
+            when {
+                pad != null -> pads[slot - 1] = pad
+                missStreak.get(slot - 1) >= STALL_SKIP_FRAMES ->
+                    pads[slot - 1] = missPad(slot, idle) // silent slot: don't stall the frame
+                else -> waiting.add(slot)
+            }
+        }
+        if (waiting.isEmpty()) return
+        val deadline = System.nanoTime() + INPUT_STALL_NS
+        while (waiting.isNotEmpty() && System.nanoTime() < deadline) {
+            if (!linked.get() || generation.get() != gen) break
+            val iterator = waiting.iterator()
+            while (iterator.hasNext()) {
+                val slot = iterator.next()
+                val pad = takeRemote(slot, currentEpoch, target)
+                if (pad != null) {
+                    pads[slot - 1] = pad
+                    iterator.remove()
+                }
+            }
+            if (waiting.isNotEmpty()) LockSupport.parkNanos(250_000L)
+        }
+        waiting.forEach { slot -> pads[slot - 1] = missPad(slot, idle) }
+    }
+
+    private fun takeRemote(slot: Int, currentEpoch: Int, target: Int): XoraNetplayProtocol.PadFrame? {
+        val pad = pendingRemote[slot - 1].remove(padKey(currentEpoch, target)) ?: return null
+        missStreak.set(slot - 1, 0)
+        lastConsumed.set(slot - 1, target)
+        lastRemote[slot - 1].set(pad)
+        return pad
+    }
+
     /**
-     * Handshake receive that parks INPUT packets instead of treating them as HELLO/GO.
-     * Nakama can deliver pad frames while the savestate is still applying.
+     * A brief miss holds the last pad (a dropped packet must not blank P2); a slot silent
+     * for [ZERO_AFTER_MISSES] frames goes neutral so a held button can't run away.
+     */
+    private fun missPad(slot: Int, idle: XoraNetplayProtocol.PadFrame): XoraNetplayProtocol.PadFrame {
+        val streak = missStreak.incrementAndGet(slot - 1)
+        if (streak >= ZERO_AFTER_MISSES) return idle
+        return lastRemote[slot - 1].get().takeIf { it.frame >= 0 } ?: idle
+    }
+
+    /**
+     * Handshake receive that parks INPUT packets instead of treating them as control messages.
+     * Nakama can deliver pad frames while a savestate is still applying.
      */
     private fun receiveControl(link: XoraNetplayLink, timeoutMs: Int): Pair<Int, ByteArray> {
         val deadline = if (timeoutMs <= 0) Long.MAX_VALUE else System.currentTimeMillis() + timeoutMs
@@ -501,31 +985,6 @@ class XoraNetplaySession(
         }
     }
 
-    private fun waitForRemote(target: Int): XoraNetplayProtocol.PadFrame {
-        val gen = generation.get()
-        val deadline = System.nanoTime() + INPUT_STALL_NS
-        while (System.nanoTime() < deadline) {
-            if (!linked.get() || generation.get() != gen) return lastRemote.get()
-            pendingRemote.remove(target)?.let { pad ->
-                lastRemote.set(pad)
-                return pad
-            }
-            LockSupport.parkNanos(250_000L)
-        }
-        // Hold the last remote pad instead of killing the session — a late INPUT
-        // must not drop P2 to an empty port for the rest of the game.
-        return lastRemote.get().let { pad ->
-            if (pad.frame >= 0) pad else XoraNetplayProtocol.PadFrame(frame = target, buttons = 0)
-        }
-    }
-
-    private fun trimBuffers(frame: Int) {
-        val minKeep = frame - 64
-        if (minKeep <= 0) return
-        pendingLocal.keys.filter { it < minKeep }.forEach { pendingLocal.remove(it) }
-        pendingRemote.keys.filter { it < minKeep }.forEach { pendingRemote.remove(it) }
-    }
-
     private fun fail(message: String, gen: Int) {
         if (generation.get() != gen) return
         linked.set(false)
@@ -543,7 +1002,26 @@ class XoraNetplaySession(
 
     companion object {
         private const val ONLINE_INPUT_DELAY = 12
-        private const val INPUT_STALL_NS = 120_000_000L // 120ms; then hold last P2 pad
+        private const val INPUT_STALL_NS = 120_000_000L // 120ms per frame before hold-last
+        private const val ZERO_AFTER_MISSES = 45 // ~0.75s of hold-last, then neutral pad
+        private const val STALL_SKIP_FRAMES = 240 // ~4s silent: stop waiting, quick-check only
+        private const val START_BARRIER_TIMEOUT_MS = 60_000L
+        private const val STATE_DOWNLOAD_TIMEOUT_MS = 90_000L
+        private const val REMOTE_PRUNE_THRESHOLD = 1024
+        private const val REMOTE_HARD_CAP = 4096
+
+        /** Token 0 is reserved for the host hello, so joiner tokens must be non-zero. */
+        private fun generateJoinToken(): Int {
+            val random = SecureRandom()
+            var token = random.nextInt()
+            while (token == 0) token = random.nextInt()
+            return token
+        }
+
+        private val EMPTY_PAD = XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0)
+
+        fun padKey(epoch: Int, frame: Int): Long =
+            ((epoch.toLong() and 0xFF) shl 32) or (frame.toLong() and 0xFFFFFFFFL)
 
         fun localIpv4Addresses(): List<String> = runCatching {
             NetworkInterface.getNetworkInterfaces().toList()

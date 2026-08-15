@@ -8,9 +8,14 @@ import java.nio.charset.StandardCharsets
  * Length-prefixed TCP messages for XOrA netplay (RetroArch-style host/join + state sync).
  *
  * Wire format: `u8 type` + `u32be payloadLength` + payload.
+ *
+ * Version 3 adds player slots (host is always Player 1, joiners get 2..4), a join token so
+ * ASSIGN can address one joiner on a broadcast relay, and an epoch that increments on every
+ * savestate resync so stale pad frames can never poison a new session segment.
  */
 object XoraNetplayProtocol {
-    const val VERSION: Int = 2
+    const val VERSION: Int = 3
+    const val MAX_PLAYERS: Int = 4
     const val MAX_PAYLOAD: Int = 32 * 1024 * 1024
     /** Nakama match data is small; savestates go out as [TYPE_CHUNK] pieces. */
     const val RELAY_CHUNK_BYTES: Int = 900
@@ -21,8 +26,10 @@ object XoraNetplayProtocol {
     const val TYPE_START: Int = 4
     const val TYPE_ERROR: Int = 5
     const val TYPE_BYE: Int = 6
-    /** Host → joiner: savestate is live, start lockstep together. */
+    /** Host → joiners: savestate is live, start lockstep together. */
     const val TYPE_GO: Int = 7
+    /** Host → one joiner (matched by token): your player slot. Slot 0 = session full. */
+    const val TYPE_ASSIGN: Int = 8
     const val TYPE_CHUNK: Int = 100
 
     const val SESSION_CODE_ALPHABET: String = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -35,6 +42,8 @@ object XoraNetplayProtocol {
         val platformId: String,
         val romName: String,
         val version: Int = VERSION,
+        /** Random per-join token echoed back in ASSIGN so a joiner knows which slot is theirs. */
+        val token: Int = 0,
     )
 
     data class PadFrame(
@@ -44,13 +53,14 @@ object XoraNetplayProtocol {
         val ly: Short = 0,
         val rx: Short = 0,
         val ry: Short = 0,
-        /** 0 = unknown/legacy, 1 = host, 2 = joiner. Used to drop Nakama INPUT echoes. */
-        val role: Int = ROLE_UNKNOWN,
+        /** 0 = unknown/legacy, 1 = host, 2..4 = joiners in join order. */
+        val slot: Int = SLOT_UNKNOWN,
+        /** Resync epoch this frame belongs to; bumped on every savestate barrier. */
+        val epoch: Int = 0,
     ) {
         companion object {
-            const val ROLE_UNKNOWN: Int = 0
-            const val ROLE_HOST: Int = 1
-            const val ROLE_JOINER: Int = 2
+            const val SLOT_UNKNOWN: Int = 0
+            const val SLOT_HOST: Int = 1
         }
     }
 
@@ -61,6 +71,7 @@ object XoraNetplayProtocol {
             hello.coreName,
             hello.platformId,
             hello.romName,
+            hello.token.toString(),
         ).joinToString("\u0000")
         return body.toByteArray(StandardCharsets.UTF_8)
     }
@@ -73,18 +84,20 @@ object XoraNetplayProtocol {
             coreName = parts.getOrNull(2).orEmpty(),
             platformId = parts.getOrNull(3).orEmpty(),
             romName = parts.getOrNull(4).orEmpty(),
+            token = parts.getOrNull(5)?.toIntOrNull() ?: 0,
         )
     }
 
     fun encodePadFrame(frame: PadFrame): ByteArray {
-        val out = ByteArray(15)
+        val out = ByteArray(16)
         writeInt(out, 0, frame.frame)
         writeShort(out, 4, frame.buttons and 0xFFFF)
         writeShort(out, 6, frame.lx.toInt() and 0xFFFF)
         writeShort(out, 8, frame.ly.toInt() and 0xFFFF)
         writeShort(out, 10, frame.rx.toInt() and 0xFFFF)
         writeShort(out, 12, frame.ry.toInt() and 0xFFFF)
-        out[14] = (frame.role and 0xFF).toByte()
+        out[14] = (frame.slot and 0xFF).toByte()
+        out[15] = (frame.epoch and 0xFF).toByte()
         return out
     }
 
@@ -97,9 +110,72 @@ object XoraNetplayProtocol {
             ly = readShort(payload, 8).toShort(),
             rx = readShort(payload, 10).toShort(),
             ry = readShort(payload, 12).toShort(),
-            role = if (payload.size >= 15) payload[14].toInt() and 0xFF else PadFrame.ROLE_UNKNOWN,
+            slot = if (payload.size >= 15) payload[14].toInt() and 0xFF else PadFrame.SLOT_UNKNOWN,
+            epoch = if (payload.size >= 16) payload[15].toInt() and 0xFF else 0,
         )
     }
+
+    const val REJECT_FULL: Int = 0
+    const val REJECT_VERSION: Int = 1
+    const val REJECT_CORE: Int = 2
+
+    /** ASSIGN payload: joiner's hello token + assigned slot (0 = rejected, see reason). */
+    fun encodeAssign(token: Int, slot: Int, reason: Int = REJECT_FULL): ByteArray {
+        val out = ByteArray(6)
+        writeInt(out, 0, token)
+        out[4] = (slot and 0xFF).toByte()
+        out[5] = (reason and 0xFF).toByte()
+        return out
+    }
+
+    data class Assign(val token: Int, val slot: Int, val reason: Int = REJECT_FULL)
+
+    fun decodeAssign(payload: ByteArray): Assign {
+        require(payload.size >= 5) { "assign payload too short" }
+        return Assign(
+            token = readInt(payload, 0),
+            slot = payload[4].toInt() and 0xFF,
+            reason = if (payload.size >= 6) payload[5].toInt() and 0xFF else REJECT_FULL,
+        )
+    }
+
+    /** START payload: the sender's slot so the host can tick off each joiner's barrier ack. */
+    fun encodeStart(slot: Int): ByteArray = byteArrayOf((slot and 0xFF).toByte())
+
+    fun decodeStartSlot(payload: ByteArray): Int =
+        if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0
+
+    /** GO payload: new epoch + bitmask of active player slots (bit 0 = Player 1). */
+    fun encodeGo(epoch: Int, slotsMask: Int): ByteArray =
+        byteArrayOf((epoch and 0xFF).toByte(), (slotsMask and 0xFF).toByte())
+
+    data class Go(val epoch: Int, val slotsMask: Int)
+
+    fun decodeGo(payload: ByteArray): Go = Go(
+        epoch = if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0,
+        slotsMask = if (payload.size >= 2) {
+            payload[1].toInt() and 0xFF
+        } else {
+            slotsMaskOf(listOf(1, 2))
+        },
+    )
+
+    /** BYE payload: the slot that is leaving (0 = unknown → treat as session over). */
+    fun encodeBye(slot: Int): ByteArray = byteArrayOf((slot and 0xFF).toByte())
+
+    fun decodeByeSlot(payload: ByteArray): Int =
+        if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0
+
+    fun slotsMaskOf(slots: Iterable<Int>): Int {
+        var mask = 0
+        slots.forEach { slot ->
+            if (slot in 1..MAX_PLAYERS) mask = mask or (1 shl (slot - 1))
+        }
+        return mask
+    }
+
+    fun slotsInMask(mask: Int): List<Int> =
+        (1..MAX_PLAYERS).filter { slot -> mask and (1 shl (slot - 1)) != 0 }
 
     fun generateSessionCode(random: java.security.SecureRandom = java.security.SecureRandom()): String {
         val alphabet = SESSION_CODE_ALPHABET

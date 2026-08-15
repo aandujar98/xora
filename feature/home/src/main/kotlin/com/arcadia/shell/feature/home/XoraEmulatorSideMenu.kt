@@ -49,6 +49,9 @@ import com.arcadia.shell.datastore.MIN_NETPLAY_PORT
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.label
+import com.arcadia.shell.launcher.notifications.ShellNotification
+import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
+import com.arcadia.shell.launcher.notifications.toCopy
 import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
@@ -66,6 +69,7 @@ enum class EmulatorMenuPane {
     Achievements,
     XoraNetwork,
     FriendActions,
+    Notifications,
     Mods,
     Settings,
     Gamepad,
@@ -110,6 +114,11 @@ sealed class EmulatorMenuAction {
     data object ReturnHome : EmulatorMenuAction()
     data class InviteFriendToSession(val username: String) : EmulatorMenuAction()
     data class MessageFriendComingSoon(val username: String) : EmulatorMenuAction()
+    /** A on a notification row — netplay invites open the Join / Not now window. */
+    data class OpenNotification(val id: String) : EmulatorMenuAction()
+    data object ClearAllNotifications : EmulatorMenuAction()
+    /** Fired when the Notifications pane opens so unread counts reset. */
+    data object NotificationsSeen : EmulatorMenuAction()
 }
 
 private data class MenuRow(
@@ -144,11 +153,19 @@ fun XoraEmulatorSideMenu(
     achievements: List<RaAchievement> = emptyList(),
     achievementSummary: String = "",
     raStatus: String? = null,
+    notifications: List<ShellNotificationHistoryItem> = emptyList(),
+    notificationUnread: Int = 0,
 ) {
     var rootIndex by remember { mutableIntStateOf(0) }
     var pane by remember { mutableStateOf(EmulatorMenuPane.None) }
     var paneIndex by remember { mutableIntStateOf(0) }
     var friendActionUsername by remember { mutableStateOf("") }
+
+    LaunchedEffect(pane) {
+        if (pane == EmulatorMenuPane.Notifications) {
+            onAction(EmulatorMenuAction.NotificationsSeen)
+        }
+    }
 
     val rootRows = remember(
         paused,
@@ -162,6 +179,8 @@ fun XoraEmulatorSideMenu(
         network.selfOnline,
         network.account?.username,
         achievementSummary,
+        notificationUnread,
+        notifications.size,
     ) {
         listOf(
             MenuRow(
@@ -221,6 +240,17 @@ fun XoraEmulatorSideMenu(
                 pane = EmulatorMenuPane.XoraNetwork,
             ),
             MenuRow(
+                id = "notifs",
+                title = "Notifications",
+                subtitle = when {
+                    notificationUnread > 0 -> "$notificationUnread unread · Netplay invites land here"
+                    notifications.isNotEmpty() -> "${notifications.size} recent"
+                    else -> "Invites and alerts land here"
+                },
+                icon = XmbIcon.Notifications,
+                pane = EmulatorMenuPane.Notifications,
+            ),
+            MenuRow(
                 id = "mods",
                 title = "Mods",
                 subtitle = "Coming soon",
@@ -257,6 +287,7 @@ fun XoraEmulatorSideMenu(
         raStatus = raStatus,
         gameTitle = gameTitle,
         friendUsername = friendActionUsername,
+        notifications = notifications,
     )
     val paneFocus = paneIndex.coerceIn(0, (paneRows.size - 1).coerceAtLeast(0))
     val rootFocus = rootIndex.coerceIn(0, rootRows.lastIndex)
@@ -672,6 +703,7 @@ private fun paneTitle(pane: EmulatorMenuPane, friendName: String = ""): String =
     EmulatorMenuPane.Achievements -> "This game"
     EmulatorMenuPane.XoraNetwork -> "XOrA Network"
     EmulatorMenuPane.FriendActions -> friendName.ifBlank { "Friend" }
+    EmulatorMenuPane.Notifications -> "Notifications"
     EmulatorMenuPane.Mods -> "Mods"
     EmulatorMenuPane.Settings -> "Settings"
     EmulatorMenuPane.Gamepad -> "Gamepad"
@@ -700,6 +732,7 @@ private fun paneRows(
     raStatus: String?,
     gameTitle: String,
     friendUsername: String = "",
+    notifications: List<ShellNotificationHistoryItem> = emptyList(),
 ): List<MenuRow> = when (pane) {
     EmulatorMenuPane.None -> emptyList()
     EmulatorMenuPane.Save -> saveSlots.map { slot ->
@@ -848,28 +881,45 @@ private fun paneRows(
                 icon = XmbIcon.Network,
                 action = EmulatorMenuAction.ToggleNetplayOnline,
             ),
-        ) + modeRows + listOf(
-            MenuRow(
-                id = "np-spec",
-                title = if (settings.netplaySpectator) "Spectator on" else "Spectator off",
-                subtitle = "Join without sending input",
-                icon = XmbIcon.User,
-                action = EmulatorMenuAction.ToggleSpectator,
-            ),
-            MenuRow(
-                id = "np-status",
-                title = netplay.status,
-                subtitle = netplay.error ?: netplay.peerName.ifBlank { "Not connected" },
-                icon = XmbIcon.Notifications,
-            ),
-            MenuRow(
-                id = "np-disc",
-                title = "Disconnect",
-                subtitle = if (netplay.linked) "Drop the current session" else "No session",
-                icon = XmbIcon.Settings,
-                action = EmulatorMenuAction.DisconnectNetplay,
-            ),
-        )
+        ) + modeRows + buildList {
+            add(
+                MenuRow(
+                    id = "np-spec",
+                    title = if (settings.netplaySpectator) "Spectator on" else "Spectator off",
+                    subtitle = "Join without sending input",
+                    icon = XmbIcon.User,
+                    action = EmulatorMenuAction.ToggleSpectator,
+                ),
+            )
+            if (netplay.linked && netplay.playerSlot >= 1) {
+                add(
+                    MenuRow(
+                        id = "np-slot",
+                        title = "You are Player ${netplay.playerSlot}",
+                        subtitle = "Host is Player 1 · ${netplay.playerCount} " +
+                            if (netplay.playerCount == 1) "player connected" else "players connected",
+                        icon = XmbIcon.GamePad,
+                    ),
+                )
+            }
+            add(
+                MenuRow(
+                    id = "np-status",
+                    title = netplay.status,
+                    subtitle = netplay.error ?: netplay.peerName.ifBlank { "Not connected" },
+                    icon = XmbIcon.Notifications,
+                ),
+            )
+            add(
+                MenuRow(
+                    id = "np-disc",
+                    title = "Disconnect",
+                    subtitle = if (netplay.linked) "Drop the current session" else "No session",
+                    icon = XmbIcon.Settings,
+                    action = EmulatorMenuAction.DisconnectNetplay,
+                ),
+            )
+        }
     }
     EmulatorMenuPane.RetroAchievements -> listOf(
         MenuRow(
@@ -982,6 +1032,48 @@ private fun paneRows(
                 action = EmulatorMenuAction.MessageFriendComingSoon(friendUsername),
             ),
         )
+    }
+    EmulatorMenuPane.Notifications -> buildList {
+        if (notifications.isEmpty()) {
+            add(
+                MenuRow(
+                    id = "ntf-empty",
+                    title = "No notifications",
+                    subtitle = "Netplay invites and alerts appear here",
+                    icon = XmbIcon.Notifications,
+                ),
+            )
+        } else {
+            add(
+                MenuRow(
+                    id = "ntf-clear",
+                    title = "Clear all notifications",
+                    subtitle = "${notifications.size} total",
+                    icon = XmbIcon.Settings,
+                    action = EmulatorMenuAction.ClearAllNotifications,
+                ),
+            )
+            notifications.forEach { item ->
+                val copy = item.notification.toCopy()
+                val invite = item.notification is ShellNotification.XoraNetplayInvite
+                add(
+                    MenuRow(
+                        id = "ntf-${item.notification.id}",
+                        title = copy.body.ifBlank { copy.category },
+                        subtitle = if (invite) {
+                            "Netplay invite · A opens Join / Not now"
+                        } else {
+                            listOf(copy.category, copy.subtitle)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" · ")
+                                .ifBlank { "A clears this notification" }
+                        },
+                        icon = if (invite) XmbIcon.Play else XmbIcon.Notifications,
+                        action = EmulatorMenuAction.OpenNotification(item.notification.id),
+                    ),
+                )
+            }
+        }
     }
     EmulatorMenuPane.Mods -> listOf(
         MenuRow(
