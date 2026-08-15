@@ -13,8 +13,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Opaque gameplay stage: NSO bezel behind, framebuffer [ImageView] laid out in the game rect
- * only. The game surface is never under a translucent Compose layer.
+ * One opaque screen: optional pause menu on the left, NSO bezel + framebuffer in the remaining
+ * rect. The menu is a child of this view, not a Compose overlay stacked on top of the game.
  */
 class XoraEmulatorStage @JvmOverloads constructor(
     context: Context,
@@ -25,10 +25,19 @@ class XoraEmulatorStage @JvmOverloads constructor(
         setBackgroundColor(Color.BLACK)
         scaleType = ImageView.ScaleType.FIT_XY
         adjustViewBounds = false
-        // Software layer so a sibling Compose overlay cannot leave a hardware wash on the pixels.
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        setLayerType(View.LAYER_TYPE_NONE, null)
     }
     val bezelView: NsoBezelView = NsoBezelView(context)
+
+    private var menuView: View? = null
+
+    var menuVisible: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            menuView?.visibility = if (value) View.VISIBLE else View.GONE
+            requestLayout()
+        }
 
     var contentWidthPx: Int = 4
         set(value) {
@@ -68,7 +77,9 @@ class XoraEmulatorStage @JvmOverloads constructor(
 
     init {
         setBackgroundColor(Color.BLACK)
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        setLayerType(View.LAYER_TYPE_NONE, null)
+        clipChildren = true
+        clipToPadding = true
         addView(
             bezelView,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
@@ -76,23 +87,72 @@ class XoraEmulatorStage @JvmOverloads constructor(
         addView(gameView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
+    fun attachMenu(view: View) {
+        if (menuView === view) return
+        menuView?.let { removeView(it) }
+        menuView = view
+        view.visibility = if (menuVisible) View.VISIBLE else View.GONE
+        addView(
+            view,
+            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT),
+        )
+    }
+
     fun setOverlayFile(file: File?) {
         bezelView.setOverlayFile(file)
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val w = MeasureSpec.getSize(widthMeasureSpec)
+        val h = MeasureSpec.getSize(heightMeasureSpec)
+        setMeasuredDimension(w, h)
+        val menu = menuView
+        if (menuVisible && menu != null) {
+            menu.measure(
+                MeasureSpec.makeMeasureSpec(w, MeasureSpec.AT_MOST),
+                MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY),
+            )
+        }
+        val menuW = menuWidth(w)
+        val gameW = (w - menuW).coerceAtLeast(0)
+        bezelView.measure(
+            MeasureSpec.makeMeasureSpec(gameW, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY),
+        )
+        gameView.measure(
+            MeasureSpec.makeMeasureSpec(gameW, MeasureSpec.AT_MOST),
+            MeasureSpec.makeMeasureSpec(h, MeasureSpec.AT_MOST),
+        )
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         val w = right - left
         val h = bottom - top
-        val rect = computeGameRect(w, h)
+        val menuW = menuWidth(w)
+        menuView?.let { menu ->
+            if (menuVisible) menu.layout(0, 0, menuW, h) else menu.layout(0, 0, 0, 0)
+        }
+        val gameW = (w - menuW).coerceAtLeast(0)
+        val rect = computeGameRect(gameW, h)
         bezelView.visibility = if (bezelsEnabled) View.VISIBLE else View.GONE
-        bezelView.layout(0, 0, w, h)
+        bezelView.layout(menuW, 0, w, h)
         bezelView.setGameRect(rect[0], rect[1], rect[2], rect[3])
-        gameView.layout(rect[0], rect[1], rect[2], rect[3])
+        gameView.layout(
+            menuW + rect[0],
+            rect[1],
+            menuW + rect[2],
+            rect[3],
+        )
+    }
+
+    private fun menuWidth(totalW: Int): Int {
+        val menu = menuView ?: return 0
+        if (!menuVisible) return 0
+        return menu.measuredWidth.coerceIn(0, (totalW * 0.62f).toInt())
     }
 
     private fun computeGameRect(viewW: Int, viewH: Int): IntArray {
         if (viewW <= 0 || viewH <= 0) return intArrayOf(0, 0, viewW, viewH)
-        // Stretch fills the panel only when bezels are off. NSO overlays keep a fitted hole.
         val layoutMode =
             if (bezelsEnabled && aspectMode == XoraAspectMode.Stretch) XoraAspectMode.Core
             else aspectMode

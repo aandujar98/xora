@@ -1,41 +1,9 @@
 package com.arcadia.shell.feature.home
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.label
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
-import com.arcadia.shell.libretro.netplay.nudgeIpv4
 import com.arcadia.shell.libretro.netplay.parseIpv4
 
 enum class EmulatorMenuPane {
@@ -83,7 +51,7 @@ sealed class EmulatorMenuAction {
     data object ReturnHome : EmulatorMenuAction()
 }
 
-private data class MenuRow(
+internal data class MenuRow(
     val id: String,
     val title: String,
     val subtitle: String? = null,
@@ -92,363 +60,70 @@ private data class MenuRow(
     val action: EmulatorMenuAction? = null,
 )
 
-/**
- * Azahar-style in-game side menu. The Compose host is wrap-content and fully opaque so it never
- * tints the live framebuffer sitting to its right.
- */
-@Composable
-fun XoraEmulatorSideMenu(
+internal fun emulatorRootRows(
     gameTitle: String,
     paused: Boolean,
     hardcore: Boolean,
     settings: XoraEmulatorSettings,
-    saveSlots: List<EmulatorSaveSlotUi>,
-    netplay: XoraNetplayUiState,
-    joinAddress: String,
-    message: String?,
-    onAction: (EmulatorMenuAction) -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var rootIndex by remember { mutableIntStateOf(0) }
-    var pane by remember { mutableStateOf(EmulatorMenuPane.None) }
-    var paneIndex by remember { mutableIntStateOf(0) }
+): List<MenuRow> = listOf(
+    MenuRow(
+        id = "pause",
+        title = if (paused) "Resume emulator" else "Pause emulator",
+        subtitle = gameTitle,
+        icon = if (paused) XmbIcon.Play else XmbIcon.Pause,
+        action = EmulatorMenuAction.TogglePause,
+    ),
+    MenuRow(
+        id = "save",
+        title = "Save state",
+        subtitle = if (hardcore) "Hardcore — disabled" else "Slots 0–9",
+        icon = XmbIcon.Folder,
+        pane = EmulatorMenuPane.Save,
+    ),
+    MenuRow(
+        id = "load",
+        title = "Load state",
+        subtitle = if (hardcore) "Hardcore — disabled" else "Slots 0–9",
+        icon = XmbIcon.Folder,
+        pane = EmulatorMenuPane.Load,
+    ),
+    MenuRow(
+        id = "display",
+        title = "Display",
+        subtitle = settings.aspectMode.label(),
+        icon = XmbIcon.Display,
+        pane = EmulatorMenuPane.Display,
+    ),
+    MenuRow(
+        id = "netplay",
+        title = "Netplay",
+        subtitle = if (settings.netplayEnabled) "On" else "Off",
+        icon = XmbIcon.Network,
+        pane = EmulatorMenuPane.Netplay,
+    ),
+    MenuRow(
+        id = "mods",
+        title = "Mods",
+        subtitle = "Coming soon",
+        icon = XmbIcon.Store,
+        pane = EmulatorMenuPane.Mods,
+    ),
+    MenuRow(
+        id = "settings",
+        title = "Settings",
+        subtitle = "Gamepad · Graphics · Audio",
+        icon = XmbIcon.Settings,
+        pane = EmulatorMenuPane.Settings,
+    ),
+    MenuRow(
+        id = "home",
+        title = "Return to XOrA Home",
+        icon = XmbIcon.Games,
+        action = EmulatorMenuAction.ReturnHome,
+    ),
+)
 
-    val rootRows = remember(
-        paused,
-        settings.netplayEnabled,
-        gameTitle,
-        hardcore,
-        settings.aspectMode,
-        settings.blockOverlayWash,
-    ) {
-        listOf(
-            MenuRow(
-                id = "pause",
-                title = if (paused) "Resume emulator" else "Pause emulator",
-                subtitle = gameTitle,
-                icon = if (paused) XmbIcon.Play else XmbIcon.Pause,
-                action = EmulatorMenuAction.TogglePause,
-            ),
-            MenuRow(
-                id = "wash",
-                title = "Remove white tint",
-                subtitle = if (settings.blockOverlayWash) {
-                    "On · game sits beside this menu"
-                } else {
-                    "Tap to clear the wash"
-                },
-                icon = XmbIcon.Display,
-                action = EmulatorMenuAction.ClearWhiteTint,
-            ),
-            MenuRow(
-                id = "save",
-                title = "Save state",
-                subtitle = if (hardcore) "Hardcore — disabled" else "Slots 0–9",
-                icon = XmbIcon.Folder,
-                pane = EmulatorMenuPane.Save,
-            ),
-            MenuRow(
-                id = "load",
-                title = "Load state",
-                subtitle = if (hardcore) "Hardcore — disabled" else "Slots 0–9",
-                icon = XmbIcon.Folder,
-                pane = EmulatorMenuPane.Load,
-            ),
-            MenuRow(
-                id = "display",
-                title = "Display",
-                subtitle = settings.aspectMode.label(),
-                icon = XmbIcon.Display,
-                pane = EmulatorMenuPane.Display,
-            ),
-            MenuRow(
-                id = "netplay",
-                title = "Netplay",
-                subtitle = if (settings.netplayEnabled) "On" else "Off",
-                icon = XmbIcon.Network,
-                pane = EmulatorMenuPane.Netplay,
-            ),
-            MenuRow(
-                id = "mods",
-                title = "Mods",
-                subtitle = "Coming soon",
-                icon = XmbIcon.Store,
-                pane = EmulatorMenuPane.Mods,
-            ),
-            MenuRow(
-                id = "settings",
-                title = "Settings",
-                subtitle = "Gamepad · Graphics · Audio",
-                icon = XmbIcon.Settings,
-                pane = EmulatorMenuPane.Settings,
-            ),
-            MenuRow(
-                id = "home",
-                title = "Return to XOrA Home",
-                icon = XmbIcon.Games,
-                action = EmulatorMenuAction.ReturnHome,
-            ),
-        )
-    }
-    val paneRows = paneRows(pane, settings, saveSlots, netplay, joinAddress, hardcore)
-    val paneFocus = paneIndex.coerceIn(0, (paneRows.size - 1).coerceAtLeast(0))
-    val rootFocus = rootIndex.coerceIn(0, rootRows.lastIndex)
-
-    fun activateRoot() {
-        val row = rootRows.getOrNull(rootFocus) ?: return
-        when {
-            row.pane != null -> {
-                pane = row.pane
-                paneIndex = 0
-            }
-            row.action != null -> onAction(row.action)
-        }
-    }
-
-    fun activatePane() {
-        val row = paneRows.getOrNull(paneFocus) ?: return
-        when {
-            row.pane != null -> {
-                pane = row.pane
-                paneIndex = 0
-            }
-            row.action != null -> onAction(row.action)
-        }
-    }
-
-    fun back() {
-        when (pane) {
-            EmulatorMenuPane.Gamepad,
-            EmulatorMenuPane.Graphics,
-            EmulatorMenuPane.Audio,
-            -> {
-                pane = EmulatorMenuPane.Settings
-                paneIndex = 0
-            }
-            EmulatorMenuPane.None -> onDismiss()
-            else -> {
-                pane = EmulatorMenuPane.None
-                paneIndex = 0
-            }
-        }
-    }
-
-    InGameMenuNavBridge(
-        rootCount = rootRows.size,
-        paneCount = paneRows.size,
-        paneOpen = pane != EmulatorMenuPane.None,
-        onMoveRoot = { delta ->
-            if (pane == EmulatorMenuPane.None) {
-                rootIndex = (rootFocus + delta).mod(rootRows.size)
-            }
-        },
-        onMovePane = { delta ->
-            if (pane != EmulatorMenuPane.None && paneRows.isNotEmpty()) {
-                paneIndex = (paneFocus + delta).mod(paneRows.size)
-            }
-        },
-        onOpenPane = {
-            if (pane == EmulatorMenuPane.None) activateRoot()
-        },
-        onConfirm = {
-            if (pane == EmulatorMenuPane.None) activateRoot() else activatePane()
-        },
-        onCancel = { back() },
-    )
-
-    Row(
-        modifier = modifier
-            .wrapContentWidth()
-            .fillMaxHeight()
-            .background(MenuInk),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Column(
-            modifier = Modifier
-                .width(SIDEBAR_WIDTH)
-                .fillMaxHeight()
-                .background(SidebarInk)
-                .padding(top = 28.dp, bottom = 20.dp),
-        ) {
-            Text(
-                text = "XOrA EMULATOR",
-                color = Color.White.copy(alpha = 0.45f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.4.sp,
-                modifier = Modifier.padding(start = 22.dp, end = 16.dp, bottom = 18.dp),
-            )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                rootRows.forEachIndexed { index, row ->
-                    SideMenuRow(
-                        row = row,
-                        selected = index == rootFocus && pane == EmulatorMenuPane.None,
-                        dimmed = pane != EmulatorMenuPane.None && index != rootFocus,
-                        onClick = {
-                            rootIndex = index
-                            activateRoot()
-                        },
-                    )
-                }
-            }
-            if (!message.isNullOrBlank()) {
-                Text(
-                    text = message,
-                    color = Accent,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 8.dp),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Text(
-                text = "B back · A confirm",
-                color = Color.White.copy(alpha = 0.4f),
-                fontSize = 11.sp,
-                modifier = Modifier.padding(start = 22.dp, top = 8.dp),
-            )
-        }
-
-        if (pane != EmulatorMenuPane.None) {
-            Column(
-                modifier = Modifier
-                    .width(PANEL_WIDTH)
-                    .fillMaxHeight()
-                    .background(PanelInk)
-                    .padding(top = 48.dp, bottom = 20.dp),
-            ) {
-                Text(
-                    text = paneTitle(pane),
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 10.dp),
-                )
-                paneRows.forEachIndexed { index, row ->
-                    SideMenuRow(
-                        row = row,
-                        selected = index == paneFocus,
-                        compact = true,
-                        onClick = {
-                            paneIndex = index
-                            activatePane()
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SideMenuRow(
-    row: MenuRow,
-    selected: Boolean,
-    onClick: () -> Unit,
-    dimmed: Boolean = false,
-    compact: Boolean = false,
-) {
-    val bg = when {
-        selected -> Color.White.copy(alpha = 0.12f)
-        else -> Color.Transparent
-    }
-    Row(
-        modifier = Modifier
-            .padding(horizontal = if (compact) 8.dp else 10.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(bg)
-            .clickable(
-                interactionSource = remember(row.id) { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            )
-            .padding(horizontal = 10.dp, vertical = if (compact) 8.dp else 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .width(3.dp)
-                .height(22.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(if (selected) Accent else Color.Transparent),
-        )
-        XmbVectorIcon(
-            icon = row.icon,
-            tint = if (dimmed) Color.White.copy(alpha = 0.35f) else Color.White,
-            size = 22.dp,
-            glass = false,
-            castShadow = false,
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = row.title,
-                color = Color.White.copy(alpha = if (dimmed) 0.4f else 1f),
-                fontSize = if (selected) 16.sp else 15.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (!row.subtitle.isNullOrBlank()) {
-                Text(
-                    text = row.subtitle,
-                    color = Color.White.copy(alpha = 0.45f),
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (row.pane != null) {
-            Text(
-                text = "›",
-                color = Color.White.copy(alpha = 0.35f),
-                fontSize = 18.sp,
-            )
-        }
-    }
-}
-
-@Composable
-private fun InGameMenuNavBridge(
-    rootCount: Int,
-    paneCount: Int,
-    paneOpen: Boolean,
-    onMoveRoot: (Int) -> Unit,
-    onMovePane: (Int) -> Unit,
-    onOpenPane: () -> Unit,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    val controller = LocalInGameXmbController.current
-    LaunchedEffect(
-        rootCount,
-        paneCount,
-        paneOpen,
-        onMoveRoot,
-        onMovePane,
-        onOpenPane,
-        onConfirm,
-        onCancel,
-    ) {
-        controller?.moveCategory = { delta ->
-            if (delta > 0 && !paneOpen) onOpenPane()
-            if (delta < 0 && paneOpen) onCancel()
-        }
-        controller?.moveItem = { delta ->
-            if (paneOpen) onMovePane(delta) else onMoveRoot(delta)
-        }
-        controller?.confirm = onConfirm
-        controller?.cancel = onCancel
-    }
-}
-
-private fun paneTitle(pane: EmulatorMenuPane): String = when (pane) {
+internal fun paneTitle(pane: EmulatorMenuPane): String = when (pane) {
     EmulatorMenuPane.Save -> "Save state"
     EmulatorMenuPane.Load -> "Load state"
     EmulatorMenuPane.Display -> "Display"
@@ -461,7 +136,7 @@ private fun paneTitle(pane: EmulatorMenuPane): String = when (pane) {
     EmulatorMenuPane.None -> ""
 }
 
-private fun paneRows(
+internal fun paneRows(
     pane: EmulatorMenuPane,
     settings: XoraEmulatorSettings,
     saveSlots: List<EmulatorSaveSlotUi>,
@@ -513,14 +188,14 @@ private fun paneRows(
         MenuRow(
             id = "wash",
             title = "Remove white tint",
-            subtitle = "Clears the wash and keeps the game off this menu",
+            subtitle = "Re-pin the window opaque",
             icon = XmbIcon.Display,
             action = EmulatorMenuAction.ClearWhiteTint,
         ),
         MenuRow(
             id = "block-wash",
             title = if (settings.blockOverlayWash) "Block white tint on" else "Block white tint off",
-            subtitle = "Opaque menu · game laid out beside it",
+            subtitle = "Pause menu sits on the emulator stage",
             icon = XmbIcon.Display,
             action = EmulatorMenuAction.ToggleBlockOverlayWash,
         ),
@@ -694,14 +369,14 @@ private fun paneRows(
         MenuRow(
             id = "g-wash",
             title = "Remove white tint",
-            subtitle = "Rebind the framebuffer and kill the wash",
+            subtitle = "Re-pin the window opaque",
             icon = XmbIcon.Display,
             action = EmulatorMenuAction.ClearWhiteTint,
         ),
         MenuRow(
             id = "g-block-wash",
             title = if (settings.blockOverlayWash) "Block white tint on" else "Block white tint off",
-            subtitle = "Keep Compose off the live pixels",
+            subtitle = "Pause menu sits on the emulator stage",
             icon = XmbIcon.Display,
             action = EmulatorMenuAction.ToggleBlockOverlayWash,
         ),
@@ -736,9 +411,5 @@ private fun octetLabel(address: String, index: Int): String {
     return parts.getOrNull(index)?.toString() ?: "0"
 }
 
-private val SidebarInk = Color(0xFF10131A)
-private val PanelInk = Color(0xFF1A1F2A)
-private val MenuInk = Color(0xFF000000)
-private val Accent = Color(0xFF3DFFDC)
-private val SIDEBAR_WIDTH = 300.dp
-private val PANEL_WIDTH = 280.dp
+internal val EmulatorMenuSidebarDp = 300
+internal val EmulatorMenuPanelDp = 280

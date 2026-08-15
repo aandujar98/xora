@@ -560,7 +560,7 @@ fun buildXoraEmulatorItems(
             id = "emu_block_wash",
             title = "Block white tint",
             subtitle = if (settings.blockOverlayWash) {
-                "On · pause menu stays off the game"
+                "On · pause menu sits on the emulator stage"
             } else {
                 "Off · tap to block the wash"
             },

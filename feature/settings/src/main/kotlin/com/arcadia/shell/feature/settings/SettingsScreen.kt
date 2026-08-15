@@ -1438,8 +1438,8 @@ fun SettingsScreen(
                     )
                 }
                 Text(
-                    text = "Keeps the in-game pause menu opaque and lays the game beside it. " +
-                        "In-game, tap Remove white tint if a wash still appears after submenus.",
+                    text = "Keeps the pause menu on the emulator stage, beside the game. " +
+                        "In-game, Display → Remove white tint re-pins the window opaque.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
