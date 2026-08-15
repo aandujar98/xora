@@ -6,22 +6,62 @@ import com.arcadia.shell.xoranetwork.XoraNetworkRepository
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.net.SocketTimeoutException
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
 /**
  * Relays the existing netplay protocol over a Nakama match so two signed-in devices can play
  * without being on the same LAN or forwarding a port.
+ *
+ * INPUT is queued off the emu thread so JSON + WebSocket send cannot stall the frame loop.
  */
 internal class XoraNakamaNetplayLink(
     private val network: XoraNetworkRepository,
     private val matchId: String,
 ) : XoraNetplayLink {
+    private val closed = AtomicBoolean(false)
+    private val inputQueue = ArrayBlockingQueue<ByteArray>(48)
+    private val inputSender = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "xora-np-input").apply { isDaemon = true }
+    }
+
+    init {
+        inputSender.execute {
+            while (!closed.get()) {
+                val payload = try {
+                    inputQueue.poll(50, TimeUnit.MILLISECONDS)
+                } catch (_: InterruptedException) {
+                    break
+                } ?: continue
+                if (closed.get()) break
+                runCatching {
+                    network.sendMatchData(
+                        matchId,
+                        XoraNetplayProtocol.TYPE_INPUT,
+                        payload,
+                        reliable = false,
+                    )
+                }
+            }
+        }
+    }
+
     override fun send(type: Int, payload: ByteArray) {
+        if (closed.get()) return
+        if (type == XoraNetplayProtocol.TYPE_INPUT) {
+            if (!inputQueue.offer(payload)) {
+                inputQueue.poll()
+                inputQueue.offer(payload)
+            }
+            return
+        }
         val body = if (type == XoraNetplayProtocol.TYPE_STATE) gzip(payload) else payload
-        val reliable = type != XoraNetplayProtocol.TYPE_INPUT
         if (body.size <= XoraNetplayProtocol.RELAY_CHUNK_BYTES) {
-            network.sendMatchData(matchId, type, body, reliable)
+            network.sendMatchData(matchId, type, body, reliable = true)
             return
         }
         val chunk = XoraNetplayProtocol.RELAY_CHUNK_BYTES
@@ -82,6 +122,8 @@ internal class XoraNakamaNetplayLink(
     }
 
     override fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        inputSender.shutdownNow()
         network.leaveMatch(matchId)
     }
 

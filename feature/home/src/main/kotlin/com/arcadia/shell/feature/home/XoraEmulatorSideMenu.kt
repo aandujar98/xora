@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -332,6 +333,7 @@ fun XoraEmulatorSideMenu(
             "np-clear" -> {
                 ipDraft = ""
                 portDraft = DEFAULT_NETPLAY_PORT.toString()
+                codeDraft = ""
                 onAction(EmulatorMenuAction.ClearJoinTarget)
             }
             else -> when {
@@ -510,7 +512,8 @@ fun XoraEmulatorSideMenu(
                                 value = codeDraft,
                                 selected = selected,
                                 placeholder = "K7M2QX",
-                                keyboardType = KeyboardType.Ascii,
+                                keyboardType = KeyboardType.Text,
+                                capitalization = KeyboardCapitalization.Characters,
                                 imeAction = ImeAction.Done,
                                 focusRequester = codeFocus,
                                 onValueChange = {
@@ -752,6 +755,13 @@ private fun paneRows(
                     title = "Session code",
                     subtitle = joinCode.ifBlank { "6 characters from the host" },
                     icon = XmbIcon.Network,
+                ),
+                MenuRow(
+                    id = "np-clear",
+                    title = "Clear session code",
+                    subtitle = "Erase the code to join another lobby",
+                    icon = XmbIcon.Settings,
+                    action = EmulatorMenuAction.ClearJoinTarget,
                 ),
             )
         } else {
@@ -1065,6 +1075,7 @@ private fun JoinTargetField(
     onCommit: () -> Unit,
     onClick: () -> Unit,
     onNext: (() -> Unit)? = null,
+    capitalization: KeyboardCapitalization = KeyboardCapitalization.None,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     var hadFocus by remember { mutableStateOf(false) }
@@ -1106,6 +1117,7 @@ private fun JoinTargetField(
                 Text(text = placeholder, color = Color.White.copy(alpha = 0.35f))
             },
             keyboardOptions = KeyboardOptions(
+                capitalization = capitalization,
                 keyboardType = keyboardType,
                 imeAction = imeAction,
             ),

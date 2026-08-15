@@ -930,6 +930,7 @@ class XoraLibretroActivity : ComponentActivity() {
             EmulatorMenuAction.ClearJoinTarget -> lifecycleScope.launch {
                 joinAddress = ""
                 joinPort = DEFAULT_NETPLAY_PORT
+                joinCode = ""
                 preferences.setXoraNetplayHostAddress("")
             }
             EmulatorMenuAction.CyclePreferredController -> lifecycleScope.launch {
@@ -1574,13 +1575,41 @@ class XoraLibretroActivity : ComponentActivity() {
                             rx = axisRx,
                             ry = axisRy,
                         )
-                        val remote = session.exchange(local)
+                        val pads = session.exchange(local)
                         if (session.hosting) {
-                            LibretroNative.nativeSetPadStatePort(0, local.buttons, local.lx, local.ly, local.rx, local.ry)
-                            LibretroNative.nativeSetPadStatePort(1, remote.buttons, remote.lx, remote.ly, remote.rx, remote.ry)
+                            LibretroNative.nativeSetPadStatePort(
+                                0,
+                                pads.local.buttons,
+                                pads.local.lx,
+                                pads.local.ly,
+                                pads.local.rx,
+                                pads.local.ry,
+                            )
+                            LibretroNative.nativeSetPadStatePort(
+                                1,
+                                pads.remote.buttons,
+                                pads.remote.lx,
+                                pads.remote.ly,
+                                pads.remote.rx,
+                                pads.remote.ry,
+                            )
                         } else {
-                            LibretroNative.nativeSetPadStatePort(0, remote.buttons, remote.lx, remote.ly, remote.rx, remote.ry)
-                            LibretroNative.nativeSetPadStatePort(1, local.buttons, local.lx, local.ly, local.rx, local.ry)
+                            LibretroNative.nativeSetPadStatePort(
+                                0,
+                                pads.remote.buttons,
+                                pads.remote.lx,
+                                pads.remote.ly,
+                                pads.remote.rx,
+                                pads.remote.ry,
+                            )
+                            LibretroNative.nativeSetPadStatePort(
+                                1,
+                                pads.local.buttons,
+                                pads.local.lx,
+                                pads.local.ly,
+                                pads.local.rx,
+                                pads.local.ry,
+                            )
                         }
                     } else {
                         LibretroNative.nativeSetPadState(
