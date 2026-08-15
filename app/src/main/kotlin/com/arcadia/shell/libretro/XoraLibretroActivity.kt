@@ -1113,6 +1113,7 @@ class XoraLibretroActivity : ComponentActivity() {
             is EmulatorMenuAction.MessageFriendComingSoon -> {
                 showMenuMessage("Messaging is coming soon")
             }
+            EmulatorMenuAction.ResetGame -> resetGameFromMenu()
             is EmulatorMenuAction.OpenNotification -> openNotificationFromMenu(action.id)
             EmulatorMenuAction.ClearAllNotifications -> {
                 shellNotifications.clearHistory()
@@ -1142,6 +1143,23 @@ class XoraLibretroActivity : ComponentActivity() {
         } else {
             shellNotifications.removeFromHistory(id)
             showMenuMessage("Notification cleared")
+        }
+    }
+
+    private fun resetGameFromMenu() {
+        if (!gameLoaded) return
+        if (netplaySession?.linkedNow == true) {
+            // A one-sided retro_reset would fork the lockstep simulations.
+            showMenuMessage("Disconnect netplay before resetting")
+            return
+        }
+        lifecycleScope.launch(emuDispatcher) {
+            LibretroNative.nativeReset()
+            withContext(Dispatchers.Main.immediate) {
+                showMenuMessage("Game reset")
+                setUserPaused(false)
+                closeMenu()
+            }
         }
     }
 

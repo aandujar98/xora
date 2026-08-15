@@ -85,6 +85,7 @@ data class EmulatorSaveSlotUi(
 
 sealed class EmulatorMenuAction {
     data object TogglePause : EmulatorMenuAction()
+    data object ResetGame : EmulatorMenuAction()
     data class SaveSlot(val slot: Int) : EmulatorMenuAction()
     data class LoadSlot(val slot: Int) : EmulatorMenuAction()
     data object SetFullScreen : EmulatorMenuAction()
@@ -263,6 +264,13 @@ fun XoraEmulatorSideMenu(
                 subtitle = "Gamepad · Graphics · Audio",
                 icon = XmbIcon.Settings,
                 pane = EmulatorMenuPane.Settings,
+            ),
+            MenuRow(
+                id = "reset",
+                title = "Reset game",
+                subtitle = "Restart $gameTitle from the beginning",
+                icon = XmbIcon.Repeat,
+                action = EmulatorMenuAction.ResetGame,
             ),
             MenuRow(
                 id = "home",
