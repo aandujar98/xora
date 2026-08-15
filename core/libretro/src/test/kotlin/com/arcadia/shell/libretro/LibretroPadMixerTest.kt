@@ -1,6 +1,7 @@
 package com.arcadia.shell.libretro
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,5 +43,79 @@ class LibretroPadMixerTest {
         // No InputDevices in unit tests, so a saved name cannot be connected.
         assertTrue(LibretroPad.matchesPreferredController(null, "Xbox Wireless Controller"))
         assertTrue(LibretroPad.acceptsController(null, "Xbox", acceptAny = true))
+    }
+
+    @Test
+    fun secondControllerIsPlayerTwoNotMergedIntoPlayerOne() {
+        val mixer = LibretroPadMixer()
+        mixer.keyDown(deviceId = 10, bit = LibretroPad.A)
+        mixer.keyDown(deviceId = 20, bit = LibretroPad.START)
+        val players = mixer.snapshotPlayers(
+            connected = listOf(10 to "Pad A", 20 to "Pad B"),
+            descriptorOf = { "id:$it" },
+            numberOf = { 0 },
+        )
+        assertEquals(1 shl LibretroPad.A, players.p1.buttons)
+        assertEquals(1 shl LibretroPad.START, players.p2.buttons)
+        assertFalse(players.p1.buttons and (1 shl LibretroPad.START) != 0)
+    }
+
+    @Test
+    fun preferredNameBecomesPlayerOne() {
+        val mixer = LibretroPadMixer()
+        mixer.keyDown(deviceId = 10, bit = LibretroPad.UP)
+        mixer.keyDown(deviceId = 20, bit = LibretroPad.DOWN)
+        val players = mixer.snapshotPlayers(
+            preferredName = "Pad B",
+            connected = listOf(10 to "Pad A", 20 to "Pad B"),
+            descriptorOf = { "id:$it" },
+            numberOf = { 0 },
+        )
+        assertEquals(1 shl LibretroPad.DOWN, players.p1.buttons)
+        assertEquals(1 shl LibretroPad.UP, players.p2.buttons)
+    }
+
+    @Test
+    fun androidControllerNumberTwoIsPlayerTwo() {
+        val mixer = LibretroPadMixer()
+        mixer.keyDown(deviceId = 3, bit = LibretroPad.B)
+        mixer.keyDown(deviceId = 4, bit = LibretroPad.X)
+        val players = mixer.snapshotPlayers(
+            connected = listOf(3 to "First", 4 to "Second"),
+            descriptorOf = { "id:$it" },
+            numberOf = { id -> if (id == 4) 2 else 1 },
+        )
+        assertEquals(1 shl LibretroPad.B, players.p1.buttons)
+        assertEquals(1 shl LibretroPad.X, players.p2.buttons)
+    }
+
+    @Test
+    fun splitButtonAndAxisDevicesStayOnePlayer() {
+        val mixer = LibretroPadMixer()
+        mixer.keyDown(deviceId = 11, bit = LibretroPad.A)
+        mixer.motion(deviceId = 12, lx = 200, ly = 0, rx = 0, ry = 0, axisButtons = 0)
+        mixer.keyDown(deviceId = 21, bit = LibretroPad.START)
+        val players = mixer.snapshotPlayers(
+            connected = listOf(11 to "Xbox", 12 to "Xbox", 21 to "DualSense"),
+            descriptorOf = { id -> if (id == 11 || id == 12) "xbox" else "ds" },
+            numberOf = { 0 },
+        )
+        assertEquals(1 shl LibretroPad.A, players.p1.buttons)
+        assertEquals(200.toShort(), players.p1.lx)
+        assertEquals(1 shl LibretroPad.START, players.p2.buttons)
+    }
+
+    @Test
+    fun keyboardFoldsIntoPlayerOne() {
+        val mixer = LibretroPadMixer()
+        mixer.keyDown(deviceId = 1, bit = LibretroPad.A)
+        mixer.keyDown(deviceId = 99, bit = LibretroPad.LEFT)
+        val players = mixer.snapshotPlayers(
+            connected = listOf(1 to "Pad A"),
+            descriptorOf = { "id:$it" },
+            numberOf = { 0 },
+        )
+        assertEquals((1 shl LibretroPad.A) or (1 shl LibretroPad.LEFT), players.p1.buttons)
+        assertEquals(0, players.p2.buttons)
     }
 }

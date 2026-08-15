@@ -18,6 +18,16 @@ class XoraCoreOptionsTest {
     }
 
     @Test
+    fun nesAndSnesConnectStandardPadsOnBothPorts() {
+        val mesen = XoraCoreOptions.variablesFor("nes", "mesen", settings)
+        assertEquals("Standard Controller", mesen["mesen_port2type"])
+
+        val bsnes = XoraCoreOptions.variablesFor("snes", "bsnes", settings)
+        assertEquals("Gamepad", bsnes["bsnes_port_1"])
+        assertEquals("Gamepad", bsnes["bsnes_port_2"])
+    }
+
+    @Test
     fun n64ConnectsControllerPaksOnBothPorts() {
         val mupen = XoraCoreOptions.variablesFor("n64", "mupen64plus_next_gles3", settings)
         assertEquals("memory", mupen["mupen64plus-pak1"])
@@ -44,6 +54,8 @@ class XoraCoreOptionsTest {
     fun gamecubeKeepsPadsOnPortsOneAndTwo() {
         val vars = XoraCoreOptions.variablesFor("gamecube", "dolphin", settings)
         assertEquals("OFF", vars["dolphin_alt_gc_ports_on_wii"])
+        assertEquals("Standard Controller", vars["dolphin_port_1_type"])
+        assertEquals("Standard Controller", vars["dolphin_port_2_type"])
         assertTrue(vars["pcsx_rearmed_pad2type"].isNullOrEmpty())
     }
 }

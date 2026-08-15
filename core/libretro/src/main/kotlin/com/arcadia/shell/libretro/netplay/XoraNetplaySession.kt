@@ -424,12 +424,16 @@ class XoraNetplaySession(
                 val (type, payload) = link.receive()
                 when (type) {
                     XoraNetplayProtocol.TYPE_INPUT -> {
-                        val pad = XoraNetplayProtocol.decodePadFrame(payload)
-                        pendingRemote[pad.frame] = pad
-                        if (pendingRemote.size > 64) {
-                            val minKeep = pad.frame - 32
-                            pendingRemote.keys.filter { it < minKeep }.forEach { pendingRemote.remove(it) }
-                        }
+                        runCatching { XoraNetplayProtocol.decodePadFrame(payload) }
+                            .getOrNull()
+                            ?.let { pad ->
+                                pendingRemote[pad.frame] = pad
+                                if (pendingRemote.size > 64) {
+                                    val minKeep = pad.frame - 32
+                                    pendingRemote.keys.filter { it < minKeep }
+                                        .forEach { pendingRemote.remove(it) }
+                                }
+                            }
                     }
                     XoraNetplayProtocol.TYPE_GO, XoraNetplayProtocol.TYPE_START -> Unit
                     XoraNetplayProtocol.TYPE_BYE, XoraNetplayProtocol.TYPE_ERROR -> {
@@ -469,10 +473,11 @@ class XoraNetplaySession(
             }
             LockSupport.parkNanos(250_000L)
         }
-        if (generation.get() == gen && linked.get()) {
-            fail("Lost sync waiting for the other player", gen)
+        // Hold the last remote pad instead of killing the session — a late INPUT
+        // must not drop P2 to an empty port for the rest of the game.
+        return lastRemote.get().let { pad ->
+            if (pad.frame >= 0) pad else XoraNetplayProtocol.PadFrame(frame = target, buttons = 0)
         }
-        return lastRemote.get()
     }
 
     private fun trimBuffers(frame: Int) {
@@ -499,7 +504,7 @@ class XoraNetplaySession(
 
     companion object {
         private const val ONLINE_INPUT_DELAY = 12
-        private const val INPUT_STALL_NS = 5_000_000_000L // 5s
+        private const val INPUT_STALL_NS = 120_000_000L // 120ms; then hold last P2 pad
 
         fun localIpv4Addresses(): List<String> = runCatching {
             NetworkInterface.getNetworkInterfaces().toList()

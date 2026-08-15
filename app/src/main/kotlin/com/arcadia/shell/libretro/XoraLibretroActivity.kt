@@ -218,6 +218,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private val emuDispatcher = emuExecutor.asCoroutineDispatcher()
 
     private val padMixer = LibretroPadMixer()
+    private var emuFrameIndex = 0
 
     private var platformId: String = "unknown"
     private var gameId: String = "game"
@@ -644,14 +645,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 if (menuOpen && !netplayLinked) {
                     return handleInGameXmbKey(keyCode)
                 }
-                if (!LibretroPad.acceptsController(
-                        InputDevice.getDevice(event.deviceId),
-                        xoraSettings.preferredControllerName,
-                        acceptAny = netplayLinked,
-                    )
-                ) {
-                    return false
-                }
                 LibretroPad.keyCodeToButton(keyCode, customMappings)?.let { bit ->
                     padMixer.keyDown(event.deviceId, bit)
                     return true
@@ -676,14 +669,6 @@ class XoraLibretroActivity : ComponentActivity() {
                         keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
                         keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
                         keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-                }
-                if (!LibretroPad.acceptsController(
-                        InputDevice.getDevice(event.deviceId),
-                        xoraSettings.preferredControllerName,
-                        acceptAny = netplayLinked,
-                    )
-                ) {
-                    return false
                 }
                 LibretroPad.keyCodeToButton(keyCode, customMappings)?.let { bit ->
                     padMixer.keyUp(event.deviceId, bit)
@@ -716,14 +701,6 @@ class XoraLibretroActivity : ComponentActivity() {
             return true
         }
         if (!LibretroPad.run { event.isFromGameController() }) return false
-        if (!LibretroPad.acceptsController(
-                InputDevice.getDevice(event.deviceId),
-                xoraSettings.preferredControllerName,
-                acceptAny = netplayLinked,
-            )
-        ) {
-            return false
-        }
         val (left, right) = LibretroPad.readAxes(event)
         padMixer.motion(
             deviceId = event.deviceId,
@@ -1580,6 +1557,14 @@ class XoraLibretroActivity : ComponentActivity() {
             }
     }
 
+    private fun applyNativePad(port: Int, pad: LibretroPadMixer.Snapshot) {
+        LibretroNative.nativeSetPadStatePort(port, pad.buttons, pad.lx, pad.ly, pad.rx, pad.ry)
+    }
+
+    private fun applyNativePad(port: Int, pad: XoraNetplayProtocol.PadFrame) {
+        LibretroNative.nativeSetPadStatePort(port, pad.buttons, pad.lx, pad.ly, pad.rx, pad.ry)
+    }
+
     private fun startLoop() {
         runJob?.cancel()
         // Same OS thread as nativeLoadCore — required for Mupen/libco and GLES context affinity.
@@ -1596,66 +1581,42 @@ class XoraLibretroActivity : ComponentActivity() {
                     }
                     session?.linkedNow == true ||
                         (!paused && !menuOpen && !activityInBackground) -> {
-                    val local = padMixer.snapshot()
+                    val players = padMixer.snapshotPlayers(xoraSettings.preferredControllerName)
                     if (session?.linkedNow == true) {
+                        if (emuFrameIndex % 90 == 0) {
+                            LibretroNative.nativePlugControllers()
+                        }
+                        val local = when {
+                            players.p1.hasInput() -> players.p1
+                            players.p2.hasInput() -> players.p2
+                            else -> padMixer.snapshot()
+                        }
+                        val mute = xoraSettings.netplaySpectator && !session.hosting
                         val frameIndex = session.nextFrameIndex()
                         val sent = XoraNetplayProtocol.PadFrame(
                             frame = frameIndex,
-                            buttons = if (xoraSettings.netplaySpectator && !session.hosting) {
-                                0
-                            } else {
-                                local.buttons
-                            },
-                            lx = local.lx,
-                            ly = local.ly,
-                            rx = local.rx,
-                            ry = local.ry,
+                            buttons = if (mute) 0 else local.buttons,
+                            lx = if (mute) 0 else local.lx,
+                            ly = if (mute) 0 else local.ly,
+                            rx = if (mute) 0 else local.rx,
+                            ry = if (mute) 0 else local.ry,
                         )
                         val pads = session.exchange(sent)
                         if (session.hosting) {
-                            LibretroNative.nativeSetPadStatePort(
-                                0,
-                                pads.local.buttons,
-                                pads.local.lx,
-                                pads.local.ly,
-                                pads.local.rx,
-                                pads.local.ry,
-                            )
-                            LibretroNative.nativeSetPadStatePort(
-                                1,
-                                pads.remote.buttons,
-                                pads.remote.lx,
-                                pads.remote.ly,
-                                pads.remote.rx,
-                                pads.remote.ry,
-                            )
+                            applyNativePad(0, pads.local)
+                            applyNativePad(1, pads.remote)
                         } else {
-                            LibretroNative.nativeSetPadStatePort(
-                                0,
-                                pads.remote.buttons,
-                                pads.remote.lx,
-                                pads.remote.ly,
-                                pads.remote.rx,
-                                pads.remote.ry,
-                            )
-                            LibretroNative.nativeSetPadStatePort(
-                                1,
-                                pads.local.buttons,
-                                pads.local.lx,
-                                pads.local.ly,
-                                pads.local.rx,
-                                pads.local.ry,
-                            )
+                            applyNativePad(0, pads.remote)
+                            applyNativePad(1, pads.local)
                         }
                     } else {
-                        LibretroNative.nativeSetPadState(
-                            local.buttons,
-                            local.lx,
-                            local.ly,
-                            local.rx,
-                            local.ry,
-                        )
+                        if (emuFrameIndex % 180 == 0) {
+                            LibretroNative.nativePlugControllers()
+                        }
+                        applyNativePad(0, players.p1)
+                        applyNativePad(1, players.p2)
                     }
+                    emuFrameIndex++
                     LibretroNative.nativeRunFrame()
                     raSession?.doFrame()
                     LibretroNative.nativeCopyFrameRgba()?.let { packed ->

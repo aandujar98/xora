@@ -117,11 +117,11 @@ std::vector<int16_t> g_audio;
 std::mutex g_audio_mutex;
 
 // Ports 0–1: buttons bitmask (RETRO_DEVICE_ID_JOYPAD_*), axes LX/LY/RX/RY in [-0x7fff, 0x7fff]
-std::atomic<uint16_t> g_pad_buttons[2]{{0}, {0}};
-std::atomic<int16_t> g_axis_lx[2]{{0}, {0}};
-std::atomic<int16_t> g_axis_ly[2]{{0}, {0}};
-std::atomic<int16_t> g_axis_rx[2]{{0}, {0}};
-std::atomic<int16_t> g_axis_ry[2]{{0}, {0}};
+std::atomic<uint16_t> g_pad_buttons[4]{{0}, {0}, {0}, {0}};
+std::atomic<int16_t> g_axis_lx[4]{{0}, {0}, {0}, {0}};
+std::atomic<int16_t> g_axis_ly[4]{{0}, {0}, {0}, {0}};
+std::atomic<int16_t> g_axis_rx[4]{{0}, {0}, {0}, {0}};
+std::atomic<int16_t> g_axis_ry[4]{{0}, {0}, {0}, {0}};
 
 // Device IDs from SET_CONTROLLER_INFO (core-specific subclasses, not always JOYPAD).
 constexpr unsigned kMaxControllerPorts = 4;
@@ -583,18 +583,20 @@ int16_t analog_y_or_dpad(unsigned port) {
 void plug_controllers() {
     if (g_plugging_controllers || !g_api.set_controller_port_device) return;
     g_plugging_controllers = true;
-    // Always occupy P1 and P2. Cores that only advertise one socket still accept a
-    // second joypad, and skipping port 1 is what left the joiner with a dead pad.
     const unsigned d0 = g_port_device[0];
-    const unsigned d1 = (g_controller_ports >= 2) ? g_port_device[1] : d0;
-    g_api.set_controller_port_device(0, d0);
-    g_api.set_controller_port_device(1, d1);
-    ALOGI("Plugged P1 device %u, P2 device %u", d0, d1);
+    for (unsigned port = 0; port < kMaxControllerPorts; ++port) {
+        const unsigned id = (g_controller_ports > port) ? g_port_device[port] : d0;
+        g_api.set_controller_port_device(port, id);
+    }
+    ALOGI("Plugged P1 device %u, P2 device %u (ports=%u)",
+          d0,
+          (g_controller_ports >= 2) ? g_port_device[1] : d0,
+          g_controller_ports);
     g_plugging_controllers = false;
 }
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port > 1) return 0;
+    if (port >= kMaxControllerPorts) return 0;
     // Cores pass SET_CONTROLLER_INFO subclasses (NES Gamepad, DualShock, GC pad).
     // The API requires masking to the generic RetroPad / analog type.
     const unsigned masked = device & RETRO_DEVICE_MASK;
@@ -1240,7 +1242,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeSetPadStatePort(
     jshort rx,
     jshort ry
 ) {
-    if (port < 0 || port > 1) return;
+    if (port < 0 || port >= static_cast<int>(kMaxControllerPorts)) return;
     g_pad_buttons[port].store(static_cast<uint16_t>(buttons & 0xFFFF), std::memory_order_relaxed);
     g_axis_lx[port].store(lx, std::memory_order_relaxed);
     g_axis_ly[port].store(ly, std::memory_order_relaxed);

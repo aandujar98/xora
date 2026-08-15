@@ -46,6 +46,20 @@ class XoraNetworkMatchParseTest {
         assertEquals("m1", message.matchId)
         assertEquals(1, message.opcode)
         assertArrayEquals(bytes, message.payload)
+        assertEquals("", message.senderUserId)
+    }
+
+    @Test
+    fun matchDataReadsSenderUserIdFromPresence() {
+        val bytes = byteArrayOf(9, 8, 7)
+        val encoded = Base64.getEncoder().encodeToString(bytes)
+        val payload = """
+            {"match_data":{"match_id":"m1","op_code":3,"data":"$encoded","presence":{"user_id":"host-id","session_id":"s1"}}}
+        """.trimIndent()
+        val message = parseMatchData(json.parseToJsonElement(payload) as JsonObject)!!
+        assertEquals(3, message.opcode)
+        assertEquals("host-id", message.senderUserId)
+        assertArrayEquals(bytes, message.payload)
     }
 
     @Test

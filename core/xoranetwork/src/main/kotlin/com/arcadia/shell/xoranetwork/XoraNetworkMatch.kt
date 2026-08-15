@@ -21,6 +21,7 @@ internal data class XoraMatchDataMessage(
     val matchId: String,
     val opcode: Int,
     val payload: ByteArray,
+    val senderUserId: String = "",
 )
 
 internal data class XoraMatchPresenceDelta(
@@ -45,7 +46,15 @@ internal fun parseMatchData(root: JsonObject): XoraMatchDataMessage? {
     val matchId = jsonString(data["match_id"])?.takeIf { it.isNotBlank() } ?: return null
     val opcode = jsonLong(data["op_code"]).toInt()
     val payload = decodeMatchBytes(jsonString(data["data"]).orEmpty())
-    return XoraMatchDataMessage(matchId = matchId, opcode = opcode, payload = payload)
+    val presence = data["presence"] as? JsonObject
+    val senderUserId = jsonString(presence?.get("user_id")).orEmpty()
+        .ifBlank { jsonString(data["user_id"]).orEmpty() }
+    return XoraMatchDataMessage(
+        matchId = matchId,
+        opcode = opcode,
+        payload = payload,
+        senderUserId = senderUserId,
+    )
 }
 
 internal fun parseMatchPresenceDelta(root: JsonObject): XoraMatchPresenceDelta? {

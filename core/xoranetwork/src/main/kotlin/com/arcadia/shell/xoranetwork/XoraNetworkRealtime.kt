@@ -63,6 +63,7 @@ class XoraNetworkRealtime @Inject constructor(
     private val connectedWaiter = AtomicReference<CompletableDeferred<Unit>?>(null)
     private val matchQueues = ConcurrentHashMap<String, LinkedBlockingQueue<MatchIngress>>()
     private val matchMembers = ConcurrentHashMap<String, MutableSet<String>>()
+    private val matchSelfIds = ConcurrentHashMap<String, String>()
     private val peerWaiters = ConcurrentHashMap<String, PeerWaiter>()
 
     internal fun setListener(onEvent: ((XoraPresenceEvent) -> Unit)?) {
@@ -125,6 +126,7 @@ class XoraNetworkRealtime @Inject constructor(
         val session = parseMatchSession(match)
             ?: throw XoraNetworkException("Couldn't start that online session.")
         rememberMatchMembers(session.matchId, listOf(session.selfUserId) + session.presenceUserIds)
+        if (session.selfUserId.isNotBlank()) matchSelfIds[session.matchId] = session.selfUserId
         matchQueue(session.matchId)
         return session
     }
@@ -293,7 +295,13 @@ class XoraNetworkRealtime @Inject constructor(
     private fun dispatch(text: String) {
         val root = runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull() ?: return
         parseMatchData(root)?.let { message ->
-            matchQueue(message.matchId).offer(MatchIngress.Data(message.opcode, message.payload))
+            val self = matchSelfIds[message.matchId]
+            if (self.isNullOrBlank() ||
+                message.senderUserId.isBlank() ||
+                message.senderUserId != self
+            ) {
+                matchQueue(message.matchId).offer(MatchIngress.Data(message.opcode, message.payload))
+            }
             return
         }
         parseMatchPresenceDelta(root)?.let { delta ->
@@ -369,6 +377,7 @@ class XoraNetworkRealtime @Inject constructor(
             XoraNetworkException("The online session ended."),
         )
         matchMembers.remove(matchId)
+        matchSelfIds.remove(matchId)
         matchQueues.remove(matchId)?.offer(MatchIngress.Closed)
     }
 
@@ -378,6 +387,7 @@ class XoraNetworkRealtime @Inject constructor(
         peerWaiters.values.forEach { it.deferred.completeExceptionally(XoraNetworkException(message)) }
         peerWaiters.clear()
         matchMembers.clear()
+        matchSelfIds.clear()
         matchQueues.values.forEach { it.offer(MatchIngress.Closed) }
         matchQueues.clear()
         connectedWaiter.getAndSet(null)?.complete(Unit)

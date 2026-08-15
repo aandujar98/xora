@@ -26,10 +26,47 @@ object XoraCoreOptions {
             "3ds" -> apply3ds(coreName, settings, expandActive, out)
         }
         applyResolution(platformId, coreName, settings, out)
+        applyNes(platformId, coreName, out)
+        applySnes(platformId, coreName, out)
         applyN64(platformId, coreName, out)
         applyPs1(platformId, coreName, out)
         applyGameCube(platformId, coreName, out)
         return out
+    }
+
+    private fun applyNes(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "nes" &&
+            !coreName.contains("fceumm", ignoreCase = true) &&
+            !coreName.contains("nestopia", ignoreCase = true) &&
+            !coreName.contains("mesen", ignoreCase = true)
+        ) {
+            return
+        }
+        out["mesen_port1type"] = "Standard Controller"
+        out["mesen_port2type"] = "Standard Controller"
+        out["nestopia_select_adapter"] = "disabled"
+    }
+
+    private fun applySnes(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "snes" &&
+            !coreName.contains("snes9x", ignoreCase = true) &&
+            !coreName.contains("bsnes", ignoreCase = true) &&
+            !coreName.contains("mesen-s", ignoreCase = true)
+        ) {
+            return
+        }
+        out["bsnes_port_1"] = "Gamepad"
+        out["bsnes_port_2"] = "Gamepad"
+        out["mesen-s_port1type"] = "Standard Controller"
+        out["mesen-s_port2type"] = "Standard Controller"
     }
 
     private fun applyN64(
@@ -87,6 +124,10 @@ object XoraCoreOptions {
         out["swanstation_Controller2_ForceAnalog"] = "true"
         out["duckstation_Controller1_ForceAnalog"] = "true"
         out["duckstation_Controller2_ForceAnalog"] = "true"
+        out["beetle_psx_pad1type"] = "analog"
+        out["beetle_psx_pad2type"] = "analog"
+        out["beetle_psx_hw_pad1type"] = "analog"
+        out["beetle_psx_hw_pad2type"] = "analog"
     }
 
     /** Keep GameCube pads on ports 1–2 (not Wii 5–8) so the joiner is P2. */
@@ -102,6 +143,10 @@ object XoraCoreOptions {
             return
         }
         out["dolphin_alt_gc_ports_on_wii"] = "OFF"
+        out["dolphin_port_1_type"] = "Standard Controller"
+        out["dolphin_port_2_type"] = "Standard Controller"
+        out["dolphin_port_3_type"] = "Standard Controller"
+        out["dolphin_port_4_type"] = "Standard Controller"
     }
 
     private fun applyNds(
