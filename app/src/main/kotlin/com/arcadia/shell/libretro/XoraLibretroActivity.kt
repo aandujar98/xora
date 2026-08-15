@@ -3,7 +3,9 @@ package com.arcadia.shell.libretro
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
+import android.graphics.Outline
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.hardware.input.InputManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -17,9 +19,11 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
@@ -139,6 +143,10 @@ class XoraLibretroActivity : ComponentActivity() {
     private var gameRoot: FrameLayout? = null
     private var stage: XoraEmulatorStage? = null
     private var xmbOverlay: ComposeView? = null
+    /** Topmost profile disc — tap clears a leftover white wash. */
+    private var profileChip: FrameLayout? = null
+    private var profileChipImage: ImageView? = null
+    private var profileChipLetter: TextView? = null
     private var profileName by mutableStateOf("Player")
     /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
     private var menuMessage by mutableStateOf<String?>(null)
@@ -158,6 +166,7 @@ class XoraLibretroActivity : ComponentActivity() {
             if (isFinishing || activityInBackground) return
             pinOpaqueWindow()
             if (!menuOpen) pinGameplaySurface()
+            keepProfileChipOnTop()
             postWashFrame()
         }
     }
@@ -258,6 +267,9 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         stage = stageView
         primaryGameView = stageView.gameView
+        stageView.bezelView.onAvatarClick = { clearWhiteTintFromProfileTap() }
+        stageView.bezelView.isClickable = true
+        stageView.bezelView.setAvatarDrawn(false)
         root.addView(stageView)
 
         // Wrap-content host for RA unlock banners + secondary display + preference effects.
@@ -289,6 +301,7 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         xmbOverlay = xmb
         root.addView(xmb)
+        root.addView(createProfileChip())
 
         setContentView(root)
         applyOpaqueWindow()
@@ -723,10 +736,13 @@ class XoraLibretroActivity : ComponentActivity() {
         if (menuOpen || isFinishing) return
         val overlay = xmbOverlay ?: return
         refreshSaveSlots()
-        overlay.visibility = View.VISIBLE
-        overlay.bringToFront()
         menuOpen = true
         syncPaused()
+        overlay.visibility = View.VISIBLE
+        overlay.alpha = 1f
+        overlay.setBackgroundColor(AndroidColor.BLACK)
+        overlay.bringToFront()
+        keepProfileChipOnTop()
         uiSounds.playConfirm()
     }
 
@@ -756,11 +772,12 @@ class XoraLibretroActivity : ComponentActivity() {
         if (!menuOpen) return
         menuOpen = false
         syncPaused()
-        xmbOverlay?.visibility = View.GONE
+        dissolveWashLayers()
         menuMessageJob?.cancel()
         menuMessage = null
         applyOpaqueWindow()
         pinGameplaySurface()
+        keepProfileChipOnTop()
         postWashFrame()
     }
 
@@ -976,6 +993,7 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         withContext(Dispatchers.Main.immediate) {
             stage?.bezelView?.setAvatar(bitmap, initial, fill)
+            bindProfileChip(bitmap, initial, fill)
         }
     }
 
@@ -1029,17 +1047,13 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     /**
-     * Gameplay-only pin: overlay closed, user is playing. The vsync loop and every presented
-     * frame call this so a scrim cannot sit on the framebuffer after Resume. Window format is
-     * handled by [pinOpaqueWindow] on vsync so this hot path does not relayout the window.
+     * Gameplay-only pin: overlay closed, user is playing. Drive leftover overlay opacity all
+     * the way to transparent so a white scrim cannot sit on the framebuffer.
      */
     private fun pinGameplaySurface() {
         if (isFinishing || menuOpen) return
+        dissolveWashLayers()
         gameRoot?.setBackgroundColor(AndroidColor.BLACK)
-        xmbOverlay?.apply {
-            visibility = View.GONE
-            alpha = 1f
-        }
         primaryGameView?.apply {
             setLayerType(View.LAYER_TYPE_NONE, null)
             setBackgroundColor(AndroidColor.BLACK)
@@ -1053,12 +1067,136 @@ class XoraLibretroActivity : ComponentActivity() {
             alpha = 1f
             visibility = View.VISIBLE
         }
+        keepProfileChipOnTop()
         synchronized(bitmapLock) {
             val src = gameBitmap
             val view = primaryGameView
             if (src != null && !src.isRecycled && view != null) {
                 view.invalidate()
             }
+        }
+    }
+
+    /**
+     * If a wash is still attached, fade it to fully transparent instead of leaving it opaque
+     * and GONE (some OEMs still composite a GONE ComposeView).
+     */
+    private fun dissolveWashLayers() {
+        if (isFinishing) return
+        val attrs = window.attributes
+        if (attrs.dimAmount != 0f) {
+            attrs.dimAmount = 0f
+            window.attributes = attrs
+        }
+        xmbOverlay?.apply {
+            alpha = 0f
+            visibility = View.GONE
+            setBackgroundColor(AndroidColor.TRANSPARENT)
+            isClickable = false
+            isFocusable = false
+        }
+    }
+
+    /** Tap the profile disc — the kill switch when the automatic pin still leaves a wash. */
+    private fun clearWhiteTintFromProfileTap() {
+        if (isFinishing) return
+        pinOpaqueWindow()
+        if (menuOpen) {
+            val attrs = window.attributes
+            if (attrs.dimAmount != 0f) {
+                attrs.dimAmount = 0f
+                window.attributes = attrs
+            }
+            showMenuMessage("White tint cleared")
+        } else {
+            dissolveWashLayers()
+            pinGameplaySurface()
+        }
+        keepProfileChipOnTop()
+        uiSounds.playConfirm()
+    }
+
+    private fun keepProfileChipOnTop() {
+        val root = gameRoot ?: return
+        val chip = profileChip ?: return
+        chip.visibility = View.VISIBLE
+        chip.alpha = 1f
+        if (root.getChildAt(root.childCount - 1) !== chip) {
+            chip.bringToFront()
+        }
+    }
+
+    private fun createProfileChip(): FrameLayout {
+        val density = resources.displayMetrics.density
+        val size = (56f * density).toInt().coerceAtLeast(40)
+        val pad = (18f * density).toInt()
+        val stroke = (3f * density).toInt().coerceAtLeast(2)
+        val image = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setOval(0, 0, view.width, view.height)
+                }
+            }
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+        }
+        val letter = TextView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+            gravity = Gravity.CENTER
+            setTextColor(AndroidColor.WHITE)
+            textSize = 20f
+            paint.isFakeBoldText = true
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val chip = FrameLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.START).apply {
+                leftMargin = pad
+                topMargin = pad
+            }
+            foreground = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(AndroidColor.TRANSPARENT)
+                setStroke(stroke, AndroidColor.WHITE)
+            }
+            isClickable = true
+            isFocusable = false
+            isFocusableInTouchMode = false
+            contentDescription = "Clear white tint"
+            elevation = 24f * density
+            setOnClickListener { clearWhiteTintFromProfileTap() }
+        }
+        chip.addView(image)
+        chip.addView(letter)
+        profileChip = chip
+        profileChipImage = image
+        profileChipLetter = letter
+        bindProfileChip(null, "P", AndroidColor.rgb(110, 123, 255))
+        return chip
+    }
+
+    private fun bindProfileChip(bitmap: Bitmap?, initial: String, fillColor: Int) {
+        val oval = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(fillColor)
+        }
+        profileChipImage?.apply {
+            background = oval
+            if (bitmap != null && !bitmap.isRecycled) {
+                setImageBitmap(bitmap)
+            } else {
+                setImageDrawable(null)
+            }
+        }
+        profileChipLetter?.apply {
+            text = initial
+            visibility = if (bitmap != null && !bitmap.isRecycled) View.GONE else View.VISIBLE
         }
     }
 

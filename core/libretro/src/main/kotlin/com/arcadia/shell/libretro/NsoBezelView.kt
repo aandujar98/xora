@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.view.MotionEvent
 import android.view.View
 import java.io.File
 import kotlin.math.min
@@ -46,6 +47,9 @@ class NsoBezelView @JvmOverloads constructor(
     private var avatarInitial: String = "P"
     private var showAvatar = true
     private var overlayPath: String? = null
+    /** Fired when the top-left profile disc is tapped. */
+    var onAvatarClick: (() -> Unit)? = null
+    private val avatarRect = RectF()
 
     fun setGameRect(left: Int, top: Int, right: Int, bottom: Int) {
         if (gameRect.left == left && gameRect.top == top &&
@@ -70,8 +74,31 @@ class NsoBezelView @JvmOverloads constructor(
         avatarBitmap = bitmap?.takeIf { !it.isRecycled }
         avatarInitial = initial.trim().uppercase().take(1).ifBlank { "?" }
         avatarFill.color = fillColor
-        showAvatar = true
         invalidate()
+    }
+
+    fun setAvatarDrawn(drawn: Boolean) {
+        if (showAvatar == drawn) return
+        showAvatar = drawn
+        invalidate()
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!showAvatar || avatarRect.isEmpty || onAvatarClick == null) {
+            return super.onTouchEvent(event)
+        }
+        val inside = avatarRect.contains(event.x, event.y)
+        if (event.actionMasked == MotionEvent.ACTION_UP && inside) {
+            onAvatarClick?.invoke()
+            performClick()
+            return true
+        }
+        return inside || super.onTouchEvent(event)
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -151,11 +178,18 @@ class NsoBezelView @JvmOverloads constructor(
     private fun drawAvatar(canvas: Canvas) {
         val density = resources.displayMetrics.density
         val size = min(56f * density, gameRect.left.coerceAtLeast(48) * 0.55f)
-        if (size < 18f) return
+        if (size < 18f) {
+            avatarRect.setEmpty()
+            return
+        }
         val cx = 18f * density + size / 2f
         val cy = 18f * density + size / 2f
-        if (cx + size / 2f > width) return
+        if (cx + size / 2f > width) {
+            avatarRect.setEmpty()
+            return
+        }
         val rect = RectF(cx - size / 2f, cy - size / 2f, cx + size / 2f, cy + size / 2f)
+        avatarRect.set(rect)
         canvas.drawOval(rect, avatarFill)
         val bmp = avatarBitmap
         if (bmp != null && !bmp.isRecycled) {
