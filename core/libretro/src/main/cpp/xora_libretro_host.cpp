@@ -116,12 +116,12 @@ std::mutex g_frame_mutex;
 std::vector<int16_t> g_audio;
 std::mutex g_audio_mutex;
 
-// Port 0: buttons bitmask (RETRO_DEVICE_ID_JOYPAD_*), axes LX/LY/RX/RY in [-0x7fff, 0x7fff]
-std::atomic<uint16_t> g_pad_buttons{0};
-std::atomic<int16_t> g_axis_lx{0};
-std::atomic<int16_t> g_axis_ly{0};
-std::atomic<int16_t> g_axis_rx{0};
-std::atomic<int16_t> g_axis_ry{0};
+// Ports 0–1: buttons bitmask (RETRO_DEVICE_ID_JOYPAD_*), axes LX/LY/RX/RY in [-0x7fff, 0x7fff]
+std::atomic<uint16_t> g_pad_buttons[2]{{0}, {0}};
+std::atomic<int16_t> g_axis_lx[2]{{0}, {0}};
+std::atomic<int16_t> g_axis_ly[2]{{0}, {0}};
+std::atomic<int16_t> g_axis_rx[2]{{0}, {0}};
+std::atomic<int16_t> g_axis_ry[2]{{0}, {0}};
 
 // Core options (SET_VARIABLES / GET_VARIABLE). Overrides win over core defaults.
 std::mutex g_vars_mutex;
@@ -484,23 +484,23 @@ size_t audio_sample_batch(const int16_t* data, size_t frames) {
 void input_poll() {}
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port != 0) return 0;
+    if (port > 1) return 0;
     if (device == RETRO_DEVICE_JOYPAD) {
         // Cores that negotiated GET_INPUT_BITMASKS query all buttons in one call.
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) {
-            return static_cast<int16_t>(g_pad_buttons.load(std::memory_order_relaxed) & 0xffff);
+            return static_cast<int16_t>(g_pad_buttons[port].load(std::memory_order_relaxed) & 0xffff);
         }
         if (id > 15) return 0;
-        return (g_pad_buttons.load(std::memory_order_relaxed) >> id) & 1;
+        return (g_pad_buttons[port].load(std::memory_order_relaxed) >> id) & 1;
     }
     if (device == RETRO_DEVICE_ANALOG) {
         if (index == RETRO_DEVICE_INDEX_ANALOG_LEFT) {
-            if (id == RETRO_DEVICE_ID_ANALOG_X) return g_axis_lx.load(std::memory_order_relaxed);
-            if (id == RETRO_DEVICE_ID_ANALOG_Y) return g_axis_ly.load(std::memory_order_relaxed);
+            if (id == RETRO_DEVICE_ID_ANALOG_X) return g_axis_lx[port].load(std::memory_order_relaxed);
+            if (id == RETRO_DEVICE_ID_ANALOG_Y) return g_axis_ly[port].load(std::memory_order_relaxed);
         }
         if (index == RETRO_DEVICE_INDEX_ANALOG_RIGHT) {
-            if (id == RETRO_DEVICE_ID_ANALOG_X) return g_axis_rx.load(std::memory_order_relaxed);
-            if (id == RETRO_DEVICE_ID_ANALOG_Y) return g_axis_ry.load(std::memory_order_relaxed);
+            if (id == RETRO_DEVICE_ID_ANALOG_X) return g_axis_rx[port].load(std::memory_order_relaxed);
+            if (id == RETRO_DEVICE_ID_ANALOG_Y) return g_axis_ry[port].load(std::memory_order_relaxed);
         }
     }
     return 0;
@@ -847,6 +847,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadCore(
     g_api.init();
     if (g_api.set_controller_port_device) {
         g_api.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+        g_api.set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
     }
 
     ALOGI("Core loaded (api %u)", g_api.api_version ? g_api.api_version() : 0u);
@@ -1085,11 +1086,30 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeSetPadState(
     jshort rx,
     jshort ry
 ) {
-    g_pad_buttons.store(static_cast<uint16_t>(buttons & 0xFFFF), std::memory_order_relaxed);
-    g_axis_lx.store(lx, std::memory_order_relaxed);
-    g_axis_ly.store(ly, std::memory_order_relaxed);
-    g_axis_rx.store(rx, std::memory_order_relaxed);
-    g_axis_ry.store(ry, std::memory_order_relaxed);
+    g_pad_buttons[0].store(static_cast<uint16_t>(buttons & 0xFFFF), std::memory_order_relaxed);
+    g_axis_lx[0].store(lx, std::memory_order_relaxed);
+    g_axis_ly[0].store(ly, std::memory_order_relaxed);
+    g_axis_rx[0].store(rx, std::memory_order_relaxed);
+    g_axis_ry[0].store(ry, std::memory_order_relaxed);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeSetPadStatePort(
+    JNIEnv*,
+    jclass,
+    jint port,
+    jint buttons,
+    jshort lx,
+    jshort ly,
+    jshort rx,
+    jshort ry
+) {
+    if (port < 0 || port > 1) return;
+    g_pad_buttons[port].store(static_cast<uint16_t>(buttons & 0xFFFF), std::memory_order_relaxed);
+    g_axis_lx[port].store(lx, std::memory_order_relaxed);
+    g_axis_ly[port].store(ly, std::memory_order_relaxed);
+    g_axis_rx[port].store(rx, std::memory_order_relaxed);
+    g_axis_ry[port].store(ry, std::memory_order_relaxed);
 }
 
 extern "C" JNIEXPORT jintArray JNICALL

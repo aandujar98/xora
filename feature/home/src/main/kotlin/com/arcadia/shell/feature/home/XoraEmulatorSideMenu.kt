@@ -1,0 +1,694 @@
+package com.arcadia.shell.feature.home
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.arcadia.shell.datastore.XoraAspectMode
+import com.arcadia.shell.datastore.XoraEmulatorSettings
+import com.arcadia.shell.datastore.label
+import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
+import com.arcadia.shell.libretro.netplay.nudgeIpv4
+import com.arcadia.shell.libretro.netplay.parseIpv4
+
+enum class EmulatorMenuPane {
+    None,
+    Save,
+    Load,
+    Display,
+    Netplay,
+    Mods,
+    Settings,
+    Gamepad,
+    Graphics,
+    Audio,
+}
+
+data class EmulatorSaveSlotUi(
+    val slot: Int,
+    val occupied: Boolean,
+    val subtitle: String,
+)
+
+sealed class EmulatorMenuAction {
+    data object TogglePause : EmulatorMenuAction()
+    data class SaveSlot(val slot: Int) : EmulatorMenuAction()
+    data class LoadSlot(val slot: Int) : EmulatorMenuAction()
+    data object SetFullScreen : EmulatorMenuAction()
+    data object SetNativeRatio : EmulatorMenuAction()
+    data object ToggleBezel : EmulatorMenuAction()
+    data object CycleInternalResolution : EmulatorMenuAction()
+    data object CycleIntegerScale : EmulatorMenuAction()
+    data object ToggleExpandDual : EmulatorMenuAction()
+    data object ToggleNetplayEnabled : EmulatorMenuAction()
+    data object HostNetplay : EmulatorMenuAction()
+    data object JoinNetplay : EmulatorMenuAction()
+    data object DisconnectNetplay : EmulatorMenuAction()
+    data object ToggleSpectator : EmulatorMenuAction()
+    data class NudgeJoinOctet(val octetIndex: Int, val delta: Int) : EmulatorMenuAction()
+    data object CyclePreferredController : EmulatorMenuAction()
+    data object ClearMappings : EmulatorMenuAction()
+    data object VolumeUp : EmulatorMenuAction()
+    data object VolumeDown : EmulatorMenuAction()
+    data object ResetDefaults : EmulatorMenuAction()
+    data object ReturnHome : EmulatorMenuAction()
+}
+
+private data class MenuRow(
+    val id: String,
+    val title: String,
+    val subtitle: String? = null,
+    val icon: XmbIcon,
+    val pane: EmulatorMenuPane? = null,
+    val action: EmulatorMenuAction? = null,
+)
+
+/**
+ * Azahar-style in-game side menu. The Compose host is wrap-content and fully opaque so it never
+ * tints the live framebuffer sitting to its right.
+ */
+@Composable
+fun XoraEmulatorSideMenu(
+    gameTitle: String,
+    paused: Boolean,
+    hardcore: Boolean,
+    settings: XoraEmulatorSettings,
+    saveSlots: List<EmulatorSaveSlotUi>,
+    netplay: XoraNetplayUiState,
+    joinAddress: String,
+    message: String?,
+    onAction: (EmulatorMenuAction) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var rootIndex by remember { mutableIntStateOf(0) }
+    var pane by remember { mutableStateOf(EmulatorMenuPane.None) }
+    var paneIndex by remember { mutableIntStateOf(0) }
+
+    val rootRows = remember(paused, settings.netplayEnabled, gameTitle, hardcore, settings.aspectMode) {
+        listOf(
+            MenuRow(
+                id = "pause",
+                title = if (paused) "Resume emulator" else "Pause emulator",
+                subtitle = gameTitle,
+                icon = if (paused) XmbIcon.Play else XmbIcon.Pause,
+                action = EmulatorMenuAction.TogglePause,
+            ),
+            MenuRow(
+                id = "save",
+                title = "Save state",
+                subtitle = if (hardcore) "Hardcore — disabled" else "Slots 0–9",
+                icon = XmbIcon.Folder,
+                pane = EmulatorMenuPane.Save,
+            ),
+            MenuRow(
+                id = "load",
+                title = "Load state",
+                subtitle = if (hardcore) "Hardcore — disabled" else "Slots 0–9",
+                icon = XmbIcon.Folder,
+                pane = EmulatorMenuPane.Load,
+            ),
+            MenuRow(
+                id = "display",
+                title = "Display",
+                subtitle = settings.aspectMode.label(),
+                icon = XmbIcon.Display,
+                pane = EmulatorMenuPane.Display,
+            ),
+            MenuRow(
+                id = "netplay",
+                title = "Netplay",
+                subtitle = if (settings.netplayEnabled) "On" else "Off",
+                icon = XmbIcon.Network,
+                pane = EmulatorMenuPane.Netplay,
+            ),
+            MenuRow(
+                id = "mods",
+                title = "Mods",
+                subtitle = "Coming soon",
+                icon = XmbIcon.Store,
+                pane = EmulatorMenuPane.Mods,
+            ),
+            MenuRow(
+                id = "settings",
+                title = "Settings",
+                subtitle = "Gamepad · Graphics · Audio",
+                icon = XmbIcon.Settings,
+                pane = EmulatorMenuPane.Settings,
+            ),
+            MenuRow(
+                id = "home",
+                title = "Return to XOrA Home",
+                icon = XmbIcon.Games,
+                action = EmulatorMenuAction.ReturnHome,
+            ),
+        )
+    }
+    val paneRows = paneRows(pane, settings, saveSlots, netplay, joinAddress, hardcore)
+    val paneFocus = paneIndex.coerceIn(0, (paneRows.size - 1).coerceAtLeast(0))
+    val rootFocus = rootIndex.coerceIn(0, rootRows.lastIndex)
+
+    fun activateRoot() {
+        val row = rootRows.getOrNull(rootFocus) ?: return
+        when {
+            row.pane != null -> {
+                pane = row.pane
+                paneIndex = 0
+            }
+            row.action != null -> onAction(row.action)
+        }
+    }
+
+    fun activatePane() {
+        val row = paneRows.getOrNull(paneFocus) ?: return
+        when {
+            row.pane != null -> {
+                pane = row.pane
+                paneIndex = 0
+            }
+            row.action != null -> onAction(row.action)
+        }
+    }
+
+    fun back() {
+        when (pane) {
+            EmulatorMenuPane.Gamepad,
+            EmulatorMenuPane.Graphics,
+            EmulatorMenuPane.Audio,
+            -> {
+                pane = EmulatorMenuPane.Settings
+                paneIndex = 0
+            }
+            EmulatorMenuPane.None -> onDismiss()
+            else -> {
+                pane = EmulatorMenuPane.None
+                paneIndex = 0
+            }
+        }
+    }
+
+    InGameMenuNavBridge(
+        rootCount = rootRows.size,
+        paneCount = paneRows.size,
+        paneOpen = pane != EmulatorMenuPane.None,
+        onMoveRoot = { delta ->
+            if (pane == EmulatorMenuPane.None) {
+                rootIndex = (rootFocus + delta).mod(rootRows.size)
+            }
+        },
+        onMovePane = { delta ->
+            if (pane != EmulatorMenuPane.None && paneRows.isNotEmpty()) {
+                paneIndex = (paneFocus + delta).mod(paneRows.size)
+            }
+        },
+        onOpenPane = {
+            if (pane == EmulatorMenuPane.None) activateRoot()
+        },
+        onConfirm = {
+            if (pane == EmulatorMenuPane.None) activateRoot() else activatePane()
+        },
+        onCancel = { back() },
+    )
+
+    Row(
+        modifier = modifier
+            .fillMaxHeight()
+            .background(Color.Transparent),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Column(
+            modifier = Modifier
+                .width(SIDEBAR_WIDTH)
+                .fillMaxHeight()
+                .background(SidebarInk)
+                .padding(top = 28.dp, bottom = 20.dp),
+        ) {
+            Text(
+                text = "XOrA EMULATOR",
+                color = Color.White.copy(alpha = 0.45f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.4.sp,
+                modifier = Modifier.padding(start = 22.dp, end = 16.dp, bottom = 18.dp),
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                rootRows.forEachIndexed { index, row ->
+                    SideMenuRow(
+                        row = row,
+                        selected = index == rootFocus && pane == EmulatorMenuPane.None,
+                        dimmed = pane != EmulatorMenuPane.None && index != rootFocus,
+                        onClick = {
+                            rootIndex = index
+                            activateRoot()
+                        },
+                    )
+                }
+            }
+            if (!message.isNullOrBlank()) {
+                Text(
+                    text = message,
+                    color = Accent,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 8.dp),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = "B back · A confirm",
+                color = Color.White.copy(alpha = 0.4f),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(start = 22.dp, top = 8.dp),
+            )
+        }
+
+        if (pane != EmulatorMenuPane.None) {
+            Column(
+                modifier = Modifier
+                    .padding(start = 12.dp, top = 48.dp, end = 12.dp)
+                    .width(PANEL_WIDTH)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(PanelInk)
+                    .padding(vertical = 14.dp),
+            ) {
+                Text(
+                    text = paneTitle(pane),
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 10.dp),
+                )
+                paneRows.forEachIndexed { index, row ->
+                    SideMenuRow(
+                        row = row,
+                        selected = index == paneFocus,
+                        compact = true,
+                        onClick = {
+                            paneIndex = index
+                            activatePane()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SideMenuRow(
+    row: MenuRow,
+    selected: Boolean,
+    onClick: () -> Unit,
+    dimmed: Boolean = false,
+    compact: Boolean = false,
+) {
+    val bg = when {
+        selected -> Color.White.copy(alpha = 0.12f)
+        else -> Color.Transparent
+    }
+    Row(
+        modifier = Modifier
+            .padding(horizontal = if (compact) 8.dp else 10.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .clickable(
+                interactionSource = remember(row.id) { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 10.dp, vertical = if (compact) 8.dp else 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(22.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(if (selected) Accent else Color.Transparent),
+        )
+        XmbVectorIcon(
+            icon = row.icon,
+            tint = if (dimmed) Color.White.copy(alpha = 0.35f) else Color.White,
+            size = 22.dp,
+            glass = false,
+            castShadow = false,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = row.title,
+                color = Color.White.copy(alpha = if (dimmed) 0.4f else 1f),
+                fontSize = if (selected) 16.sp else 15.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!row.subtitle.isNullOrBlank()) {
+                Text(
+                    text = row.subtitle,
+                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (row.pane != null) {
+            Text(
+                text = "›",
+                color = Color.White.copy(alpha = 0.35f),
+                fontSize = 18.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun InGameMenuNavBridge(
+    rootCount: Int,
+    paneCount: Int,
+    paneOpen: Boolean,
+    onMoveRoot: (Int) -> Unit,
+    onMovePane: (Int) -> Unit,
+    onOpenPane: () -> Unit,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val controller = LocalInGameXmbController.current
+    LaunchedEffect(
+        rootCount,
+        paneCount,
+        paneOpen,
+        onMoveRoot,
+        onMovePane,
+        onOpenPane,
+        onConfirm,
+        onCancel,
+    ) {
+        controller?.moveCategory = { delta ->
+            if (delta > 0 && !paneOpen) onOpenPane()
+            if (delta < 0 && paneOpen) onCancel()
+        }
+        controller?.moveItem = { delta ->
+            if (paneOpen) onMovePane(delta) else onMoveRoot(delta)
+        }
+        controller?.confirm = onConfirm
+        controller?.cancel = onCancel
+    }
+}
+
+private fun paneTitle(pane: EmulatorMenuPane): String = when (pane) {
+    EmulatorMenuPane.Save -> "Save state"
+    EmulatorMenuPane.Load -> "Load state"
+    EmulatorMenuPane.Display -> "Display"
+    EmulatorMenuPane.Netplay -> "Netplay"
+    EmulatorMenuPane.Mods -> "Mods"
+    EmulatorMenuPane.Settings -> "Settings"
+    EmulatorMenuPane.Gamepad -> "Gamepad"
+    EmulatorMenuPane.Graphics -> "Graphics"
+    EmulatorMenuPane.Audio -> "Audio"
+    EmulatorMenuPane.None -> ""
+}
+
+private fun paneRows(
+    pane: EmulatorMenuPane,
+    settings: XoraEmulatorSettings,
+    saveSlots: List<EmulatorSaveSlotUi>,
+    netplay: XoraNetplayUiState,
+    joinAddress: String,
+    hardcore: Boolean,
+): List<MenuRow> = when (pane) {
+    EmulatorMenuPane.None -> emptyList()
+    EmulatorMenuPane.Save -> saveSlots.map { slot ->
+        MenuRow(
+            id = "save-${slot.slot}",
+            title = "Slot ${slot.slot}",
+            subtitle = if (hardcore) "Hardcore — disabled" else slot.subtitle,
+            icon = XmbIcon.Folder,
+            action = EmulatorMenuAction.SaveSlot(slot.slot),
+        )
+    }
+    EmulatorMenuPane.Load -> saveSlots.map { slot ->
+        MenuRow(
+            id = "load-${slot.slot}",
+            title = "Slot ${slot.slot}",
+            subtitle = if (hardcore) "Hardcore — disabled" else slot.subtitle,
+            icon = XmbIcon.Folder,
+            action = EmulatorMenuAction.LoadSlot(slot.slot),
+        )
+    }
+    EmulatorMenuPane.Display -> listOf(
+        MenuRow(
+            id = "full",
+            title = "Full screen",
+            subtitle = if (settings.aspectMode == XoraAspectMode.Stretch) "On" else "Stretch to fill",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.SetFullScreen,
+        ),
+        MenuRow(
+            id = "native",
+            title = "Native ratio",
+            subtitle = if (settings.aspectMode == XoraAspectMode.Core) "On" else "Keep framebuffer aspect",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.SetNativeRatio,
+        ),
+        MenuRow(
+            id = "bezel",
+            title = if (settings.bezelsEnabled) "NSO bezel on" else "No NSO bezel",
+            subtitle = "Per-core overlay around the game",
+            icon = XmbIcon.Emulator,
+            action = EmulatorMenuAction.ToggleBezel,
+        ),
+    )
+    EmulatorMenuPane.Netplay -> listOf(
+        MenuRow(
+            id = "np-enable",
+            title = if (settings.netplayEnabled) "Netplay on" else "Netplay off",
+            subtitle = "A toggles",
+            icon = XmbIcon.Network,
+            action = EmulatorMenuAction.ToggleNetplayEnabled,
+        ),
+        MenuRow(
+            id = "np-host",
+            title = "Host session",
+            subtitle = netplay.localAddresses.firstOrNull()
+                ?.let { "$it:${settings.netplayPort}" }
+                ?: "Port ${settings.netplayPort}",
+            icon = XmbIcon.Play,
+            action = EmulatorMenuAction.HostNetplay,
+        ),
+        MenuRow(
+            id = "np-join",
+            title = "Join session",
+            subtitle = joinAddress.ifBlank { "Set join address below" },
+            icon = XmbIcon.Friends,
+            action = EmulatorMenuAction.JoinNetplay,
+        ),
+        MenuRow(
+            id = "np-oct0",
+            title = "Join IP octet 1",
+            subtitle = octetLabel(joinAddress, 0),
+            icon = XmbIcon.Network,
+            action = EmulatorMenuAction.NudgeJoinOctet(0, 1),
+        ),
+        MenuRow(
+            id = "np-oct1",
+            title = "Join IP octet 2",
+            subtitle = octetLabel(joinAddress, 1),
+            icon = XmbIcon.Network,
+            action = EmulatorMenuAction.NudgeJoinOctet(1, 1),
+        ),
+        MenuRow(
+            id = "np-oct2",
+            title = "Join IP octet 3",
+            subtitle = octetLabel(joinAddress, 2),
+            icon = XmbIcon.Network,
+            action = EmulatorMenuAction.NudgeJoinOctet(2, 1),
+        ),
+        MenuRow(
+            id = "np-oct3",
+            title = "Join IP octet 4",
+            subtitle = octetLabel(joinAddress, 3),
+            icon = XmbIcon.Network,
+            action = EmulatorMenuAction.NudgeJoinOctet(3, 1),
+        ),
+        MenuRow(
+            id = "np-spec",
+            title = if (settings.netplaySpectator) "Spectator on" else "Spectator off",
+            subtitle = "Join without sending input",
+            icon = XmbIcon.User,
+            action = EmulatorMenuAction.ToggleSpectator,
+        ),
+        MenuRow(
+            id = "np-status",
+            title = netplay.status,
+            subtitle = netplay.error ?: netplay.peerName.ifBlank { "Not connected" },
+            icon = XmbIcon.Notifications,
+        ),
+        MenuRow(
+            id = "np-disc",
+            title = "Disconnect",
+            subtitle = if (netplay.linked) "Drop the current session" else "No session",
+            icon = XmbIcon.Settings,
+            action = EmulatorMenuAction.DisconnectNetplay,
+        ),
+    )
+    EmulatorMenuPane.Mods -> listOf(
+        MenuRow(
+            id = "mods-soon",
+            title = "Coming soon",
+            subtitle = "Cheat / texture / ROM hacks will land here",
+            icon = XmbIcon.Store,
+        ),
+    )
+    EmulatorMenuPane.Settings -> listOf(
+        MenuRow(
+            id = "pad",
+            title = "Gamepad settings",
+            subtitle = settings.preferredControllerName.ifBlank { "Any controller" },
+            icon = XmbIcon.GamePad,
+            pane = EmulatorMenuPane.Gamepad,
+        ),
+        MenuRow(
+            id = "gfx",
+            title = "Graphics settings",
+            subtitle = settings.aspectMode.label(),
+            icon = XmbIcon.Display,
+            pane = EmulatorMenuPane.Graphics,
+        ),
+        MenuRow(
+            id = "aud",
+            title = "Audio",
+            subtitle = "${(settings.audioVolume * 100f).toInt()}%",
+            icon = XmbIcon.Sound,
+            pane = EmulatorMenuPane.Audio,
+        ),
+        MenuRow(
+            id = "reset",
+            title = "Reset to default",
+            subtitle = "Display, audio & gamepad",
+            icon = XmbIcon.System,
+            action = EmulatorMenuAction.ResetDefaults,
+        ),
+    )
+    EmulatorMenuPane.Gamepad -> listOf(
+        MenuRow(
+            id = "ctrl",
+            title = "Preferred controller",
+            subtitle = settings.preferredControllerName.ifBlank { "Any controller" } + " · A cycles",
+            icon = XmbIcon.GamePad,
+            action = EmulatorMenuAction.CyclePreferredController,
+        ),
+        MenuRow(
+            id = "map",
+            title = "Button mappings",
+            subtitle = if (settings.buttonMappings.isEmpty()) {
+                "Default"
+            } else {
+                "${settings.buttonMappings.size} custom · A clears"
+            },
+            icon = XmbIcon.GamePad,
+            action = EmulatorMenuAction.ClearMappings,
+        ),
+    )
+    EmulatorMenuPane.Graphics -> listOf(
+        MenuRow(
+            id = "g-full",
+            title = "Full screen",
+            subtitle = settings.aspectMode.label(),
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.SetFullScreen,
+        ),
+        MenuRow(
+            id = "g-native",
+            title = "Native ratio",
+            subtitle = "Core aspect",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.SetNativeRatio,
+        ),
+        MenuRow(
+            id = "g-int",
+            title = "Integer scale",
+            subtitle = if (settings.integerScale == 0) "Auto" else "${settings.integerScale}×",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.CycleIntegerScale,
+        ),
+        MenuRow(
+            id = "g-res",
+            title = "Internal resolution",
+            subtitle = settings.internalResolution.label(),
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.CycleInternalResolution,
+        ),
+        MenuRow(
+            id = "g-bezel",
+            title = if (settings.bezelsEnabled) "NSO bezel on" else "No NSO bezel",
+            icon = XmbIcon.Emulator,
+            action = EmulatorMenuAction.ToggleBezel,
+        ),
+        MenuRow(
+            id = "g-dual",
+            title = "Expand dual display",
+            subtitle = if (settings.expandDualDisplay) "On" else "Off",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.ToggleExpandDual,
+        ),
+    )
+    EmulatorMenuPane.Audio -> listOf(
+        MenuRow(
+            id = "vol",
+            title = "Volume up",
+            subtitle = "${(settings.audioVolume * 100f).toInt()}%",
+            icon = XmbIcon.Sound,
+            action = EmulatorMenuAction.VolumeUp,
+        ),
+        MenuRow(
+            id = "vol-down",
+            title = "Volume down",
+            subtitle = "−10%",
+            icon = XmbIcon.Sound,
+            action = EmulatorMenuAction.VolumeDown,
+        ),
+    )
+}
+
+private fun octetLabel(address: String, index: Int): String {
+    val parts = parseIpv4(address)
+    return parts.getOrNull(index)?.toString() ?: "0"
+}
+
+private val SidebarInk = Color(0xFF10131A)
+private val PanelInk = Color(0xF01A1F2A)
+private val Accent = Color(0xFF3DFFDC)
+private val SIDEBAR_WIDTH = 300.dp
+private val PANEL_WIDTH = 280.dp

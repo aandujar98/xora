@@ -428,6 +428,7 @@ class ShellPreferences @Inject constructor(
                 ?: XoraInternalResolution.Native,
             bezelsEnabled = prefs[Keys.XORA_BEZELS_ENABLED] ?: true,
             bezelOpacity = (prefs[Keys.XORA_BEZEL_OPACITY] ?: 0.88f).coerceIn(0f, 1f),
+            audioVolume = (prefs[Keys.XORA_AUDIO_VOLUME] ?: 1f).coerceIn(0f, 1f),
             netplayEnabled = prefs[Keys.XORA_NETPLAY_ENABLED] ?: false,
             netplayNickname = prefs[Keys.XORA_NETPLAY_NICK]
                 ?.takeIf { it.isNotBlank() } ?: "Player",
@@ -718,6 +719,26 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setXoraBezelOpacity(opacity: Float) = edit {
         it[Keys.XORA_BEZEL_OPACITY] = opacity.coerceIn(0f, 1f)
+    }
+
+    suspend fun setXoraAudioVolume(volume: Float) = edit {
+        it[Keys.XORA_AUDIO_VOLUME] = volume.coerceIn(0f, 1f)
+    }
+
+    /** Display, audio, and gamepad defaults. Leaves netplay identity / host address alone. */
+    suspend fun resetXoraEmulatorPlaySettings() = edit {
+        it.remove(Keys.XORA_ASPECT)
+        it.remove(Keys.XORA_INTEGER_SCALE)
+        it.remove(Keys.XORA_INTERNAL_RES)
+        it.remove(Keys.XORA_BEZELS_ENABLED)
+        it.remove(Keys.XORA_BEZEL_OPACITY)
+        it.remove(Keys.XORA_AUDIO_VOLUME)
+        it.remove(Keys.XORA_EXPAND_DUAL)
+        it.remove(Keys.XORA_CONTROLLER_NAME)
+        it.remove(Keys.XORA_BUTTON_MAPPINGS)
+        it.remove(Keys.XORA_NDS_LAYOUT)
+        it.remove(Keys.XORA_NDS_GAP)
+        it.remove(Keys.XORA_3DS_LAYOUT)
     }
 
     suspend fun setXoraNetplayEnabled(enabled: Boolean) = edit {
@@ -1118,6 +1139,7 @@ class ShellPreferences @Inject constructor(
         val XORA_INTERNAL_RES = stringPreferencesKey("xora_internal_resolution")
         val XORA_BEZELS_ENABLED = booleanPreferencesKey("xora_bezels_enabled")
         val XORA_BEZEL_OPACITY = floatPreferencesKey("xora_bezel_opacity")
+        val XORA_AUDIO_VOLUME = floatPreferencesKey("xora_audio_volume")
         val XORA_NETPLAY_ENABLED = booleanPreferencesKey("xora_netplay_enabled")
         val XORA_NETPLAY_NICK = stringPreferencesKey("xora_netplay_nickname")
         val XORA_NETPLAY_PORT = intPreferencesKey("xora_netplay_port")

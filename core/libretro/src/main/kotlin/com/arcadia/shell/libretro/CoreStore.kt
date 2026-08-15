@@ -20,6 +20,8 @@ class CoreStore @Inject constructor(
     private val root = File(context.filesDir, "cores")
     val systemDir: File = File(context.filesDir, "system").also { it.mkdirs() }
     val savesRoot: File = File(context.filesDir, "saves").also { it.mkdirs() }
+    /** Dropped NSO overlay packs (`nso-gba.png`, `nso-n64.cfg`, …). */
+    val overlaysDir: File = File(context.filesDir, "overlays").also { it.mkdirs() }
 
     private val installed = MutableStateFlow<Set<String>>(emptySet())
     val installedCoreNames: StateFlow<Set<String>> = installed.asStateFlow()

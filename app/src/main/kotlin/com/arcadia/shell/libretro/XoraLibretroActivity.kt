@@ -1,6 +1,7 @@
 package com.arcadia.shell.libretro
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.graphics.PixelFormat
 import android.hardware.input.InputManager
@@ -44,6 +45,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.arcadia.shell.audio.UiSoundController
 import com.arcadia.shell.database.repository.LibraryRepository
+import com.arcadia.shell.datastore.AvatarSource
+import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
@@ -55,13 +58,18 @@ import com.arcadia.shell.designsystem.LocalArcadiaHaze
 import com.arcadia.shell.display.DisplayTopologyMonitor
 import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.SecondaryDisplayPane
+import com.arcadia.shell.feature.home.EmulatorMenuAction
+import com.arcadia.shell.feature.home.EmulatorSaveSlotUi
 import com.arcadia.shell.feature.home.LocalInGameXmbController
-import com.arcadia.shell.feature.home.XoraEmulatorXmbSetting
+import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
 import com.arcadia.shell.feature.home.XoraInGameXmbController
-import com.arcadia.shell.feature.home.XoraInGameXmbOverlay
-import com.arcadia.shell.feature.home.XoraXmbAction
+import com.arcadia.shell.libretro.netplay.nudgeIpv4
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
+import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
+import com.arcadia.shell.libretro.netplay.XoraNetplaySession
+import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
+import com.arcadia.shell.retroachievements.RaProfile
 import com.arcadia.shell.retroachievements.RetroAchievementsRepository
 import com.arcadia.shell.scraper.RomHasher
 import dagger.hilt.android.AndroidEntryPoint
@@ -69,6 +77,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -77,6 +86,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import okhttp3.OkHttpClient
 import java.io.File
+import java.text.DateFormat
+import java.util.Date
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
@@ -85,11 +96,9 @@ import kotlin.coroutines.coroutineContext
 /**
  * In-process Libretro session.
  *
- * Framebuffer lives on an [ImageView]. Back / PS-style chord opens the launcher XMB over a
- * blurred frozen frame (ImageView hidden while the overlay is up so Resume cannot leave a wash).
- * The XOrA Emulator XMB row is only available in that in-session overlay.
- *
- * All Libretro core entry points run on a dedicated single OS thread.
+ * The framebuffer lives on an opaque [ImageView] inside [XoraEmulatorStage]. Back / PS-style
+ * chord opens an Azahar-style side menu that never covers the game with a translucent Compose
+ * sheet — that stacking is what left the milky white wash after Resume.
  */
 @AndroidEntryPoint
 class XoraLibretroActivity : ComponentActivity() {
@@ -104,10 +113,14 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var romHasher: RomHasher
     @Inject lateinit var libraryRepository: LibraryRepository
     @Inject lateinit var saveFileImporter: SaveFileImporter
+    @Inject lateinit var avatarStore: ProfileAvatarStore
 
     @Volatile private var menuOpen = false
-    /** True while the in-game XMB is showing — pauses the frame loop. */
+    /** True while the in-game menu is showing or the user left Pause on. */
     @Volatile private var paused = false
+    /** Stays paused after the side menu closes until Resume is chosen. */
+    @Volatile private var userPaused = false
+    private var userPausedUi by mutableStateOf(false)
     /** True while the activity is backgrounded (home/recents) — pauses the frame loop. */
     @Volatile private var activityInBackground = false
     private var gameLoaded = false
@@ -122,12 +135,16 @@ class XoraLibretroActivity : ComponentActivity() {
     private var primaryGameView: ImageView? = null
     private var secondaryGameView: ImageView? = null
     private var gameRoot: FrameLayout? = null
+    private var stage: XoraEmulatorStage? = null
     private var xmbOverlay: ComposeView? = null
-    private var frozenMenuFrame by mutableStateOf<Bitmap?>(null)
     private var profileName by mutableStateOf("Player")
     /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
     private var menuMessage by mutableStateOf<String?>(null)
     private var menuMessageJob: Job? = null
+    private var saveSlots by mutableStateOf(List(10) { EmulatorSaveSlotUi(it, false, "Empty") })
+    private var joinAddress by mutableStateOf("")
+    private var netplayUi by mutableStateOf(XoraNetplayUiState())
+    private var netplaySession: XoraNetplaySession? = null
     private val inGameXmbController = XoraInGameXmbController()
     private val bitmapLock = Any()
 
@@ -151,6 +168,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var gameId: String = "game"
     private var gameTitle: String = "Game"
     private var coreName: String = ""
+    private var romFilePath: String? = null
     private var selectHeld = false
     private var startHeld = false
     private var xoraSettings = XoraEmulatorSettings()
@@ -195,6 +213,7 @@ class XoraLibretroActivity : ComponentActivity() {
         ImmersiveMode.apply(window)
 
         val romPath = intent.getStringExtra(XoraLibretroPlayers.EXTRA_ROM_PATH)
+        romFilePath = romPath
         coreName = intent.getStringExtra(XoraLibretroPlayers.EXTRA_CORE_NAME).orEmpty()
         platformId = intent.getStringExtra(XoraLibretroPlayers.EXTRA_PLATFORM_ID) ?: "unknown"
         gameId = intent.getStringExtra(XoraLibretroPlayers.EXTRA_GAME_ID) ?: File(romPath.orEmpty()).name
@@ -218,17 +237,22 @@ class XoraLibretroActivity : ComponentActivity() {
             )
         }
         gameRoot = root
-        val gameView = ImageView(this).apply {
-            setBackgroundColor(AndroidColor.BLACK)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = false
+        val stageView = XoraEmulatorStage(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
+            val aspect = NsoBezelCatalog.defaultAspect(platformId)
+            contentWidthPx = 4
+            contentHeightPx = 3
+            if (aspect > 0f) {
+                contentWidthPx = (aspect * 1000).toInt().coerceAtLeast(1)
+                contentHeightPx = 1000
+            }
         }
-        primaryGameView = gameView
-        root.addView(gameView)
+        stage = stageView
+        primaryGameView = stageView.gameView
+        root.addView(stageView)
 
         // Wrap-content host for RA unlock banners + secondary display + preference effects.
         val banners = ComposeView(this).apply {
@@ -246,16 +270,14 @@ class XoraLibretroActivity : ComponentActivity() {
         root.addView(banners)
 
         val xmb = ComposeView(this).apply {
-            // Opaque View background under every Compose pixel. Translucent XMB chrome must not
-            // punch a hole through to the window compositor or letterboxes wash grey on Resume.
-            setBackgroundColor(AndroidColor.BLACK)
+            // Wrap-content opaque side menu. Never a full-screen translucent sheet over the game.
+            setBackgroundColor(AndroidColor.TRANSPARENT)
             setLayerType(View.LAYER_TYPE_NONE, null)
             layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.START,
             )
-            // Drop HWUI render nodes the moment the overlay leaves the tree — keeping a disposed
-            // composition around after submenu Resume was one way the milky wash stuck.
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             visibility = View.GONE
         }
@@ -263,8 +285,23 @@ class XoraLibretroActivity : ComponentActivity() {
         // Not attached until Back opens the in-game XMB.
 
         setContentView(root)
+        netplaySession = XoraNetplaySession(lifecycleScope)
+        lifecycleScope.launch {
+            netplaySession?.state?.collect { ui ->
+                netplayUi = ui
+                ui.error?.let { showMenuMessage(it) }
+                if (ui.linked && menuOpen) {
+                    setUserPaused(false)
+                    closeMenu()
+                    showMenuMessage("Netplay linked · ${ui.peerName.ifBlank { "P2" }}")
+                }
+            }
+        }
         lifecycleScope.launch {
             profileName = preferences.profile.first().displayName
+            joinAddress = preferences.xoraEmulatorSettings.first().netplayHostAddress
+            refreshOverlayFile()
+            loadProfileAvatar()
         }
 
         banners.setContent {
@@ -280,11 +317,10 @@ class XoraLibretroActivity : ComponentActivity() {
             LaunchedEffect(xora) {
                 xoraSettings = xora
                 refreshExpandTopology()
-                primaryGameView?.scaleType = when (xora.aspectMode) {
-                    XoraAspectMode.Stretch -> ImageView.ScaleType.FIT_XY
-                    XoraAspectMode.Integer,
-                    XoraAspectMode.Core,
-                    -> ImageView.ScaleType.FIT_CENTER
+                applyStageSettings(xora)
+                applyAudioVolume(xora.audioVolume)
+                if (joinAddress.isBlank() && xora.netplayHostAddress.isNotBlank()) {
+                    joinAddress = xora.netplayHostAddress
                 }
             }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
@@ -345,14 +381,16 @@ class XoraLibretroActivity : ComponentActivity() {
                     LocalArcadiaHaze provides null,
                     LocalInGameXmbController provides inGameXmbController,
                 ) {
-                    XoraInGameXmbOverlay(
-                        frozenFrame = frozenMenuFrame,
-                        message = menuMessage,
+                    XoraEmulatorSideMenu(
                         gameTitle = gameTitle,
-                        profileName = profileName,
-                        emulatorSettings = xora,
-                        raHardcore = raPrefs.hardcore,
-                        onAction = { handleInGameXmbAction(it) },
+                        paused = userPausedUi,
+                        hardcore = raPrefs.hardcore && raPrefs.enabled,
+                        settings = xora,
+                        saveSlots = saveSlots,
+                        netplay = netplayUi,
+                        joinAddress = joinAddress.ifBlank { xora.netplayHostAddress },
+                        message = menuMessage,
+                        onAction = { handleEmulatorMenuAction(it) },
                         onDismiss = { closeMenu() },
                     )
                 }
@@ -675,32 +713,30 @@ class XoraLibretroActivity : ComponentActivity() {
         if (menuOpen || isFinishing) return
         val root = gameRoot ?: return
         val overlay = xmbOverlay ?: return
-        // Freeze a copy of the current frame, then hide the live ImageView so the XMB Compose
-        // layer is never stacked over a visible framebuffer (tint bug).
-        val src = synchronized(bitmapLock) { gameBitmap }
-        frozenMenuFrame = src?.takeIf { !it.isRecycled }?.let { frame -> blurredMenuPlate(frame) }
-        primaryGameView?.visibility = View.GONE
+        refreshSaveSlots()
+        // Side menu is wrap-content and opaque. The live ImageView stays visible to its right.
         if (overlay.parent == null) {
             root.addView(overlay)
         }
         overlay.visibility = View.VISIBLE
         root.bringChildToFront(overlay)
         menuOpen = true
-        paused = true
+        syncPaused()
         uiSounds.playConfirm()
     }
 
-    /**
-     * Down-samples the frame and lets the upscale blur it, so the pause plate needs no
-     * RenderEffect. Cheap, and it looks the same on every API level rather than only on 31+.
-     */
-    private fun blurredMenuPlate(frame: Bitmap): Bitmap? = runCatching {
-        val width = (frame.width / MENU_PLATE_DOWNSCALE).coerceAtLeast(2)
-        val height = (frame.height / MENU_PLATE_DOWNSCALE).coerceAtLeast(2)
-        val small = Bitmap.createScaledBitmap(frame, width, height, true)
-        // createScaledBitmap can hand back the source when no scaling was needed; never alias it.
-        if (small === frame) frame.copy(frame.config ?: Bitmap.Config.ARGB_8888, false) else small
-    }.getOrNull()
+    private fun syncPaused() {
+        paused = menuOpen || userPaused
+        runCatching {
+            if (paused) audioTrack?.pause() else audioTrack?.play()
+        }
+    }
+
+    private fun setUserPaused(value: Boolean) {
+        userPaused = value
+        userPausedUi = value
+        syncPaused()
+    }
 
     private fun showMenuMessage(text: String) {
         menuMessage = text
@@ -714,143 +750,236 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun closeMenu() {
         if (!menuOpen && xmbOverlay?.parent == null) return
         menuOpen = false
-        paused = false
+        syncPaused()
         val overlay = xmbOverlay
         overlay?.visibility = View.GONE
-        // removeView triggers DisposeOnDetachedFromWindow — translucent XMB render nodes die with
-        // the composition instead of lingering over the live ImageView.
         (overlay?.parent as? ViewGroup)?.removeView(overlay)
         menuMessageJob?.cancel()
         menuMessage = null
-        val stale = frozenMenuFrame
-        frozenMenuFrame = null
-        stale?.recycle()
-        primaryGameView?.visibility = View.VISIBLE
-        primaryGameView?.invalidate()
         restoreImmersiveFocus()
-        // Focus / format restores are sometimes applied a frame late after detach — restating on
-        // the next pulse catches the wash that only appears after Settings / XOrA Emulator / Reset.
         primaryGameView?.post { if (!menuOpen && !isFinishing) restoreImmersiveFocus() }
     }
 
-    private fun handleInGameXmbAction(action: XoraXmbAction) {
+    private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
         when (action) {
-            XoraXmbAction.ResumeGame -> closeMenu()
-            XoraXmbAction.QuitGame -> {
+            EmulatorMenuAction.TogglePause -> {
+                setUserPaused(!userPaused)
+                showMenuMessage(if (userPaused) "Paused" else "Resumed")
+            }
+            is EmulatorMenuAction.SaveSlot -> saveSlotFromMenu(action.slot)
+            is EmulatorMenuAction.LoadSlot -> loadSlotFromMenu(action.slot)
+            EmulatorMenuAction.SetFullScreen -> lifecycleScope.launch {
+                preferences.setXoraAspectMode(XoraAspectMode.Stretch)
+            }
+            EmulatorMenuAction.SetNativeRatio -> lifecycleScope.launch {
+                preferences.setXoraAspectMode(XoraAspectMode.Core)
+            }
+            EmulatorMenuAction.ToggleBezel -> lifecycleScope.launch {
+                preferences.setXoraBezelsEnabled(!xoraSettings.bezelsEnabled)
+            }
+            EmulatorMenuAction.CycleInternalResolution -> lifecycleScope.launch {
+                val values = XoraInternalResolution.entries
+                val i = values.indexOf(xoraSettings.internalResolution).coerceAtLeast(0)
+                preferences.setXoraInternalResolution(values[(i + 1) % values.size])
+            }
+            EmulatorMenuAction.CycleIntegerScale -> lifecycleScope.launch {
+                val next = (xoraSettings.integerScale + 1).let { if (it > 6) 0 else it }
+                preferences.setXoraIntegerScale(next)
+                preferences.setXoraAspectMode(XoraAspectMode.Integer)
+            }
+            EmulatorMenuAction.ToggleExpandDual -> lifecycleScope.launch {
+                preferences.setXoraExpandDualDisplay(!xoraSettings.expandDualDisplay)
+            }
+            EmulatorMenuAction.ToggleNetplayEnabled -> lifecycleScope.launch {
+                preferences.setXoraNetplayEnabled(!xoraSettings.netplayEnabled)
+            }
+            EmulatorMenuAction.HostNetplay -> startHostNetplay()
+            EmulatorMenuAction.JoinNetplay -> startJoinNetplay()
+            EmulatorMenuAction.DisconnectNetplay -> {
+                netplaySession?.stop()
+                showMenuMessage("Netplay disconnected")
+            }
+            EmulatorMenuAction.ToggleSpectator -> lifecycleScope.launch {
+                preferences.setXoraNetplaySpectator(!xoraSettings.netplaySpectator)
+            }
+            is EmulatorMenuAction.NudgeJoinOctet -> lifecycleScope.launch {
+                val current = joinAddress.ifBlank { xoraSettings.netplayHostAddress }
+                val next = nudgeIpv4(current, action.octetIndex, action.delta)
+                joinAddress = next
+                preferences.setXoraNetplayHostAddress(next)
+            }
+            EmulatorMenuAction.CyclePreferredController -> lifecycleScope.launch {
+                val names = listOf("") + LibretroPad.connectedControllerNames()
+                val idx = names.indexOf(xoraSettings.preferredControllerName).let {
+                    if (it >= 0) it else 0
+                }
+                preferences.setXoraPreferredControllerName(names[(idx + 1) % names.size])
+            }
+            EmulatorMenuAction.ClearMappings -> lifecycleScope.launch {
+                preferences.clearXoraButtonMappings()
+                showMenuMessage("Custom mappings cleared")
+            }
+            EmulatorMenuAction.VolumeUp -> lifecycleScope.launch {
+                preferences.setXoraAudioVolume((xoraSettings.audioVolume + 0.1f).coerceAtMost(1f))
+            }
+            EmulatorMenuAction.VolumeDown -> lifecycleScope.launch {
+                preferences.setXoraAudioVolume((xoraSettings.audioVolume - 0.1f).coerceAtLeast(0f))
+            }
+            EmulatorMenuAction.ResetDefaults -> lifecycleScope.launch {
+                preferences.resetXoraEmulatorPlaySettings()
+                showMenuMessage("Emulator defaults restored")
+            }
+            EmulatorMenuAction.ReturnHome -> {
                 closeMenu()
                 finish()
             }
-            XoraXmbAction.SaveGameState -> {
-                val hardcore = raSettings.hardcore && raSettings.enabled
-                if (hardcore) {
-                    showMenuMessage("Hardcore mode — save states disabled")
-                    return
-                }
-                lifecycleScope.launch(emuDispatcher) {
-                    saveState(0)
-                    withContext(Dispatchers.Main.immediate) {
-                        showMenuMessage("State saved (slot 0)")
-                    }
-                }
-            }
-            XoraXmbAction.LoadGameState -> {
-                val hardcore = raSettings.hardcore && raSettings.enabled
-                if (hardcore) {
-                    showMenuMessage("Hardcore mode — load states disabled")
-                    return
-                }
-                lifecycleScope.launch(emuDispatcher) {
-                    val ok = loadState(0)
-                    withContext(Dispatchers.Main.immediate) {
-                        showMenuMessage(if (ok) "State loaded (slot 0)" else "No save in slot 0")
-                        if (ok) closeMenu()
-                    }
-                }
-            }
-            XoraXmbAction.ResetGame -> {
-                lifecycleScope.launch(emuDispatcher) {
-                    LibretroNative.nativeReset()
-                    withContext(Dispatchers.Main.immediate) {
-                        raSession?.onEmulatorReset()
-                                                closeMenu()
-                    }
-                }
-            }
-            is XoraXmbAction.ToggleXoraEmulatorSetting -> toggleInGameEmulatorSetting(action.setting)
-            XoraXmbAction.OpenFullXoraEmulatorSetup ->
-                showMenuMessage("Quit to XOrA → Games → Full Setup for cores & storage")
-            is XoraXmbAction.OpenSettingsCategory ->
-                showMenuMessage("Quit to XOrA to change launcher settings")
-            else -> Unit
         }
     }
 
-    private fun toggleInGameEmulatorSetting(setting: XoraEmulatorXmbSetting) {
-        lifecycleScope.launch {
-            val current = preferences.xoraEmulatorSettings.first()
-            when (setting) {
-                XoraEmulatorXmbSetting.Aspect -> {
-                    val next = when (current.aspectMode) {
-                        XoraAspectMode.Core -> XoraAspectMode.Integer
-                        XoraAspectMode.Integer -> XoraAspectMode.Stretch
-                        XoraAspectMode.Stretch -> XoraAspectMode.Core
-                    }
-                    preferences.setXoraAspectMode(next)
-                }
-                XoraEmulatorXmbSetting.Bezels ->
-                    preferences.setXoraBezelsEnabled(!current.bezelsEnabled)
-                XoraEmulatorXmbSetting.BezelOpacity -> {
-                    val stepped = ((current.bezelOpacity * 100f).toInt() + 10).let { raw ->
-                        if (raw > 100) 40 else raw
-                    }
-                    preferences.setXoraBezelOpacity(stepped / 100f)
-                }
-                XoraEmulatorXmbSetting.InternalResolution -> {
-                    val values = XoraInternalResolution.entries
-                    val i = values.indexOf(current.internalResolution).coerceAtLeast(0)
-                    preferences.setXoraInternalResolution(values[(i + 1) % values.size])
-                }
-                XoraEmulatorXmbSetting.ExpandDualDisplay ->
-                    preferences.setXoraExpandDualDisplay(!current.expandDualDisplay)
-                XoraEmulatorXmbSetting.PreferredController -> {
-                    val names = listOf("") + LibretroPad.connectedControllerNames()
-                    val idx = names.indexOf(current.preferredControllerName).let {
-                        if (it >= 0) it else 0
-                    }
-                    preferences.setXoraPreferredControllerName(names[(idx + 1) % names.size])
-                }
-                XoraEmulatorXmbSetting.ClearButtonMappings -> {
-                    preferences.clearXoraButtonMappings()
-                    showMenuMessage("Custom mappings cleared")
-                }
-                XoraEmulatorXmbSetting.Netplay ->
-                    preferences.setXoraNetplayEnabled(!current.netplayEnabled)
-                XoraEmulatorXmbSetting.RaHardcore -> {
-                    val next = !preferences.retroAchievementsSettings.first().hardcore
-                    preferences.setRaHardcore(next)
-                    raSettings = raSettings.copy(hardcore = next)
-                    // Enabling hardcore mid-session must reset the console (RA compliance).
-                    LibretroNative.nativeRaSetHardcore(next)
-                    if (next && gameLoaded) {
-                        withContext(emuDispatcher) {
-                            LibretroNative.nativeReset()
-                            LibretroNative.nativeRaReset()
-                        }
-                        raSession?.onEmulatorReset()
-                        showMenuMessage("Hardcore on — game reset, save states disabled")
-                    } else {
-                        showMenuMessage(
-                            if (next) {
-                                "Hardcore on — save states disabled"
-                            } else {
-                                "Hardcore off — softcore"
-                            },
-                        )
-                    }
+    private fun saveSlotFromMenu(slot: Int) {
+        val hardcore = raSettings.hardcore && raSettings.enabled
+        if (hardcore) {
+            showMenuMessage("Hardcore mode — save states disabled")
+            return
+        }
+        lifecycleScope.launch(emuDispatcher) {
+            saveState(slot)
+            withContext(Dispatchers.Main.immediate) {
+                refreshSaveSlots()
+                showMenuMessage("Saved slot $slot")
+            }
+        }
+    }
+
+    private fun loadSlotFromMenu(slot: Int) {
+        val hardcore = raSettings.hardcore && raSettings.enabled
+        if (hardcore) {
+            showMenuMessage("Hardcore mode — load states disabled")
+            return
+        }
+        lifecycleScope.launch(emuDispatcher) {
+            val ok = loadState(slot)
+            withContext(Dispatchers.Main.immediate) {
+                showMenuMessage(if (ok) "Loaded slot $slot" else "Slot $slot is empty")
+                if (ok) {
+                    setUserPaused(false)
+                    closeMenu()
                 }
             }
         }
     }
+
+    private fun startHostNetplay() {
+        if (raSettings.hardcore && raSettings.enabled) {
+            showMenuMessage("Hardcore — netplay disabled")
+            return
+        }
+        lifecycleScope.launch { preferences.setXoraNetplayEnabled(true) }
+        val hello = netplayHello()
+        netplaySession?.host(xoraSettings.netplayPort, hello) {
+            withContext(emuDispatcher) { LibretroNative.nativeSerialize() }
+        }
+        showMenuMessage("Waiting for a player…")
+    }
+
+    private fun startJoinNetplay() {
+        if (raSettings.hardcore && raSettings.enabled) {
+            showMenuMessage("Hardcore — netplay disabled")
+            return
+        }
+        val address = joinAddress.ifBlank { xoraSettings.netplayHostAddress }
+        if (address.isBlank()) {
+            showMenuMessage("Set a join IP first")
+            return
+        }
+        lifecycleScope.launch { preferences.setXoraNetplayEnabled(true) }
+        val hello = netplayHello()
+        netplaySession?.join(address, xoraSettings.netplayPort, hello) { bytes ->
+            withContext(emuDispatcher) { LibretroNative.nativeUnserialize(bytes) }
+        }
+        showMenuMessage("Joining $address…")
+    }
+
+    private fun netplayHello() = XoraNetplayProtocol.Hello(
+        nickname = xoraSettings.netplayNickname,
+        coreName = coreName,
+        platformId = platformId,
+        romName = gameTitle,
+    )
+
+    private fun refreshSaveSlots() {
+        val fmt = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+        saveSlots = (0..9).map { slot ->
+            val file = coreStore.stateFile(platformId, gameId, slot)
+            if (file.isFile && file.length() > 0L) {
+                EmulatorSaveSlotUi(
+                    slot = slot,
+                    occupied = true,
+                    subtitle = fmt.format(Date(file.lastModified())),
+                )
+            } else {
+                EmulatorSaveSlotUi(slot = slot, occupied = false, subtitle = "Empty")
+            }
+        }
+    }
+
+    private fun applyStageSettings(xora: XoraEmulatorSettings) {
+        val stageView = stage ?: return
+        stageView.aspectMode = xora.aspectMode
+        stageView.integerScaleCap = xora.integerScale
+        stageView.bezelsEnabled = xora.bezelsEnabled
+        primaryGameView?.scaleType = ImageView.ScaleType.FIT_XY
+        refreshOverlayFile()
+    }
+
+    private fun applyAudioVolume(volume: Float) {
+        val v = volume.coerceIn(0f, 1f)
+        runCatching { audioTrack?.setVolume(v) }
+    }
+
+    private fun refreshOverlayFile() {
+        val file = NsoBezelLocator.resolve(
+            platformId = platformId,
+            coreName = coreName,
+            romFilePath = romFilePath,
+            overlaysDir = coreStore.overlaysDir,
+        )
+        stage?.setOverlayFile(file)
+    }
+
+    private suspend fun loadProfileAvatar() {
+        val profile = preferences.profile.first()
+        val initial = profile.displayName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "P"
+        val fill = when (profile.avatarPresetId) {
+            "preset_1" -> AndroidColor.rgb(55, 214, 160)
+            "preset_2" -> AndroidColor.rgb(255, 194, 75)
+            "preset_3" -> AndroidColor.rgb(255, 92, 108)
+            "preset_4" -> AndroidColor.rgb(166, 174, 255)
+            "preset_5" -> AndroidColor.rgb(78, 205, 196)
+            else -> AndroidColor.rgb(110, 123, 255)
+        }
+        val bitmap = withContext(Dispatchers.IO) {
+            when (profile.avatarSource) {
+                AvatarSource.Local -> avatarStore.resolveFile(profile.localAvatarFileName)
+                    ?.let { BitmapFactory.decodeFile(it.absolutePath) }
+                AvatarSource.RetroAchievements -> {
+                    val user = preferences.retroAchievements.first().username
+                    if (user.isBlank()) null else decodeBitmapUrl(RaProfile.userPicUrlFor(user))
+                }
+                else -> null
+            }
+        }
+        withContext(Dispatchers.Main.immediate) {
+            stage?.bezelView?.setAvatar(bitmap, initial, fill)
+        }
+    }
+
+    private fun decodeBitmapUrl(url: String): Bitmap? = runCatching {
+        okHttpClient.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            response.body?.bytes()?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        }
+    }.getOrNull()
 
     /**
      * Puts the window back exactly as gameplay needs it.
@@ -923,7 +1052,10 @@ class XoraLibretroActivity : ComponentActivity() {
             .setBufferSizeInBytes(minBuf * 2)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
-            .also { it.play() }
+            .also {
+                it.play()
+                applyAudioVolume(xoraSettings.audioVolume)
+            }
     }
 
     private fun startLoop() {
@@ -935,13 +1067,39 @@ class XoraLibretroActivity : ComponentActivity() {
             while (coroutineContext.isActive) {
                 val start = System.nanoTime()
                 if (!paused && !menuOpen && !activityInBackground) {
-                    LibretroNative.nativeSetPadState(
-                        keyPadButtons.get() or axisPadButtons.get(),
-                        axisLx,
-                        axisLy,
-                        axisRx,
-                        axisRy,
-                    )
+                    val localButtons = keyPadButtons.get() or axisPadButtons.get()
+                    val session = netplaySession
+                    if (session?.linkedNow == true) {
+                        val frameIndex = session.nextFrameIndex()
+                        val local = XoraNetplayProtocol.PadFrame(
+                            frame = frameIndex,
+                            buttons = if (xoraSettings.netplaySpectator && !session.hosting) {
+                                0
+                            } else {
+                                localButtons
+                            },
+                            lx = axisLx,
+                            ly = axisLy,
+                            rx = axisRx,
+                            ry = axisRy,
+                        )
+                        val remote = session.exchange(local)
+                        if (session.hosting) {
+                            LibretroNative.nativeSetPadStatePort(0, local.buttons, local.lx, local.ly, local.rx, local.ry)
+                            LibretroNative.nativeSetPadStatePort(1, remote.buttons, remote.lx, remote.ly, remote.rx, remote.ry)
+                        } else {
+                            LibretroNative.nativeSetPadStatePort(0, remote.buttons, remote.lx, remote.ly, remote.rx, remote.ry)
+                            LibretroNative.nativeSetPadStatePort(1, local.buttons, local.lx, local.ly, local.rx, local.ry)
+                        }
+                    } else {
+                        LibretroNative.nativeSetPadState(
+                            localButtons,
+                            axisLx,
+                            axisLy,
+                            axisRx,
+                            axisRy,
+                        )
+                    }
                     LibretroNative.nativeRunFrame()
                     raSession?.doFrame()
                     LibretroNative.nativeCopyFrameRgba()?.let { packed ->
@@ -995,6 +1153,12 @@ class XoraLibretroActivity : ComponentActivity() {
                         secondaryGameView?.setImageBitmap(bottom)
                     }
                     bottom.setPixels(pixels, topH * w, w, 0, 0, w, bottomH)
+                    stage?.let { stageView ->
+                        if (stageView.contentWidthPx != w || stageView.contentHeightPx != topH) {
+                            stageView.contentWidthPx = w
+                            stageView.contentHeightPx = topH
+                        }
+                    }
                 } else {
                     if (bottomBitmap != null) {
                         bottomBitmap = null
@@ -1007,6 +1171,12 @@ class XoraLibretroActivity : ComponentActivity() {
                         primaryGameView?.setImageBitmap(bmp)
                     }
                     bmp.setPixels(pixels, 0, w, 0, 0, w, h)
+                    stage?.let { stageView ->
+                        if (stageView.contentWidthPx != w || stageView.contentHeightPx != h) {
+                            stageView.contentWidthPx = w
+                            stageView.contentHeightPx = h
+                        }
+                    }
                 }
             }
             primaryGameView?.invalidate()
@@ -1053,6 +1223,8 @@ class XoraLibretroActivity : ComponentActivity() {
     override fun onDestroy() {
         inputManager?.unregisterInputDeviceListener(inputDeviceListener)
         inputManager = null
+        netplaySession?.stop()
+        netplaySession = null
         closeMenu()
         runJob?.cancel()
         runJob = null
@@ -1078,8 +1250,6 @@ class XoraLibretroActivity : ComponentActivity() {
     companion object {
         /** Loop tick while paused / backgrounded, where no frames are produced. */
         private const val IDLE_TICK_MS = 200L
-        /** How far the pause plate is down-sampled before being scaled back up as a blur. */
-        private const val MENU_PLATE_DOWNSCALE = 12
         private const val MENU_MESSAGE_MS = 2_600L
         private val chordKeys = setOf(
             KeyEvent.KEYCODE_BUTTON_SELECT,

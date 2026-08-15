@@ -14,6 +14,15 @@ object LibretroNative {
     external fun nativeRunFrame()
     external fun nativeReset()
     external fun nativeSetPadState(buttons: Int, lx: Short, ly: Short, rx: Short, ry: Short)
+    /** Port 0 = player 1, port 1 = player 2 (netplay). */
+    external fun nativeSetPadStatePort(
+        port: Int,
+        buttons: Int,
+        lx: Short,
+        ly: Short,
+        rx: Short,
+        ry: Short,
+    )
     /** Packed `[width, height, pixels…]` or null when no frame yet. */
     external fun nativeCopyFrameRgba(): IntArray?
     external fun nativeDrainAudio(): ShortArray?

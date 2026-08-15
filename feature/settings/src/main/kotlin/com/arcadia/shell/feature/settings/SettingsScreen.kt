@@ -1408,8 +1408,10 @@ fun SettingsScreen(
             val xora = state.xoraEmulator
             SettingsCard(title = "XOrA · System bezels", modifier = Modifier.animateItem()) {
                 Text(
-                    text = "Draw a system-colored matte and frame around the fitted game " +
-                        "image (Game Boy, DS, CRT-style home consoles, …).",
+                    text = "NSO-style bezels sit in the pillarbox beside the game (GBA overlay " +
+                        "with the GBA core, N64 with N64, …). Drop `nso-gba.png` / `nso-n64.png` " +
+                        "in the ROMs `overlays` folder or in XOrA’s overlays directory. " +
+                        "Your profile picture replaces the top-left icon.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1449,9 +1451,10 @@ fun SettingsScreen(
             }
             SettingsCard(title = "XOrA · Netplay", modifier = Modifier.animateItem()) {
                 Text(
-                    text = "Enable netplay controls in the in-game pause menu. Nickname is " +
-                        "shared with Libretro cores. Session sync ships incrementally — " +
-                        "Host/Join UI is ready when enabled.",
+                    text = "Host or join from the in-game side menu (Pause → Netplay). " +
+                        "The host shares a save state, then both sides exchange pad input " +
+                        "each frame — the same idea as RetroArch netplay. Set your join IP " +
+                        "here or nudge it in-game. Nickname is shared with Libretro cores.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

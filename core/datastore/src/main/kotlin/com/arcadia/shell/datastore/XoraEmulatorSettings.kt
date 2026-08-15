@@ -26,6 +26,8 @@ data class XoraEmulatorSettings(
     val bezelsEnabled: Boolean = true,
     /** Bezel matte opacity (0 = invisible, 1 = solid). */
     val bezelOpacity: Float = 0.88f,
+    /** Emulator AudioTrack gain (0 = mute, 1 = full). */
+    val audioVolume: Float = 1f,
     /** When true, show Host / Join controls in the emulator pause menu. */
     val netplayEnabled: Boolean = false,
     val netplayNickname: String = "Player",

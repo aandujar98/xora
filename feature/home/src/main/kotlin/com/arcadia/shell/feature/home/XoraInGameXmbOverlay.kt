@@ -55,8 +55,7 @@ import kotlinx.coroutines.launch
 /**
  * PS3-style Cross Media Bar over a live/frozen game session.
  *
- * The game frame is shown blurred behind the bar (like holding the PS button).
- * [XoraXmbAction.DrillXoraEmulator] / session actions are handled by [onAction].
+ * In-game overlay is now [XoraEmulatorSideMenu]. This XMB remains for reference / unused.
  */
 @Composable
 fun XoraInGameXmbOverlay(

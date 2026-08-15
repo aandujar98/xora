@@ -496,6 +496,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setXoraBezelOpacity(opacity) }
     }
 
+    fun setXoraAudioVolume(volume: Float) {
+        viewModelScope.launch { preferences.setXoraAudioVolume(volume) }
+    }
+
     fun setXoraNetplayEnabled(enabled: Boolean) {
         viewModelScope.launch { preferences.setXoraNetplayEnabled(enabled) }
     }

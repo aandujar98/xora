@@ -16,7 +16,9 @@
 # Notification listener is bound by the system via the manifest component name.
 -keep class com.arcadia.shell.conversations.ShellNotificationListenerService { *; }
 
-# Discord Social SDK (optional partner AAR) + JNI status callback.
+# Libretro JNI entry points (including netplay port-2 pad).
+-keep class com.arcadia.shell.libretro.LibretroNative { *; }
+
 -keep class com.discord.socialsdk.** { *; }
 -keepclassmembers class com.arcadia.shell.launcher.discord.DiscordSocialSdkBridge {
     native <methods>;
