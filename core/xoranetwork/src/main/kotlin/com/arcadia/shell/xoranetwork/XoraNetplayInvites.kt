@@ -18,7 +18,13 @@ object XoraNetplayInvites {
     const val LOGIN_REQUIRED =
         "Online netplay is exclusive to XOrA Network accounts. Sign in to XOrA Network to use that feature."
 
-    fun recipientKey(username: String): String = "to:" + username.trim().lowercase()
+    /**
+     * `to2:` — not `to:`. The old keys were created with Nakama write permission 0, which blocks
+     * every client write forever (even the owner's), so re-inviting the same friend failed with
+     * "storage write rejected - permission denied". Those objects can't be overwritten or fixed
+     * from the client; a fresh key namespace sidesteps them.
+     */
+    fun recipientKey(username: String): String = "to2:" + username.trim().lowercase()
 
     fun isFresh(invite: XoraNetplayInviteRecord, nowMs: Long): Boolean {
         if (invite.createdAtMs <= 0L) return true

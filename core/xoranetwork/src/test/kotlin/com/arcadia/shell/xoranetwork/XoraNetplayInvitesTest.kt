@@ -47,7 +47,7 @@ class XoraNetplayInvitesTest {
 
     @Test
     fun recipientKeyIsStableAndLowercase() {
-        assertEquals("to:pal", XoraNetplayInvites.recipientKey(" Pal "))
+        assertEquals("to2:pal", XoraNetplayInvites.recipientKey(" Pal "))
     }
 
     @Test

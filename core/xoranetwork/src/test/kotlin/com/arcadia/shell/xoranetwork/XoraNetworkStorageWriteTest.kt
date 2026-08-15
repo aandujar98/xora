@@ -15,7 +15,7 @@ class XoraNetworkStorageWriteTest {
         val encoded = """{"code":"ABC234","toUsername":"pal","gameTitle":"Sonic"}"""
         val body = buildStorageWriteBody(
             collection = "xora_netplay_invites",
-            key = "to:pal",
+            key = "to2:pal",
             valueJson = encoded,
         )
         val objects = body["objects"] as JsonArray
@@ -27,6 +27,20 @@ class XoraNetworkStorageWriteTest {
         )
         assertEquals(encoded, value.content)
         assertEquals("xora_netplay_invites", obj["collection"]?.jsonPrimitive?.content)
-        assertEquals("to:pal", obj["key"]?.jsonPrimitive?.content)
+        assertEquals("to2:pal", obj["key"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun storageWriteKeepsOwnerWritePermission() {
+        // permission_write 0 makes the object permanently client-immutable — the second
+        // invite to the same friend was rejected with "storage write rejected".
+        val body = buildStorageWriteBody(
+            collection = "xora_netplay_invites",
+            key = "to2:pal",
+            valueJson = "{}",
+        )
+        val obj = (body["objects"] as JsonArray)[0] as JsonObject
+        assertEquals("1", obj["permission_write"]?.jsonPrimitive?.content)
+        assertEquals("1", obj["permission_read"]?.jsonPrimitive?.content)
     }
 }

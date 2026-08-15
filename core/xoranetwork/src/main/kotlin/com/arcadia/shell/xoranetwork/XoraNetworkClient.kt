@@ -398,7 +398,9 @@ class XoraNetworkClient @Inject constructor(
 
     /**
      * Writes one storage object. [permissionRead] 1 lets other signed-in accounts read it
-     * (friends poll our netplay invite outbox). [permissionWrite] 0 is owner-only.
+     * (friends poll our netplay invite outbox). [permissionWrite] must be 1 (owner write):
+     * 0 means **no client write at all** — not even the owner — so the second write to the
+     * same key is rejected with "storage write rejected - permission denied".
      *
      * Nakama's protobuf `WriteStorageObject.value` is a **string**. Passing a JSON object here
      * makes the gateway reject the body with `invalid value for string field value: {`.
@@ -409,7 +411,7 @@ class XoraNetworkClient @Inject constructor(
         key: String,
         value: String,
         permissionRead: Int = 1,
-        permissionWrite: Int = 0,
+        permissionWrite: Int = 1,
     ) {
         val body = buildStorageWriteBody(
             collection = collection,
@@ -502,6 +504,9 @@ class XoraNetworkClient @Inject constructor(
             rawMessage.contains("proto:", ignoreCase = true) ||
                 rawMessage.contains("invalid value for string field", ignoreCase = true) ->
                 "Couldn't send that invite."
+            rawMessage.contains("storage write rejected", ignoreCase = true) ||
+                rawMessage.contains("permission denied", ignoreCase = true) ->
+                "Couldn't send that invite. Make sure both devices run the latest XOrA build."
             rawMessage.contains("invalid", ignoreCase = true) &&
                 rawMessage.length <= 120 &&
                 looksLikePlainSentence(rawMessage) ->
@@ -526,13 +531,14 @@ class XoraNetworkClient @Inject constructor(
 /**
  * Nakama storage PUT body. [valueJson] must be a JSON **string** (the serialized object),
  * not a nested JSON object — protobuf `WriteStorageObject.value` is `string`.
+ * [permissionWrite] 1 = owner write; 0 would make the object permanently client-immutable.
  */
 internal fun buildStorageWriteBody(
     collection: String,
     key: String,
     valueJson: String,
     permissionRead: Int = 1,
-    permissionWrite: Int = 0,
+    permissionWrite: Int = 1,
 ): JsonObject = buildJsonObject {
     put(
         "objects",
