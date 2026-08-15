@@ -76,8 +76,10 @@ import com.arcadia.shell.feature.home.LocalInGameXmbController
 import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
 import com.arcadia.shell.feature.home.XoraInGameXmbController
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
+import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
+import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
 import com.arcadia.shell.libretro.netplay.formatJoinHostPort
@@ -89,6 +91,8 @@ import com.arcadia.shell.scraper.RomHasher
 import com.arcadia.shell.xoranetwork.XoraNetworkAuthCookies
 import com.arcadia.shell.xoranetwork.XoraNetworkRepository
 import com.arcadia.shell.xoranetwork.XoraNetworkState
+import com.arcadia.shell.xoranetwork.XoraNetplayInviteRecord
+import com.arcadia.shell.xoranetwork.XoraNetplayInvites
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -96,7 +100,9 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -172,6 +178,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var netplaySession: XoraNetplaySession? = null
     private var pendingNetplayHost = false
     private var pendingNetplayJoin = false
+    private val consumedNetplayInviteKeys = linkedSetOf<String>()
     private val localNetworkPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -357,11 +364,22 @@ class XoraLibretroActivity : ComponentActivity() {
                     audioTrack?.play()
                     hideSoftKeyboard()
                     window.decorView.requestFocus()
-                }
-                if (ui.linked && menuOpen) {
-                    setUserPaused(false)
-                    closeMenu()
-                    showMenuMessage("Netplay linked · ${ui.peerName.ifBlank { "P2" }}")
+                    val name = if (ui.role == XoraNetplayRole.Host) {
+                        ui.peerName.ifBlank { "A player" }
+                    } else {
+                        xoraSettings.netplayNickname.ifBlank { "You" }
+                    }
+                    showMenuMessage("$name joined the session")
+                    shellNotifications.emit(
+                        ShellNotification.XoraSessionJoined(
+                            id = "xora-joined:${ui.peerName}:${SystemClock.elapsedRealtime()}",
+                            displayName = name,
+                        ),
+                    )
+                    if (menuOpen) {
+                        setUserPaused(false)
+                        closeMenu()
+                    }
                 }
                 wasLinked = ui.linked
             }
@@ -446,7 +464,20 @@ class XoraLibretroActivity : ComponentActivity() {
             ) {
                 CompositionLocalProvider(LocalArcadiaHaze provides null) {
                     Box(modifier = Modifier.wrapContentSize(align = Alignment.TopStart)) {
-                        NotificationBannerHost(center = shellNotifications)
+                        NotificationBannerHost(
+                            center = shellNotifications,
+                            onActivate = { notification ->
+                                if (notification is ShellNotification.XoraNetplayInvite) {
+                                    acceptNetplayInvite(
+                                        code = notification.sessionCode,
+                                        platformId = notification.platformId,
+                                        gameTitle = notification.gameTitle,
+                                        fromUsername = notification.fromUsername
+                                            .ifBlank { notification.displayName },
+                                    )
+                                }
+                            },
+                        )
                     }
                 }
             }
@@ -566,6 +597,30 @@ class XoraLibretroActivity : ComponentActivity() {
             startRaSession(romPath)
             startAudio()
             startLoop()
+            maybeJoinPendingNetplayInvite()
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (isActive) {
+                    if (xoraNetwork.state.value.signedIn) {
+                        xoraNetwork.refreshNetplayInvites()
+                    }
+                    delay(15_000)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            var seeded = false
+            xoraNetwork.state
+                .map { it.netplayInvites }
+                .distinctUntilChanged()
+                .collect { invites ->
+                    if (!seeded) {
+                        seeded = true
+                        return@collect
+                    }
+                    invites.firstOrNull()?.let { acceptIncomingNetplayInvite(it) }
+                }
         }
     }
 
@@ -915,7 +970,12 @@ class XoraLibretroActivity : ComponentActivity() {
                 preferences.setXoraNetplayEnabled(enable)
             }
             EmulatorMenuAction.ToggleNetplayOnline -> lifecycleScope.launch {
-                preferences.setXoraNetplayUseRelay(!xoraSettings.netplayUseRelay)
+                val turningOn = !xoraSettings.netplayUseRelay
+                if (turningOn && !xoraNetwork.state.value.signedIn) {
+                    showMenuMessage(XoraNetplayInvites.LOGIN_REQUIRED)
+                    return@launch
+                }
+                preferences.setXoraNetplayUseRelay(turningOn)
             }
             EmulatorMenuAction.HostNetplay -> startHostNetplay()
             EmulatorMenuAction.JoinNetplay -> startJoinNetplay()
@@ -980,6 +1040,10 @@ class XoraLibretroActivity : ComponentActivity() {
             EmulatorMenuAction.ReturnHome -> {
                 closeMenu()
                 finish()
+            }
+            is EmulatorMenuAction.InviteFriendToSession -> inviteFriendToSession(action.username)
+            is EmulatorMenuAction.MessageFriendComingSoon -> {
+                showMenuMessage("Messaging is coming soon")
             }
         }
     }
@@ -1103,37 +1167,52 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun startHostOnlineNetplay() {
-        if (!xoraNetwork.state.value.signedIn) {
-            showMenuMessage("Sign in to XOrA Network first")
-            return
-        }
         lifecycleScope.launch {
-            disableHardcoreForNetplay()
-            preferences.setXoraNetplayEnabled(true)
-            xoraNetwork.setRealtimeEnabled(true)
-            val code = XoraNetplayProtocol.generateSessionCode()
-            val match = xoraNetwork.openNamedMatch(
-                XoraNetplayProtocol.matchNameForSessionCode(code),
-            ).getOrElse { error ->
-                showMenuMessage(error.message ?: "Couldn't start an online session")
-                return@launch
-            }
-            val link = XoraNakamaNetplayLink(xoraNetwork, match.matchId)
-            netplaySession?.hostOnLink(
-                link = link,
-                hello = netplayHello(),
-                sessionCode = code,
-                waitForPeer = { xoraNetwork.waitForMatchPeer(match.matchId, match.selfUserId) },
-            ) {
-                withContext(emuDispatcher) { LibretroNative.nativeSerialize() }
-            }
-            showMenuMessage("Code $code — share it")
+            ensureOnlineHostSession()
         }
+    }
+
+    /**
+     * Starts (or reuses) an online host lobby and returns the 6-character session code.
+     */
+    private suspend fun ensureOnlineHostSession(): String? {
+        if (!xoraNetwork.state.value.signedIn) {
+            showMenuMessage(XoraNetplayInvites.LOGIN_REQUIRED)
+            return null
+        }
+        val existing = netplayUi.sessionCode.takeIf {
+            netplayUi.online &&
+                it.isNotBlank() &&
+                netplayUi.role == XoraNetplayRole.Host
+        }
+        if (existing != null) return existing
+        disableHardcoreForNetplay()
+        preferences.setXoraNetplayEnabled(true)
+        preferences.setXoraNetplayUseRelay(true)
+        xoraNetwork.setRealtimeEnabled(true)
+        val code = XoraNetplayProtocol.generateSessionCode()
+        val match = xoraNetwork.openNamedMatch(
+            XoraNetplayProtocol.matchNameForSessionCode(code),
+        ).getOrElse { error ->
+            showMenuMessage(error.message ?: "Couldn't start an online session")
+            return null
+        }
+        val link = XoraNakamaNetplayLink(xoraNetwork, match.matchId)
+        netplaySession?.hostOnLink(
+            link = link,
+            hello = netplayHello(),
+            sessionCode = code,
+            waitForPeer = { xoraNetwork.waitForMatchPeer(match.matchId, match.selfUserId) },
+        ) {
+            withContext(emuDispatcher) { LibretroNative.nativeSerialize() }
+        }
+        showMenuMessage("Code $code — share it")
+        return code
     }
 
     private fun startJoinOnlineNetplay() {
         if (!xoraNetwork.state.value.signedIn) {
-            showMenuMessage("Sign in to XOrA Network first")
+            showMenuMessage(XoraNetplayInvites.LOGIN_REQUIRED)
             return
         }
         val code = XoraNetplayProtocol.normalizeSessionCode(joinCode)
@@ -1145,6 +1224,7 @@ class XoraLibretroActivity : ComponentActivity() {
         lifecycleScope.launch {
             disableHardcoreForNetplay()
             preferences.setXoraNetplayEnabled(true)
+            preferences.setXoraNetplayUseRelay(true)
             xoraNetwork.setRealtimeEnabled(true)
             val match = xoraNetwork.openNamedMatch(
                 XoraNetplayProtocol.matchNameForSessionCode(code),
@@ -1161,8 +1241,82 @@ class XoraLibretroActivity : ComponentActivity() {
                 withContext(emuDispatcher) { LibretroNative.nativeUnserialize(bytes) }
             }
             showMenuMessage("Joining $code…")
+            preferences.clearPendingNetplayJoin()
         }
     }
+
+    private fun inviteFriendToSession(username: String) {
+        val target = username.trim()
+        if (target.isEmpty()) return
+        lifecycleScope.launch {
+            val code = ensureOnlineHostSession() ?: return@launch
+            val friend = xoraNetworkUi.acceptedFriends.firstOrNull {
+                it.username.equals(target, ignoreCase = true)
+            }
+            val display = friend?.displayName?.ifBlank { target } ?: target
+            xoraNetwork.sendNetplayInvite(
+                toUsername = target,
+                code = code,
+                gameTitle = gameTitle,
+                platformId = platformId,
+                coreName = coreName,
+            ).onSuccess {
+                showMenuMessage("Invited $display · code $code")
+            }.onFailure { error ->
+                showMenuMessage(error.message ?: "Couldn't send that invite")
+            }
+        }
+    }
+
+    private fun maybeJoinPendingNetplayInvite() {
+        lifecycleScope.launch {
+            val pending = preferences.pendingNetplayJoin.first()
+            if (!pending.isActive(System.currentTimeMillis())) return@launch
+            acceptNetplayInvite(
+                code = pending.code,
+                platformId = pending.platformId,
+                gameTitle = pending.gameTitle,
+                fromUsername = pending.fromUsername,
+            )
+        }
+    }
+
+    private fun acceptIncomingNetplayInvite(invite: XoraNetplayInviteRecord) {
+        acceptNetplayInvite(
+            code = invite.code,
+            platformId = invite.platformId,
+            gameTitle = invite.gameTitle,
+            fromUsername = invite.fromUsername.ifBlank { invite.fromDisplayName },
+        )
+    }
+
+    private fun acceptNetplayInvite(
+        code: String,
+        platformId: String,
+        gameTitle: String,
+        fromUsername: String,
+    ) {
+        if (!gameLoaded) return
+        if (netplayUi.linked) return
+        if (netplayUi.online && netplayUi.role == XoraNetplayRole.Host) return
+        val normalized = XoraNetplayProtocol.normalizeSessionCode(code) ?: return
+        val consumeKey = inviteConsumeKey(fromUsername, normalized)
+        if (consumeKey in consumedNetplayInviteKeys) return
+        val platformOk = platformId.isBlank() || platformId.equals(this.platformId, ignoreCase = true)
+        if (!platformOk) {
+            showMenuMessage(
+                "Open ${gameTitle.ifBlank { "that game" }} to join" +
+                    if (fromUsername.isNotBlank()) " ${fromUsername}'s session" else "",
+            )
+            return
+        }
+        consumedNetplayInviteKeys.add(consumeKey)
+        joinCode = normalized
+        startJoinOnlineNetplay()
+    }
+
+    private fun inviteConsumeKey(fromUsername: String, code: String): String =
+        "${fromUsername.trim().lowercase()}|${code.trim().uppercase()}"
 
     private suspend fun disableHardcoreForNetplay() {
         if (!raSettings.hardcore) return

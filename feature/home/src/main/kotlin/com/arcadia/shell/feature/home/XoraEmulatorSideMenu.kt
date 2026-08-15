@@ -65,6 +65,7 @@ enum class EmulatorMenuPane {
     RetroAchievements,
     Achievements,
     XoraNetwork,
+    FriendActions,
     Mods,
     Settings,
     Gamepad,
@@ -107,6 +108,8 @@ sealed class EmulatorMenuAction {
     data object VolumeDown : EmulatorMenuAction()
     data object ResetDefaults : EmulatorMenuAction()
     data object ReturnHome : EmulatorMenuAction()
+    data class InviteFriendToSession(val username: String) : EmulatorMenuAction()
+    data class MessageFriendComingSoon(val username: String) : EmulatorMenuAction()
 }
 
 private data class MenuRow(
@@ -145,6 +148,7 @@ fun XoraEmulatorSideMenu(
     var rootIndex by remember { mutableIntStateOf(0) }
     var pane by remember { mutableStateOf(EmulatorMenuPane.None) }
     var paneIndex by remember { mutableIntStateOf(0) }
+    var friendActionUsername by remember { mutableStateOf("") }
 
     val rootRows = remember(
         paused,
@@ -252,6 +256,7 @@ fun XoraEmulatorSideMenu(
         achievementSummary = achievementSummary,
         raStatus = raStatus,
         gameTitle = gameTitle,
+        friendUsername = friendActionUsername,
     )
     val paneFocus = paneIndex.coerceIn(0, (paneRows.size - 1).coerceAtLeast(0))
     val rootFocus = rootIndex.coerceIn(0, rootRows.lastIndex)
@@ -337,6 +342,11 @@ fun XoraEmulatorSideMenu(
                 onAction(EmulatorMenuAction.ClearJoinTarget)
             }
             else -> when {
+                row.id.startsWith("xn-friend-") -> {
+                    friendActionUsername = row.id.removePrefix("xn-friend-")
+                    pane = EmulatorMenuPane.FriendActions
+                    paneIndex = 0
+                }
                 row.pane != null -> {
                     pane = row.pane
                     paneIndex = 0
@@ -361,6 +371,10 @@ fun XoraEmulatorSideMenu(
             }
             EmulatorMenuPane.Achievements -> {
                 pane = EmulatorMenuPane.RetroAchievements
+                paneIndex = 0
+            }
+            EmulatorMenuPane.FriendActions -> {
+                pane = EmulatorMenuPane.XoraNetwork
                 paneIndex = 0
             }
             EmulatorMenuPane.None -> onDismiss()
@@ -462,7 +476,7 @@ fun XoraEmulatorSideMenu(
                     .padding(vertical = 14.dp),
             ) {
                 Text(
-                    text = paneTitle(pane),
+                    text = paneTitle(pane, friendDisplayName(network, friendActionUsername)),
                     color = Color.White,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -649,7 +663,7 @@ private fun networkRootSubtitle(network: XoraNetworkState, gameTitle: String): S
     else -> "Signed in as ${network.account?.username.orEmpty().ifBlank { "you" }}"
 }
 
-private fun paneTitle(pane: EmulatorMenuPane): String = when (pane) {
+private fun paneTitle(pane: EmulatorMenuPane, friendName: String = ""): String = when (pane) {
     EmulatorMenuPane.Save -> "Save state"
     EmulatorMenuPane.Load -> "Load state"
     EmulatorMenuPane.Display -> "Display"
@@ -657,12 +671,18 @@ private fun paneTitle(pane: EmulatorMenuPane): String = when (pane) {
     EmulatorMenuPane.RetroAchievements -> "RetroAchievements"
     EmulatorMenuPane.Achievements -> "This game"
     EmulatorMenuPane.XoraNetwork -> "XOrA Network"
+    EmulatorMenuPane.FriendActions -> friendName.ifBlank { "Friend" }
     EmulatorMenuPane.Mods -> "Mods"
     EmulatorMenuPane.Settings -> "Settings"
     EmulatorMenuPane.Gamepad -> "Gamepad"
     EmulatorMenuPane.Graphics -> "Graphics"
     EmulatorMenuPane.Audio -> "Audio"
     EmulatorMenuPane.None -> ""
+}
+
+private fun friendDisplayName(network: XoraNetworkState, username: String): String {
+    val friend = network.acceptedFriends.firstOrNull { it.username.equals(username, ignoreCase = true) }
+    return friend?.displayName?.ifBlank { friend.username } ?: username
 }
 
 private fun paneRows(
@@ -679,6 +699,7 @@ private fun paneRows(
     achievementSummary: String,
     raStatus: String?,
     gameTitle: String,
+    friendUsername: String = "",
 ): List<MenuRow> = when (pane) {
     EmulatorMenuPane.None -> emptyList()
     EmulatorMenuPane.Save -> saveSlots.map { slot ->
@@ -819,10 +840,10 @@ private fun paneRows(
             MenuRow(
                 id = "np-mode",
                 title = if (online) "Online" else "Local Wireless",
-                subtitle = if (online) {
-                    "XOrA Network · 6-character code"
-                } else {
-                    "Same Wi‑Fi · IP and port"
+                subtitle = when {
+                    !network.signedIn -> "XOrA Network account required for Online"
+                    online -> "XOrA Network · 6-character code"
+                    else -> "Same Wi‑Fi · IP and port"
                 },
                 icon = XmbIcon.Network,
                 action = EmulatorMenuAction.ToggleNetplayOnline,
@@ -942,6 +963,25 @@ private fun paneRows(
                 )
             }
         }
+    }
+    EmulatorMenuPane.FriendActions -> {
+        val name = friendDisplayName(network, friendUsername)
+        listOf(
+            MenuRow(
+                id = "xn-invite",
+                title = "Invite Friend to Session",
+                subtitle = "Hosts online and sends $name the code",
+                icon = XmbIcon.Play,
+                action = EmulatorMenuAction.InviteFriendToSession(friendUsername),
+            ),
+            MenuRow(
+                id = "xn-message",
+                title = "Message",
+                subtitle = "Coming soon",
+                icon = XmbIcon.Notifications,
+                action = EmulatorMenuAction.MessageFriendComingSoon(friendUsername),
+            ),
+        )
     }
     EmulatorMenuPane.Mods -> listOf(
         MenuRow(

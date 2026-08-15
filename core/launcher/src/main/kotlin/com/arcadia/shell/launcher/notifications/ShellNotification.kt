@@ -57,13 +57,24 @@ sealed interface ShellNotification {
     ) : ShellNotification
 
     /**
-     * A friend invited this account to a Netplay session. The backend feature is still planned;
-     * the banner lights up as soon as the website starts writing these inbox items.
+     * A friend invited this account to a Netplay session. Tapping the banner (or launching the
+     * matching game) fills the 6-character session code and joins.
      */
     data class XoraNetplayInvite(
         override val id: String,
         val displayName: String,
         val gameTitle: String,
+        val avatarUrl: String? = null,
+        val sessionCode: String = "",
+        val platformId: String = "",
+        val coreName: String = "",
+        val fromUsername: String = "",
+    ) : ShellNotification
+
+    /** Both host and joiner see this when the netplay lobby links. */
+    data class XoraSessionJoined(
+        override val id: String,
+        val displayName: String,
         val avatarUrl: String? = null,
     ) : ShellNotification
 

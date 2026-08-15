@@ -74,6 +74,7 @@ fun BoxScope.NotificationBannerHost(
     center: ShellNotificationCenter,
     modifier: Modifier = Modifier,
     ltExpanded: Boolean = false,
+    onActivate: ((ShellNotification) -> Unit)? = null,
 ) {
     val active by center.active.collectAsStateWithLifecycle()
     val reduceMotion = rememberReduceMotion()
@@ -114,6 +115,7 @@ fun BoxScope.NotificationBannerHost(
             NotificationBanner(
                 notification = notification,
                 onDismiss = center::dismiss,
+                onActivate = onActivate,
             )
         }
     }
@@ -124,6 +126,7 @@ fun NotificationBanner(
     notification: ShellNotification,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    onActivate: ((ShellNotification) -> Unit)? = null,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
     val content = bannerContent(notification)
@@ -144,7 +147,10 @@ fun NotificationBanner(
                 shimmer = true,
             )
             .border(1.5.dp, CardEdge, BannerShape)
-            .clickable(onClick = onDismiss)
+            .clickable(onClick = {
+                if (onActivate != null) onActivate(notification)
+                onDismiss()
+            })
             .semantics { contentDescription = accessibility }
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -338,6 +344,16 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             subtitle = copy.subtitle,
             avatarUrl = notification.avatarUrl,
             avatarFallback = notification.displayName.take(1).ifBlank { "X" },
+            accent = Color(0xFF0070D1),
+        )
+
+        is ShellNotification.XoraSessionJoined -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_friends,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.displayName.take(1).ifBlank { "P" },
             accent = Color(0xFF0070D1),
         )
 

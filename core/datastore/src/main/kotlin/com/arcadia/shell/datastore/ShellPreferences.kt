@@ -443,6 +443,18 @@ class ShellPreferences @Inject constructor(
         )
     }
 
+    /** Latest incoming online netplay invite this device should auto-join. */
+    val pendingNetplayJoin: Flow<PendingNetplayJoin> = dataStore.data.map { prefs ->
+        PendingNetplayJoin(
+            code = prefs[Keys.PENDING_NETPLAY_CODE].orEmpty(),
+            platformId = prefs[Keys.PENDING_NETPLAY_PLATFORM].orEmpty(),
+            gameTitle = prefs[Keys.PENDING_NETPLAY_GAME].orEmpty(),
+            fromUsername = prefs[Keys.PENDING_NETPLAY_FROM].orEmpty(),
+            coreName = prefs[Keys.PENDING_NETPLAY_CORE].orEmpty(),
+            createdAtMs = prefs[Keys.PENDING_NETPLAY_AT] ?: 0L,
+        )
+    }
+
     /** RetroAchievements behaviour for launcher + XOrA Emulator. */
     val retroAchievementsSettings: Flow<RetroAchievementsSettings> = dataStore.data.map { prefs ->
         RetroAchievementsSettings(
@@ -769,6 +781,24 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setXoraNetplayHostAddress(address: String) = edit {
         it[Keys.XORA_NETPLAY_HOST] = address.trim().take(128)
+    }
+
+    suspend fun setPendingNetplayJoin(join: PendingNetplayJoin) = edit {
+        it[Keys.PENDING_NETPLAY_CODE] = join.code.trim().take(8)
+        it[Keys.PENDING_NETPLAY_PLATFORM] = join.platformId.trim().take(64)
+        it[Keys.PENDING_NETPLAY_GAME] = join.gameTitle.trim().take(128)
+        it[Keys.PENDING_NETPLAY_FROM] = join.fromUsername.trim().take(128)
+        it[Keys.PENDING_NETPLAY_CORE] = join.coreName.trim().take(64)
+        it[Keys.PENDING_NETPLAY_AT] = join.createdAtMs
+    }
+
+    suspend fun clearPendingNetplayJoin() = edit {
+        it.remove(Keys.PENDING_NETPLAY_CODE)
+        it.remove(Keys.PENDING_NETPLAY_PLATFORM)
+        it.remove(Keys.PENDING_NETPLAY_GAME)
+        it.remove(Keys.PENDING_NETPLAY_FROM)
+        it.remove(Keys.PENDING_NETPLAY_CORE)
+        it.remove(Keys.PENDING_NETPLAY_AT)
     }
 
     suspend fun setXoraPreferredControllerName(name: String) = edit {
@@ -1153,6 +1183,12 @@ class ShellPreferences @Inject constructor(
         val XORA_NETPLAY_SPECTATOR = booleanPreferencesKey("xora_netplay_spectator")
         val XORA_NETPLAY_RELAY = booleanPreferencesKey("xora_netplay_relay")
         val XORA_NETPLAY_HOST = stringPreferencesKey("xora_netplay_host")
+        val PENDING_NETPLAY_CODE = stringPreferencesKey("pending_netplay_join_code")
+        val PENDING_NETPLAY_PLATFORM = stringPreferencesKey("pending_netplay_join_platform")
+        val PENDING_NETPLAY_GAME = stringPreferencesKey("pending_netplay_join_game")
+        val PENDING_NETPLAY_FROM = stringPreferencesKey("pending_netplay_join_from")
+        val PENDING_NETPLAY_CORE = stringPreferencesKey("pending_netplay_join_core")
+        val PENDING_NETPLAY_AT = longPreferencesKey("pending_netplay_join_at")
         val XORA_CONTROLLER_NAME = stringPreferencesKey("xora_preferred_controller")
         val XORA_BUTTON_MAPPINGS = stringPreferencesKey("xora_button_mappings")
         val RA_ENABLED = booleanPreferencesKey("ra_enabled")

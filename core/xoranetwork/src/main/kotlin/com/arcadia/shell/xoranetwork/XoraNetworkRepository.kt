@@ -312,6 +312,83 @@ class XoraNetworkRepository @Inject constructor(
         mutableState.update { it.copy(notifications = items) }
     }
 
+    /**
+     * Writes a netplay invite the recipient can poll from this account's public-read storage.
+     * Overwrites any previous pending invite to the same friend.
+     */
+    suspend fun sendNetplayInvite(
+        toUsername: String,
+        code: String,
+        gameTitle: String,
+        platformId: String,
+        coreName: String,
+    ): Result<Unit> {
+        val target = toUsername.trim()
+        if (target.isEmpty()) {
+            return Result.failure(XoraNetworkException("Pick a friend to invite."))
+        }
+        val sessionCode = code.trim()
+        if (!XoraNetplayInvites.hasJoinableCode(XoraNetplayInviteRecord(code = sessionCode))) {
+            return Result.failure(XoraNetworkException("Couldn't start a session to invite with."))
+        }
+        return authenticated { token ->
+            val account = mutableState.value.account
+                ?: throw XoraNetworkException("Sign in to XOrA Network first.")
+            val invite = XoraNetplayInviteRecord(
+                code = sessionCode,
+                toUsername = target,
+                gameTitle = gameTitle.trim(),
+                platformId = platformId.trim(),
+                coreName = coreName.trim(),
+                fromUsername = account.username,
+                fromDisplayName = account.displayName.ifBlank { account.username },
+                createdAtMs = System.currentTimeMillis(),
+            )
+            val encoded = XoraNetplayInvites.encodeValue(invite, json)
+            val value = json.parseToJsonElement(encoded) as? kotlinx.serialization.json.JsonObject
+                ?: throw XoraNetworkException("Couldn't send that invite.")
+            client.writeStorageObject(
+                accessToken = token,
+                collection = XoraNetplayInvites.COLLECTION,
+                key = XoraNetplayInvites.recipientKey(target),
+                value = value,
+            )
+        }
+    }
+
+    /** Polls accepted friends' invite outboxes for rows addressed to this account. */
+    suspend fun refreshNetplayInvites(): Result<Unit> = authenticated { token ->
+        val self = (
+            mutableState.value.account?.username
+                ?: XoraJwt.username(token, json)
+            ).trim()
+        val owners = mutableState.value.acceptedFriends
+            .map { it.userId.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (self.isBlank() || owners.isEmpty()) {
+            mutableState.update { it.copy(netplayInvites = emptyList()) }
+            return@authenticated
+        }
+        val objects = owners.chunked(40).flatMap { chunk ->
+            runCatching {
+                client.readStorageObjects(
+                    accessToken = token,
+                    collection = XoraNetplayInvites.COLLECTION,
+                    key = XoraNetplayInvites.recipientKey(self),
+                    ownerIds = chunk,
+                )
+            }.getOrDefault(emptyList())
+        }
+        val now = System.currentTimeMillis()
+        val invites = objects
+            .flatMap { obj -> XoraNetplayInvites.parseValue(obj.value, json) }
+            .let { XoraNetplayInvites.addressedTo(it, self, now) }
+            .distinctBy { it.dedupeKey() }
+            .sortedByDescending { it.createdAtMs }
+        mutableState.update { it.copy(netplayInvites = invites) }
+    }
+
     // -------------------------------------------------------------------------------------------
 
     private suspend fun adoptSession(

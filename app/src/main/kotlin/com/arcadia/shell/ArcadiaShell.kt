@@ -524,13 +524,14 @@ fun ArcadiaShell(
                 NotificationBannerHost(
                     center = homeViewModel.shellNotifications,
                     ltExpanded = state.accountPanelExpanded,
+                    onActivate = homeViewModel::activateShellNotification,
                 )
                 NotificationHistoryPanel(
                     open = state.notificationHistoryOpen,
                     items = state.notificationHistory,
                     selectedIndex = state.notificationHistorySelectedIndex,
                     onSelectIndex = homeViewModel::selectNotificationHistoryIndex,
-                    onActivate = {},
+                    onActivate = homeViewModel::activateSelectedNotificationHistory,
                     onClear = homeViewModel::clearNotificationHistory,
                     onDismiss = homeViewModel::closeNotificationHistory,
                     modifier = Modifier.fillMaxSize(),

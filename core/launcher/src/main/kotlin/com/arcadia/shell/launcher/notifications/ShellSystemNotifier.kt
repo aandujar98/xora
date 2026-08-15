@@ -181,6 +181,7 @@ class ShellSystemNotifier @Inject constructor(
         is ShellNotification.FriendOnline,
         is ShellNotification.XoraFriendRequest,
         is ShellNotification.XoraNetplayInvite,
+        is ShellNotification.XoraSessionJoined,
         -> NotificationCompat.CATEGORY_SOCIAL
         is ShellNotification.AchievementUnlocked,
         is ShellNotification.RetroAchievementsSignedIn,

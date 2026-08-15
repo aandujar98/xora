@@ -89,6 +89,29 @@ data class XoraNotificationItem(
         get() = type.equals("friend_request", ignoreCase = true)
 }
 
+/**
+ * One netplay lobby invite written to Nakama storage. [code] is the 6-character session code
+ * the friend auto-joins with. Public identity is always the username.
+ */
+@Serializable
+data class XoraNetplayInviteRecord(
+    val code: String = "",
+    val toUsername: String = "",
+    val gameTitle: String = "",
+    val platformId: String = "",
+    val coreName: String = "",
+    val fromUsername: String = "",
+    val fromDisplayName: String = "",
+    val createdAtMs: Long = 0,
+) {
+    fun dedupeKey(): String = "${fromUsername.lowercase()}|${code.trim()}|$createdAtMs"
+}
+
+@Serializable
+internal data class XoraNetplayInviteOutboxDto(
+    val invites: List<XoraNetplayInviteRecord> = emptyList(),
+)
+
 /** Whole signed-in surface the launcher shows. One identity per device. */
 data class XoraNetworkState(
     /** False when this build has no client server key — the UI explains instead of erroring. */
@@ -107,6 +130,8 @@ data class XoraNetworkState(
     /** How this device asked to appear on XOrA Network. */
     val presenceMode: XoraPresenceMode = XoraPresenceMode.Online,
     val dm: XoraDmUiState = XoraDmUiState(),
+    /** Fresh netplay session invites addressed to this account (Nakama outbox poll). */
+    val netplayInvites: List<XoraNetplayInviteRecord> = emptyList(),
 ) {
     val acceptedFriends: List<XoraFriend>
         get() = friends.filter { it.state == XoraFriendState.Friend }

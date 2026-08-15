@@ -67,6 +67,12 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
         subtitle = "$displayName · XOrA Network",
     )
 
+    is ShellNotification.XoraSessionJoined -> ShellNotificationCopy(
+        category = "Netplay",
+        body = "$displayName joined the session",
+        subtitle = "XOrA Network",
+    )
+
     is ShellNotification.FriendOnline -> {
         val networkLabel = when (network) {
             FriendNetwork.Discord -> "Discord"

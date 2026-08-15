@@ -40,7 +40,7 @@ class XoraNetworkClient @Inject constructor(
         private const val BASE_URL = "https://api.xoranetwork.com/v2"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-        /** Collection names shared with the website. Never invent new ones. */
+        /** Collection names shared with the website. Never invent new website-owned ones. */
         const val NOTIFICATIONS_COLLECTION = "xora_notifications"
         const val MESSAGES_COLLECTION = "xora_messages"
 
@@ -394,6 +394,43 @@ class XoraNetworkClient @Inject constructor(
                 .build(),
         )
         return result.objects
+    }
+
+    /**
+     * Writes one storage object. [permissionRead] 1 lets other signed-in accounts read it
+     * (friends poll our netplay invite outbox). [permissionWrite] 0 is owner-only.
+     */
+    internal suspend fun writeStorageObject(
+        accessToken: String,
+        collection: String,
+        key: String,
+        value: JsonObject,
+        permissionRead: Int = 1,
+        permissionWrite: Int = 0,
+    ) {
+        val body = buildJsonObject {
+            put(
+                "objects",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("collection", collection)
+                            put("key", key)
+                            put("value", value)
+                            put("permission_read", permissionRead)
+                            put("permission_write", permissionWrite)
+                        },
+                    )
+                },
+            )
+        }
+        executeUnit(
+            Request.Builder()
+                .url("$BASE_URL/storage")
+                .header("Authorization", "Bearer $accessToken")
+                .put(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build(),
+        )
     }
 
     // -------------------------------------------------------------------------------------------

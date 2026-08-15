@@ -196,3 +196,24 @@ fun XoraInternalResolution.factor(): Int = when (this) {
     XoraInternalResolution.Scale4x -> 4
     XoraInternalResolution.Scale5x -> 5
 }
+
+/** A friend's online netplay invite waiting for this device to join. */
+data class PendingNetplayJoin(
+    val code: String = "",
+    val platformId: String = "",
+    val gameTitle: String = "",
+    val fromUsername: String = "",
+    val coreName: String = "",
+    val createdAtMs: Long = 0,
+) {
+    val isPresent: Boolean get() = code.isNotBlank()
+
+    fun isActive(nowMs: Long, ttlMs: Long = PENDING_NETPLAY_JOIN_TTL_MS): Boolean {
+        if (!isPresent) return false
+        if (createdAtMs <= 0L) return true
+        return nowMs - createdAtMs in 0 until ttlMs
+    }
+}
+
+const val PENDING_NETPLAY_JOIN_TTL_MS = 15L * 60L * 1_000L
+

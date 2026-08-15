@@ -28,6 +28,7 @@ import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_ROWS
+import com.arcadia.shell.datastore.PendingNetplayJoin
 import com.arcadia.shell.datastore.PlatformArtStore
 import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.PlatformEmulatorChoice
@@ -106,6 +107,8 @@ import com.arcadia.shell.scanner.LibraryRootManager
 import com.arcadia.shell.xoranetwork.XoraFriendState
 import com.arcadia.shell.xoranetwork.XoraNetworkClient
 import com.arcadia.shell.xoranetwork.XoraNetworkRepository
+import com.arcadia.shell.xoranetwork.XoraNetplayInviteRecord
+import com.arcadia.shell.xoranetwork.XoraNetplayInvites
 import com.arcadia.shell.xoranetwork.XoraPresenceMode
 import com.arcadia.shell.xoranetwork.parseXoraPresenceMode
 import com.arcadia.shell.scanner.LibraryScanner
@@ -338,6 +341,7 @@ class HomeViewModel @Inject constructor(
     private val knownOnlineXoraUsernames = linkedSetOf<String>()
     private val knownXoraInviteUsernames = linkedSetOf<String>()
     private val knownXoraNotificationIds = linkedSetOf<String>()
+    private val knownNetplayInviteKeys = linkedSetOf<String>()
     /** First RA recent-unlock poll only seeds ids so historical unlocks do not toast. */
     private var raUnlockSeeded = false
     private val knownRaUnlockKeys = linkedSetOf<String>()
@@ -948,6 +952,7 @@ class HomeViewModel @Inject constructor(
                         var ticks = 0
                         while (isActive) {
                             xoraNetwork.refreshNotifications()
+                            xoraNetwork.refreshNetplayInvites()
                             val friendEvery = (XORA_SOCIAL_POLL_MS / XORA_INBOX_POLL_MS).toInt().coerceAtLeast(1)
                             if (ticks % friendEvery == 0) xoraNetwork.refreshFriends()
                             ticks++
@@ -1321,8 +1326,7 @@ class HomeViewModel @Inject constructor(
 
     /**
      * Banners + status-bar notifications from XOrA Network state diffs: a friend coming online,
-     * an incoming friend request, a new inbox message, and (future) a Netplay invite with the
-     * game's name. The first snapshot after sign-in only seeds so the backlog never toasts.
+     * an incoming friend request, a new inbox message, and a Netplay session invite.
      */
     private fun emitXoraNetworkBanners(network: com.arcadia.shell.xoranetwork.XoraNetworkState) {
         if (!network.signedIn) {
@@ -1330,6 +1334,7 @@ class HomeViewModel @Inject constructor(
             knownOnlineXoraUsernames.clear()
             knownXoraInviteUsernames.clear()
             knownXoraNotificationIds.clear()
+            knownNetplayInviteKeys.clear()
             return
         }
         val onlineNow = network.acceptedFriends.filter { it.online }
@@ -1339,11 +1344,14 @@ class HomeViewModel @Inject constructor(
         val notificationIds = network.notifications
             .map { it.id.ifBlank { it.createdAt + it.fromUsername + it.body } }
             .toSet()
+        val netplayInviteKeys = network.netplayInvites.map { it.dedupeKey() }.toSet()
         if (!xoraSocialSeeded) {
             knownOnlineXoraUsernames.addAll(onlineNames)
             knownXoraInviteUsernames.addAll(inviteNames)
             knownXoraNotificationIds.addAll(notificationIds)
+            knownNetplayInviteKeys.addAll(netplayInviteKeys)
             xoraSocialSeeded = true
+            network.netplayInvites.maxByOrNull { it.createdAtMs }?.let { rememberPendingNetplayJoin(it) }
             return
         }
 
@@ -1428,6 +1436,105 @@ class HomeViewModel @Inject constructor(
         }
         // Keep the id set bounded to what the inbox still holds (it is capped server-side).
         knownXoraNotificationIds.retainAll(notificationIds)
+
+        for (invite in network.netplayInvites) {
+            val key = invite.dedupeKey()
+            if (key in knownNetplayInviteKeys) continue
+            knownNetplayInviteKeys.add(key)
+            rememberPendingNetplayJoin(invite)
+            val sender = invite.fromDisplayName.ifBlank { invite.fromUsername }
+            shellNotifications.emit(
+                ShellNotification.XoraNetplayInvite(
+                    id = "xora-netplay:$key",
+                    displayName = sender,
+                    gameTitle = invite.gameTitle,
+                    avatarUrl = XoraNetworkClient.avatarUrlFor(invite.fromUsername),
+                    sessionCode = invite.code,
+                    platformId = invite.platformId,
+                    coreName = invite.coreName,
+                    fromUsername = invite.fromUsername,
+                ),
+            )
+        }
+        knownNetplayInviteKeys.retainAll(netplayInviteKeys)
+    }
+
+    private fun rememberPendingNetplayJoin(invite: XoraNetplayInviteRecord) {
+        if (!XoraNetplayInvites.hasJoinableCode(invite)) return
+        viewModelScope.launch { persistPendingNetplayJoin(invite) }
+    }
+
+    private suspend fun persistPendingNetplayJoin(invite: XoraNetplayInviteRecord) {
+        if (!XoraNetplayInvites.hasJoinableCode(invite)) return
+        preferences.setPendingNetplayJoin(
+            PendingNetplayJoin(
+                code = invite.code.trim(),
+                platformId = invite.platformId,
+                gameTitle = invite.gameTitle,
+                fromUsername = invite.fromUsername,
+                coreName = invite.coreName,
+                createdAtMs = invite.createdAtMs.takeIf { it > 0L } ?: System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    fun activateShellNotification(notification: ShellNotification) {
+        if (notification is ShellNotification.XoraNetplayInvite) {
+            viewModelScope.launch { joinNetplayInvite(notification) }
+        }
+    }
+
+    fun activateSelectedNotificationHistory() {
+        val history = uiState.value.notificationHistory
+        val item = history.getOrNull(notificationHistorySelectedIndex.value) ?: return
+        activateShellNotification(item.notification)
+    }
+
+    private suspend fun joinNetplayInvite(notification: ShellNotification.XoraNetplayInvite) {
+        val code = notification.sessionCode.trim()
+        if (code.length != 6) {
+            emit(HomeEvent.ShowMessage("That invite doesn't include a session code yet."))
+            return
+        }
+        persistPendingNetplayJoin(
+            XoraNetplayInviteRecord(
+                code = code,
+                toUsername = xoraNetwork.state.value.account?.username.orEmpty(),
+                gameTitle = notification.gameTitle,
+                platformId = notification.platformId,
+                coreName = notification.coreName,
+                fromUsername = notification.fromUsername.ifBlank { notification.displayName },
+                fromDisplayName = notification.displayName,
+                createdAtMs = System.currentTimeMillis(),
+            ),
+        )
+        val game = findGameForNetplayInvite(notification.platformId, notification.gameTitle)
+        if (game != null) {
+            launchGame(game)
+        } else {
+            val from = notification.displayName.ifBlank { "your friend" }
+            val title = notification.gameTitle.ifBlank { "that game" }
+            emit(HomeEvent.ShowMessage("Launch $title to join ${from}'s session."))
+        }
+    }
+
+    private suspend fun findGameForNetplayInvite(platformId: String, gameTitle: String): Game? {
+        val games = libraryRepository.observeGames().first().filterNot { it.isAndroidApp }
+        val title = gameTitle.trim()
+        val onPlatform = if (platformId.isBlank()) {
+            games
+        } else {
+            games.filter { it.platformId.equals(platformId, ignoreCase = true) }
+        }
+        fun matches(game: Game): Boolean {
+            if (title.isBlank()) return false
+            if (game.title.equals(title, ignoreCase = true)) return true
+            if (game.fileName.equals(title, ignoreCase = true)) return true
+            val a = game.title.lowercase().filter { it.isLetterOrDigit() }
+            val b = title.lowercase().filter { it.isLetterOrDigit() }
+            return a.isNotBlank() && a == b
+        }
+        return onPlatform.firstOrNull(::matches) ?: games.firstOrNull(::matches)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -3333,8 +3440,17 @@ class HomeViewModel @Inject constructor(
             DashboardTile.Notifications -> refreshDashboardNetwork()
             DashboardTile.CloudSaves ->
                 emit(HomeEvent.ShowMessage("Cloud Saves aren't enabled yet."))
-            DashboardTile.Netplay ->
-                emit(HomeEvent.ShowMessage("Netplay invites aren't enabled yet."))
+            DashboardTile.Netplay -> {
+                if (!xoraNetwork.state.value.signedIn) {
+                    emit(HomeEvent.ShowMessage(XoraNetplayInvites.LOGIN_REQUIRED))
+                } else {
+                    emit(
+                        HomeEvent.ShowMessage(
+                            "Invite a friend from the emulator's XOrA Network menu.",
+                        ),
+                    )
+                }
+            }
             DashboardTile.Sharing ->
                 emit(HomeEvent.ShowMessage("XOrA Network sharing isn't enabled yet."))
             DashboardTile.DeviceLink ->
@@ -4966,7 +5082,7 @@ class HomeViewModel @Inject constructor(
                 notificationHistorySelectedIndex.update { (it + 1).coerceIn(0, last) }
             }
             NavAction.Cancel, NavAction.ToggleSystemPanel -> closeNotificationHistory()
-            NavAction.Confirm -> Unit
+            NavAction.Confirm -> activateSelectedNotificationHistory()
             else -> Unit
         }
     }
