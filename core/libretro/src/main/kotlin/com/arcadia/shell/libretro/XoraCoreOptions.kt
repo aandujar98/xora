@@ -27,6 +27,8 @@ object XoraCoreOptions {
         }
         applyResolution(platformId, coreName, settings, out)
         applyN64(platformId, coreName, out)
+        applyPs1(platformId, coreName, out)
+        applyGameCube(platformId, coreName, out)
         return out
     }
 
@@ -52,8 +54,54 @@ object XoraCoreOptions {
         out["mupen64plus-FrameDuping"] = "False"
         out["mupen64plus-pak1"] = "memory"
         out["mupen64plus-pak2"] = "memory"
+        out["parallel-n64-pak1"] = "memory"
+        out["parallel-n64-pak2"] = "memory"
         // ParaLLEl: software RDP avoids Vulkan (unsupported by the XOrA GLES host).
         out["parallel-n64-gfx"] = "angrylion"
+    }
+
+    /**
+     * Connect P1 and P2 on PlayStation cores. SwanStation/DuckStation default
+     * port 2 to None; PCSX-ReARMed needs an explicit pad2 type.
+     */
+    private fun applyPs1(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "ps1" &&
+            !coreName.contains("pcsx", ignoreCase = true) &&
+            !coreName.contains("swanstation", ignoreCase = true) &&
+            !coreName.contains("duckstation", ignoreCase = true) &&
+            !coreName.contains("psx", ignoreCase = true)
+        ) {
+            return
+        }
+        out["pcsx_rearmed_pad1type"] = "analog"
+        out["pcsx_rearmed_pad2type"] = "analog"
+        out["duckstation_Controller1.Type"] = "AnalogController"
+        out["duckstation_Controller2.Type"] = "AnalogController"
+        out["swanstation_Controller1.Type"] = "AnalogController"
+        out["swanstation_Controller2.Type"] = "AnalogController"
+        out["swanstation_Controller1_ForceAnalog"] = "true"
+        out["swanstation_Controller2_ForceAnalog"] = "true"
+        out["duckstation_Controller1_ForceAnalog"] = "true"
+        out["duckstation_Controller2_ForceAnalog"] = "true"
+    }
+
+    /** Keep GameCube pads on ports 1–2 (not Wii 5–8) so the joiner is P2. */
+    private fun applyGameCube(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "gamecube" &&
+            platformId != "wii" &&
+            !coreName.contains("dolphin", ignoreCase = true)
+        ) {
+            return
+        }
+        out["dolphin_alt_gc_ports_on_wii"] = "OFF"
     }
 
     private fun applyNds(

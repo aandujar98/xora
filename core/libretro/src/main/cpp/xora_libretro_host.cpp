@@ -123,6 +123,13 @@ std::atomic<int16_t> g_axis_ly[2]{{0}, {0}};
 std::atomic<int16_t> g_axis_rx[2]{{0}, {0}};
 std::atomic<int16_t> g_axis_ry[2]{{0}, {0}};
 
+// Device IDs from SET_CONTROLLER_INFO (core-specific subclasses, not always JOYPAD).
+constexpr unsigned kMaxControllerPorts = 4;
+unsigned g_port_device[kMaxControllerPorts] = {
+    RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD};
+unsigned g_controller_ports = 0;
+bool g_plugging_controllers = false;
+
 // Core options (SET_VARIABLES / GET_VARIABLE). Overrides win over core defaults.
 std::mutex g_vars_mutex;
 std::map<std::string, std::string> g_var_overrides;
@@ -483,10 +490,89 @@ size_t audio_sample_batch(const int16_t* data, size_t frames) {
 
 void input_poll() {}
 
+bool is_pad_device(unsigned id, const char* desc) {
+    if (id == RETRO_DEVICE_NONE) return false;
+    const unsigned base = id & RETRO_DEVICE_MASK;
+    if (base == RETRO_DEVICE_MOUSE || base == RETRO_DEVICE_POINTER ||
+        base == RETRO_DEVICE_KEYBOARD || base == RETRO_DEVICE_LIGHTGUN) {
+        return false;
+    }
+    if (!desc || !desc[0]) {
+        return base == RETRO_DEVICE_JOYPAD || base == RETRO_DEVICE_ANALOG;
+    }
+    const std::string d = to_lower_copy(desc);
+    if (d.find("none") != std::string::npos) return false;
+    if (d.find("zapper") != std::string::npos || d.find("scope") != std::string::npos ||
+        d.find("justifier") != std::string::npos || d.find("guncon") != std::string::npos ||
+        d.find("lightgun") != std::string::npos || d.find("mouse") != std::string::npos ||
+        d.find("paddle") != std::string::npos || d.find("tablet") != std::string::npos ||
+        d.find("keyboard") != std::string::npos || d.find("multitap") != std::string::npos) {
+        return false;
+    }
+    return true;
+}
+
+int pad_device_score(unsigned id, const char* desc) {
+    const std::string d = desc ? to_lower_copy(desc) : "";
+    if (d.find("gamepad") != std::string::npos) return 90;
+    if (d.find("gamecube") != std::string::npos) return 88;
+    if (d.find("playstation controller") != std::string::npos) return 85;
+    if (d.find("standard") != std::string::npos) return 85;
+    if (d.find("joypad") != std::string::npos || d.find("retropad") != std::string::npos) return 80;
+    if (d.find("dualshock") != std::string::npos) return 70;
+    if (d.find("analog controller") != std::string::npos) return 70;
+    if (d.find("controller") != std::string::npos) return 55;
+    if (d == "auto") return 20;
+    const unsigned base = id & RETRO_DEVICE_MASK;
+    if (base == RETRO_DEVICE_ANALOG) return 45;
+    if (base == RETRO_DEVICE_JOYPAD) return 40;
+    return 10;
+}
+
+void reset_port_devices() {
+    g_controller_ports = 0;
+    for (unsigned i = 0; i < kMaxControllerPorts; ++i) {
+        g_port_device[i] = RETRO_DEVICE_JOYPAD;
+    }
+}
+
+void apply_controller_info(const retro_controller_info* ports) {
+    if (!ports) return;
+    unsigned count = 0;
+    for (unsigned port = 0; port < kMaxControllerPorts; ++port) {
+        const retro_controller_info& info = ports[port];
+        if (!info.types || info.num_types == 0) break;
+        unsigned best_id = RETRO_DEVICE_JOYPAD;
+        int best_score = -1;
+        const char* best_desc = "";
+        for (unsigned i = 0; i < info.num_types; ++i) {
+            const retro_controller_description& type = info.types[i];
+            if (!is_pad_device(type.id, type.desc)) continue;
+            const int score = pad_device_score(type.id, type.desc);
+            if (score > best_score) {
+                best_score = score;
+                best_id = type.id;
+                best_desc = type.desc ? type.desc : "";
+            }
+        }
+        g_port_device[port] = best_id;
+        count = port + 1;
+        ALOGI("Controller port %u device %u (%s)", port, best_id, best_desc);
+    }
+    if (count > 0) g_controller_ports = count;
+}
+
 void plug_controllers() {
-    if (!g_api.set_controller_port_device) return;
-    g_api.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
-    g_api.set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
+    if (g_plugging_controllers || !g_api.set_controller_port_device) return;
+    g_plugging_controllers = true;
+    // Drive P1 and P2 when the core has at least two sockets. Handhelds that only
+    // advertise one port stay single-player so we do not invent a fake P2.
+    const unsigned sockets = g_controller_ports > 0 ? g_controller_ports : 2u;
+    const unsigned n = sockets >= 2u ? 2u : sockets;
+    for (unsigned port = 0; port < n; ++port) {
+        g_api.set_controller_port_device(port, g_port_device[port]);
+    }
+    g_plugging_controllers = false;
 }
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
@@ -626,7 +712,8 @@ bool environment(unsigned cmd, void* data) {
         }
         case RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS: {
             if (!data) return false;
-            *static_cast<unsigned*>(data) = 2u;
+            // NES/SNES/GC expose up to 4 sockets; we still only drive ports 0 and 1.
+            *static_cast<unsigned*>(data) = 4u;
             return true;
         }
         case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
@@ -646,6 +733,14 @@ bool environment(unsigned cmd, void* data) {
                 ALOGW("SET_HW_RENDER rejected (unsupported or EGL init failed)");
                 return false;
             }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO: {
+            if (!data) return false;
+            apply_controller_info(static_cast<const retro_controller_info*>(data));
+            // Dolphin (and others) refresh this after load_game. Re-plug then so P2
+            // gets the core's GameCube/NES/SNES/PS pad, not a generic RetroPad.
+            if (g_game_loaded) plug_controllers();
             return true;
         }
         case RETRO_ENVIRONMENT_SET_MEMORY_MAPS: {
@@ -697,6 +792,7 @@ void unload_unlocked() {
         g_api = CoreApi{};
     }
     g_pixel_fmt = PixelFmt::Xrgb1555;
+    reset_port_devices();
     g_rom_path.clear();
     g_rom_buffer.clear();
     g_rom_buffer.shrink_to_fit();
@@ -862,10 +958,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadCore(
     g_api.set_input_poll(input_poll);
     g_api.set_input_state(input_state);
     g_api.init();
-    if (g_api.set_controller_port_device) {
-        g_api.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
-        g_api.set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
-    }
+    plug_controllers();
 
     ALOGI("Core loaded (api %u)", g_api.api_version ? g_api.api_version() : 0u);
     return JNI_TRUE;

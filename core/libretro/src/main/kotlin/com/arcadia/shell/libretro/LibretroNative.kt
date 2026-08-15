@@ -31,7 +31,10 @@ object LibretroNative {
     external fun nativeSerialize(): ByteArray?
     external fun nativeUnserialize(data: ByteArray): Boolean
     external fun nativeLastError(): String?
-    /** Plug libretro ports 0 and 1 so the joiner is a real P2, not an empty socket. */
+    /**
+     * Plug P1 and P2 using each core's SET_CONTROLLER_INFO device ids
+     * (NES/SNES gamepad, N64 pad, DualShock, GameCube controller, …).
+     */
     external fun nativePlugControllers()
 
     /** Clear frontend core-option overrides (call before applying a fresh set). */
