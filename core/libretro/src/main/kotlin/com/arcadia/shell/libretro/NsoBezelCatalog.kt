@@ -3,28 +3,42 @@ package com.arcadia.shell.libretro
 /**
  * Maps a XOrA platform / core to Nintendo Switch Online overlay stems such as `nso-gba`.
  *
- * Overlay packs drop files named `nso-<system>.png` (and a matching `.cfg`) in an `overlays`
- * folder. The stem is what we search for.
+ * Pack layout (from the NSO overlay zip):
+ * ```
+ * cfg/nso-gba.cfg          → img/nso-gba.png
+ * cfg/nso-gba-full.cfg     → img/nso-gba-full.png
+ * ```
  */
 object NsoBezelCatalog {
+    /** Systems that ship a cfg in the bundled NSO pack. */
+    val PACK_SYSTEMS = listOf("gba", "gbc", "n64", "snes", "p8")
+
     /** RetroArch / NSO overlay file stem, e.g. `nso-gba`. */
-    fun overlayStem(platformId: String, coreName: String = ""): String {
+    fun overlayStem(platformId: String, coreName: String = "", full: Boolean = false): String {
         val system = systemKey(platformId, coreName)
-        return "nso-$system"
+        return if (full) "nso-$system-full" else "nso-$system"
     }
 
     /**
      * File-name stems we will accept for [platformId], most specific first.
-     * Includes the NSO prefix, the bare system id, and a few pack aliases.
+     * [preferFull] puts `nso-gba-full` ahead of `nso-gba` (Display → Full screen).
      */
-    fun candidateStems(platformId: String, coreName: String = ""): List<String> {
+    fun candidateStems(
+        platformId: String,
+        coreName: String = "",
+        preferFull: Boolean = false,
+    ): List<String> {
         val system = systemKey(platformId, coreName)
-        val aliases = systemAliases(system)
+        val aliases = listOf(system) + systemAliases(system)
         val stems = linkedSetOf<String>()
-        for (id in listOf(system) + aliases) {
-            stems += "nso-$id"
-            stems += id
+        fun add(id: String, full: Boolean) {
+            val suffix = if (full) "-full" else ""
+            stems += "nso-$id$suffix"
+            stems += "$id$suffix"
         }
+        if (preferFull) aliases.forEach { add(it, full = true) }
+        aliases.forEach { add(it, full = false) }
+        if (!preferFull) aliases.forEach { add(it, full = true) }
         return stems.toList()
     }
 
@@ -39,6 +53,7 @@ object NsoBezelCatalog {
         "nds" -> 256f / 384f
         "3ds" -> 400f / 480f
         "psp" -> 480f / 272f
+        "p8" -> 128f / 128f
         else -> 4f / 3f
     }
 
@@ -57,6 +72,7 @@ object NsoBezelCatalog {
             "wonderswan", "ws" -> "ws"
             "neogeo", "ng" -> "neogeo"
             "gamecube", "gc" -> "gc"
+            "pico8", "pico-8", "p8" -> "p8"
             else -> id.ifBlank { "generic" }
         }
     }
@@ -77,6 +93,7 @@ object NsoBezelCatalog {
             core.contains("pcsx") || core.contains("beetle_psx") ||
                 core.contains("swanstation") -> "ps1"
             core.contains("ppsspp") -> "psp"
+            core.contains("retro8") || core.contains("pico") -> "p8"
             else -> null
         }
     }
@@ -90,6 +107,7 @@ object NsoBezelCatalog {
         "pce" -> listOf("pcengine", "tg16")
         "lynx" -> listOf("atarilynx")
         "ws" -> listOf("wonderswan")
+        "p8" -> listOf("pico8", "pico-8")
         else -> emptyList()
     }
 }

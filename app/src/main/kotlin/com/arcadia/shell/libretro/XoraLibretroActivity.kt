@@ -943,6 +943,7 @@ class XoraLibretroActivity : ComponentActivity() {
             coreName = coreName,
             romFilePath = romFilePath,
             overlaysDir = coreStore.overlaysDir,
+            preferFull = xoraSettings.aspectMode == XoraAspectMode.Stretch,
         )
         stage?.setOverlayFile(file)
     }

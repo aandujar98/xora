@@ -1408,9 +1408,9 @@ fun SettingsScreen(
             val xora = state.xoraEmulator
             SettingsCard(title = "XOrA · System bezels", modifier = Modifier.animateItem()) {
                 Text(
-                    text = "NSO-style bezels sit in the pillarbox beside the game (GBA overlay " +
-                        "with the GBA core, N64 with N64, …). Drop `nso-gba.png` / `nso-n64.png` " +
-                        "in the ROMs `overlays` folder or in XOrA’s overlays directory. " +
+                    text = "NSO bezels use the overlay pack layout: `cfg/nso-gba.cfg` points at " +
+                        "`img/nso-gba.png` (and `nso-gba-full` for full screen). Drop the pack’s " +
+                        "`img` folder into XOrA’s overlays directory or next to your ROMs. " +
                         "Your profile picture replaces the top-left icon.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -20,7 +20,7 @@ class CoreStore @Inject constructor(
     private val root = File(context.filesDir, "cores")
     val systemDir: File = File(context.filesDir, "system").also { it.mkdirs() }
     val savesRoot: File = File(context.filesDir, "saves").also { it.mkdirs() }
-    /** Dropped NSO overlay packs (`nso-gba.png`, `nso-n64.cfg`, …). */
+    /** Dropped NSO overlay packs: cfg folder plus img PNGs (nso-gba.png, …). */
     val overlaysDir: File = File(context.filesDir, "overlays").also { it.mkdirs() }
 
     private val installed = MutableStateFlow<Set<String>>(emptySet())
@@ -28,6 +28,7 @@ class CoreStore @Inject constructor(
 
     init {
         root.mkdirs()
+        installBundledOverlayCfgs()
         refreshInstalled()
     }
 
@@ -82,6 +83,24 @@ class CoreStore @Inject constructor(
         val ok = corePath(core).delete()
         refreshInstalled()
         return ok
+    }
+
+    /**
+     * Copies bundled NSO overlay cfgs into app overlays/cfg.
+     * PNG art is not bundled — drop the pack's img folder next to those cfgs.
+     */
+    private fun installBundledOverlayCfgs() {
+        val dest = File(overlaysDir, "cfg").also { it.mkdirs() }
+        File(overlaysDir, "img").mkdirs()
+        val names = runCatching { context.assets.list("overlays/cfg").orEmpty() }.getOrDefault(emptyArray())
+        names.filter { it.endsWith(".cfg", ignoreCase = true) }.forEach { name ->
+            val target = File(dest, name)
+            runCatching {
+                context.assets.open("overlays/cfg/$name").use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        }
     }
 
     private fun sanitize(key: String): String =

@@ -81,11 +81,7 @@ class XoraEmulatorStage @JvmOverloads constructor(
         val w = right - left
         val h = bottom - top
         val rect = computeGameRect(w, h)
-        bezelView.visibility = if (bezelsEnabled && aspectMode != XoraAspectMode.Stretch) {
-            View.VISIBLE
-        } else {
-            View.GONE
-        }
+        bezelView.visibility = if (bezelsEnabled) View.VISIBLE else View.GONE
         bezelView.layout(0, 0, w, h)
         bezelView.setGameRect(rect[0], rect[1], rect[2], rect[3])
         gameView.layout(rect[0], rect[1], rect[2], rect[3])
@@ -93,12 +89,16 @@ class XoraEmulatorStage @JvmOverloads constructor(
 
     private fun computeGameRect(viewW: Int, viewH: Int): IntArray {
         if (viewW <= 0 || viewH <= 0) return intArrayOf(0, 0, viewW, viewH)
-        if (!bezelsEnabled || aspectMode == XoraAspectMode.Stretch) {
+        // Stretch fills the panel only when bezels are off. NSO overlays keep a fitted hole.
+        val layoutMode =
+            if (bezelsEnabled && aspectMode == XoraAspectMode.Stretch) XoraAspectMode.Core
+            else aspectMode
+        if (layoutMode == XoraAspectMode.Stretch) {
             return intArrayOf(0, 0, viewW, viewH)
         }
         val fw = contentWidthPx.coerceAtLeast(1).toFloat()
         val fh = contentHeightPx.coerceAtLeast(1).toFloat()
-        val (gameW, gameH) = when (aspectMode) {
+        val (gameW, gameH) = when (layoutMode) {
             XoraAspectMode.Stretch -> viewW.toFloat() to viewH.toFloat()
             XoraAspectMode.Core -> {
                 val viewAspect = viewW / viewH.toFloat()
