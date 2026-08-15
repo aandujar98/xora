@@ -1558,9 +1558,15 @@ class XoraLibretroActivity : ComponentActivity() {
             val frameNs = (1_000_000_000.0 / fps).toLong()
             while (coroutineContext.isActive) {
                 val start = System.nanoTime()
-                if (!paused && !menuOpen && !activityInBackground) {
+                val session = netplaySession
+                when {
+                    session?.holdEmulation == true -> {
+                        // Savestate is in flight — do not advance or the joiner loads an old snapshot.
+                        delay(8)
+                    }
+                    session?.linkedNow == true ||
+                        (!paused && !menuOpen && !activityInBackground) -> {
                     val localButtons = keyPadButtons.get() or axisPadButtons.get()
-                    val session = netplaySession
                     if (session?.linkedNow == true) {
                         val frameIndex = session.nextFrameIndex()
                         val local = XoraNetplayProtocol.PadFrame(
@@ -1632,11 +1638,13 @@ class XoraLibretroActivity : ComponentActivity() {
                     val sleepMs = ((frameNs - elapsed) / 1_000_000L).coerceAtLeast(0L)
                     // delay/yield (not Thread.sleep) so serialize / unload can run here too.
                     if (sleepMs > 0) delay(sleepMs) else yield()
-                } else {
+                    }
+                    else -> {
                     // Nothing is being emulated or drawn, so frame pacing would just wake the CPU
                     // sixty times a second behind a paused session. Idle RA at a slow tick instead.
                     raSession?.idle()
                     delay(IDLE_TICK_MS)
+                    }
                 }
             }
         }

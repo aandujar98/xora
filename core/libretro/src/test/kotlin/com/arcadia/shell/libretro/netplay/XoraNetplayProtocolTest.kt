@@ -74,6 +74,8 @@ class XoraNetplayProtocolTest {
             "xora-np-K7M2QX",
             XoraNetplayProtocol.matchNameForSessionCode("K7M2QX"),
         )
+        assertEquals(2, XoraNetplayProtocol.VERSION)
+        assertEquals(7, XoraNetplayProtocol.TYPE_GO)
         val generated = XoraNetplayProtocol.generateSessionCode()
         assertEquals(6, generated.length)
         assertTrue(generated.all { it in XoraNetplayProtocol.SESSION_CODE_ALPHABET })

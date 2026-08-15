@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets
  * Wire format: `u8 type` + `u32be payloadLength` + payload.
  */
 object XoraNetplayProtocol {
-    const val VERSION: Int = 1
+    const val VERSION: Int = 2
     const val MAX_PAYLOAD: Int = 32 * 1024 * 1024
     /** Nakama match data is small; savestates go out as [TYPE_CHUNK] pieces. */
     const val RELAY_CHUNK_BYTES: Int = 900
@@ -21,6 +21,8 @@ object XoraNetplayProtocol {
     const val TYPE_START: Int = 4
     const val TYPE_ERROR: Int = 5
     const val TYPE_BYE: Int = 6
+    /** Host → joiner: savestate is live, start lockstep together. */
+    const val TYPE_GO: Int = 7
     const val TYPE_CHUNK: Int = 100
 
     const val SESSION_CODE_ALPHABET: String = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"

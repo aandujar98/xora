@@ -21,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.locks.LockSupport
 
 enum class XoraNetplayRole { Idle, Host, Client }
 
@@ -110,9 +111,12 @@ class XoraNetplaySession(
     private val lastRemote = AtomicReference(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
     private val frameCounter = AtomicInteger(0)
     private val inputDelay = AtomicInteger(0)
+    private val freezeCore = AtomicBoolean(false)
 
     val linkedNow: Boolean get() = linked.get()
     val hosting: Boolean get() = isHost.get() && running.get()
+    /** True while the savestate is in flight — the core must not advance. */
+    val holdEmulation: Boolean get() = freezeCore.get()
 
     fun host(
         port: Int,
@@ -204,6 +208,7 @@ class XoraNetplaySession(
         running.set(true)
         isHost.set(false)
         inputDelay.set(0)
+        freezeCore.set(true)
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Client,
             status = "Connecting to $address:$port…",
@@ -236,6 +241,7 @@ class XoraNetplaySession(
         running.set(true)
         isHost.set(false)
         inputDelay.set(ONLINE_INPUT_DELAY)
+        freezeCore.set(true)
         linkRef.set(link)
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Client,
@@ -255,10 +261,11 @@ class XoraNetplaySession(
     }
 
     /**
-     * Send the current local pad and return the pads both sides should apply this frame.
+     * Send the current local pad and return the pads both sides must apply this frame.
      *
-     * Online uses a fixed delay so the emu thread never stalls on RTT. LAN waits a few
-     * milliseconds for the matching remote frame, then falls back to the latest received pad.
+     * Online buffers [ONLINE_INPUT_DELAY] frames so RTT does not hitch, then waits for the
+     * matching remote pad of that delayed frame. Guessing a different frame's input would
+     * split the two devices into separate games.
      */
     fun exchange(local: XoraNetplayProtocol.PadFrame): XoraNetplayExchange {
         val idle = XoraNetplayProtocol.PadFrame(frame = local.frame, buttons = 0)
@@ -276,12 +283,7 @@ class XoraNetplaySession(
             if (pad.frame >= 0) pad else idle
         }
         lastLocal.set(delayedLocal)
-        val delayedRemote = if (delay == 0) {
-            waitForRemote(target)
-        } else {
-            takeRemote(target)
-        }
-        return XoraNetplayExchange(local = delayedLocal, remote = delayedRemote)
+        return XoraNetplayExchange(local = delayedLocal, remote = waitForRemote(target))
     }
 
     fun nextFrameIndex(): Int = frameCounter.getAndIncrement()
@@ -306,6 +308,7 @@ class XoraNetplaySession(
         lastRemote.set(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
         frameCounter.set(0)
         inputDelay.set(0)
+        freezeCore.set(false)
         _state.value = XoraNetplayUiState(
             status = "Off",
             localAddresses = localIpv4Addresses(),
@@ -329,6 +332,8 @@ class XoraNetplaySession(
             fail("Netplay version mismatch", gen)
             return
         }
+        freezeCore.set(true)
+        _state.value = _state.value.copy(status = "Sending game state…")
         val savestate = captureState()
         if (savestate == null) {
             fail("Could not capture save state", gen)
@@ -341,6 +346,7 @@ class XoraNetplaySession(
             return
         }
         if (generation.get() != gen) return
+        link.send(XoraNetplayProtocol.TYPE_GO, ByteArray(0))
         markLinked(peer.nickname, host = true)
     }
 
@@ -374,6 +380,8 @@ class XoraNetplaySession(
             fail("Host did not send a save state", gen)
             return
         }
+        freezeCore.set(true)
+        _state.value = _state.value.copy(status = "Loading host game…")
         val applied = applyState(statePayload)
         if (!applied) {
             fail("Could not load host save state", gen)
@@ -381,6 +389,12 @@ class XoraNetplaySession(
         }
         if (generation.get() != gen) return
         link.send(XoraNetplayProtocol.TYPE_START, ByteArray(0))
+        val (goType, _) = link.receive(15_000)
+        if (goType != XoraNetplayProtocol.TYPE_GO && goType != XoraNetplayProtocol.TYPE_START) {
+            fail("Host did not start the session", gen)
+            return
+        }
+        if (generation.get() != gen) return
         markLinked(peer.nickname, host = false)
     }
 
@@ -390,6 +404,7 @@ class XoraNetplaySession(
         pendingLocal.clear()
         lastLocal.set(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
         lastRemote.set(XoraNetplayProtocol.PadFrame(frame = -1, buttons = 0))
+        freezeCore.set(false)
         linked.set(true)
         _state.value = _state.value.copy(
             linked = true,
@@ -416,6 +431,7 @@ class XoraNetplaySession(
                             pendingRemote.keys.filter { it < minKeep }.forEach { pendingRemote.remove(it) }
                         }
                     }
+                    XoraNetplayProtocol.TYPE_GO, XoraNetplayProtocol.TYPE_START -> Unit
                     XoraNetplayProtocol.TYPE_BYE, XoraNetplayProtocol.TYPE_ERROR -> {
                         val message = if (type == XoraNetplayProtocol.TYPE_ERROR) {
                             String(payload)
@@ -443,27 +459,18 @@ class XoraNetplaySession(
     }
 
     private fun waitForRemote(target: Int): XoraNetplayProtocol.PadFrame {
-        val deadline = System.nanoTime() + LAN_WAIT_NS
+        val gen = generation.get()
+        val deadline = System.nanoTime() + INPUT_STALL_NS
         while (System.nanoTime() < deadline) {
+            if (!linked.get() || generation.get() != gen) return lastRemote.get()
             pendingRemote.remove(target)?.let { pad ->
                 lastRemote.set(pad)
                 return pad
             }
-            Thread.yield()
+            LockSupport.parkNanos(250_000L)
         }
-        return takeRemote(target)
-    }
-
-    private fun takeRemote(target: Int): XoraNetplayProtocol.PadFrame {
-        pendingRemote.remove(target)?.let { pad ->
-            lastRemote.set(pad)
-            return pad
-        }
-        val fallbackKey = pendingRemote.keys.filter { it <= target }.maxOrNull()
-        if (fallbackKey != null) {
-            val pad = pendingRemote.remove(fallbackKey) ?: return lastRemote.get()
-            lastRemote.set(pad)
-            return pad
+        if (generation.get() == gen && linked.get()) {
+            fail("Lost sync waiting for the other player", gen)
         }
         return lastRemote.get()
     }
@@ -479,6 +486,7 @@ class XoraNetplaySession(
         if (generation.get() != gen) return
         linked.set(false)
         running.set(false)
+        freezeCore.set(false)
         _state.value = _state.value.copy(
             linked = false,
             status = "Disconnected",
@@ -491,7 +499,7 @@ class XoraNetplaySession(
 
     companion object {
         private const val ONLINE_INPUT_DELAY = 8
-        private const val LAN_WAIT_NS = 8_000_000L // 8ms
+        private const val INPUT_STALL_NS = 5_000_000_000L // 5s
 
         fun localIpv4Addresses(): List<String> = runCatching {
             NetworkInterface.getNetworkInterfaces().toList()

@@ -18,6 +18,7 @@ import java.util.zip.GZIPOutputStream
  * without being on the same LAN or forwarding a port.
  *
  * INPUT is queued off the emu thread so JSON + WebSocket send cannot stall the frame loop.
+ * Packets are reliable so a dropped pad cannot split the two devices into separate games.
  */
 internal class XoraNakamaNetplayLink(
     private val network: XoraNetworkRepository,
@@ -43,7 +44,7 @@ internal class XoraNakamaNetplayLink(
                         matchId,
                         XoraNetplayProtocol.TYPE_INPUT,
                         payload,
-                        reliable = false,
+                        reliable = true,
                     )
                 }
             }
@@ -53,9 +54,10 @@ internal class XoraNakamaNetplayLink(
     override fun send(type: Int, payload: ByteArray) {
         if (closed.get()) return
         if (type == XoraNetplayProtocol.TYPE_INPUT) {
-            if (!inputQueue.offer(payload)) {
-                inputQueue.poll()
-                inputQueue.offer(payload)
+            try {
+                if (!closed.get()) inputQueue.put(payload)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
             }
             return
         }
