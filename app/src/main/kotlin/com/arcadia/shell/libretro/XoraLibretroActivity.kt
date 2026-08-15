@@ -10,6 +10,7 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
 import android.os.Bundle
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -40,7 +41,9 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.arcadia.shell.audio.UiSoundController
 import com.arcadia.shell.database.repository.LibraryRepository
 import com.arcadia.shell.datastore.AvatarSource
@@ -74,6 +77,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
@@ -147,6 +151,16 @@ class XoraLibretroActivity : ComponentActivity() {
     private val bitmapLock = Any()
     /** Keeps pinning the window opaque while this activity is in the foreground. */
     private var washGuardJob: Job? = null
+    private var washFramePosted = false
+    private val washFrameCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            washFramePosted = false
+            if (isFinishing || activityInBackground) return
+            pinOpaqueWindow()
+            if (!menuOpen) pinGameplaySurface()
+            postWashFrame()
+        }
+    }
 
     /**
      * Dedicated emu thread for every Libretro JNI call (load / run / serialize / unload).
@@ -489,6 +503,7 @@ class XoraLibretroActivity : ComponentActivity() {
             activityInBackground = true
             persistSessionForBackground()
         }
+        stopWashGuard()
         uiSounds.onBackground()
         super.onPause()
     }
@@ -745,6 +760,8 @@ class XoraLibretroActivity : ComponentActivity() {
         menuMessageJob?.cancel()
         menuMessage = null
         applyOpaqueWindow()
+        pinGameplaySurface()
+        postWashFrame()
     }
 
     private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
@@ -975,7 +992,10 @@ class XoraLibretroActivity : ComponentActivity() {
      */
     private fun applyOpaqueWindow() {
         pinOpaqueWindow()
-        if (!menuOpen) window.decorView.requestFocus()
+        if (!menuOpen) {
+            pinGameplaySurface()
+            window.decorView.requestFocus()
+        }
     }
 
     private fun pinOpaqueWindow() {
@@ -1001,19 +1021,37 @@ class XoraLibretroActivity : ComponentActivity() {
         window.decorView.setBackgroundColor(AndroidColor.BLACK)
         ImmersiveMode.apply(window)
         gameRoot?.setBackgroundColor(AndroidColor.BLACK)
-        xmbOverlay?.setBackgroundColor(AndroidColor.BLACK)
-        xmbOverlay?.alpha = 1f
+        stage?.apply {
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            setBackgroundColor(AndroidColor.BLACK)
+            alpha = 1f
+        }
+    }
+
+    /**
+     * Gameplay-only pin: overlay closed, user is playing. The vsync loop and every presented
+     * frame call this so a scrim cannot sit on the framebuffer after Resume. Window format is
+     * handled by [pinOpaqueWindow] on vsync so this hot path does not relayout the window.
+     */
+    private fun pinGameplaySurface() {
+        if (isFinishing || menuOpen) return
+        gameRoot?.setBackgroundColor(AndroidColor.BLACK)
+        xmbOverlay?.apply {
+            visibility = View.GONE
+            alpha = 1f
+        }
         primaryGameView?.apply {
             setLayerType(View.LAYER_TYPE_NONE, null)
             setBackgroundColor(AndroidColor.BLACK)
             alpha = 1f
             colorFilter = null
             imageAlpha = 255
+            visibility = View.VISIBLE
         }
         stage?.apply {
-            setLayerType(View.LAYER_TYPE_NONE, null)
             setBackgroundColor(AndroidColor.BLACK)
             alpha = 1f
+            visibility = View.VISIBLE
         }
         synchronized(bitmapLock) {
             val src = gameBitmap
@@ -1025,19 +1063,36 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     /**
-     * Repeats [pinOpaqueWindow] while the emulator is in the foreground so a system scrim
-     * cannot sit on the game after pause submenus / Resume.
+     * Runs while the activity is RESUMED — overlay open **and** closed / playing.
+     * Vsync is used so the pin is not starved by the frame present queue.
      */
     private fun startWashGuard() {
-        if (washGuardJob?.isActive == true) return
-        washGuardJob = lifecycleScope.launch(Dispatchers.Main.immediate) {
-            while (isActive) {
-                if (!activityInBackground && !isFinishing) {
-                    pinOpaqueWindow()
+        washGuardJob?.cancel()
+        washGuardJob = lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                postWashFrame()
+                try {
+                    awaitCancellation()
+                } finally {
+                    Choreographer.getInstance().removeFrameCallback(washFrameCallback)
+                    washFramePosted = false
                 }
-                delay(WASH_GUARD_MS)
             }
         }
+        postWashFrame()
+    }
+
+    private fun stopWashGuard() {
+        washGuardJob?.cancel()
+        washGuardJob = null
+        Choreographer.getInstance().removeFrameCallback(washFrameCallback)
+        washFramePosted = false
+    }
+
+    private fun postWashFrame() {
+        if (washFramePosted || isFinishing || activityInBackground) return
+        washFramePosted = true
+        Choreographer.getInstance().postFrameCallback(washFrameCallback)
     }
 
     private fun startAudio() {
@@ -1194,6 +1249,7 @@ class XoraLibretroActivity : ComponentActivity() {
             primaryGameView?.invalidate()
             secondaryGameView?.invalidate()
             frameTick++
+            if (!menuOpen) pinGameplaySurface()
         }
     }
 
@@ -1237,8 +1293,7 @@ class XoraLibretroActivity : ComponentActivity() {
         inputManager = null
         netplaySession?.stop()
         netplaySession = null
-        washGuardJob?.cancel()
-        washGuardJob = null
+        stopWashGuard()
         closeMenu()
         runJob?.cancel()
         runJob = null
@@ -1265,8 +1320,6 @@ class XoraLibretroActivity : ComponentActivity() {
         /** Loop tick while paused / backgrounded, where no frames are produced. */
         private const val IDLE_TICK_MS = 200L
         private const val MENU_MESSAGE_MS = 2_600L
-        /** How often to re-pin the window opaque while the emulator is on screen. */
-        private const val WASH_GUARD_MS = 48L
         private val chordKeys = setOf(
             KeyEvent.KEYCODE_BUTTON_SELECT,
             KeyEvent.KEYCODE_BUTTON_START,
