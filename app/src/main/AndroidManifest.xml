@@ -16,6 +16,11 @@
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+      targetSdk 37 (Android 17) blocks LAN TCP by default. Netplay host/join are raw sockets
+      to 192.168/10.x addresses, so this runtime permission is required on both devices.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
     <!-- Short tick when moving the XMB / launcher cursor (UiSoundController). -->
     <uses-permission android:name="android.permission.VIBRATE" />

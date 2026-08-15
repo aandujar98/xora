@@ -685,9 +685,10 @@ private fun paneRows(
         MenuRow(
             id = "np-host",
             title = "Host session",
-            subtitle = netplay.localAddresses.firstOrNull()
-                ?.let { "$it:${settings.netplayPort}" }
-                ?: "Port ${settings.netplayPort}",
+            subtitle = netplay.localAddresses.take(2)
+                .joinToString(" · ") { "$it:${settings.netplayPort}" }
+                .ifBlank { "Port ${settings.netplayPort}" }
+                .let { "$it · same Wi‑Fi" },
             icon = XmbIcon.Play,
             action = EmulatorMenuAction.HostNetplay,
         ),

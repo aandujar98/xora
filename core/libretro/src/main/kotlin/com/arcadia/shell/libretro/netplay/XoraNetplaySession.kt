@@ -15,6 +15,7 @@ import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
@@ -116,12 +117,14 @@ class XoraNetplaySession(
         val addresses = localIpv4Addresses()
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Host,
-            status = "Hosting on ${addresses.firstOrNull() ?: "0.0.0.0"}:$port",
+            status = hostStatus(addresses, port),
             localAddresses = addresses,
         )
         networkJob = scope.launch(Dispatchers.IO) {
             try {
-                val listener = ServerSocket(port).also { server = it }
+                val listener = ServerSocket().also { server = it }
+                listener.reuseAddress = true
+                listener.bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), port), 8)
                 listener.soTimeout = 500
                 var client: Socket? = null
                 while (isActive && running.get() && client == null) {
@@ -201,7 +204,7 @@ class XoraNetplaySession(
         networkJob = scope.launch(Dispatchers.IO) {
             try {
                 val sock = Socket()
-                sock.connect(InetSocketAddress(address.trim(), port), 8_000)
+                sock.connect(InetSocketAddress(InetAddress.getByName(address.trim()), port), 12_000)
                 sock.tcpNoDelay = true
                 socket = sock
                 val input = DataInputStream(BufferedInputStream(sock.getInputStream()))
@@ -252,7 +255,7 @@ class XoraNetplaySession(
                 )
                 readLoop(input)
             } catch (t: Throwable) {
-                if (running.get()) fail(t.message ?: "Join failed")
+                if (running.get()) fail(joinFailureMessage(address, port, t))
             }
         }
     }
@@ -361,11 +364,45 @@ class XoraNetplaySession(
 
         fun localIpv4Addresses(): List<String> = runCatching {
             NetworkInterface.getNetworkInterfaces().toList()
-                .flatMap { it.inetAddresses.toList() }
-                .filterIsInstance<Inet4Address>()
-                .filter { !it.isLoopbackAddress }
-                .mapNotNull { it.hostAddress }
+                .filter { it.isUp && !it.isLoopback }
+                .sortedBy { iface ->
+                    val n = iface.name.lowercase()
+                    when {
+                        n.startsWith("wlan") || n.startsWith("ap") || n.startsWith("wifi") -> 0
+                        n.startsWith("eth") -> 1
+                        n.startsWith("rmnet") || n.startsWith("ccmni") || n.startsWith("wwan") -> 3
+                        n.contains("vpn") || n.startsWith("tun") || n.startsWith("ppp") -> 4
+                        else -> 2
+                    }
+                }
+                .flatMap { iface ->
+                    iface.inetAddresses.toList()
+                        .filterIsInstance<Inet4Address>()
+                        .filter { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+                        .mapNotNull { it.hostAddress }
+                }
                 .distinct()
         }.getOrDefault(emptyList())
+
+        private fun hostStatus(addresses: List<String>, port: Int): String {
+            if (addresses.isEmpty()) return "Hosting on port $port"
+            return "Hosting · " + addresses.take(2).joinToString(" · ") { "$it:$port" }
+        }
+
+        fun joinFailureMessage(address: String, port: Int, error: Throwable): String {
+            val raw = error.message.orEmpty()
+            val target = "$address:$port"
+            return when {
+                raw.contains("ECONNREFUSED", ignoreCase = true) ||
+                    raw.contains("Connection refused", ignoreCase = true) ->
+                    "Nothing listening on $target. Host must tap Host session first, same Wi‑Fi, same port."
+                raw.contains("EPERM", ignoreCase = true) ||
+                    raw.contains("failed to connect", ignoreCase = true) ||
+                    error is SocketTimeoutException ||
+                    error is java.net.ConnectException ->
+                    "Couldn't reach $target. Allow Nearby devices / local network, stay on the same Wi‑Fi, and match the host port."
+                else -> raw.ifBlank { "Join failed" }
+            }
+        }
     }
 }

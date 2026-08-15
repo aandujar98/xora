@@ -47,4 +47,16 @@ class NetplayAddressTest {
         assertEquals("", formatJoinHostPort("  ", 55435))
         assertEquals("192.168.1.10:55435", formatJoinHostPort("192.168.1.10", 55435))
     }
+
+    @Test
+    fun joinFailureMessageHidesRawSocketNoise() {
+        val timeout = java.net.SocketTimeoutException(
+            "failed to connect to /192.168.1.10 (port 55435) after 8000ms",
+        )
+        val message = XoraNetplaySession.joinFailureMessage("192.168.1.10", 55435, timeout)
+        assertEquals(
+            "Couldn't reach 192.168.1.10:55435. Allow Nearby devices / local network, stay on the same Wi‑Fi, and match the host port.",
+            message,
+        )
+    }
 }

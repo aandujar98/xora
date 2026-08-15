@@ -1,11 +1,13 @@
 package com.arcadia.shell.libretro
 
+import android.Manifest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.content.pm.PackageManager
 import android.hardware.input.InputManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -27,6 +29,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
@@ -165,6 +169,22 @@ class XoraLibretroActivity : ComponentActivity() {
     private var joinPort by mutableStateOf(DEFAULT_NETPLAY_PORT)
     private var netplayUi by mutableStateOf(XoraNetplayUiState())
     private var netplaySession: XoraNetplaySession? = null
+    private var pendingNetplayHost = false
+    private var pendingNetplayJoin = false
+    private val localNetworkPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val host = pendingNetplayHost
+        val join = pendingNetplayJoin
+        pendingNetplayHost = false
+        pendingNetplayJoin = false
+        if (!granted) {
+            showMenuMessage("Allow Nearby devices so netplay can use this Wi‑Fi")
+            return@registerForActivityResult
+        }
+        if (host) beginHostNetplay()
+        if (join) beginJoinNetplay()
+    }
     private var xoraNetworkUi by mutableStateOf(XoraNetworkState())
     private var raAchievements by mutableStateOf<List<RaAchievement>>(emptyList())
     private var raAchievementSummary by mutableStateOf("")
@@ -981,7 +1001,29 @@ class XoraLibretroActivity : ComponentActivity() {
         }
     }
 
+    private fun hasLocalNetworkPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < 37) return true
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_LOCAL_NETWORK,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun withLocalNetworkPermission(host: Boolean, join: Boolean, proceed: () -> Unit) {
+        if (hasLocalNetworkPermission()) {
+            proceed()
+            return
+        }
+        pendingNetplayHost = host
+        pendingNetplayJoin = join
+        localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+    }
+
     private fun startHostNetplay() {
+        withLocalNetworkPermission(host = true, join = false) { beginHostNetplay() }
+    }
+
+    private fun beginHostNetplay() {
         lifecycleScope.launch {
             disableHardcoreForNetplay()
             preferences.setXoraNetplayEnabled(true)
@@ -1005,6 +1047,20 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun startJoinNetplay() {
+        val parsed = parseJoinHostPort(
+            joinAddress.ifBlank { xoraSettings.netplayHostAddress },
+            joinPort,
+        )
+        if (parsed.host.isBlank()) {
+            showMenuMessage("Type a join IP first")
+            return
+        }
+        joinAddress = parsed.host
+        joinPort = parsed.port
+        withLocalNetworkPermission(host = false, join = true) { beginJoinNetplay() }
+    }
+
+    private fun beginJoinNetplay() {
         val parsed = parseJoinHostPort(
             joinAddress.ifBlank { xoraSettings.netplayHostAddress },
             joinPort,
