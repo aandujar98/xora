@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,8 +36,10 @@ import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.label
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
-import com.arcadia.shell.libretro.netplay.nudgeIpv4
 import com.arcadia.shell.libretro.netplay.parseIpv4
+import com.arcadia.shell.retroachievements.RaAchievement
+import com.arcadia.shell.xoranetwork.XoraFriendState
+import com.arcadia.shell.xoranetwork.XoraNetworkState
 
 enum class EmulatorMenuPane {
     None,
@@ -43,6 +47,9 @@ enum class EmulatorMenuPane {
     Load,
     Display,
     Netplay,
+    RetroAchievements,
+    Achievements,
+    XoraNetwork,
     Mods,
     Settings,
     Gamepad,
@@ -72,6 +79,8 @@ sealed class EmulatorMenuAction {
     data object DisconnectNetplay : EmulatorMenuAction()
     data object ToggleSpectator : EmulatorMenuAction()
     data class NudgeJoinOctet(val octetIndex: Int, val delta: Int) : EmulatorMenuAction()
+    data object ToggleRaHardcore : EmulatorMenuAction()
+    data class ShowAchievement(val title: String, val description: String) : EmulatorMenuAction()
     data object CyclePreferredController : EmulatorMenuAction()
     data object ClearMappings : EmulatorMenuAction()
     data object VolumeUp : EmulatorMenuAction()
@@ -106,12 +115,27 @@ fun XoraEmulatorSideMenu(
     onAction: (EmulatorMenuAction) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    network: XoraNetworkState = XoraNetworkState(),
+    achievements: List<RaAchievement> = emptyList(),
+    achievementSummary: String = "",
+    raStatus: String? = null,
 ) {
     var rootIndex by remember { mutableIntStateOf(0) }
     var pane by remember { mutableStateOf(EmulatorMenuPane.None) }
     var paneIndex by remember { mutableIntStateOf(0) }
 
-    val rootRows = remember(paused, settings.netplayEnabled, gameTitle, hardcore, settings.aspectMode) {
+    val rootRows = remember(
+        paused,
+        settings.netplayEnabled,
+        gameTitle,
+        hardcore,
+        settings.aspectMode,
+        network.signedIn,
+        network.restoring,
+        network.selfOnline,
+        network.account?.username,
+        achievementSummary,
+    ) {
         listOf(
             MenuRow(
                 id = "pause",
@@ -144,9 +168,26 @@ fun XoraEmulatorSideMenu(
             MenuRow(
                 id = "netplay",
                 title = "Netplay",
-                subtitle = if (settings.netplayEnabled) "On" else "Off",
+                subtitle = if (settings.netplayEnabled) "On · hardcore off" else "Off",
                 icon = XmbIcon.Network,
                 pane = EmulatorMenuPane.Netplay,
+            ),
+            MenuRow(
+                id = "ra",
+                title = "RetroAchievements",
+                subtitle = when {
+                    hardcore -> "Hardcore · ${achievementSummary.ifBlank { "this game" }}"
+                    else -> "Softcore · ${achievementSummary.ifBlank { "this game" }}"
+                },
+                icon = XmbIcon.Trophy,
+                pane = EmulatorMenuPane.RetroAchievements,
+            ),
+            MenuRow(
+                id = "xora-net",
+                title = "XOrA Network",
+                subtitle = networkRootSubtitle(network, gameTitle),
+                icon = XmbIcon.Xora,
+                pane = EmulatorMenuPane.XoraNetwork,
             ),
             MenuRow(
                 id = "mods",
@@ -170,9 +211,34 @@ fun XoraEmulatorSideMenu(
             ),
         )
     }
-    val paneRows = paneRows(pane, settings, saveSlots, netplay, joinAddress, hardcore)
+    val paneRows = paneRows(
+        pane = pane,
+        settings = settings,
+        saveSlots = saveSlots,
+        netplay = netplay,
+        joinAddress = joinAddress,
+        hardcore = hardcore,
+        network = network,
+        achievements = achievements,
+        achievementSummary = achievementSummary,
+        raStatus = raStatus,
+        gameTitle = gameTitle,
+    )
     val paneFocus = paneIndex.coerceIn(0, (paneRows.size - 1).coerceAtLeast(0))
     val rootFocus = rootIndex.coerceIn(0, rootRows.lastIndex)
+    val rootListState = rememberLazyListState()
+    val paneListState = rememberLazyListState()
+
+    LaunchedEffect(rootFocus, pane) {
+        if (pane == EmulatorMenuPane.None && rootRows.isNotEmpty()) {
+            rootListState.animateScrollToItem(rootFocus)
+        }
+    }
+    LaunchedEffect(paneFocus, pane, paneRows.size) {
+        if (pane != EmulatorMenuPane.None && paneRows.isNotEmpty()) {
+            paneListState.animateScrollToItem(paneFocus)
+        }
+    }
 
     fun activateRoot() {
         val row = rootRows.getOrNull(rootFocus) ?: return
@@ -203,6 +269,10 @@ fun XoraEmulatorSideMenu(
             EmulatorMenuPane.Audio,
             -> {
                 pane = EmulatorMenuPane.Settings
+                paneIndex = 0
+            }
+            EmulatorMenuPane.Achievements -> {
+                pane = EmulatorMenuPane.RetroAchievements
                 paneIndex = 0
             }
             EmulatorMenuPane.None -> onDismiss()
@@ -257,12 +327,13 @@ fun XoraEmulatorSideMenu(
                 letterSpacing = 1.4.sp,
                 modifier = Modifier.padding(start = 22.dp, end = 16.dp, bottom = 18.dp),
             )
-            Column(
+            LazyColumn(
+                state = rootListState,
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState()),
+                    .fillMaxWidth(),
             ) {
-                rootRows.forEachIndexed { index, row ->
+                itemsIndexed(rootRows, key = { _, row -> row.id }) { index, row ->
                     SideMenuRow(
                         row = row,
                         selected = index == rootFocus && pane == EmulatorMenuPane.None,
@@ -285,7 +356,7 @@ fun XoraEmulatorSideMenu(
                 )
             }
             Text(
-                text = "B back · A confirm",
+                text = "B back · A confirm · scroll",
                 color = Color.White.copy(alpha = 0.4f),
                 fontSize = 11.sp,
                 modifier = Modifier.padding(start = 22.dp, top = 8.dp),
@@ -295,8 +366,9 @@ fun XoraEmulatorSideMenu(
         if (pane != EmulatorMenuPane.None) {
             Column(
                 modifier = Modifier
-                    .padding(start = 12.dp, top = 48.dp, end = 12.dp)
+                    .padding(start = 12.dp, top = 48.dp, end = 12.dp, bottom = 20.dp)
                     .width(PANEL_WIDTH)
+                    .fillMaxHeight()
                     .clip(RoundedCornerShape(18.dp))
                     .background(PanelInk)
                     .padding(vertical = 14.dp),
@@ -308,16 +380,24 @@ fun XoraEmulatorSideMenu(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 10.dp),
                 )
-                paneRows.forEachIndexed { index, row ->
-                    SideMenuRow(
-                        row = row,
-                        selected = index == paneFocus,
-                        compact = true,
-                        onClick = {
-                            paneIndex = index
-                            activatePane()
-                        },
-                    )
+                LazyColumn(
+                    state = paneListState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) {
+                    itemsIndexed(paneRows, key = { _, row -> row.id }) { index, row ->
+                        SideMenuRow(
+                            row = row,
+                            selected = index == paneFocus,
+                            compact = true,
+                            subtitleLines = if (pane == EmulatorMenuPane.Achievements) 2 else 1,
+                            onClick = {
+                                paneIndex = index
+                                activatePane()
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -331,6 +411,7 @@ private fun SideMenuRow(
     onClick: () -> Unit,
     dimmed: Boolean = false,
     compact: Boolean = false,
+    subtitleLines: Int = 1,
 ) {
     val bg = when {
         selected -> Color.White.copy(alpha = 0.12f)
@@ -378,7 +459,7 @@ private fun SideMenuRow(
                     text = row.subtitle,
                     color = Color.White.copy(alpha = 0.45f),
                     fontSize = 11.sp,
-                    maxLines = 1,
+                    maxLines = subtitleLines,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -427,11 +508,22 @@ private fun InGameMenuNavBridge(
     }
 }
 
+private fun networkRootSubtitle(network: XoraNetworkState, gameTitle: String): String = when {
+    !network.configured -> "Not configured"
+    network.restoring -> "Signing in…"
+    !network.signedIn -> "Sign in from the launcher"
+    network.selfOnline -> "Online · Playing $gameTitle"
+    else -> "Signed in as ${network.account?.username.orEmpty().ifBlank { "you" }}"
+}
+
 private fun paneTitle(pane: EmulatorMenuPane): String = when (pane) {
     EmulatorMenuPane.Save -> "Save state"
     EmulatorMenuPane.Load -> "Load state"
     EmulatorMenuPane.Display -> "Display"
     EmulatorMenuPane.Netplay -> "Netplay"
+    EmulatorMenuPane.RetroAchievements -> "RetroAchievements"
+    EmulatorMenuPane.Achievements -> "This game"
+    EmulatorMenuPane.XoraNetwork -> "XOrA Network"
     EmulatorMenuPane.Mods -> "Mods"
     EmulatorMenuPane.Settings -> "Settings"
     EmulatorMenuPane.Gamepad -> "Gamepad"
@@ -447,6 +539,11 @@ private fun paneRows(
     netplay: XoraNetplayUiState,
     joinAddress: String,
     hardcore: Boolean,
+    network: XoraNetworkState,
+    achievements: List<RaAchievement>,
+    achievementSummary: String,
+    raStatus: String?,
+    gameTitle: String,
 ): List<MenuRow> = when (pane) {
     EmulatorMenuPane.None -> emptyList()
     EmulatorMenuPane.Save -> saveSlots.map { slot ->
@@ -494,7 +591,7 @@ private fun paneRows(
         MenuRow(
             id = "np-enable",
             title = if (settings.netplayEnabled) "Netplay on" else "Netplay off",
-            subtitle = "A toggles",
+            subtitle = "Turns hardcore off when enabled",
             icon = XmbIcon.Network,
             action = EmulatorMenuAction.ToggleNetplayEnabled,
         ),
@@ -563,6 +660,99 @@ private fun paneRows(
             action = EmulatorMenuAction.DisconnectNetplay,
         ),
     )
+    EmulatorMenuPane.RetroAchievements -> listOf(
+        MenuRow(
+            id = "ra-hardcore",
+            title = if (hardcore) "Hardcore on" else "Hardcore off",
+            subtitle = if (hardcore) {
+                "Save states off · A toggles"
+            } else {
+                "Softcore · A toggles"
+            },
+            icon = XmbIcon.Trophy,
+            action = EmulatorMenuAction.ToggleRaHardcore,
+        ),
+        MenuRow(
+            id = "ra-list",
+            title = "This game's achievements",
+            subtitle = achievementSummary.ifBlank { gameTitle },
+            icon = XmbIcon.Trophy,
+            pane = EmulatorMenuPane.Achievements,
+        ),
+        MenuRow(
+            id = "ra-status",
+            title = "Session",
+            subtitle = raStatus?.removePrefix("RA: ")?.ifBlank { "Idle" } ?: "Idle",
+            icon = XmbIcon.Notifications,
+        ),
+    )
+    EmulatorMenuPane.Achievements -> if (achievements.isEmpty()) {
+        listOf(
+            MenuRow(
+                id = "ra-empty",
+                title = "No achievements loaded",
+                subtitle = raStatus?.removePrefix("RA: ")
+                    ?: achievementSummary.ifBlank { "Sign in under Settings → RetroAchievements" },
+                icon = XmbIcon.Trophy,
+            ),
+        )
+    } else {
+        achievements.map { cheevo ->
+            val earned = if (hardcore) cheevo.earnedHardcore else cheevo.earned
+            MenuRow(
+                id = "cheevo-${cheevo.id}",
+                title = if (earned) "✓ ${cheevo.title}" else cheevo.title,
+                subtitle = "${cheevo.points} pts · ${cheevo.description}",
+                icon = XmbIcon.Trophy,
+                action = EmulatorMenuAction.ShowAchievement(cheevo.title, cheevo.description),
+            )
+        }
+    }
+    EmulatorMenuPane.XoraNetwork -> buildList {
+        add(
+            MenuRow(
+                id = "xn-status",
+                title = when {
+                    !network.configured -> "Not configured"
+                    network.restoring -> "Signing in…"
+                    network.signedIn -> "Signed in as ${network.account?.username.orEmpty()}"
+                    else -> "Not signed in"
+                },
+                subtitle = when {
+                    !network.configured -> "Add the XOrA Network key in the build"
+                    network.signedIn && network.selfOnline -> "Playing $gameTitle"
+                    network.signedIn -> "Using your launcher session"
+                    else -> "Sign in from Dashboard in the launcher"
+                },
+                icon = XmbIcon.Xora,
+            ),
+        )
+        if (network.signedIn) {
+            add(
+                MenuRow(
+                    id = "xn-friends",
+                    title = "${network.onlineFriendCount} friends online",
+                    subtitle = "${network.acceptedFriends.size} friends",
+                    icon = XmbIcon.Friends,
+                ),
+            )
+            network.acceptedFriends.forEach { friend ->
+                add(
+                    MenuRow(
+                        id = "xn-friend-${friend.username}",
+                        title = friend.displayName.ifBlank { friend.username },
+                        subtitle = when {
+                            friend.online && friend.status.isNotBlank() -> friend.status
+                            friend.online -> "Online"
+                            friend.state == XoraFriendState.Friend -> "Offline"
+                            else -> friend.state.name
+                        },
+                        icon = XmbIcon.User,
+                    ),
+                )
+            }
+        }
+    }
     EmulatorMenuPane.Mods -> listOf(
         MenuRow(
             id = "mods-soon",

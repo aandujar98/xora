@@ -48,6 +48,10 @@ class LibretroRaSession(
     private var bridge: LibretroRaBridge? = null
     private var startJob: Job? = null
     private var attached = false
+    @Volatile var raGameId: Int? = null
+        private set
+    @Volatile private var hardcoreEnabled: Boolean = raSettings.hardcore
+    var onGameIdentified: ((Int) -> Unit)? = null
 
     fun start(romPath: String, platformId: String, gameId: String) {
         stop()
@@ -94,7 +98,7 @@ class LibretroRaSession(
         bridge = raBridge
         LibretroNative.nativeRaAttach(raBridge)
         attached = true
-        LibretroNative.nativeRaSetHardcore(raSettings.hardcore)
+        LibretroNative.nativeRaSetHardcore(hardcoreEnabled)
 
         startJob = scope.launch {
             val creds = retroAchievements.currentCredentials()
@@ -144,6 +148,8 @@ class LibretroRaSession(
                 Log.i(TAG, "No RA set for md5=$md5 platform=$platformId")
                 return@launch
             }
+            raGameId = resolvedId
+            onGameIdentified?.invoke(resolvedId)
             Log.i(TAG, "RA identified md5=$md5 → gameId=$resolvedId")
 
             val consoleId = RaConsoleIds.forPlatform(platformId) ?: 0
@@ -152,12 +158,12 @@ class LibretroRaSession(
                 Log.w(TAG, "RA memory map incomplete for console=$consoleId — trying anyway")
             }
 
-            _status.value = if (raSettings.hardcore) {
+            _status.value = if (hardcoreEnabled) {
                 "RA: signing in (hardcore)…"
             } else {
                 "RA: signing in…"
             }
-            LibretroNative.nativeRaSetHardcore(raSettings.hardcore)
+            LibretroNative.nativeRaSetHardcore(hardcoreEnabled)
 
             // Refresh Connect token + prefetch patch/startsession on the launcher HTTP stack
             // (Cloudflare-safe UA). Inject those JSON bodies into rcheevos so native never needs
@@ -176,7 +182,7 @@ class LibretroRaSession(
                     connectToken = login.session.token,
                     gameId = resolvedId,
                     md5 = md5,
-                    hardcore = raSettings.hardcore,
+                    hardcore = hardcoreEnabled,
                 )
             }.getOrElse { error ->
                 _status.value = "RA: ${error.message ?: "could not load achievements"}"
@@ -187,7 +193,7 @@ class LibretroRaSession(
                 ShellNotification.RetroAchievementsSignedIn(
                     id = "ra-signin:${login.session.username}:${System.currentTimeMillis()}",
                     username = login.session.username,
-                    hardcore = raSettings.hardcore,
+                    hardcore = hardcoreEnabled,
                     gameTitle = gameTitle,
                 ),
                 force = true,
@@ -210,6 +216,11 @@ class LibretroRaSession(
         }
     }
 
+    fun applyHardcore(enabled: Boolean) {
+        hardcoreEnabled = enabled
+        if (attached) LibretroNative.nativeRaSetHardcore(enabled)
+    }
+
     fun onEmulatorReset() {
         if (attached) LibretroNative.nativeRaReset()
     }
@@ -225,6 +236,7 @@ class LibretroRaSession(
     fun stop() {
         startJob?.cancel()
         startJob = null
+        raGameId = null
         if (attached) {
             runCatching {
                 LibretroNative.nativeRaUnloadGame()

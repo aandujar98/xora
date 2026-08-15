@@ -177,6 +177,15 @@ class RetroAchievementsRepository @Inject constructor(
         return client.resolveGameId(md5.lowercase(), credentials = creds, consoleId = consoleId)
     }
 
+    /** Web API progress for a RetroAchievements game the emulator already identified. */
+    suspend fun fetchGameProgress(gameId: Int): Result<RaGameProgress> {
+        val creds = currentCredentials()
+        if (!creds.isConfigured) {
+            return Result.failure(IllegalStateException("Not signed in."))
+        }
+        return client.fetchGameProgress(creds, gameId)
+    }
+
     /**
      * Prefetch Connect `patch` + `startsession` JSON on the launcher HTTP stack for the emulator.
      * Pair with [refreshEmulatorSession] so rcheevos never needs a live dorequest after login.

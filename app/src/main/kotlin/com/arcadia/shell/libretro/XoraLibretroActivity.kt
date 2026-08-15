@@ -12,6 +12,7 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.InputDevice
@@ -74,9 +75,12 @@ import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
+import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaProfile
 import com.arcadia.shell.retroachievements.RetroAchievementsRepository
 import com.arcadia.shell.scraper.RomHasher
+import com.arcadia.shell.xoranetwork.XoraNetworkRepository
+import com.arcadia.shell.xoranetwork.XoraNetworkState
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -120,6 +124,7 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var libraryRepository: LibraryRepository
     @Inject lateinit var saveFileImporter: SaveFileImporter
     @Inject lateinit var avatarStore: ProfileAvatarStore
+    @Inject lateinit var xoraNetwork: XoraNetworkRepository
 
     @Volatile private var menuOpen = false
     /** True while the in-game menu is showing or the user left Pause on. */
@@ -155,6 +160,12 @@ class XoraLibretroActivity : ComponentActivity() {
     private var joinAddress by mutableStateOf("")
     private var netplayUi by mutableStateOf(XoraNetplayUiState())
     private var netplaySession: XoraNetplaySession? = null
+    private var xoraNetworkUi by mutableStateOf(XoraNetworkState())
+    private var raAchievements by mutableStateOf<List<RaAchievement>>(emptyList())
+    private var raAchievementSummary by mutableStateOf("")
+    private var raStatusLine by mutableStateOf<String?>(null)
+    private var lastMenuStickDir = 0
+    private var lastMenuStickAt = 0L
     private val inGameXmbController = XoraInGameXmbController()
     private val bitmapLock = Any()
     /** Keeps pinning the window opaque while this activity is in the foreground. */
@@ -311,12 +322,24 @@ class XoraLibretroActivity : ComponentActivity() {
             netplaySession?.state?.collect { ui ->
                 netplayUi = ui
                 ui.error?.let { showMenuMessage(it) }
+                if (ui.linked) {
+                    lifecycleScope.launch { disableHardcoreForNetplay() }
+                }
                 if (ui.linked && menuOpen) {
                     setUserPaused(false)
                     closeMenu()
                     showMenuMessage("Netplay linked · ${ui.peerName.ifBlank { "P2" }}")
                 }
             }
+        }
+        lifecycleScope.launch {
+            xoraNetwork.state.collect { xoraNetworkUi = it }
+        }
+        lifecycleScope.launch {
+            if (!xoraNetwork.state.value.signedIn) {
+                xoraNetwork.restore()
+            }
+            xoraNetwork.setPlayingLine("playing $gameTitle")
         }
         lifecycleScope.launch {
             profileName = preferences.profile.first().displayName
@@ -413,6 +436,10 @@ class XoraLibretroActivity : ComponentActivity() {
                         message = menuMessage,
                         onAction = { handleEmulatorMenuAction(it) },
                         onDismiss = { closeMenu() },
+                        network = xoraNetworkUi,
+                        achievements = raAchievements,
+                        achievementSummary = raAchievementSummary,
+                        raStatus = raStatusLine,
                     )
                 }
             }
@@ -500,6 +527,8 @@ class XoraLibretroActivity : ComponentActivity() {
         applyOpaqueWindow()
         startWashGuard()
         uiSounds.onForeground()
+        xoraNetwork.setRealtimeEnabled(true)
+        xoraNetwork.setPlayingLine("playing $gameTitle")
         if (!menuOpen) window.decorView.requestFocus()
     }
 
@@ -518,6 +547,7 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         stopWashGuard()
         uiSounds.onBackground()
+        xoraNetwork.setRealtimeEnabled(false)
         super.onPause()
     }
 
@@ -615,7 +645,25 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun handlePadMotion(event: MotionEvent): Boolean {
-        if (menuOpen) return false
+        if (menuOpen) {
+            val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+            val stickY = event.getAxisValue(MotionEvent.AXIS_Y)
+            val y = if (kotlin.math.abs(hatY) > 0.5f) hatY else stickY
+            val dir = when {
+                y < -0.55f -> -1
+                y > 0.55f -> 1
+                else -> 0
+            }
+            val now = SystemClock.uptimeMillis()
+            if (dir != 0 && (dir != lastMenuStickDir || now - lastMenuStickAt > 220L)) {
+                lastMenuStickDir = dir
+                lastMenuStickAt = now
+                inGameXmbController.moveItem?.invoke(dir)
+                uiSounds.playCursor()
+            }
+            if (dir == 0) lastMenuStickDir = 0
+            return true
+        }
         if (!LibretroPad.run { event.isFromGameController() }) return false
         if (!LibretroPad.matchesPreferredController(
                 InputDevice.getDevice(event.deviceId),
@@ -657,6 +705,10 @@ class XoraLibretroActivity : ComponentActivity() {
                 },
             )
             raSession = session
+            session.onGameIdentified = { refreshAchievementList() }
+            lifecycleScope.launch {
+                session.status.collect { raStatusLine = it }
+            }
             session.start(romPath = romPath, platformId = platformId, gameId = gameId)
         }
     }
@@ -736,6 +788,7 @@ class XoraLibretroActivity : ComponentActivity() {
         if (menuOpen || isFinishing) return
         val overlay = xmbOverlay ?: return
         refreshSaveSlots()
+        refreshAchievementList()
         menuOpen = true
         syncPaused()
         overlay.visibility = View.VISIBLE
@@ -812,7 +865,9 @@ class XoraLibretroActivity : ComponentActivity() {
                 preferences.setXoraExpandDualDisplay(!xoraSettings.expandDualDisplay)
             }
             EmulatorMenuAction.ToggleNetplayEnabled -> lifecycleScope.launch {
-                preferences.setXoraNetplayEnabled(!xoraSettings.netplayEnabled)
+                val enable = !xoraSettings.netplayEnabled
+                if (enable) disableHardcoreForNetplay()
+                preferences.setXoraNetplayEnabled(enable)
             }
             EmulatorMenuAction.HostNetplay -> startHostNetplay()
             EmulatorMenuAction.JoinNetplay -> startJoinNetplay()
@@ -849,6 +904,24 @@ class XoraLibretroActivity : ComponentActivity() {
             EmulatorMenuAction.ResetDefaults -> lifecycleScope.launch {
                 preferences.resetXoraEmulatorPlaySettings()
                 showMenuMessage("Emulator defaults restored")
+            }
+            EmulatorMenuAction.ToggleRaHardcore -> lifecycleScope.launch {
+                if (netplayUi.linked || xoraSettings.netplayEnabled) {
+                    disableHardcoreForNetplay()
+                    showMenuMessage("Hardcore stays off during netplay")
+                    return@launch
+                }
+                val next = !(raSettings.hardcore && raSettings.enabled)
+                preferences.setRaHardcore(next)
+                withContext(emuDispatcher) { LibretroNative.nativeRaSetHardcore(next) }
+                raSession?.applyHardcore(next)
+                raSettings = raSettings.copy(hardcore = next)
+                showMenuMessage(if (next) "Hardcore on" else "Hardcore off")
+                refreshAchievementList()
+            }
+            is EmulatorMenuAction.ShowAchievement -> {
+                val detail = action.description.ifBlank { action.title }
+                showMenuMessage("${action.title} — $detail")
             }
             EmulatorMenuAction.ReturnHome -> {
                 closeMenu()
@@ -891,34 +964,44 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun startHostNetplay() {
-        if (raSettings.hardcore && raSettings.enabled) {
-            showMenuMessage("Hardcore — netplay disabled")
-            return
+        lifecycleScope.launch {
+            disableHardcoreForNetplay()
+            preferences.setXoraNetplayEnabled(true)
+            withContext(Dispatchers.Main.immediate) {
+                val hello = netplayHello()
+                netplaySession?.host(xoraSettings.netplayPort, hello) {
+                    withContext(emuDispatcher) { LibretroNative.nativeSerialize() }
+                }
+                showMenuMessage("Waiting for a player…")
+            }
         }
-        lifecycleScope.launch { preferences.setXoraNetplayEnabled(true) }
-        val hello = netplayHello()
-        netplaySession?.host(xoraSettings.netplayPort, hello) {
-            withContext(emuDispatcher) { LibretroNative.nativeSerialize() }
-        }
-        showMenuMessage("Waiting for a player…")
     }
 
     private fun startJoinNetplay() {
-        if (raSettings.hardcore && raSettings.enabled) {
-            showMenuMessage("Hardcore — netplay disabled")
-            return
-        }
         val address = joinAddress.ifBlank { xoraSettings.netplayHostAddress }
         if (address.isBlank()) {
             showMenuMessage("Set a join IP first")
             return
         }
-        lifecycleScope.launch { preferences.setXoraNetplayEnabled(true) }
-        val hello = netplayHello()
-        netplaySession?.join(address, xoraSettings.netplayPort, hello) { bytes ->
-            withContext(emuDispatcher) { LibretroNative.nativeUnserialize(bytes) }
+        lifecycleScope.launch {
+            disableHardcoreForNetplay()
+            preferences.setXoraNetplayEnabled(true)
+            withContext(Dispatchers.Main.immediate) {
+                val hello = netplayHello()
+                netplaySession?.join(address, xoraSettings.netplayPort, hello) { bytes ->
+                    withContext(emuDispatcher) { LibretroNative.nativeUnserialize(bytes) }
+                }
+                showMenuMessage("Joining $address…")
+            }
         }
-        showMenuMessage("Joining $address…")
+    }
+
+    private suspend fun disableHardcoreForNetplay() {
+        if (!raSettings.hardcore) return
+        preferences.setRaHardcore(false)
+        withContext(emuDispatcher) { LibretroNative.nativeRaSetHardcore(false) }
+        raSession?.applyHardcore(false)
+        raSettings = raSettings.copy(hardcore = false)
     }
 
     private fun netplayHello() = XoraNetplayProtocol.Hello(
@@ -941,6 +1024,28 @@ class XoraLibretroActivity : ComponentActivity() {
             } else {
                 EmulatorSaveSlotUi(slot = slot, occupied = false, subtitle = "Empty")
             }
+        }
+    }
+
+    private fun refreshAchievementList() {
+        lifecycleScope.launch {
+            val id = raSession?.raGameId
+            if (id == null) {
+                raAchievementSummary = raStatusLine?.removePrefix("RA: ")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "Identifying game…"
+                return@launch
+            }
+            val result = retroAchievements.fetchGameProgress(id)
+            result.fold(
+                onSuccess = { progress ->
+                    raAchievements = progress.achievements.sortedBy { it.displayOrder }
+                    raAchievementSummary = progress.progressLabel
+                },
+                onFailure = { error ->
+                    raAchievementSummary = error.message ?: "Could not load achievements"
+                },
+            )
         }
     }
 
@@ -1395,6 +1500,8 @@ class XoraLibretroActivity : ComponentActivity() {
         // Explicit quit — drop the autosave so the next launch is a fresh boot.
         runCatching { coreStore.autosaveFile(platformId, gameId).delete() }
         gameLoaded = false
+        xoraNetwork.setPlayingLine(null)
+        xoraNetwork.setRealtimeEnabled(false)
         closeMenu()
         super.finish()
         @Suppress("DEPRECATION")
