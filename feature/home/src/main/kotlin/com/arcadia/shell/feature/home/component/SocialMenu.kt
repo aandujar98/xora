@@ -1123,18 +1123,6 @@ private fun XoraNetworkTabContent(
             return
         }
 
-        if (network.dm.isOpen) {
-            XoraDmPane(
-                social = social,
-                accountRows = accountRows,
-                selectedRowIndex = selectedRowIndex,
-                glassMuted = glassMuted,
-                onActivateRow = onActivateRow,
-                onDraftChange = onReplyDraftChange,
-            )
-            return
-        }
-
         FriendsOnlineHeader(
             online = network.onlineFriendCount,
             total = network.acceptedFriends.size,
@@ -1201,7 +1189,7 @@ private fun XoraNetworkTabContent(
                         },
                         hasUnread = network.notifications.any { item ->
                             !item.read &&
-                                item.type.equals("message", ignoreCase = true) &&
+                                item.isMessage &&
                                 item.fromUsername.equals(friend.username, ignoreCase = true)
                         },
                         onClick = {
@@ -1212,68 +1200,6 @@ private fun XoraNetworkTabContent(
             }
         }
     }
-}
-
-@Composable
-private fun XoraDmPane(
-    social: SocialMenuUiState,
-    accountRows: List<AccountPanelRow>,
-    selectedRowIndex: Int,
-    glassMuted: Color,
-    onActivateRow: (Int?) -> Unit,
-    onDraftChange: (String) -> Unit,
-) {
-    val dm = social.xoraNetwork.dm
-    val closeIndex = accountRows.indexOfFirst { it is AccountPanelRow.XoraDmClose }
-    val sendIndex = accountRows.indexOfFirst { it is AccountPanelRow.XoraDmSend }
-    Text(
-        text = dm.peerDisplayName.ifBlank { dm.peerUsername.orEmpty() },
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Bold,
-        color = Color.White,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
-    if (dm.loading) {
-        Text(text = "Loading conversation…", style = MaterialTheme.typography.bodySmall, color = glassMuted)
-    } else if (dm.messages.isEmpty()) {
-        Text(text = "No messages yet — say hello.", style = MaterialTheme.typography.bodySmall, color = glassMuted)
-    } else {
-        dm.messages.takeLast(8).forEach { message ->
-            val mine = message.fromUsername.equals(
-                social.xoraNetwork.account?.username,
-                ignoreCase = true,
-            )
-            Text(
-                text = if (mine) "You: ${message.body}" else message.body,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (mine) Color.White.copy(alpha = 0.8f) else Color.White,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-    if (!dm.error.isNullOrBlank()) {
-        Text(text = dm.error.orEmpty(), style = MaterialTheme.typography.bodySmall, color = BusyRose)
-    }
-    ReplyComposer(
-        title = dm.peerDisplayName.ifBlank { "friend" },
-        draft = dm.draft,
-        selected = sendIndex >= 0 && sendIndex == selectedRowIndex,
-        onDraftChange = onDraftChange,
-        onSend = {
-            if (sendIndex >= 0) onActivateRow(sendIndex)
-        },
-    )
-    SocialListRow(
-        title = "Close conversation",
-        subtitle = "B also backs out",
-        selected = closeIndex >= 0 && closeIndex == selectedRowIndex,
-        accent = XoraAccent,
-        onClick = {
-            if (closeIndex >= 0) onActivateRow(closeIndex)
-        },
-    )
 }
 
 /** LT notification center — recent shell notifications, then conversations. Shown in place of tabs/friends. */

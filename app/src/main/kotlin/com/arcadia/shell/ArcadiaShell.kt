@@ -66,6 +66,7 @@ import com.arcadia.shell.feature.home.component.GuidePanel
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.feature.home.component.NotificationHistoryPanel
 import com.arcadia.shell.feature.home.component.DiscordConversationWindow
+import com.arcadia.shell.feature.home.component.XoraConversationWindow
 import com.arcadia.shell.feature.home.component.StartSettingsPanel
 import com.arcadia.shell.feature.home.component.WelcomeBackOverlay
 import com.arcadia.shell.designsystem.LocalShellTheme
@@ -541,6 +542,14 @@ fun ArcadiaShell(
                     onSend = homeViewModel::sendOpenDiscordDm,
                     onAttachMedia = homeViewModel::requestDiscordAttachment,
                     onDismiss = homeViewModel::closeOpenDiscordDm,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                XoraConversationWindow(
+                    open = state.socialMenu.isXoraDmOpen,
+                    network = state.socialMenu.xoraNetwork,
+                    onDraftChange = homeViewModel::updateConversationReplyDraft,
+                    onSend = homeViewModel::sendOpenXoraDm,
+                    onDismiss = homeViewModel::closeOpenXoraDm,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

@@ -1837,11 +1837,9 @@ class HomeViewModel @Inject constructor(
                     }
                 }
                 SocialMenuTab.XoraNetwork -> {
+                    // The DM itself lives in the dedicated conversation window, not panel rows.
                     if (!xoraNetwork.signedIn) {
                         add(AccountPanelRow.XoraNetworkSignIn)
-                    } else if (xoraNetwork.dm.isOpen) {
-                        add(AccountPanelRow.XoraDmClose)
-                        add(AccountPanelRow.XoraDmSend)
                     } else {
                         val friends = xoraNetwork.acceptedFriends.filter {
                             q.isEmpty() ||
@@ -2187,6 +2185,14 @@ class HomeViewModel @Inject constructor(
         // Discord conversation window owns A/B while a DM thread is open.
         if (discordRichPresence.dmThread.value.peerUserId != null) {
             onDiscordConversationNavAction(action)
+            return
+        }
+
+        // XOrA conversation window owns A/B while a thread is open — A always sends. The old
+        // in-panel chat put Close on row 0, so A right after opening closed the conversation
+        // instead of sending ("messages don't go through").
+        if (xoraNetwork.state.value.dm.isOpen) {
+            onXoraConversationNavAction(action)
             return
         }
 
@@ -4797,13 +4803,6 @@ class HomeViewModel @Inject constructor(
                 when {
                     conversationReply.value.conversationKey != null -> clearConversationReply()
                     discordRichPresence.dmThread.value.peerUserId != null -> handleDiscordDmBack()
-                    xoraNetwork.state.value.dm.isOpen -> {
-                        if (xoraNetwork.state.value.dm.draft.isNotBlank()) {
-                            xoraNetwork.updateDirectMessageDraft("")
-                        } else {
-                            closeOpenXoraDm()
-                        }
-                    }
                     notificationsOpen.value -> {
                         notificationsOpen.value = false
                         accountPanelSelectedIndex.value = 0
@@ -4947,6 +4946,31 @@ class HomeViewModel @Inject constructor(
             NavAction.Cancel -> handleDiscordDmBack()
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             else -> Unit
+        }
+    }
+
+    private fun onXoraConversationNavAction(action: NavAction) {
+        when (action) {
+            NavAction.Confirm -> {
+                if (xoraNetwork.state.value.dm.draft.isNotBlank()) sendOpenXoraDm()
+            }
+            NavAction.Cancel -> {
+                if (xoraNetwork.state.value.dm.draft.isNotBlank()) {
+                    xoraNetwork.updateDirectMessageDraft("")
+                } else {
+                    closeOpenXoraDm()
+                }
+            }
+            NavAction.ToggleAccountPanel -> toggleAccountPanel()
+            else -> Unit
+        }
+    }
+
+    fun sendOpenXoraDm() {
+        noteUserActivity()
+        viewModelScope.launch {
+            // Failures surface inline as dm.error in the conversation window.
+            xoraNetwork.sendDirectMessage()
         }
     }
 
