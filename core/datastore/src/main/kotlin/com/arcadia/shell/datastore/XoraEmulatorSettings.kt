@@ -24,6 +24,11 @@ data class XoraEmulatorSettings(
     val internalResolution: XoraInternalResolution = XoraInternalResolution.Native,
     /** Draw system bezels / matte around the fitted framebuffer. */
     val bezelsEnabled: Boolean = true,
+    /**
+     * Keep the pause menu fully opaque and lay the game beside it instead of under it.
+     * The previous translucent Compose sheet is what left a milky white wash after submenus.
+     */
+    val blockOverlayWash: Boolean = true,
     /** Bezel matte opacity (0 = invisible, 1 = solid). */
     val bezelOpacity: Float = 0.88f,
     /** Emulator AudioTrack gain (0 = mute, 1 = full). */

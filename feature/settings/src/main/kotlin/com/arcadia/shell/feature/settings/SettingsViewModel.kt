@@ -492,6 +492,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setXoraBezelsEnabled(enabled) }
     }
 
+    fun setXoraBlockOverlayWash(enabled: Boolean) {
+        viewModelScope.launch { preferences.setXoraBlockOverlayWash(enabled) }
+    }
+
     fun setXoraBezelOpacity(opacity: Float) {
         viewModelScope.launch { preferences.setXoraBezelOpacity(opacity) }
     }

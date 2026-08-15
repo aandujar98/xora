@@ -16,6 +16,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -137,6 +138,10 @@ class XoraLibretroActivity : ComponentActivity() {
     private var gameRoot: FrameLayout? = null
     private var stage: XoraEmulatorStage? = null
     private var xmbOverlay: ComposeView? = null
+    private var overlayLayoutListening = false
+    private val overlayLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
+        applyGameStageInsets()
+    }
     private var profileName by mutableStateOf("Player")
     /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
     private var menuMessage by mutableStateOf<String?>(null)
@@ -199,11 +204,11 @@ class XoraLibretroActivity : ComponentActivity() {
             com.arcadia.shell.libretro.R.anim.xora_fade_in,
             com.arcadia.shell.libretro.R.anim.xora_hold,
         )
-        // Force dark system-bar scrims. The default light nav scrim (near-white) can wash the
-        // letterboxed game surface after edge-to-edge overlays are shown/dismissed.
+        // Force dark system-bar scrims. Transparent bars were leaving a near-white contrast
+        // overlay on the letterboxed game after pause submenus.
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK),
         )
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -231,6 +236,8 @@ class XoraLibretroActivity : ComponentActivity() {
         window.setFormat(PixelFormat.OPAQUE)
         val root = FrameLayout(this).apply {
             setBackgroundColor(AndroidColor.BLACK)
+            clipChildren = true
+            clipToPadding = true
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -270,8 +277,9 @@ class XoraLibretroActivity : ComponentActivity() {
         root.addView(banners)
 
         val xmb = ComposeView(this).apply {
-            // Wrap-content opaque side menu. Never a full-screen translucent sheet over the game.
-            setBackgroundColor(AndroidColor.TRANSPARENT)
+            // Opaque wrap-content side menu. The game stage is laid out to its right so Compose
+            // never composites over live pixels (that stacking is the white wash after submenus).
+            setBackgroundColor(AndroidColor.BLACK)
             setLayerType(View.LAYER_TYPE_NONE, null)
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -381,18 +389,24 @@ class XoraLibretroActivity : ComponentActivity() {
                     LocalArcadiaHaze provides null,
                     LocalInGameXmbController provides inGameXmbController,
                 ) {
-                    XoraEmulatorSideMenu(
-                        gameTitle = gameTitle,
-                        paused = userPausedUi,
-                        hardcore = raPrefs.hardcore && raPrefs.enabled,
-                        settings = xora,
-                        saveSlots = saveSlots,
-                        netplay = netplayUi,
-                        joinAddress = joinAddress.ifBlank { xora.netplayHostAddress },
-                        message = menuMessage,
-                        onAction = { handleEmulatorMenuAction(it) },
-                        onDismiss = { closeMenu() },
-                    )
+                    Box(
+                        modifier = Modifier
+                            .wrapContentSize(align = Alignment.TopStart)
+                            .background(androidx.compose.ui.graphics.Color.Black),
+                    ) {
+                        XoraEmulatorSideMenu(
+                            gameTitle = gameTitle,
+                            paused = userPausedUi,
+                            hardcore = raPrefs.hardcore && raPrefs.enabled,
+                            settings = xora,
+                            saveSlots = saveSlots,
+                            netplay = netplayUi,
+                            joinAddress = joinAddress.ifBlank { xora.netplayHostAddress },
+                            message = menuMessage,
+                            onAction = { handleEmulatorMenuAction(it) },
+                            onDismiss = { closeMenu() },
+                        )
+                    }
                 }
             }
         }
@@ -714,13 +728,16 @@ class XoraLibretroActivity : ComponentActivity() {
         val root = gameRoot ?: return
         val overlay = xmbOverlay ?: return
         refreshSaveSlots()
-        // Side menu is wrap-content and opaque. The live ImageView stays visible to its right.
         if (overlay.parent == null) {
             root.addView(overlay)
         }
+        overlay.setBackgroundColor(AndroidColor.BLACK)
         overlay.visibility = View.VISIBLE
         root.bringChildToFront(overlay)
+        listenOverlayLayout(overlay, true)
         menuOpen = true
+        applyGameStageInsets()
+        overlay.post { if (menuOpen) applyGameStageInsets() }
         syncPaused()
         uiSounds.playConfirm()
     }
@@ -752,12 +769,14 @@ class XoraLibretroActivity : ComponentActivity() {
         menuOpen = false
         syncPaused()
         val overlay = xmbOverlay
+        listenOverlayLayout(overlay, false)
         overlay?.visibility = View.GONE
         (overlay?.parent as? ViewGroup)?.removeView(overlay)
         menuMessageJob?.cancel()
         menuMessage = null
-        restoreImmersiveFocus()
-        primaryGameView?.post { if (!menuOpen && !isFinishing) restoreImmersiveFocus() }
+        applyGameStageInsets()
+        scrubOverlayWash()
+        primaryGameView?.post { if (!menuOpen && !isFinishing) scrubOverlayWash() }
     }
 
     private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
@@ -776,6 +795,23 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             EmulatorMenuAction.ToggleBezel -> lifecycleScope.launch {
                 preferences.setXoraBezelsEnabled(!xoraSettings.bezelsEnabled)
+            }
+            EmulatorMenuAction.ClearWhiteTint -> {
+                lifecycleScope.launch {
+                    preferences.setXoraBlockOverlayWash(true)
+                }
+                scrubOverlayWash()
+                applyGameStageInsets()
+                showMenuMessage("White tint cleared")
+            }
+            EmulatorMenuAction.ToggleBlockOverlayWash -> lifecycleScope.launch {
+                val next = !xoraSettings.blockOverlayWash
+                preferences.setXoraBlockOverlayWash(next)
+                withContext(Dispatchers.Main.immediate) {
+                    applyGameStageInsets()
+                    if (next) scrubOverlayWash()
+                    showMenuMessage(if (next) "White tint blocked" else "Tint block off")
+                }
             }
             EmulatorMenuAction.CycleInternalResolution -> lifecycleScope.launch {
                 val values = XoraInternalResolution.entries
@@ -930,6 +966,7 @@ class XoraLibretroActivity : ComponentActivity() {
         stageView.bezelsEnabled = xora.bezelsEnabled
         primaryGameView?.scaleType = ImageView.ScaleType.FIT_XY
         refreshOverlayFile()
+        applyGameStageInsets()
     }
 
     private fun applyAudioVolume(volume: Float) {
@@ -996,14 +1033,15 @@ class XoraLibretroActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         window.clearFlags(
             WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
-                WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION,
+                WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION or
+                WindowManager.LayoutParams.FLAG_DIM_BEHIND,
         )
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
         // Re-assert dark edge-to-edge bars. A light nav scrim after overlay dismiss is what made
         // letterboxes read grey even when the ImageView itself was fine.
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
+            statusBarStyle = SystemBarStyle.dark(AndroidColor.BLACK),
+            navigationBarStyle = SystemBarStyle.dark(AndroidColor.BLACK),
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
@@ -1011,14 +1049,15 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         @Suppress("DEPRECATION")
         run {
-            window.statusBarColor = AndroidColor.TRANSPARENT
-            window.navigationBarColor = AndroidColor.TRANSPARENT
+            window.statusBarColor = AndroidColor.BLACK
+            window.navigationBarColor = AndroidColor.BLACK
         }
         window.setBackgroundDrawableResource(android.R.color.black)
         window.decorView.setBackgroundColor(AndroidColor.BLACK)
         ImmersiveMode.apply(window)
         window.decorView.requestFocus()
         gameRoot?.setBackgroundColor(AndroidColor.BLACK)
+        xmbOverlay?.setBackgroundColor(AndroidColor.BLACK)
         primaryGameView?.apply {
             setLayerType(View.LAYER_TYPE_NONE, null)
             setBackgroundColor(AndroidColor.BLACK)
@@ -1027,6 +1066,69 @@ class XoraLibretroActivity : ComponentActivity() {
             imageAlpha = 255
             invalidate()
         }
+        stage?.setBackgroundColor(AndroidColor.BLACK)
+        stage?.invalidate()
+    }
+
+    /**
+     * Lays the live framebuffer beside the opaque pause menu so Compose never blends over it.
+     */
+    private fun applyGameStageInsets() {
+        val stageView = stage ?: return
+        val lp = stageView.layoutParams as? FrameLayout.LayoutParams ?: return
+        val overlay = xmbOverlay
+        val parentW = gameRoot?.width ?: 0
+        val overlayW = overlay
+            ?.takeIf { menuOpen && it.parent != null && it.visibility == View.VISIBLE }
+            ?.width
+            ?: 0
+        val inset = if (!menuOpen || !xoraSettings.blockOverlayWash) {
+            0
+        } else if (parentW <= 0) {
+            overlayW
+        } else {
+            overlayW.coerceAtMost((parentW * 0.55f).toInt())
+        }
+        if (lp.marginStart != inset) {
+            lp.marginStart = inset
+            stageView.layoutParams = lp
+        }
+    }
+
+    private fun listenOverlayLayout(overlay: View?, listen: Boolean) {
+        if (overlay == null) {
+            overlayLayoutListening = false
+            return
+        }
+        val observer = overlay.viewTreeObserver
+        if (!observer.isAlive) return
+        if (listen && !overlayLayoutListening) {
+            observer.addOnGlobalLayoutListener(overlayLayoutListener)
+            overlayLayoutListening = true
+        } else if (!listen && overlayLayoutListening) {
+            observer.removeOnGlobalLayoutListener(overlayLayoutListener)
+            overlayLayoutListening = false
+        }
+    }
+
+    /** Rebind the framebuffer and kill leftover compositor wash after pause submenus. */
+    private fun scrubOverlayWash() {
+        restoreImmersiveFocus()
+        applyGameStageInsets()
+        synchronized(bitmapLock) {
+            val src = gameBitmap
+            val view = primaryGameView
+            if (src != null && !src.isRecycled && view != null) {
+                view.setImageDrawable(null)
+                view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                view.setImageBitmap(src)
+                view.setLayerType(View.LAYER_TYPE_NONE, null)
+                view.invalidate()
+            }
+        }
+        stage?.invalidate()
+        stage?.bezelView?.invalidate()
+        gameRoot?.invalidate()
     }
 
     private fun startAudio() {

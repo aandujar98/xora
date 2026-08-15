@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -63,6 +64,8 @@ sealed class EmulatorMenuAction {
     data object SetFullScreen : EmulatorMenuAction()
     data object SetNativeRatio : EmulatorMenuAction()
     data object ToggleBezel : EmulatorMenuAction()
+    data object ClearWhiteTint : EmulatorMenuAction()
+    data object ToggleBlockOverlayWash : EmulatorMenuAction()
     data object CycleInternalResolution : EmulatorMenuAction()
     data object CycleIntegerScale : EmulatorMenuAction()
     data object ToggleExpandDual : EmulatorMenuAction()
@@ -111,7 +114,14 @@ fun XoraEmulatorSideMenu(
     var pane by remember { mutableStateOf(EmulatorMenuPane.None) }
     var paneIndex by remember { mutableIntStateOf(0) }
 
-    val rootRows = remember(paused, settings.netplayEnabled, gameTitle, hardcore, settings.aspectMode) {
+    val rootRows = remember(
+        paused,
+        settings.netplayEnabled,
+        gameTitle,
+        hardcore,
+        settings.aspectMode,
+        settings.blockOverlayWash,
+    ) {
         listOf(
             MenuRow(
                 id = "pause",
@@ -119,6 +129,17 @@ fun XoraEmulatorSideMenu(
                 subtitle = gameTitle,
                 icon = if (paused) XmbIcon.Play else XmbIcon.Pause,
                 action = EmulatorMenuAction.TogglePause,
+            ),
+            MenuRow(
+                id = "wash",
+                title = "Remove white tint",
+                subtitle = if (settings.blockOverlayWash) {
+                    "On · game sits beside this menu"
+                } else {
+                    "Tap to clear the wash"
+                },
+                icon = XmbIcon.Display,
+                action = EmulatorMenuAction.ClearWhiteTint,
             ),
             MenuRow(
                 id = "save",
@@ -238,8 +259,9 @@ fun XoraEmulatorSideMenu(
 
     Row(
         modifier = modifier
+            .wrapContentWidth()
             .fillMaxHeight()
-            .background(Color.Transparent),
+            .background(MenuInk),
         verticalAlignment = Alignment.Top,
     ) {
         Column(
@@ -295,11 +317,10 @@ fun XoraEmulatorSideMenu(
         if (pane != EmulatorMenuPane.None) {
             Column(
                 modifier = Modifier
-                    .padding(start = 12.dp, top = 48.dp, end = 12.dp)
                     .width(PANEL_WIDTH)
-                    .clip(RoundedCornerShape(18.dp))
+                    .fillMaxHeight()
                     .background(PanelInk)
-                    .padding(vertical = 14.dp),
+                    .padding(top = 48.dp, bottom = 20.dp),
             ) {
                 Text(
                     text = paneTitle(pane),
@@ -489,6 +510,20 @@ private fun paneRows(
             icon = XmbIcon.Emulator,
             action = EmulatorMenuAction.ToggleBezel,
         ),
+        MenuRow(
+            id = "wash",
+            title = "Remove white tint",
+            subtitle = "Clears the wash and keeps the game off this menu",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.ClearWhiteTint,
+        ),
+        MenuRow(
+            id = "block-wash",
+            title = if (settings.blockOverlayWash) "Block white tint on" else "Block white tint off",
+            subtitle = "Opaque menu · game laid out beside it",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.ToggleBlockOverlayWash,
+        ),
     )
     EmulatorMenuPane.Netplay -> listOf(
         MenuRow(
@@ -657,6 +692,20 @@ private fun paneRows(
             action = EmulatorMenuAction.ToggleBezel,
         ),
         MenuRow(
+            id = "g-wash",
+            title = "Remove white tint",
+            subtitle = "Rebind the framebuffer and kill the wash",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.ClearWhiteTint,
+        ),
+        MenuRow(
+            id = "g-block-wash",
+            title = if (settings.blockOverlayWash) "Block white tint on" else "Block white tint off",
+            subtitle = "Keep Compose off the live pixels",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.ToggleBlockOverlayWash,
+        ),
+        MenuRow(
             id = "g-dual",
             title = "Expand dual display",
             subtitle = if (settings.expandDualDisplay) "On" else "Off",
@@ -688,7 +737,8 @@ private fun octetLabel(address: String, index: Int): String {
 }
 
 private val SidebarInk = Color(0xFF10131A)
-private val PanelInk = Color(0xF01A1F2A)
+private val PanelInk = Color(0xFF1A1F2A)
+private val MenuInk = Color(0xFF000000)
 private val Accent = Color(0xFF3DFFDC)
 private val SIDEBAR_WIDTH = 300.dp
 private val PANEL_WIDTH = 280.dp

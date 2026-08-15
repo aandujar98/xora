@@ -427,6 +427,7 @@ class ShellPreferences @Inject constructor(
                 ?.let { runCatching { XoraInternalResolution.valueOf(it) }.getOrNull() }
                 ?: XoraInternalResolution.Native,
             bezelsEnabled = prefs[Keys.XORA_BEZELS_ENABLED] ?: true,
+            blockOverlayWash = prefs[Keys.XORA_BLOCK_OVERLAY_WASH] ?: true,
             bezelOpacity = (prefs[Keys.XORA_BEZEL_OPACITY] ?: 0.88f).coerceIn(0f, 1f),
             audioVolume = (prefs[Keys.XORA_AUDIO_VOLUME] ?: 1f).coerceIn(0f, 1f),
             netplayEnabled = prefs[Keys.XORA_NETPLAY_ENABLED] ?: false,
@@ -717,6 +718,10 @@ class ShellPreferences @Inject constructor(
         it[Keys.XORA_BEZELS_ENABLED] = enabled
     }
 
+    suspend fun setXoraBlockOverlayWash(enabled: Boolean) = edit {
+        it[Keys.XORA_BLOCK_OVERLAY_WASH] = enabled
+    }
+
     suspend fun setXoraBezelOpacity(opacity: Float) = edit {
         it[Keys.XORA_BEZEL_OPACITY] = opacity.coerceIn(0f, 1f)
     }
@@ -731,6 +736,7 @@ class ShellPreferences @Inject constructor(
         it.remove(Keys.XORA_INTEGER_SCALE)
         it.remove(Keys.XORA_INTERNAL_RES)
         it.remove(Keys.XORA_BEZELS_ENABLED)
+        it.remove(Keys.XORA_BLOCK_OVERLAY_WASH)
         it.remove(Keys.XORA_BEZEL_OPACITY)
         it.remove(Keys.XORA_AUDIO_VOLUME)
         it.remove(Keys.XORA_EXPAND_DUAL)
@@ -1138,6 +1144,7 @@ class ShellPreferences @Inject constructor(
         val XORA_INTEGER_SCALE = intPreferencesKey("xora_integer_scale")
         val XORA_INTERNAL_RES = stringPreferencesKey("xora_internal_resolution")
         val XORA_BEZELS_ENABLED = booleanPreferencesKey("xora_bezels_enabled")
+        val XORA_BLOCK_OVERLAY_WASH = booleanPreferencesKey("xora_block_overlay_wash")
         val XORA_BEZEL_OPACITY = floatPreferencesKey("xora_bezel_opacity")
         val XORA_AUDIO_VOLUME = floatPreferencesKey("xora_audio_volume")
         val XORA_NETPLAY_ENABLED = booleanPreferencesKey("xora_netplay_enabled")
