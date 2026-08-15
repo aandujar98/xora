@@ -24,6 +24,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
@@ -106,7 +107,6 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
@@ -217,12 +217,7 @@ class XoraLibretroActivity : ComponentActivity() {
     }
     private val emuDispatcher = emuExecutor.asCoroutineDispatcher()
 
-    private val keyPadButtons = AtomicInteger(0)
-    private val axisPadButtons = AtomicInteger(0)
-    @Volatile private var axisLx: Short = 0
-    @Volatile private var axisLy: Short = 0
-    @Volatile private var axisRx: Short = 0
-    @Volatile private var axisRy: Short = 0
+    private val padMixer = LibretroPadMixer()
 
     private var platformId: String = "unknown"
     private var gameId: String = "game"
@@ -239,7 +234,9 @@ class XoraLibretroActivity : ComponentActivity() {
     private var inputManager: InputManager? = null
     private val inputDeviceListener = object : InputManager.InputDeviceListener {
         override fun onInputDeviceAdded(deviceId: Int) = Unit
-        override fun onInputDeviceRemoved(deviceId: Int) = Unit
+        override fun onInputDeviceRemoved(deviceId: Int) {
+            padMixer.forget(deviceId)
+        }
         override fun onInputDeviceChanged(deviceId: Int) = Unit
     }
 
@@ -357,6 +354,8 @@ class XoraLibretroActivity : ComponentActivity() {
                         LibretroNative.nativePlugControllers()
                     }
                     audioTrack?.play()
+                    hideSoftKeyboard()
+                    window.decorView.requestFocus()
                 }
                 if (ui.linked && menuOpen) {
                     setUserPaused(false)
@@ -621,6 +620,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun handlePadKey(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
         val customMappings = xoraSettings.buttonMappings
+        val netplayLinked = netplaySession?.linkedNow == true
         when (event.action) {
             KeyEvent.ACTION_DOWN -> {
                 if (event.repeatCount > 0 && keyCode !in chordKeys) {
@@ -641,18 +641,19 @@ class XoraLibretroActivity : ComponentActivity() {
                     toggleMenu()
                     return true
                 }
-                if (menuOpen) {
+                if (menuOpen && !netplayLinked) {
                     return handleInGameXmbKey(keyCode)
                 }
-                if (!LibretroPad.matchesPreferredController(
+                if (!LibretroPad.acceptsController(
                         InputDevice.getDevice(event.deviceId),
                         xoraSettings.preferredControllerName,
+                        acceptAny = netplayLinked,
                     )
                 ) {
                     return false
                 }
                 LibretroPad.keyCodeToButton(keyCode, customMappings)?.let { bit ->
-                    keyPadButtons.updateAndGet { it or (1 shl bit) }
+                    padMixer.keyDown(event.deviceId, bit)
                     return true
                 }
                 if (keyCode == KeyEvent.KEYCODE_BACK) {
@@ -667,7 +668,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     KeyEvent.KEYCODE_NUMPAD_ENTER,
                     -> startHeld = false
                 }
-                if (menuOpen) {
+                if (menuOpen && !netplayLinked) {
                     return LibretroPad.run { event.isFromGameController(customMappings) } ||
                         LibretroPad.keyCodeToButton(keyCode, customMappings) != null ||
                         keyCode == KeyEvent.KEYCODE_BACK ||
@@ -676,15 +677,16 @@ class XoraLibretroActivity : ComponentActivity() {
                         keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
                         keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
                 }
-                if (!LibretroPad.matchesPreferredController(
+                if (!LibretroPad.acceptsController(
                         InputDevice.getDevice(event.deviceId),
                         xoraSettings.preferredControllerName,
+                        acceptAny = netplayLinked,
                     )
                 ) {
                     return false
                 }
                 LibretroPad.keyCodeToButton(keyCode, customMappings)?.let { bit ->
-                    keyPadButtons.updateAndGet { it and (1 shl bit).inv() }
+                    padMixer.keyUp(event.deviceId, bit)
                     return true
                 }
             }
@@ -693,7 +695,8 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun handlePadMotion(event: MotionEvent): Boolean {
-        if (menuOpen) {
+        val netplayLinked = netplaySession?.linkedNow == true
+        if (menuOpen && !netplayLinked) {
             val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
             val stickY = event.getAxisValue(MotionEvent.AXIS_Y)
             val y = if (kotlin.math.abs(hatY) > 0.5f) hatY else stickY
@@ -713,19 +716,23 @@ class XoraLibretroActivity : ComponentActivity() {
             return true
         }
         if (!LibretroPad.run { event.isFromGameController() }) return false
-        if (!LibretroPad.matchesPreferredController(
+        if (!LibretroPad.acceptsController(
                 InputDevice.getDevice(event.deviceId),
                 xoraSettings.preferredControllerName,
+                acceptAny = netplayLinked,
             )
         ) {
             return false
         }
         val (left, right) = LibretroPad.readAxes(event)
-        axisLx = left.first
-        axisLy = left.second
-        axisRx = right.first
-        axisRy = right.second
-        axisPadButtons.set(LibretroPad.digitalPadFromAxes(event))
+        padMixer.motion(
+            deviceId = event.deviceId,
+            lx = left.first,
+            ly = left.second,
+            rx = right.first,
+            ry = right.second,
+            axisButtons = LibretroPad.digitalPadFromAxes(event),
+        )
         return true
     }
 
@@ -866,6 +873,12 @@ class XoraLibretroActivity : ComponentActivity() {
         syncPaused()
     }
 
+    private fun hideSoftKeyboard() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+        imm.hideSoftInputFromWindow(window.decorView.windowToken, 0)
+        window.decorView.requestFocus()
+    }
+
     private fun showMenuMessage(text: String) {
         menuMessage = text
         menuMessageJob?.cancel()
@@ -878,6 +891,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun closeMenu() {
         if (!menuOpen) return
         menuOpen = false
+        hideSoftKeyboard()
         syncPaused()
         dissolveWashLayers()
         menuMessageJob?.cancel()
@@ -1582,22 +1596,22 @@ class XoraLibretroActivity : ComponentActivity() {
                     }
                     session?.linkedNow == true ||
                         (!paused && !menuOpen && !activityInBackground) -> {
-                    val localButtons = keyPadButtons.get() or axisPadButtons.get()
+                    val local = padMixer.snapshot()
                     if (session?.linkedNow == true) {
                         val frameIndex = session.nextFrameIndex()
-                        val local = XoraNetplayProtocol.PadFrame(
+                        val sent = XoraNetplayProtocol.PadFrame(
                             frame = frameIndex,
                             buttons = if (xoraSettings.netplaySpectator && !session.hosting) {
                                 0
                             } else {
-                                localButtons
+                                local.buttons
                             },
-                            lx = axisLx,
-                            ly = axisLy,
-                            rx = axisRx,
-                            ry = axisRy,
+                            lx = local.lx,
+                            ly = local.ly,
+                            rx = local.rx,
+                            ry = local.ry,
                         )
-                        val pads = session.exchange(local)
+                        val pads = session.exchange(sent)
                         if (session.hosting) {
                             LibretroNative.nativeSetPadStatePort(
                                 0,
@@ -1635,11 +1649,11 @@ class XoraLibretroActivity : ComponentActivity() {
                         }
                     } else {
                         LibretroNative.nativeSetPadState(
-                            localButtons,
-                            axisLx,
-                            axisLy,
-                            axisRx,
-                            axisRy,
+                            local.buttons,
+                            local.lx,
+                            local.ly,
+                            local.rx,
+                            local.ry,
                         )
                     }
                     LibretroNative.nativeRunFrame()

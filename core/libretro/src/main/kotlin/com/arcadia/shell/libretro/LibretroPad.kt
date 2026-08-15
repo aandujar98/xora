@@ -118,9 +118,10 @@ object LibretroPad {
 
     /** Connected pads as (id, name). */
     fun connectedControllers(): List<Pair<Int, String>> {
+        val ids = runCatching { InputDevice.getDeviceIds() }.getOrNull() ?: return emptyList()
         val out = ArrayList<Pair<Int, String>>()
-        for (id in InputDevice.getDeviceIds()) {
-            val device = InputDevice.getDevice(id) ?: continue
+        for (id in ids) {
+            val device = runCatching { InputDevice.getDevice(id) }.getOrNull() ?: continue
             val sources = device.sources
             val isPad = sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
                 sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
@@ -134,8 +135,17 @@ object LibretroPad {
     fun matchesPreferredController(device: InputDevice?, preferredName: String): Boolean {
         if (preferredName.isBlank()) return true
         val name = device?.name?.trim().orEmpty()
-        return name.equals(preferredName, ignoreCase = true)
+        if (name.equals(preferredName, ignoreCase = true)) return true
+        // A saved name that is not plugged in must not black-hole every other pad.
+        return connectedControllers().none { it.second.equals(preferredName, ignoreCase = true) }
     }
+
+    /** Netplay (and missing preferred pads) accept every plugged-in controller. */
+    fun acceptsController(
+        device: InputDevice?,
+        preferredName: String,
+        acceptAny: Boolean,
+    ): Boolean = acceptAny || matchesPreferredController(device, preferredName)
 
     fun axisToShort(value: Float, deadzone: Float = 0.15f): Short {
         if (abs(value) < deadzone) return 0
@@ -200,4 +210,80 @@ object LibretroPad {
 
     /** Human-readable names of currently connected game controllers. */
     fun connectedControllerNames(): List<String> = connectedControllers().map { it.second }
+}
+
+/**
+ * Merges every plugged-in pad into one RetroPad so a second Bluetooth controller
+ * is not dropped when a "preferred" device is saved or when two pads share a device.
+ */
+class LibretroPadMixer {
+    data class Snapshot(
+        val buttons: Int = 0,
+        val lx: Short = 0,
+        val ly: Short = 0,
+        val rx: Short = 0,
+        val ry: Short = 0,
+    )
+
+    private class DeviceState {
+        var keyButtons: Int = 0
+        var axisButtons: Int = 0
+        var lx: Short = 0
+        var ly: Short = 0
+        var rx: Short = 0
+        var ry: Short = 0
+    }
+
+    private val devices = java.util.concurrent.ConcurrentHashMap<Int, DeviceState>()
+
+    fun keyDown(deviceId: Int, bit: Int) {
+        val state = devices.getOrPut(deviceId) { DeviceState() }
+        synchronized(state) { state.keyButtons = state.keyButtons or (1 shl bit) }
+    }
+
+    fun keyUp(deviceId: Int, bit: Int) {
+        val state = devices[deviceId] ?: return
+        synchronized(state) { state.keyButtons = state.keyButtons and (1 shl bit).inv() }
+    }
+
+    fun motion(deviceId: Int, lx: Short, ly: Short, rx: Short, ry: Short, axisButtons: Int) {
+        val state = devices.getOrPut(deviceId) { DeviceState() }
+        synchronized(state) {
+            state.lx = lx
+            state.ly = ly
+            state.rx = rx
+            state.ry = ry
+            state.axisButtons = axisButtons
+        }
+    }
+
+    fun forget(deviceId: Int) {
+        devices.remove(deviceId)
+    }
+
+    fun snapshot(): Snapshot {
+        var buttons = 0
+        var bestMag = -1
+        var lx: Short = 0
+        var ly: Short = 0
+        var rx: Short = 0
+        var ry: Short = 0
+        for (state in devices.values) {
+            synchronized(state) {
+                buttons = buttons or state.keyButtons or state.axisButtons
+                val mag = kotlin.math.abs(state.lx.toInt()) +
+                    kotlin.math.abs(state.ly.toInt()) +
+                    kotlin.math.abs(state.rx.toInt()) +
+                    kotlin.math.abs(state.ry.toInt())
+                if (mag > bestMag) {
+                    bestMag = mag
+                    lx = state.lx
+                    ly = state.ly
+                    rx = state.rx
+                    ry = state.ry
+                }
+            }
+        }
+        return Snapshot(buttons = buttons, lx = lx, ly = ly, rx = rx, ry = ry)
+    }
 }

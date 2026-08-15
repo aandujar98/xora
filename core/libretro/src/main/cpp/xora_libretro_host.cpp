@@ -562,37 +562,62 @@ void apply_controller_info(const retro_controller_info* ports) {
     if (count > 0) g_controller_ports = count;
 }
 
+int16_t analog_x_or_dpad(unsigned port) {
+    const int16_t axis = g_axis_lx[port].load(std::memory_order_relaxed);
+    if (axis != 0) return axis;
+    const uint16_t buttons = g_pad_buttons[port].load(std::memory_order_relaxed);
+    if (buttons & (1u << RETRO_DEVICE_ID_JOYPAD_LEFT)) return -0x7fff;
+    if (buttons & (1u << RETRO_DEVICE_ID_JOYPAD_RIGHT)) return 0x7fff;
+    return 0;
+}
+
+int16_t analog_y_or_dpad(unsigned port) {
+    const int16_t axis = g_axis_ly[port].load(std::memory_order_relaxed);
+    if (axis != 0) return axis;
+    const uint16_t buttons = g_pad_buttons[port].load(std::memory_order_relaxed);
+    if (buttons & (1u << RETRO_DEVICE_ID_JOYPAD_UP)) return -0x7fff;
+    if (buttons & (1u << RETRO_DEVICE_ID_JOYPAD_DOWN)) return 0x7fff;
+    return 0;
+}
+
 void plug_controllers() {
     if (g_plugging_controllers || !g_api.set_controller_port_device) return;
     g_plugging_controllers = true;
-    // Drive P1 and P2 when the core has at least two sockets. Handhelds that only
-    // advertise one port stay single-player so we do not invent a fake P2.
-    const unsigned sockets = g_controller_ports > 0 ? g_controller_ports : 2u;
-    const unsigned n = sockets >= 2u ? 2u : sockets;
-    for (unsigned port = 0; port < n; ++port) {
-        g_api.set_controller_port_device(port, g_port_device[port]);
-    }
+    // Always occupy P1 and P2. Cores that only advertise one socket still accept a
+    // second joypad, and skipping port 1 is what left the joiner with a dead pad.
+    const unsigned d0 = g_port_device[0];
+    const unsigned d1 = (g_controller_ports >= 2) ? g_port_device[1] : d0;
+    g_api.set_controller_port_device(0, d0);
+    g_api.set_controller_port_device(1, d1);
+    ALOGI("Plugged P1 device %u, P2 device %u", d0, d1);
     g_plugging_controllers = false;
 }
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port > 1) return 0;
-    if (device == RETRO_DEVICE_JOYPAD) {
-        // Cores that negotiated GET_INPUT_BITMASKS query all buttons in one call.
+    // Cores pass SET_CONTROLLER_INFO subclasses (NES Gamepad, DualShock, GC pad).
+    // The API requires masking to the generic RetroPad / analog type.
+    const unsigned masked = device & RETRO_DEVICE_MASK;
+    const uint16_t buttons = g_pad_buttons[port].load(std::memory_order_relaxed);
+    if (masked == RETRO_DEVICE_JOYPAD) {
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) {
-            return static_cast<int16_t>(g_pad_buttons[port].load(std::memory_order_relaxed) & 0xffff);
+            return static_cast<int16_t>(buttons);
         }
         if (id > 15) return 0;
-        return (g_pad_buttons[port].load(std::memory_order_relaxed) >> id) & 1;
+        return (buttons >> id) & 1;
     }
-    if (device == RETRO_DEVICE_ANALOG) {
+    if (masked == RETRO_DEVICE_ANALOG) {
         if (index == RETRO_DEVICE_INDEX_ANALOG_LEFT) {
-            if (id == RETRO_DEVICE_ID_ANALOG_X) return g_axis_lx[port].load(std::memory_order_relaxed);
-            if (id == RETRO_DEVICE_ID_ANALOG_Y) return g_axis_ly[port].load(std::memory_order_relaxed);
+            if (id == RETRO_DEVICE_ID_ANALOG_X) return analog_x_or_dpad(port);
+            if (id == RETRO_DEVICE_ID_ANALOG_Y) return analog_y_or_dpad(port);
         }
         if (index == RETRO_DEVICE_INDEX_ANALOG_RIGHT) {
             if (id == RETRO_DEVICE_ID_ANALOG_X) return g_axis_rx[port].load(std::memory_order_relaxed);
             if (id == RETRO_DEVICE_ID_ANALOG_Y) return g_axis_ry[port].load(std::memory_order_relaxed);
+        }
+        if (index == RETRO_DEVICE_INDEX_ANALOG_BUTTON) {
+            if (id > 15) return 0;
+            return (buttons >> id) & 1 ? 0x7fff : 0;
         }
     }
     return 0;
