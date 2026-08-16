@@ -424,26 +424,43 @@ class XoraNetplaySession(
 
     /**
      * Handheld Game Link: publish this device's SIO send word and return the 4-slot
-     * SIOMULTI table (missing players stay 0xFFFF).
+     * SIOMULTI table. GBA games treat 0xFFFF as "no unit in this socket", so a live
+     * handheld session always exposes at least two connected GBAs (idle partners
+     * read as 0) — otherwise Pokemon sits on "Please connect the Game Link cable".
      */
     fun exchangeSerial(localSend: Int, siocnt: Int = 0): IntArray {
         val multi = IntArray(XoraNetplayProtocol.MAX_PLAYERS) { 0xFFFF }
-        if (!linked.get() || sessionMode.get() != NetplaySessionMode.HandheldLink) return multi
+        if (sessionMode.get() != NetplaySessionMode.HandheldLink) return multi
         val slot = mySlot.get()
         if (slot in 1..XoraNetplayProtocol.MAX_PLAYERS) {
             lastSerial[slot - 1].set(localSend and 0xFFFF)
-            val link = linkRef.get()
-            if (link != null) {
-                runCatching {
-                    link.send(
-                        XoraNetplayProtocol.TYPE_SERIAL,
-                        XoraNetplayProtocol.encodeSerial(slot, localSend, siocnt),
-                    )
+            if (linked.get()) {
+                val link = linkRef.get()
+                if (link != null) {
+                    runCatching {
+                        link.send(
+                            XoraNetplayProtocol.TYPE_SERIAL,
+                            XoraNetplayProtocol.encodeSerial(slot, localSend, siocnt),
+                        )
+                    }
                 }
             }
         }
+        val occupied = BooleanArray(XoraNetplayProtocol.MAX_PLAYERS)
+        if (slot in 1..XoraNetplayProtocol.MAX_PLAYERS) occupied[slot - 1] = true
         for (i in 0 until XoraNetplayProtocol.MAX_PLAYERS) {
-            multi[i] = lastSerial[i].get() and 0xFFFF
+            if (lastSerial[i].get() != 0xFFFF) occupied[i] = true
+        }
+        if (occupied.count { it } < 2) {
+            if (!occupied[0]) occupied[0] = true else occupied[1] = true
+        }
+        for (i in 0 until XoraNetplayProtocol.MAX_PLAYERS) {
+            val raw = lastSerial[i].get() and 0xFFFF
+            multi[i] = when {
+                i == slot - 1 -> localSend and 0xFFFF
+                occupied[i] && raw == 0xFFFF -> 0
+                else -> raw
+            }
         }
         return multi
     }
@@ -1274,6 +1291,15 @@ class XoraNetplaySession(
 
     internal fun attachLinkForTest(link: XoraNetplayLink) {
         linkRef.set(link)
+    }
+
+    /** Test-only: handheld host waiting for a joiner — cable must already look plugged in. */
+    internal fun waitHandheldForTest(slot: Int = 1) {
+        running.set(true)
+        linked.set(false)
+        isHost.set(slot == 1)
+        mySlot.set(slot)
+        sessionMode.set(NetplaySessionMode.HandheldLink)
     }
 
     internal fun armVideoForTest(muteUntilMs: Long = 0L, lastSentMs: Long = 0L) {

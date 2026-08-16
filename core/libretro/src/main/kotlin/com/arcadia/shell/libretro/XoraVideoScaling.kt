@@ -1,12 +1,15 @@
 package com.arcadia.shell.libretro
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpSize
@@ -64,6 +67,50 @@ fun computeXoraGameRect(
     val right = (left + gameW).toInt().coerceAtMost(viewW)
     val bottom = (top + gameH).toInt().coerceAtMost(viewH)
     return intArrayOf(left, top, right, bottom)
+}
+
+/**
+ * Letterbox for the XOrA XMB launcher. Auto / integer / stretch fill the panel (there is no
+ * framebuffer). Forced ratios (16:9, 1:1, 4:3, …) get the same black bars as in-game.
+ */
+fun computeXoraLauncherRect(
+    viewW: Int,
+    viewH: Int,
+    aspectMode: XoraAspectMode,
+): IntArray {
+    if (viewW <= 0 || viewH <= 0) return intArrayOf(0, 0, viewW, viewH)
+    return when (aspectMode) {
+        XoraAspectMode.Core, XoraAspectMode.Integer, XoraAspectMode.Stretch ->
+            intArrayOf(0, 0, viewW, viewH)
+        else -> computeXoraGameRect(
+            viewW = viewW,
+            viewH = viewH,
+            contentWidthPx = 16,
+            contentHeightPx = 9,
+            aspectMode = aspectMode,
+        )
+    }
+}
+
+@Composable
+fun XoraAspectLetterbox(
+    mode: XoraAspectMode,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    BoxWithConstraints(
+        modifier = modifier.background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        val density = LocalDensity.current
+        val rect = computeXoraLauncherRect(constraints.maxWidth, constraints.maxHeight, mode)
+        val boxW = with(density) { (rect[2] - rect[0]).coerceAtLeast(1).toDp() }
+        val boxH = with(density) { (rect[3] - rect[1]).coerceAtLeast(1).toDp() }
+        Box(
+            modifier = Modifier.size(DpSize(boxW, boxH)),
+            content = content,
+        )
+    }
 }
 
 /**

@@ -85,6 +85,7 @@ import com.arcadia.shell.feature.home.component.NowPlayingPill
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.feature.home.component.XmbStarFieldLayer
+import com.arcadia.shell.libretro.XoraAspectLetterbox
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
 import kotlin.math.PI
@@ -182,7 +183,11 @@ fun XoraHomeXmbPane(
         launchScale = artworkScale,
     )
 
-    Box(modifier = modifier.fillMaxSize()) {
+    XoraAspectLetterbox(
+        mode = state.xoraEmulator.aspectMode,
+        modifier = modifier.fillMaxSize(),
+    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
         // Theme / custom wallpaper must remain the base plate.
         HomeWallpaper(
             customPath = state.homeHub.wallpaperPath,
@@ -332,6 +337,7 @@ fun XoraHomeXmbPane(
             )
         }
     }
+    }
 }
 
 /** Dual-screen hero companion for the focused XMB row. */
@@ -396,7 +402,11 @@ fun XoraXmbHeroDetail(
         launchScale = artworkScale,
     )
 
-    Box(modifier = modifier.fillMaxSize()) {
+    XoraAspectLetterbox(
+        mode = state.xoraEmulator.aspectMode,
+        modifier = modifier.fillMaxSize(),
+    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
         HomeWallpaper(
             customPath = state.homeHub.wallpaperPath,
             dim = false,
@@ -503,6 +513,7 @@ fun XoraXmbHeroDetail(
                 onSignOutRetroAchievements = onSignOutRetroAchievements,
             )
         }
+    }
     }
 }
 

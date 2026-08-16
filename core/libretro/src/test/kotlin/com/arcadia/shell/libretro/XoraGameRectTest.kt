@@ -74,4 +74,32 @@ class XoraGameRectTest {
         assertEquals(XoraAspectMode.Ratio4x3, XoraAspectMode.Core.next())
         assertEquals(XoraAspectMode.Core, XoraAspectMode.Stretch.next())
     }
+
+    @Test
+    fun launcherAutoFillsThePanel() {
+        val rect = computeXoraLauncherRect(1920, 1080, XoraAspectMode.Core)
+        assertArrayEquals(intArrayOf(0, 0, 1920, 1080), rect)
+    }
+
+    @Test
+    fun launcher16x9FillsA16x9Panel() {
+        val rect = computeXoraLauncherRect(1920, 1080, XoraAspectMode.Ratio16x9)
+        assertArrayEquals(intArrayOf(0, 0, 1920, 1080), rect)
+    }
+
+    @Test
+    fun launcher1x1LetterboxesAWidePanel() {
+        val rect = computeXoraLauncherRect(1920, 1080, XoraAspectMode.Ratio1x1)
+        assertArrayEquals(intArrayOf(420, 0, 1500, 1080), rect)
+    }
+
+    @Test
+    fun launcher4x3LetterboxesAWidePanel() {
+        val rect = computeXoraLauncherRect(1920, 1080, XoraAspectMode.Ratio4x3)
+        val width = rect[2] - rect[0]
+        val height = rect[3] - rect[1]
+        assertEquals(1080, height)
+        assertEquals(1440, width)
+        assertEquals(240, rect[0])
+    }
 }

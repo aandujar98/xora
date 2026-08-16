@@ -167,7 +167,7 @@ class XoraNetplaySessionSerialTest {
         session.attachLinkForTest(link)
         val multi = session.exchangeSerial(0x1234)
         assertEquals(0x1234, multi[0])
-        assertEquals(0xFFFF, multi[1])
+        assertEquals(0, multi[1])
         assertEquals(XoraNetplayProtocol.TYPE_SERIAL, link.sent[0].first)
         val decoded = XoraNetplayProtocol.decodeSerial(link.sent[0].second)
         assertEquals(1, decoded.slot)
@@ -184,6 +184,19 @@ class XoraNetplaySessionSerialTest {
         assertEquals(0x8FFE, multi[0])
         assertEquals(0x8FFF, multi[1])
         assertEquals(0xFFFF, multi[2])
+        session.stop()
+    }
+
+    @Test
+    fun handheldSerialShowsACableBeforeThePeerLinks() {
+        val session = session()
+        val link = RecordingNetplayLink()
+        session.waitHandheldForTest(slot = 1)
+        session.attachLinkForTest(link)
+        val multi = session.exchangeSerial(0x22)
+        assertEquals(0x22, multi[0])
+        assertEquals(0, multi[1])
+        assertEquals(0, link.sent.size)
         session.stop()
     }
 

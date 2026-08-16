@@ -223,7 +223,7 @@ class XoraNetworkRepository @Inject constructor(
                     online = friend.online || key in presenceOnline,
                     status = presenceStatus[key].orEmpty().ifBlank { friend.status },
                 )
-            }
+            }.let { merged -> fillMissingFriendUserIds(token, merged) }
             mutableState.update { it.copy(friends = friends, friendsError = null) }
             followPresenceTargets()
             if (realtimeEnabled && !realtime.isConnected) connectRealtime()
@@ -350,6 +350,7 @@ class XoraNetworkRepository @Inject constructor(
                 collection = XoraNetplayInvites.COLLECTION,
                 key = XoraNetplayInvites.recipientKey(target),
                 value = encoded,
+                permissionRead = XoraNetplayInvites.PERMISSION_PUBLIC_READ,
             )
         }
     }
@@ -360,23 +361,32 @@ class XoraNetworkRepository @Inject constructor(
             mutableState.value.account?.username
                 ?: XoraJwt.username(token, json)
             ).trim()
-        val owners = mutableState.value.acceptedFriends
+        var owners = mutableState.value.acceptedFriends
             .map { it.userId.trim() }
             .filter { it.isNotBlank() }
             .distinct()
+        if (owners.isEmpty()) {
+            val names = mutableState.value.acceptedFriends
+                .map { it.username.trim() }
+                .filter { it.isNotBlank() }
+            if (names.isNotEmpty()) {
+                owners = client.listUsersByUsernames(token, names)
+                    .map { it.id.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+            }
+        }
         if (self.isBlank() || owners.isEmpty()) {
             mutableState.update { it.copy(netplayInvites = emptyList()) }
             return@authenticated
         }
         val objects = owners.chunked(40).flatMap { chunk ->
-            runCatching {
-                client.readStorageObjects(
-                    accessToken = token,
-                    collection = XoraNetplayInvites.COLLECTION,
-                    key = XoraNetplayInvites.recipientKey(self),
-                    ownerIds = chunk,
-                )
-            }.getOrDefault(emptyList())
+            client.readStorageObjects(
+                accessToken = token,
+                collection = XoraNetplayInvites.COLLECTION,
+                key = XoraNetplayInvites.recipientKey(self),
+                ownerIds = chunk,
+            )
         }
         val now = System.currentTimeMillis()
         val invites = objects
@@ -385,6 +395,29 @@ class XoraNetworkRepository @Inject constructor(
             .distinctBy { it.dedupeKey() }
             .sortedByDescending { it.createdAtMs }
         mutableState.update { it.copy(netplayInvites = invites) }
+    }
+
+    private suspend fun fillMissingFriendUserIds(
+        token: String,
+        friends: List<XoraFriend>,
+    ): List<XoraFriend> {
+        val missing = friends
+            .filter { it.userId.isBlank() }
+            .map { it.username.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (missing.isEmpty()) return friends
+        val byName = runCatching { client.listUsersByUsernames(token, missing) }
+            .getOrDefault(emptyList())
+            .associateBy { it.username.trim().lowercase() }
+        if (byName.isEmpty()) return friends
+        return friends.map { friend ->
+            if (friend.userId.isNotBlank()) {
+                friend
+            } else {
+                friend.copy(userId = byName[friend.username.trim().lowercase()]?.id.orEmpty())
+            }
+        }
     }
 
     // -------------------------------------------------------------------------------------------

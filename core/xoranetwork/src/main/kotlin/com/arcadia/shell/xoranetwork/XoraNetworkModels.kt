@@ -225,6 +225,11 @@ internal data class ApiFriendListDto(
     val cursor: String = "",
 )
 
+@Serializable
+internal data class ApiUsersDto(
+    val users: List<ApiUserDto> = emptyList(),
+)
+
 /** Website `/api/friends` envelope — same accounts as Nakama, camelCase + string states. */
 @Serializable
 internal data class WebsiteFriendsResponseDto(
@@ -247,6 +252,8 @@ internal data class WebsiteFriendDto(
     val avatarUrl: String = "",
     val online: Boolean = false,
     val state: String = "",
+    /** Nakama UUID when the website includes it; usernames are not stored here. */
+    val userId: String = "",
 )
 
 @Serializable
@@ -428,7 +435,24 @@ internal fun WebsiteFriendDto.toXoraFriend(fallbackState: XoraFriendState): Xora
         avatarUrl = avatarUrl,
         online = online,
         state = friendState,
+        userId = nakamaUserIdOrEmpty(userId).ifBlank { nakamaUserIdOrEmpty(id) },
     )
+}
+
+/** Nakama user ids are UUIDs. Website `id` is often the username and must not be used as owner. */
+internal fun nakamaUserIdOrEmpty(raw: String): String {
+    val id = raw.trim()
+    if (id.length != 36) return ""
+    for (i in id.indices) {
+        val c = id[i]
+        val dash = i == 8 || i == 13 || i == 18 || i == 23
+        if (dash) {
+            if (c != '-') return ""
+        } else if (c !in '0'..'9' && c !in 'a'..'f' && c !in 'A'..'F') {
+            return ""
+        }
+    }
+    return id
 }
 
 internal fun mergeXoraFriends(vararg groups: List<XoraFriend>): List<XoraFriend> {

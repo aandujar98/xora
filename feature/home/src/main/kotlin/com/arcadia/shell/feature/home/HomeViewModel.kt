@@ -1964,6 +1964,7 @@ class HomeViewModel @Inject constructor(
                 focusSubtitle = xoraSelected?.subtitle ?: xoraCategory.label,
                 focusGame = xoraFocusGame,
             ),
+            xoraEmulator = xoraEmulator,
             tabs = tabs,
             selectedTabIndex = tabIndex,
             games = games,

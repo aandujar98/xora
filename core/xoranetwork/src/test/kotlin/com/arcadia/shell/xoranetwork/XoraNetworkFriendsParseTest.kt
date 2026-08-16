@@ -23,6 +23,7 @@ class XoraNetworkFriendsParseTest {
         assertEquals(1, friends.size)
         assertEquals("xora_agent_pal", friends[0].username)
         assertEquals(XoraFriendState.Friend, friends[0].state)
+        assertEquals("33e69f24-39b1-4e15-b5bc-48c5aacd6bf7", friends[0].userId)
     }
 
     @Test
@@ -50,6 +51,7 @@ class XoraNetworkFriendsParseTest {
         assertEquals("Pal", friend.displayName)
         assertEquals(XoraFriendState.Friend, friend.state)
         assertEquals("/api/avatars/xora_agent_pal", friend.avatarUrl)
+        assertEquals("", friend.userId)
     }
 
     @Test
@@ -59,6 +61,43 @@ class XoraNetworkFriendsParseTest {
             .toXoraFriend(XoraFriendState.Friend)!!
         assertEquals("xoraadmin", friend.username)
         assertEquals("Admin", friend.displayName)
+    }
+
+    @Test
+    fun websiteFriendKeepsNakamaUuidWhenPresent() {
+        val payload = """{"username":"pal","id":"pal","userId":"33e69f24-39b1-4e15-b5bc-48c5aacd6bf7","state":"friend"}"""
+        val friend = json.decodeFromString<WebsiteFriendDto>(payload)
+            .toXoraFriend(XoraFriendState.Friend)!!
+        assertEquals("33e69f24-39b1-4e15-b5bc-48c5aacd6bf7", friend.userId)
+    }
+
+    @Test
+    fun nakamaUserIdRejectsUsernames() {
+        assertEquals("", nakamaUserIdOrEmpty("xora_agent_pal"))
+        assertEquals("", nakamaUserIdOrEmpty("pal"))
+        assertEquals(
+            "33e69f24-39b1-4e15-b5bc-48c5aacd6bf7",
+            nakamaUserIdOrEmpty("33e69f24-39b1-4e15-b5bc-48c5aacd6bf7"),
+        )
+    }
+
+    @Test
+    fun mergePrefersNakamaUserIdFromEitherSide() {
+        val website = listOf(
+            XoraFriend("pal", "Pal", "", online = false, state = XoraFriendState.Friend),
+        )
+        val nakama = listOf(
+            XoraFriend(
+                "pal",
+                "pal",
+                "",
+                online = false,
+                state = XoraFriendState.Friend,
+                userId = "33e69f24-39b1-4e15-b5bc-48c5aacd6bf7",
+            ),
+        )
+        assertEquals("33e69f24-39b1-4e15-b5bc-48c5aacd6bf7", mergeXoraFriends(website, nakama)[0].userId)
+        assertEquals("33e69f24-39b1-4e15-b5bc-48c5aacd6bf7", mergeXoraFriends(nakama, website)[0].userId)
     }
 
     @Test

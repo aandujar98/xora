@@ -34,13 +34,26 @@ class XoraNetworkStorageWriteTest {
     fun storageWriteKeepsOwnerWritePermission() {
         // permission_write 0 makes the object permanently client-immutable — the second
         // invite to the same friend was rejected with "storage write rejected".
+        // permission_read 1 is owner-only; friends never saw the invite. Public read is 2.
+        val body = buildStorageWriteBody(
+            collection = "xora_netplay_invites",
+            key = "to2:pal",
+            valueJson = "{}",
+            permissionRead = XoraNetplayInvites.PERMISSION_PUBLIC_READ,
+        )
+        val obj = (body["objects"] as JsonArray)[0] as JsonObject
+        assertEquals("1", obj["permission_write"]?.jsonPrimitive?.content)
+        assertEquals("2", obj["permission_read"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun storageWriteDefaultIsOwnerReadUntilCallersAskForPublic() {
         val body = buildStorageWriteBody(
             collection = "xora_netplay_invites",
             key = "to2:pal",
             valueJson = "{}",
         )
         val obj = (body["objects"] as JsonArray)[0] as JsonObject
-        assertEquals("1", obj["permission_write"]?.jsonPrimitive?.content)
         assertEquals("1", obj["permission_read"]?.jsonPrimitive?.content)
     }
 }

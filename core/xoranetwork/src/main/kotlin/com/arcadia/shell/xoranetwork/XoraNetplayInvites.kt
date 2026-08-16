@@ -15,6 +15,8 @@ object XoraNetplayInvites {
     const val OUTBOX_KEY = "outbox"
     const val TTL_MS = 15L * 60L * 1_000L
     const val MAX_OUTBOX = 8
+    /** Nakama storage: 2 = any authenticated account may read (friends poll the outbox). */
+    const val PERMISSION_PUBLIC_READ = 2
     const val LOGIN_REQUIRED =
         "Online netplay is exclusive to XOrA Network accounts. Sign in to XOrA Network to use that feature."
 

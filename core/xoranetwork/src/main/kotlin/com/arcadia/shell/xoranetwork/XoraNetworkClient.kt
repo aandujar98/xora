@@ -229,6 +229,26 @@ class XoraNetworkClient @Inject constructor(
         return collected.distinctBy { it.user.username.ifBlank { it.user.id } }
     }
 
+    /** Resolves Nakama UUIDs for public usernames so we can read a friend's storage outbox. */
+    internal suspend fun listUsersByUsernames(
+        accessToken: String,
+        usernames: List<String>,
+    ): List<ApiUserDto> {
+        val names = usernames.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        if (names.isEmpty()) return emptyList()
+        val url = "$BASE_URL/user".toHttpUrl().newBuilder()
+            .apply { names.forEach { addQueryParameter("usernames", it) } }
+            .build()
+        val page: ApiUsersDto = execute(
+            Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $accessToken")
+                .get()
+                .build(),
+        )
+        return page.users
+    }
+
     /**
      * Website friends list (same Nakama graph). Auth is the `xora_at` + `xora_rt` cookies, not
      * Bearer — a Bearer token 401s even when the JWTs are valid.
@@ -397,8 +417,9 @@ class XoraNetworkClient @Inject constructor(
     }
 
     /**
-     * Writes one storage object. [permissionRead] 1 lets other signed-in accounts read it
-     * (friends poll our netplay invite outbox). [permissionWrite] must be 1 (owner write):
+     * Writes one storage object. [permissionRead] 2 is Nakama **public read** so other
+     * signed-in accounts can poll our netplay invite outbox. 1 is owner-read only — friends
+     * would never see the invite. [permissionWrite] must be 1 (owner write):
      * 0 means **no client write at all** — not even the owner — so the second write to the
      * same key is rejected with "storage write rejected - permission denied".
      *
@@ -410,7 +431,7 @@ class XoraNetworkClient @Inject constructor(
         collection: String,
         key: String,
         value: String,
-        permissionRead: Int = 1,
+        permissionRead: Int = XoraNetplayInvites.PERMISSION_PUBLIC_READ,
         permissionWrite: Int = 1,
     ) {
         val body = buildStorageWriteBody(

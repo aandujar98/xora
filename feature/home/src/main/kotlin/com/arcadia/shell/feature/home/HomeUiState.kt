@@ -5,6 +5,7 @@ import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.datastore.TrailerDisplayMode
+import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.launcher.music.MusicAlbum
 import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.launcher.music.NowPlayingState
@@ -227,6 +228,8 @@ data class HomeUiState(
     val homeHub: HomeHubUiState = HomeHubUiState(),
     /** Classic XOrA XMB navigation state for [HomePage.Home]. */
     val xoraXmb: XoraXmbUiState = XoraXmbUiState(),
+    /** Emulator display prefs — [XoraEmulatorSettings.aspectMode] also letterboxes the XMB. */
+    val xoraEmulator: XoraEmulatorSettings = XoraEmulatorSettings(),
     val tabs: List<LibraryTab> = emptyList(),
     val selectedTabIndex: Int = 0,
     val games: List<Game> = emptyList(),

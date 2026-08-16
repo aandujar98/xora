@@ -43,6 +43,8 @@ object LibretroNative {
      * (RCNT SI pin + SIOCNT + a dummy link driver). Call every handheld-link frame.
      */
     external fun nativeGbaSioApply(multi: IntArray, localId: Int)
+    /** Keep the GBA Game Link hook armed while a handheld session is waiting or live. */
+    external fun nativeGbaSioSetEnabled(enabled: Boolean)
 
     /** Clear frontend core-option overrides (call before applying a fresh set). */
     external fun nativeClearCoreVariables()

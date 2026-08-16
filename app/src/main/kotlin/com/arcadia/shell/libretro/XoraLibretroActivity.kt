@@ -2321,13 +2321,17 @@ class XoraLibretroActivity : ComponentActivity() {
                         if (session.runsLocalCore) {
                             if (handheld) {
                                 // mGBA ignores memory.io for SIOCNT/RCNT; apply hits gba->sio.
-                                LibretroNative.nativeGbaSioRead()?.let { snap ->
-                                    val multi = session.exchangeSerial(snap[0], snap[1])
-                                    LibretroNative.nativeGbaSioApply(
-                                        multi,
-                                        (session.playerSlotNow - 1).coerceIn(0, 3),
-                                    )
-                                }
+                                // Call even before the peer is linked so the game sees a cable.
+                                LibretroNative.nativeGbaSioSetEnabled(true)
+                                val snap = LibretroNative.nativeGbaSioRead()
+                                val multi = session.exchangeSerial(
+                                    snap?.getOrNull(0) ?: 0,
+                                    snap?.getOrNull(1) ?: 0,
+                                )
+                                LibretroNative.nativeGbaSioApply(
+                                    multi,
+                                    (session.playerSlotNow - 1).coerceIn(0, 3),
+                                )
                             }
                             emuFrameIndex++
                             LibretroNative.nativeRunFrame()
@@ -2337,13 +2341,15 @@ class XoraLibretroActivity : ComponentActivity() {
                             packed?.let { presentFrame(it) }
                             pcm?.let { audioTrack?.write(it, 0, it.size) }
                             if (handheld) {
-                                LibretroNative.nativeGbaSioRead()?.let { snap ->
-                                    val multi = session.exchangeSerial(snap[0], snap[1])
-                                    LibretroNative.nativeGbaSioApply(
-                                        multi,
-                                        (session.playerSlotNow - 1).coerceIn(0, 3),
-                                    )
-                                }
+                                val snap = LibretroNative.nativeGbaSioRead()
+                                val multi = session.exchangeSerial(
+                                    snap?.getOrNull(0) ?: 0,
+                                    snap?.getOrNull(1) ?: 0,
+                                )
+                                LibretroNative.nativeGbaSioApply(
+                                    multi,
+                                    (session.playerSlotNow - 1).coerceIn(0, 3),
+                                )
                             }
                             if (!handheld && session.hosting && packed != null) {
                                 val online = session.onlineNow

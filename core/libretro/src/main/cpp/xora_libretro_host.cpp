@@ -80,6 +80,7 @@ namespace {
 
 void xora_gba_sio_on_poll();
 void xora_gba_sio_reset();
+void xora_gba_sio_drop_hook();
 
 CoreApi g_api;
 std::mutex g_mutex;
@@ -157,7 +158,9 @@ void clear_memory_maps() {
     g_mmap_descriptors.clear();
     g_mmap_addrspaces.clear();
     g_mmap = retro_memory_map{};
-    xora_gba_sio_reset();
+    // Drop cached gba->sio pointers only. A full SIO reset here used to unplug the
+    // dummy link cable mid-session whenever the core refreshed SET_MEMORY_MAPS.
+    xora_gba_sio_drop_hook();
 }
 
 template <typename T>
@@ -1254,8 +1257,6 @@ constexpr int kGbaRegSiomulti0 = 0x120 / 2;
 constexpr int kGbaRegSiocnt = 0x128 / 2;
 constexpr int kGbaRegSiomltSend = 0x12A / 2;
 constexpr int kGbaRegRcnt = 0x134 / 2;
-constexpr int kGbaRegIf = 0x202 / 2;
-constexpr uint16_t kGbaSioIrqBit = 0x0080u;
 constexpr uint16_t kGbaSiocntMulti = 0x2000u;
 constexpr uint16_t kGbaSiocntModeMask = 0x3000u;
 
@@ -1272,6 +1273,7 @@ std::atomic<bool> g_sio_link_on{false};
 std::atomic<int> g_sio_local_id{0};
 std::atomic<uint16_t> g_sio_multi[4]{{0xFFFF}, {0xFFFF}, {0xFFFF}, {0xFFFF}};
 bool g_sio_logged_hook = false;
+bool g_sio_locate_missed = false;
 
 // Layout must match mGBA's GBASIODriver (include/mgba/gba/interface.h).
 struct XoraGbaSioDriver {
@@ -1305,11 +1307,13 @@ bool gba_owns_io(const void* gba, const uint16_t* io) {
     if (!gba || !io) return false;
     const auto g = reinterpret_cast<uintptr_t>(gba);
     const auto i = reinterpret_cast<uintptr_t>(io);
-    return i > g && (i - g) < 0x10000u;
+    return i > g && (i - g) < 0x100000u;
 }
 
 bool readable_cstr(const char* p, const char* want) {
     if (!p || !want) return false;
+    const auto addr = reinterpret_cast<uintptr_t>(p);
+    if (addr < 0x10000u || (addr % sizeof(void*)) != 0) return false;
     Dl_info info{};
     if (dladdr(p, &info) == 0 || !info.dli_fbase) return false;
     return std::strcmp(p, want) == 0;
@@ -1340,36 +1344,66 @@ uint16_t* gba_io_regs() {
     return nullptr;
 }
 
+void gba_sio_collect_bases(uint16_t* io, uint8_t** bases, int* nbase) {
+    *nbase = 0;
+    auto push = [&](uint8_t* p) {
+        if (!p || *nbase >= 8) return;
+        for (int i = 0; i < *nbase; ++i) {
+            if (bases[i] == p) return;
+        }
+        bases[(*nbase)++] = p;
+    };
+    for (const auto& desc : g_mmap_descriptors) {
+        if (!desc.ptr) continue;
+        if (desc.start == 0x07000000u || desc.start == 0x05000000u ||
+            desc.start == 0x03000000u || desc.start == 0x02000000u ||
+            desc.start == kGbaIoBase) {
+            push(static_cast<uint8_t*>(desc.ptr));
+        }
+    }
+    push(reinterpret_cast<uint8_t*>(io));
+}
+
+bool gba_sio_locate_event(uint8_t* base, uint16_t* io, GbaSioLive* out) {
+    if (!base || !io || !out) return false;
+    constexpr size_t kScan = 0x40000;
+    for (size_t off = 0; off + 3 * sizeof(void*) < kScan; off += sizeof(void*)) {
+        const char* name = *reinterpret_cast<const char**>(base + off);
+        if (!readable_cstr(name, "GBA SIO Complete")) continue;
+        // mTimingEvent: context, callback, name. context is the GBASIO*.
+        uint8_t* event = base + off - 2 * sizeof(void*);
+        auto* sio = static_cast<uint8_t*>(*reinterpret_cast<void**>(event));
+        if (!sio_bind_fields(sio, io, out)) continue;
+        return true;
+    }
+    return false;
+}
+
+bool gba_sio_locate_struct(uint8_t* base, uint16_t* io, GbaSioLive* out) {
+    if (!base || !io || !out) return false;
+    constexpr size_t kScan = 0x40000;
+    for (size_t off = 0; off + 3 * sizeof(void*) < kScan; off += sizeof(void*)) {
+        if (sio_bind_fields(base + off, io, out)) return true;
+    }
+    return false;
+}
+
 bool gba_sio_locate(uint16_t* io, GbaSioLive* out) {
     if (!io || !out) return false;
     if (g_gba_sio.sio && g_gba_sio.io == io && sio_bind_fields(g_gba_sio.sio, io, out)) {
         return true;
     }
-    uint8_t* bases[3] = {nullptr, reinterpret_cast<uint8_t*>(io), nullptr};
-    int nbase = 2;
-    for (const auto& desc : g_mmap_descriptors) {
-        if (desc.start == 0x07000000u && desc.ptr) {
-            bases[0] = static_cast<uint8_t*>(desc.ptr);
-            break;
-        }
-    }
-    if (!bases[0]) {
-        bases[0] = bases[1];
-        nbase = 1;
-    }
-    constexpr size_t kScan = 0x40000;
+    if (g_sio_locate_missed) return false;
+    uint8_t* bases[8] = {};
+    int nbase = 0;
+    gba_sio_collect_bases(io, bases, &nbase);
     for (int b = 0; b < nbase; ++b) {
-        uint8_t* base = bases[b];
-        if (!base) continue;
-        for (size_t off = 0; off + 3 * sizeof(void*) < kScan; off += sizeof(void*)) {
-            const char* name = *reinterpret_cast<const char**>(base + off);
-            if (!readable_cstr(name, "GBA SIO Complete")) continue;
-            uint8_t* event = base + off - 2 * sizeof(void*);
-            auto* sio = static_cast<uint8_t*>(*reinterpret_cast<void**>(event));
-            if (!sio_bind_fields(sio, io, out)) continue;
-            return true;
-        }
+        if (gba_sio_locate_event(bases[b], io, out)) return true;
     }
+    for (int b = 0; b < nbase; ++b) {
+        if (gba_sio_locate_struct(bases[b], io, out)) return true;
+    }
+    g_sio_locate_missed = true;
     return false;
 }
 
@@ -1378,8 +1412,9 @@ int sio_connected_count() {
     for (int i = 0; i < 4; ++i) {
         if (g_sio_multi[i].load(std::memory_order_relaxed) != 0xFFFF) ++n;
     }
+    if (g_sio_link_on.load(std::memory_order_relaxed) && n < 2) n = 2;
     if (n < 1) n = 1;
-    if (n > 3) n = 3;
+    if (n > 4) n = 4;
     return n;
 }
 
@@ -1403,6 +1438,8 @@ uint16_t driver_write_siocnt(XoraGbaSioDriver*, uint16_t value) {
 uint16_t driver_write_rcnt(XoraGbaSioDriver*, uint16_t value) {
     return static_cast<uint16_t>((value & ~0x0004u) | 0x000Au);
 }
+// true = mGBA schedules completeEvent / finishMultiplayer. false would mean
+// "the driver finishes the transfer itself", which left BUSY set forever.
 bool driver_start(XoraGbaSioDriver*) { return true; }
 void driver_finish_mp(XoraGbaSioDriver*, uint16_t data[4]) {
     if (!data) return;
@@ -1446,7 +1483,11 @@ void gba_sio_apply_live(const GbaSioLive& live) {
         live.io[kGbaRegSiomltSend] = g_sio_multi[id].load(std::memory_order_relaxed);
     }
     for (int i = 0; i < 4; ++i) {
-        live.io[kGbaRegSiomulti0 + i] = g_sio_multi[i].load(std::memory_order_relaxed);
+        uint16_t word = g_sio_multi[i].load(std::memory_order_relaxed);
+        if (word == 0xFFFF && g_sio_link_on.load(std::memory_order_relaxed) && i < 2) {
+            word = 0;
+        }
+        live.io[kGbaRegSiomulti0 + i] = word;
     }
 
     uint16_t rcnt = live.rcnt ? *live.rcnt : live.io[kGbaRegRcnt];
@@ -1456,10 +1497,15 @@ void gba_sio_apply_live(const GbaSioLive& live) {
 
     uint16_t cnt = live.siocnt ? *live.siocnt : live.io[kGbaRegSiocnt];
     if ((cnt & kGbaSiocntModeMask) == kGbaSiocntMulti) {
-        cnt = static_cast<uint16_t>(cnt & ~0x00FCu); // SI, SD, ID, error, busy
+        // Keep BUSY (bit 7) and ERROR (bit 6). Clearing BUSY every poll aborted
+        // MULTI transfers and left games stuck on TRANSMITTING.
+        cnt = static_cast<uint16_t>(cnt & ~0x003Cu); // SI, SD, ID
         cnt = static_cast<uint16_t>(cnt | 0x0008u | ((id & 3) << 4));
-        if (id != 0) cnt = static_cast<uint16_t>(cnt | 0x0004u);
-        live.io[kGbaRegIf] = static_cast<uint16_t>(live.io[kGbaRegIf] | kGbaSioIrqBit);
+        if (id != 0) {
+            cnt = static_cast<uint16_t>(cnt | 0x0004u);
+        } else {
+            cnt = static_cast<uint16_t>(cnt & ~0x0004u);
+        }
     } else {
         cnt = static_cast<uint16_t>(cnt & ~0x0004u);
     }
@@ -1487,12 +1533,17 @@ void gba_sio_refresh(uint16_t* io) {
     gba_sio_apply_live(live);
 }
 
-void xora_gba_sio_reset() {
+void xora_gba_sio_drop_hook() {
     g_gba_sio = GbaSioLive{};
+    g_sio_logged_hook = false;
+    g_sio_locate_missed = false;
+}
+
+void xora_gba_sio_reset() {
+    xora_gba_sio_drop_hook();
     g_sio_link_on.store(false, std::memory_order_relaxed);
     g_sio_local_id.store(0, std::memory_order_relaxed);
     for (auto& slot : g_sio_multi) slot.store(0xFFFF, std::memory_order_relaxed);
-    g_sio_logged_hook = false;
     g_sio_driver.p = nullptr;
 }
 
@@ -1548,6 +1599,19 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioApply(
     }
     g_sio_link_on.store(true, std::memory_order_relaxed);
     gba_sio_refresh(io);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioSetEnabled(
+    JNIEnv*,
+    jclass,
+    jboolean enabled
+) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_sio_link_on.store(enabled == JNI_TRUE, std::memory_order_relaxed);
+    if (enabled != JNI_TRUE) return;
+    uint16_t* io = gba_io_regs();
+    if (io) gba_sio_refresh(io);
 }
 
 extern "C" JNIEXPORT void JNICALL
