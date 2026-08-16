@@ -322,6 +322,14 @@ object XoraNetplayProtocol {
         return cleaned.takeIf { it.length == SESSION_CODE_LENGTH }
     }
 
+    /** Finds a 6-character session code inside free text (inbox bodies, pasted lines). */
+    fun extractSessionCode(raw: String): String? {
+        normalizeSessionCode(raw)?.let { return it }
+        val upper = raw.uppercase()
+        val match = Regex("[$SESSION_CODE_ALPHABET]{$SESSION_CODE_LENGTH}").find(upper) ?: return null
+        return match.value
+    }
+
     fun filterSessionCodeDraft(raw: String): String =
         raw.uppercase().filter { it in SESSION_CODE_ALPHABET }.take(SESSION_CODE_LENGTH)
 

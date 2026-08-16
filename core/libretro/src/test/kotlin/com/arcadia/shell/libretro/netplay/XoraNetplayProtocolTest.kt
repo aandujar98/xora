@@ -167,6 +167,9 @@ class XoraNetplayProtocolTest {
         assertEquals("K7M2QX", XoraNetplayProtocol.filterSessionCodeDraft("k7m2qx extra"))
         assertEquals("K7M2Q", XoraNetplayProtocol.filterSessionCodeDraft("K7M2Q"))
         assertEquals("", XoraNetplayProtocol.filterSessionCodeDraft(""))
+        assertEquals("K7M2QX", XoraNetplayProtocol.extractSessionCode("code K7M2QX now"))
+        assertEquals("K7M2QX", XoraNetplayProtocol.extractSessionCode("k7m-2qx"))
+        assertEquals(null, XoraNetplayProtocol.extractSessionCode("no code here"))
         assertEquals(
             "xora-np-K7M2QX",
             XoraNetplayProtocol.matchNameForSessionCode("K7M2QX"),

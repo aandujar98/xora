@@ -280,7 +280,7 @@ data class HomeUiState(
     val profileEditRequest: Int = 0,
     /** Wake/resume greeting overlay on the primary display. */
     val welcomeBackOpen: Boolean = false,
-    /** Latest online netplay invite waiting for Join / Not now. */
+    /** Latest online netplay invite waiting for Accept / Decline. */
     val pendingNetplayInvite: NetplayInvitePrompt? = null,
     val netplayInvitePromptOpen: Boolean = false,
 ) {

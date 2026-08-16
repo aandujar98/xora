@@ -572,18 +572,9 @@ class XoraLibretroActivity : ComponentActivity() {
                             center = shellNotifications,
                             onActivate = { notification ->
                                 if (notification is ShellNotification.XoraNetplayInvite) {
-                                    pendingInvitePrompt = NetplayInvitePrompt(
-                                        hostName = notification.displayName
-                                            .ifBlank { notification.fromUsername }
-                                            .ifBlank { "a friend" },
-                                        gameTitle = notification.gameTitle,
-                                        sessionCode = notification.sessionCode,
-                                        platformId = notification.platformId,
-                                        coreName = notification.coreName,
-                                        fromUsername = notification.fromUsername
-                                            .ifBlank { notification.displayName },
-                                    )
+                                    pendingInvitePrompt = promptFromNotification(notification)
                                     invitePromptOpen = true
+                                    syncDialogOverlay()
                                 }
                             },
                         )
@@ -743,11 +734,14 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                var ticks = 0
                 while (isActive) {
                     if (xoraNetwork.state.value.signedIn) {
+                        if (ticks % 4 == 0) xoraNetwork.refreshFriends()
                         xoraNetwork.refreshNetplayInvites()
                     }
-                    delay(15_000)
+                    ticks++
+                    delay(4_000)
                 }
             }
         }
@@ -871,6 +865,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_BUTTON_B)
                 ) {
                     invitePromptOpen = true
+                    syncDialogOverlay()
                     return true
                 }
                 if (event.repeatCount > 0 && keyCode !in chordKeys) {
@@ -896,6 +891,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         handleInGameXmbKey(keyCode)
                     } else if (pendingInvitePrompt != null) {
                         invitePromptOpen = true
+                        syncDialogOverlay()
                     } else {
                         toggleMenu()
                     }
@@ -1305,7 +1301,10 @@ class XoraLibretroActivity : ComponentActivity() {
                 shellNotifications.clearHistory()
                 showMenuMessage("Notifications cleared")
             }
-            EmulatorMenuAction.NotificationsSeen -> shellNotifications.markAllRead()
+            EmulatorMenuAction.NotificationsSeen -> {
+                shellNotifications.markAllRead()
+                lifecycleScope.launch { xoraNetwork.refreshNetplayInvites() }
+            }
         }
     }
 
@@ -1339,27 +1338,45 @@ class XoraLibretroActivity : ComponentActivity() {
         if (!show) keepProfileChipOnTop()
     }
 
-    /** A on a notification row: netplay invites open the Join / Not now window. */
+    /** A on a notification row: netplay invites open Accept / Decline. */
     private fun openNotificationFromMenu(id: String) {
         val item = notificationHistory.firstOrNull { it.notification.id == id } ?: return
         val notification = item.notification
         if (notification is ShellNotification.XoraNetplayInvite) {
-            pendingInvitePrompt = NetplayInvitePrompt(
-                hostName = notification.displayName
-                    .ifBlank { notification.fromUsername }
-                    .ifBlank { "a friend" },
-                gameTitle = notification.gameTitle,
-                sessionCode = notification.sessionCode,
-                platformId = notification.platformId,
-                coreName = notification.coreName,
-                fromUsername = notification.fromUsername.ifBlank { notification.displayName },
-            )
+            pendingInvitePrompt = promptFromNotification(notification)
             invitePromptOpen = true
             closeMenu()
+            syncDialogOverlay()
         } else {
             shellNotifications.removeFromHistory(id)
             showMenuMessage("Notification cleared")
         }
+    }
+
+    private fun promptFromNotification(
+        notification: ShellNotification.XoraNetplayInvite,
+    ): NetplayInvitePrompt {
+        val live = xoraNetwork.state.value.netplayInvites
+        val match = live.firstOrNull { invite ->
+            invite.fromUsername.equals(notification.fromUsername, ignoreCase = true) ||
+                invite.fromUsername.equals(notification.displayName, ignoreCase = true) ||
+                invite.fromDisplayName.equals(notification.displayName, ignoreCase = true)
+        } ?: live.maxByOrNull { it.createdAtMs }
+        val code = XoraNetplayProtocol.normalizeSessionCode(notification.sessionCode)
+            ?: match?.code?.let { XoraNetplayProtocol.normalizeSessionCode(it) }
+            ?: XoraNetplayProtocol.extractSessionCode(notification.gameTitle)
+            ?: ""
+        return NetplayInvitePrompt(
+            hostName = notification.displayName
+                .ifBlank { notification.fromUsername }
+                .ifBlank { match?.fromDisplayName.orEmpty() }
+                .ifBlank { "a friend" },
+            gameTitle = notification.gameTitle.ifBlank { match?.gameTitle.orEmpty() },
+            sessionCode = code,
+            platformId = notification.platformId.ifBlank { match?.platformId.orEmpty() },
+            coreName = notification.coreName.ifBlank { match?.coreName.orEmpty() },
+            fromUsername = notification.fromUsername.ifBlank { notification.displayName },
+        )
     }
 
     private fun resetGameFromMenu() {
@@ -1602,7 +1619,7 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun offerNetplayInvite(invite: XoraNetplayInviteRecord) {
         if (!gameLoaded) return
-        if (netplayUi.linked || netplayUi.online) return
+        if (netplayUi.linked) return
         val prompt = NetplayInvitePrompt(
             hostName = invite.fromDisplayName.ifBlank { invite.fromUsername }.ifBlank { "a friend" },
             gameTitle = invite.gameTitle,
@@ -1629,12 +1646,24 @@ class XoraLibretroActivity : ComponentActivity() {
         val prompt = pendingInvitePrompt ?: return
         invitePromptOpen = false
         pendingInvitePrompt = null
+        syncDialogOverlay()
         if (menuOpen) closeMenu()
+        val hydrated = promptFromNotification(
+            ShellNotification.XoraNetplayInvite(
+                id = "xora-netplay-join:${prompt.sessionCode}",
+                displayName = prompt.hostName,
+                gameTitle = prompt.gameTitle,
+                sessionCode = prompt.sessionCode,
+                platformId = prompt.platformId,
+                coreName = prompt.coreName,
+                fromUsername = prompt.fromUsername,
+            ),
+        )
         acceptNetplayInvite(
-            code = prompt.sessionCode,
-            platformId = prompt.platformId,
-            gameTitle = prompt.gameTitle,
-            fromUsername = prompt.fromUsername.ifBlank { prompt.hostName },
+            code = hydrated.sessionCode,
+            platformId = hydrated.platformId,
+            gameTitle = hydrated.gameTitle,
+            fromUsername = hydrated.fromUsername.ifBlank { hydrated.hostName },
         )
     }
 
@@ -1676,7 +1705,13 @@ class XoraLibretroActivity : ComponentActivity() {
             showMenuMessage("You are hosting — disconnect to join someone else")
             return
         }
-        val normalized = XoraNetplayProtocol.normalizeSessionCode(code) ?: return
+        val normalized = XoraNetplayProtocol.normalizeSessionCode(code)
+            ?: XoraNetplayProtocol.extractSessionCode(code)
+        if (normalized == null) {
+            showMenuMessage("That invite is missing a session code. Open Notifications and try again.")
+            lifecycleScope.launch { xoraNetwork.refreshNetplayInvites() }
+            return
+        }
         val consumeKey = inviteConsumeKey(fromUsername, normalized)
         if (consumeKey in consumedNetplayInviteKeys) return
         val platformOk = platformId.isBlank() || platformId.equals(this.platformId, ignoreCase = true)
@@ -2497,7 +2532,10 @@ class XoraLibretroActivity : ComponentActivity() {
     override fun onBackPressed() {
         when {
             invitePromptOpen -> dismissInvitePrompt()
-            pendingInvitePrompt != null -> invitePromptOpen = true
+            pendingInvitePrompt != null -> {
+                invitePromptOpen = true
+                syncDialogOverlay()
+            }
             else -> toggleMenu()
         }
     }

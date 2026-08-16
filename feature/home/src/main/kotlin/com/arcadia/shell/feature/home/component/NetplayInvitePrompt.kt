@@ -84,7 +84,7 @@ fun NetplayInvitePromptDialog(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "Join ${current.hostName}'s session?",
+                    text = "${current.hostName.ifBlank { "A friend" }} invited you to play",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = glass.content,
@@ -92,7 +92,7 @@ fun NetplayInvitePromptDialog(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = current.gameTitle.ifBlank { "Online session" },
+                    text = current.gameTitle.ifBlank { "an online session" },
                     style = MaterialTheme.typography.bodyMedium,
                     color = glass.contentMuted,
                     maxLines = 2,
@@ -103,14 +103,14 @@ fun NetplayInvitePromptDialog(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     PromptButton(
-                        label = "Not now",
+                        label = "Decline",
                         hint = "B",
                         filled = false,
                         onClick = onDecline,
                         modifier = Modifier.weight(1f),
                     )
                     PromptButton(
-                        label = "Join",
+                        label = "Accept",
                         hint = "A",
                         filled = true,
                         onClick = onJoin,

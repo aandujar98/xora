@@ -10,6 +10,13 @@ data class ShellNotificationCopy(
     val subtitle: String,
 )
 
+/** Banner / overlay line: `"pal invited you to play Pokémon FireRed"`. */
+fun netplayInviteHeadline(displayName: String, gameTitle: String): String {
+    val who = displayName.trim().ifBlank { "A friend" }
+    val game = gameTitle.trim().ifBlank { "a game" }
+    return "$who invited you to play $game"
+}
+
 fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
     is ShellNotification.AchievementUnlocked -> {
         val points = points?.takeIf { it > 0 }?.let { "$it pts" }
@@ -63,8 +70,8 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
 
     is ShellNotification.XoraNetplayInvite -> ShellNotificationCopy(
         category = "Netplay",
-        body = "Invited you to play ${gameTitle.ifBlank { "a game" }}",
-        subtitle = "$displayName · XOrA Network",
+        body = netplayInviteHeadline(displayName, gameTitle),
+        subtitle = "XOrA Network",
     )
 
     is ShellNotification.XoraSessionJoined -> ShellNotificationCopy(

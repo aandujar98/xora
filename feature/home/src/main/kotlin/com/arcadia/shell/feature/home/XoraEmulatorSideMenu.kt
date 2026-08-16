@@ -118,7 +118,7 @@ sealed class EmulatorMenuAction {
     data class MessageFriendComingSoon(val username: String) : EmulatorMenuAction()
     /** Opens the Player 2–4 seat picker (taken seats greyed out) for online joiners. */
     data object ChoosePlayerSeat : EmulatorMenuAction()
-    /** A on a notification row — netplay invites open the Join / Not now window. */
+    /** A on a notification row — netplay invites open Accept / Decline. */
     data class OpenNotification(val id: String) : EmulatorMenuAction()
     data object ClearAllNotifications : EmulatorMenuAction()
     /** Fired when the Notifications pane opens so unread counts reset. */
@@ -247,7 +247,7 @@ fun XoraEmulatorSideMenu(
                 id = "notifs",
                 title = "Notifications",
                 subtitle = when {
-                    notificationUnread > 0 -> "$notificationUnread unread · Netplay invites land here"
+                    notificationUnread > 0 -> "$notificationUnread unread · Invites land here"
                     notifications.isNotEmpty() -> "${notifications.size} recent"
                     else -> "Invites and alerts land here"
                 },
@@ -1107,7 +1107,7 @@ private fun paneRows(
                         id = "ntf-${item.notification.id}",
                         title = copy.body.ifBlank { copy.category },
                         subtitle = if (invite) {
-                            "Netplay invite · A opens Join / Not now"
+                            "A · Accept or decline"
                         } else {
                             listOf(copy.category, copy.subtitle)
                                 .filter { it.isNotBlank() }

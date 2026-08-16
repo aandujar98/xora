@@ -57,8 +57,8 @@ sealed interface ShellNotification {
     ) : ShellNotification
 
     /**
-     * A friend invited this account to a Netplay session. Tapping the banner or pressing Back
-     * opens a Join / Not now window — it does not auto-join.
+     * A friend invited this account to a Netplay session. Tapping the banner or opening
+     * Notifications shows Accept / Decline — it does not auto-join.
      */
     data class XoraNetplayInvite(
         override val id: String,

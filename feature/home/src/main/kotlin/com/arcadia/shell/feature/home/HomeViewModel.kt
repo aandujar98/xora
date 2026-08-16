@@ -24,6 +24,7 @@ import com.arcadia.shell.datastore.HomeThemeMediaStore
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.libretro.GameSaveCatalog
 import com.arcadia.shell.libretro.GameSaveEntry
+import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.MAX_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.MIN_HOME_SHORTCUT_GRID_COLUMNS
@@ -968,6 +969,21 @@ class HomeViewModel @Inject constructor(
                     }
             }
         }
+        viewModelScope.launch {
+            appForegroundTracker.isForeground.collectLatest { foreground ->
+                if (!foreground) return@collectLatest
+                xoraNetwork.state
+                    .map { it.signedIn }
+                    .distinctUntilChanged()
+                    .collectLatest { signedIn ->
+                        if (!signedIn) return@collectLatest
+                        while (isActive) {
+                            delay(XORA_NETPLAY_INVITE_POLL_MS)
+                            xoraNetwork.refreshNetplayInvites()
+                        }
+                    }
+            }
+        }
         // Live chat: while an XOrA DM is open in the foreground, poll that thread so the peer's
         // replies appear in place. Banners are suppressed for the open peer, so without this the
         // conversation looked dead — both sides thought messages weren't going through.
@@ -1429,14 +1445,26 @@ class HomeViewModel @Inject constructor(
             val avatarUrl = XoraNetworkClient.avatarUrlFor(item.fromUsername)
             val sender = item.fromDisplayName.ifBlank { item.fromUsername }
             when {
-                item.type.contains("netplay", ignoreCase = true) -> shellNotifications.emit(
-                    ShellNotification.XoraNetplayInvite(
-                        id = "xora-netplay:$key",
-                        displayName = sender,
-                        gameTitle = item.body,
-                        avatarUrl = avatarUrl,
-                    ),
-                )
+                item.type.contains("netplay", ignoreCase = true) -> {
+                    val live = network.netplayInvites.firstOrNull { invite ->
+                        invite.fromUsername.equals(item.fromUsername, ignoreCase = true)
+                    } ?: network.netplayInvites.maxByOrNull { it.createdAtMs }
+                    val code = live?.code?.let { XoraNetplayProtocol.normalizeSessionCode(it) }
+                        ?: XoraNetplayProtocol.extractSessionCode(item.body)
+                        ?: ""
+                    shellNotifications.emit(
+                        ShellNotification.XoraNetplayInvite(
+                            id = "xora-netplay:$key",
+                            displayName = sender,
+                            gameTitle = live?.gameTitle?.ifBlank { item.body } ?: item.body,
+                            avatarUrl = avatarUrl,
+                            sessionCode = code,
+                            platformId = live?.platformId.orEmpty(),
+                            coreName = live?.coreName.orEmpty(),
+                            fromUsername = item.fromUsername.ifBlank { live?.fromUsername.orEmpty() },
+                        ),
+                    )
+                }
                 item.isFriendRequest -> {
                     if (fromKey !in announcedRequests) {
                         shellNotifications.emit(
@@ -1539,18 +1567,35 @@ class HomeViewModel @Inject constructor(
 
     fun openNetplayInvitePrompt(notification: ShellNotification.XoraNetplayInvite) {
         noteUserActivity()
-        pendingNetplayInvite.value = NetplayInvitePrompt(
-            hostName = notification.displayName.ifBlank { notification.fromUsername }
-                .ifBlank { "a friend" },
-            gameTitle = notification.gameTitle,
-            sessionCode = notification.sessionCode.trim(),
-            platformId = notification.platformId,
-            coreName = notification.coreName,
-            fromUsername = notification.fromUsername.ifBlank { notification.displayName },
-        )
+        pendingNetplayInvite.value = promptFromNotification(notification)
         netplayInvitePromptOpen.value = true
         closeNotificationHistory()
         shellNotifications.dismiss()
+    }
+
+    private fun promptFromNotification(
+        notification: ShellNotification.XoraNetplayInvite,
+    ): NetplayInvitePrompt {
+        val live = xoraNetwork.state.value.netplayInvites
+        val match = live.firstOrNull { invite ->
+            invite.fromUsername.equals(notification.fromUsername, ignoreCase = true) ||
+                invite.fromUsername.equals(notification.displayName, ignoreCase = true) ||
+                invite.fromDisplayName.equals(notification.displayName, ignoreCase = true)
+        } ?: live.maxByOrNull { it.createdAtMs }
+        val code = XoraNetplayProtocol.normalizeSessionCode(notification.sessionCode)
+            ?: match?.code?.let { XoraNetplayProtocol.normalizeSessionCode(it) }
+            ?: XoraNetplayProtocol.extractSessionCode(notification.gameTitle)
+            ?: XoraNetplayProtocol.extractSessionCode(notification.sessionCode)
+            ?: ""
+        return NetplayInvitePrompt(
+            hostName = notification.displayName.ifBlank { notification.fromUsername }
+                .ifBlank { "a friend" },
+            gameTitle = notification.gameTitle.ifBlank { match?.gameTitle.orEmpty() },
+            sessionCode = code,
+            platformId = notification.platformId.ifBlank { match?.platformId.orEmpty() },
+            coreName = notification.coreName.ifBlank { match?.coreName.orEmpty() },
+            fromUsername = notification.fromUsername.ifBlank { notification.displayName },
+        )
     }
 
     fun confirmNetplayInvitePrompt() {
@@ -1581,29 +1626,32 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun joinNetplayInvite(notification: ShellNotification.XoraNetplayInvite) {
-        val code = notification.sessionCode.trim()
-        if (code.length != 6) {
-            emit(HomeEvent.ShowMessage("That invite doesn't include a session code yet."))
+        val hydrated = promptFromNotification(notification)
+        val code = XoraNetplayProtocol.normalizeSessionCode(hydrated.sessionCode)
+            ?: XoraNetplayProtocol.extractSessionCode(hydrated.sessionCode)
+        if (code == null) {
+            emit(HomeEvent.ShowMessage("That invite is missing a session code. Try again in a moment."))
+            xoraNetwork.refreshNetplayInvites()
             return
         }
         persistPendingNetplayJoin(
             XoraNetplayInviteRecord(
                 code = code,
                 toUsername = xoraNetwork.state.value.account?.username.orEmpty(),
-                gameTitle = notification.gameTitle,
-                platformId = notification.platformId,
-                coreName = notification.coreName,
-                fromUsername = notification.fromUsername.ifBlank { notification.displayName },
-                fromDisplayName = notification.displayName,
+                gameTitle = hydrated.gameTitle,
+                platformId = hydrated.platformId,
+                coreName = hydrated.coreName,
+                fromUsername = hydrated.fromUsername.ifBlank { hydrated.hostName },
+                fromDisplayName = hydrated.hostName,
                 createdAtMs = System.currentTimeMillis(),
             ),
         )
-        val game = findGameForNetplayInvite(notification.platformId, notification.gameTitle)
+        val game = findGameForNetplayInvite(hydrated.platformId, hydrated.gameTitle)
         if (game != null) {
             launchGame(game)
         } else {
-            val from = notification.displayName.ifBlank { "your friend" }
-            val title = notification.gameTitle.ifBlank { "that game" }
+            val from = hydrated.hostName.ifBlank { "your friend" }
+            val title = hydrated.gameTitle.ifBlank { "that game" }
             emit(HomeEvent.ShowMessage("Launch $title to join ${from}'s session."))
         }
     }
@@ -7474,6 +7522,8 @@ class HomeViewModel @Inject constructor(
         const val XORA_SOCIAL_POLL_MS = 60_000L
         /** Website DMs land in `/api/notifications`; poll faster than the site's 30s bell. */
         const val XORA_INBOX_POLL_MS = 20_000L
+        /** Nakama invite outbox — faster than the website inbox so session codes land quickly. */
+        const val XORA_NETPLAY_INVITE_POLL_MS = 5_000L
         /** Open-conversation refresh — chat cadence, only while the DM pane is on screen. */
         const val XORA_DM_POLL_MS = 4_000L
         /** Ignore brief pauses (permission sheets, quick app switches). */
