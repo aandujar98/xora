@@ -48,7 +48,9 @@ class XoraNetplayBannerTest {
             padLive = true,
             gameTitle = "Super Mario Kart",
         )
-        assertTrue(text.startsWith("You are Player 2 · input"))
+        assertTrue(text.startsWith("You are Player 2"))
+        assertTrue(!text.contains("input"))
+        assertTrue(!text.contains("no input"))
         assertTrue(text.contains("2 PLAYER GAME"))
         assertTrue(text.contains("1 PLAYER Grand Prix"))
     }
@@ -65,7 +67,8 @@ class XoraNetplayBannerTest {
             gameTitle = "Super Mario Kart",
             hasController = false,
         )
-        assertTrue(text.startsWith("You are Player 2 · no input"))
+        assertTrue(text.startsWith("You are Player 2"))
+        assertTrue(!text.contains("no input"))
         assertTrue(text.contains("on-screen pad"))
         assertTrue(text.contains("bottom"))
     }
@@ -83,7 +86,9 @@ class XoraNetplayBannerTest {
             hasController = true,
             lastKey = "",
         )
-        assertTrue(text.startsWith("You are Player 2 · no input"))
+        assertTrue(text.startsWith("You are Player 2"))
+        assertTrue(!text.contains("no input"))
+        assertTrue(!text.contains(" · input"))
         assertTrue(text.contains("host"))
         assertTrue(!text.contains("on-screen pad"))
         assertTrue(!text.contains("bottom of this phone"))
@@ -121,9 +126,10 @@ class XoraNetplayBannerTest {
             lastKey = "Button A",
             sharedConsole = false,
         )
-        assertTrue(text.contains("Button A"))
         assertTrue(text.contains("Game Link"))
         assertTrue(!text.contains("2 PLAYER GAME"))
+        assertTrue(!text.contains("Button A"))
+        assertTrue(!text.contains("no input"))
     }
 
     @Test

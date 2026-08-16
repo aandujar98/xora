@@ -47,17 +47,15 @@ data class XoraNetplayUiState(
 /** On-game netplay strip. Status used to live only in the pause menu, so a failed join looked like nothing. */
 fun netplayBannerText(
     ui: XoraNetplayUiState,
-    padLive: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") padLive: Boolean = false,
     gameTitle: String = "",
     hasController: Boolean = true,
-    lastKey: String = "",
+    @Suppress("UNUSED_PARAMETER") lastKey: String = "",
     sharedConsole: Boolean = true,
 ): String {
     ui.error?.takeIf { it.isNotBlank() }?.let { return it }
     if (ui.linked && ui.playerSlot >= 1) {
-        val who = "You are Player ${ui.playerSlot}" +
-            if (padLive) " · input" else " · no input"
-        val lines = mutableListOf(who)
+        val lines = mutableListOf("You are Player ${ui.playerSlot}")
         if (ui.playerSlot >= 2) {
             if (sharedConsole) {
                 lines += "One game on the host. Your pad is Player ${ui.playerSlot} on that session."
@@ -65,17 +63,6 @@ fun netplayBannerText(
             if (hasController) {
                 if (!sharedConsole) {
                     lines += "This device is your Game Boy. The other player has theirs."
-                }
-                when {
-                    padLive -> Unit
-                    lastKey.startsWith("unmapped") ->
-                        lines += "Last key $lastKey — remap it in Gamepad settings."
-                    lastKey.isNotBlank() && sharedConsole ->
-                        lines += "Last key $lastKey — if the racer still sits, pick 2 PLAYER GAME."
-                    lastKey.isNotBlank() ->
-                        lines += "Last key $lastKey — this pad drives this Game Boy."
-                    else ->
-                        lines += "Press a face button or D-pad. Touch controls stay hidden while this pad is connected."
                 }
             } else {
                 lines += "Press the on-screen pad at the bottom of this phone."
