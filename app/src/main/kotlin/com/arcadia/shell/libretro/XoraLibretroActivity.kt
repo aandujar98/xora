@@ -119,6 +119,7 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
@@ -179,6 +180,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var netplayTouchPad: NetplayTouchPadView? = null
     @Volatile private var lastNetplayHud = ""
     @Volatile private var netplayPadLive = false
+    private val netplayTouchButtons = AtomicInteger(0)
     private var profileName by mutableStateOf("Player")
     /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
     private var menuMessage by mutableStateOf<String?>(null)
@@ -1894,8 +1896,9 @@ class XoraLibretroActivity : ComponentActivity() {
         if (root.getChildAt(root.childCount - 1) !== chip) {
             chip.bringToFront()
         }
-        netplayTouchPad?.takeIf { it.visibility == View.VISIBLE }?.bringToFront()
         netplayHud?.takeIf { it.visibility == View.VISIBLE }?.bringToFront()
+        // Last so bottom taps hit the pad, not the SNES bezel / game ImageView.
+        netplayTouchPad?.takeIf { it.visibility == View.VISIBLE }?.bringToFront()
     }
 
     private fun createProfileChip(): FrameLayout {
@@ -1990,12 +1993,19 @@ class XoraLibretroActivity : ComponentActivity() {
             netplayTouchPad = this
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                (176 * density).toInt(),
+                (220 * density).toInt(),
                 Gravity.BOTTOM,
             )
             visibility = View.GONE
+            elevation = 40f * density
             onButtonsChanged = { buttons ->
+                netplayTouchButtons.set(buttons)
                 padMixer.setDigital(NetplayTouchPadView.DEVICE_ID, buttons)
+                val live = buttons != 0
+                if (live != netplayPadLive) {
+                    netplayPadLive = live
+                    refreshNetplayBanner()
+                }
             }
         }
     }
@@ -2006,12 +2016,17 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun syncTouchPad() {
-        val show = netplayUi.linked && LibretroPad.connectedControllers().isEmpty()
+        // Joiners always get a pad: Android often reports a phantom joystick and we used
+        // to hide the overlay, so taps on the game never reached Player 2.
+        val show = netplayUi.linked && netplayUi.playerSlot >= 2
         val pad = netplayTouchPad ?: return
         val next = if (show) View.VISIBLE else View.GONE
         if (pad.visibility != next) {
             pad.visibility = next
-            if (!show) padMixer.forget(NetplayTouchPadView.DEVICE_ID)
+            if (!show) {
+                netplayTouchButtons.set(0)
+                padMixer.forget(NetplayTouchPadView.DEVICE_ID)
+            }
         }
         refreshNetplayBanner()
     }
@@ -2162,12 +2177,17 @@ class XoraLibretroActivity : ComponentActivity() {
                         // Each device is one netplay seat: merge every local pad into this
                         // player's slot. Overlay / seat-picker / invite must not drive the game.
                         val overlayBlocksGamePad = invitePromptOpen
-                        val local = if (overlayBlocksGamePad) {
+                        val mixer = if (overlayBlocksGamePad) {
                             LibretroPadMixer.Snapshot()
                         } else {
                             padMixer.snapshot()
                         }
-                        val mute = xoraSettings.netplaySpectator && !session.hosting
+                        val touch = netplayTouchButtons.get()
+                        val local = mixer.copy(buttons = mixer.buttons or touch)
+                        // Assigned seats always send; Spectator used to mute P2 after a join.
+                        val mute = xoraSettings.netplaySpectator &&
+                            !session.hosting &&
+                            session.playerSlotNow < 2
                         val frameIndex = session.nextFrameIndex()
                         val sent = XoraNetplayProtocol.PadFrame(
                             frame = frameIndex,

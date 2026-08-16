@@ -55,7 +55,9 @@ fun netplayBannerText(
         val who = "You are Player ${ui.playerSlot}" +
             if (padLive) " · input" else " · no input"
         val lines = mutableListOf(who)
-        if (!hasController) {
+        if (ui.playerSlot >= 2) {
+            lines += "Press the on-screen pad at the bottom of this phone."
+        } else if (!hasController) {
             lines += "This phone has no controller. Use the touch pad, or plug one in."
         }
         lines += twoPlayerModeHint(gameTitle)

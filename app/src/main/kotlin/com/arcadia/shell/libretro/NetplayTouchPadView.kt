@@ -47,6 +47,8 @@ class NetplayTouchPadView @JvmOverloads constructor(
         isFocusable = false
         isFocusableInTouchMode = false
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        setWillNotDraw(false)
+        elevation = 32f * resources.displayMetrics.density
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -80,6 +82,7 @@ class NetplayTouchPadView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        parent?.requestDisallowInterceptTouchEvent(true)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN,
             MotionEvent.ACTION_MOVE,

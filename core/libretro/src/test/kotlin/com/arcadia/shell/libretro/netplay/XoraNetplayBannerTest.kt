@@ -66,8 +66,8 @@ class XoraNetplayBannerTest {
             hasController = false,
         )
         assertTrue(text.startsWith("You are Player 2 · no input"))
-        assertTrue(text.contains("no controller"))
-        assertTrue(text.contains("touch pad"))
+        assertTrue(text.contains("on-screen pad"))
+        assertTrue(text.contains("bottom"))
     }
 
     @Test
