@@ -84,9 +84,26 @@ class XoraNetplayBannerTest {
             lastKey = "",
         )
         assertTrue(text.startsWith("You are Player 2 · no input"))
-        assertTrue(text.contains("handheld"))
+        assertTrue(text.contains("host"))
         assertTrue(!text.contains("on-screen pad"))
         assertTrue(!text.contains("bottom of this phone"))
+    }
+
+    @Test
+    fun handheldJoinerMentionsSeparateGames() {
+        val text = netplayBannerText(
+            ui = XoraNetplayUiState(
+                role = XoraNetplayRole.Client,
+                linked = true,
+                playerSlot = 2,
+            ),
+            padLive = true,
+            gameTitle = "Pokemon Red",
+            hasController = true,
+            sharedConsole = false,
+        )
+        assertTrue(text.contains("your game"))
+        assertTrue(!text.contains("2 PLAYER GAME"))
     }
 
     @Test

@@ -29,6 +29,7 @@ internal class XoraNakamaNetplayLink(
     // Large enough that a brief websocket stall doesn't drop pad frames — a dropped frame
     // means every other player holds/zeroes that slot for its lockstep window.
     private val inputQueue = ArrayBlockingQueue<ByteArray>(256)
+    private val videoQueue = ArrayBlockingQueue<ByteArray>(2)
     private val inputSender = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "xora-np-input").apply { isDaemon = true }
     }
@@ -36,6 +37,17 @@ internal class XoraNakamaNetplayLink(
     init {
         inputSender.execute {
             while (!closed.get()) {
+                val video = videoQueue.poll()
+                if (video != null && !closed.get()) {
+                    runCatching {
+                        network.sendMatchData(
+                            matchId,
+                            XoraNetplayProtocol.TYPE_VIDEO,
+                            video,
+                            reliable = false,
+                        )
+                    }
+                }
                 val payload = try {
                     inputQueue.poll(50, TimeUnit.MILLISECONDS)
                 } catch (_: InterruptedException) {
@@ -57,12 +69,11 @@ internal class XoraNakamaNetplayLink(
     override fun send(type: Int, payload: ByteArray) {
         if (closed.get()) return
         if (type == XoraNetplayProtocol.TYPE_INPUT) {
-            if (closed.get()) return
-            // Never block the emu thread; drop the oldest pad if the socket is behind.
-            if (!inputQueue.offer(payload)) {
-                inputQueue.poll()
-                inputQueue.offer(payload)
-            }
+            queueLatest(inputQueue, payload)
+            return
+        }
+        if (type == XoraNetplayProtocol.TYPE_VIDEO) {
+            queueLatest(videoQueue, payload)
             return
         }
         val body = if (type == XoraNetplayProtocol.TYPE_STATE) gzip(payload) else payload
@@ -144,6 +155,14 @@ internal class XoraNakamaNetplayLink(
         if (!closed.compareAndSet(false, true)) return
         inputSender.shutdownNow()
         network.leaveMatch(matchId)
+    }
+
+    private fun queueLatest(queue: ArrayBlockingQueue<ByteArray>, payload: ByteArray) {
+        if (closed.get()) return
+        if (!queue.offer(payload)) {
+            queue.poll()
+            queue.offer(payload)
+        }
     }
 
     private fun gzip(data: ByteArray): ByteArray {

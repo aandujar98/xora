@@ -50,6 +50,7 @@ fun netplayBannerText(
     gameTitle: String = "",
     hasController: Boolean = true,
     lastKey: String = "",
+    sharedConsole: Boolean = true,
 ): String {
     ui.error?.takeIf { it.isNotBlank() }?.let { return it }
     if (ui.linked && ui.playerSlot >= 1) {
@@ -57,8 +58,13 @@ fun netplayBannerText(
             if (padLive) " · input" else " · no input"
         val lines = mutableListOf(who)
         if (ui.playerSlot >= 2) {
+            if (sharedConsole) {
+                lines += "One game on the host. Your pad is Player ${ui.playerSlot} on that session."
+            }
             if (hasController) {
-                lines += "Use this handheld's controls for Player ${ui.playerSlot}."
+                if (!sharedConsole) {
+                    lines += "This device is your game. The other player has theirs."
+                }
                 when {
                     padLive -> Unit
                     lastKey.startsWith("unmapped") ->
@@ -74,7 +80,7 @@ fun netplayBannerText(
         } else if (!hasController) {
             lines += "This phone has no controller. Use the touch pad, or plug one in."
         }
-        lines += twoPlayerModeHint(gameTitle)
+        if (sharedConsole) lines += twoPlayerModeHint(gameTitle)
         return lines.joinToString("\n")
     }
     if (ui.role != XoraNetplayRole.Idle &&
@@ -202,6 +208,10 @@ class XoraNetplaySession(
     private val lastSelfHello = AtomicReference<XoraNetplayProtocol.Hello?>(null)
     /** Token of this joiner's in-flight seat-change request (0 = none). */
     private val pendingSeatToken = AtomicInteger(0)
+    private val sessionMode = AtomicReference(NetplaySessionMode.SharedConsole)
+    private val videoSeq = AtomicInteger(0)
+    private val lastVideo = AtomicReference<XoraNetplayProtocol.VideoPacket?>(null)
+    private val lastVideoSeq = AtomicInteger(-1)
 
     val linkedNow: Boolean get() = linked.get()
     val hosting: Boolean get() = isHost.get() && running.get()
@@ -209,6 +219,20 @@ class XoraNetplaySession(
     val playerSlotNow: Int get() = mySlot.get()
     /** True while a savestate is in flight — the core must not advance. */
     val holdEmulation: Boolean get() = freezeCore.get()
+    val sessionModeNow: NetplaySessionMode get() = sessionMode.get()
+    /** Home consoles: only the host advances the core. Handhelds: every device runs its own. */
+    val runsLocalCore: Boolean
+        get() = !linked.get() ||
+            sessionMode.get() == NetplaySessionMode.HandheldLink ||
+            isHost.get()
+
+    fun setSessionMode(mode: NetplaySessionMode) {
+        sessionMode.set(mode)
+    }
+
+    fun setSessionModeFromPlatform(platformId: String) {
+        sessionMode.set(netplaySessionMode(platformId))
+    }
 
     fun host(
         port: Int,
@@ -301,7 +325,7 @@ class XoraNetplaySession(
     ) {
         stop()
         val gen = generation.get()
-        beginJoinState(applyState)
+        beginJoinState(hello, applyState)
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Client,
             status = "Connecting to $address:$port…",
@@ -331,7 +355,7 @@ class XoraNetplaySession(
     ) {
         stop()
         val gen = generation.get()
-        beginJoinState(applyState)
+        beginJoinState(hello, applyState)
         linkRef.set(link)
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Client,
@@ -373,6 +397,31 @@ class XoraNetplaySession(
         }
         collectLatestRemotePads(pads, currentEpoch, slot, idle)
         return XoraNetplayExchange(pads.toList())
+    }
+
+    fun sendVideo(jpeg: ByteArray, pcm: ShortArray) {
+        if (!isHost.get() || !linked.get()) return
+        if (sessionMode.get() != NetplaySessionMode.SharedConsole) return
+        if (jpeg.isEmpty()) return
+        val seq = videoSeq.getAndIncrement()
+        val link = linkRef.get() ?: return
+        runCatching {
+            link.send(
+                XoraNetplayProtocol.TYPE_VIDEO,
+                XoraNetplayProtocol.encodeVideo(seq, jpeg, pcm),
+            )
+        }
+    }
+
+    fun takeVideo(): XoraNetplayProtocol.VideoPacket? = lastVideo.getAndSet(null)
+
+    private fun stashVideo(payload: ByteArray) {
+        if (isHost.get()) return
+        val packet = runCatching { XoraNetplayProtocol.decodeVideo(payload) }.getOrNull() ?: return
+        val prev = lastVideoSeq.get()
+        if (packet.seq < prev) return
+        lastVideoSeq.set(packet.seq)
+        lastVideo.set(packet)
     }
 
     fun nextFrameIndex(): Int = frameCounter.getAndIncrement()
@@ -434,6 +483,9 @@ class XoraNetplaySession(
         applyStateRef.set(null)
         lastSelfHello.set(null)
         pendingSeatToken.set(0)
+        lastVideo.set(null)
+        lastVideoSeq.set(-1)
+        videoSeq.set(0)
         _state.value = XoraNetplayUiState(
             status = "Off",
             localAddresses = localIpv4Addresses(),
@@ -448,15 +500,17 @@ class XoraNetplaySession(
         running.set(true)
         isHost.set(true)
         mySlot.set(1)
+        sessionMode.set(netplaySessionMode(hello.platformId))
         maxPlayersNow.set(maxPlayers.coerceIn(2, XoraNetplayProtocol.MAX_PLAYERS))
         captureStateRef.set(captureState)
         lastSelfHello.set(hello)
     }
 
-    private fun beginJoinState(applyState: suspend (ByteArray) -> Boolean) {
+    private fun beginJoinState(hello: XoraNetplayProtocol.Hello, applyState: suspend (ByteArray) -> Boolean) {
         running.set(true)
         isHost.set(false)
         freezeCore.set(true)
+        sessionMode.set(netplaySessionMode(hello.platformId))
         applyStateRef.set(applyState)
     }
 
@@ -881,6 +935,7 @@ class XoraNetplaySession(
             }
             when (type) {
                 XoraNetplayProtocol.TYPE_INPUT -> stashRemoteInput(payload)
+                XoraNetplayProtocol.TYPE_VIDEO -> stashVideo(payload)
                 XoraNetplayProtocol.TYPE_HELLO -> {
                     if (isHost.get()) {
                         val peer = XoraNetplayProtocol.decodeHello(payload)
@@ -1169,6 +1224,10 @@ class XoraNetplaySession(
             val (type, payload) = link.receive(wait)
             if (type == XoraNetplayProtocol.TYPE_INPUT) {
                 stashRemoteInput(payload)
+                continue
+            }
+            if (type == XoraNetplayProtocol.TYPE_VIDEO) {
+                stashVideo(payload)
                 continue
             }
             return type to payload

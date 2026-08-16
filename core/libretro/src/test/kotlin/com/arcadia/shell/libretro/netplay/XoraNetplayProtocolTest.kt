@@ -176,6 +176,7 @@ class XoraNetplayProtocolTest {
         assertEquals(7, XoraNetplayProtocol.TYPE_GO)
         assertEquals(8, XoraNetplayProtocol.TYPE_ASSIGN)
         assertEquals(9, XoraNetplayProtocol.TYPE_SEAT)
+        assertEquals(10, XoraNetplayProtocol.TYPE_VIDEO)
         val generated = XoraNetplayProtocol.generateSessionCode()
         assertEquals(6, generated.length)
         assertTrue(generated.all { it in XoraNetplayProtocol.SESSION_CODE_ALPHABET })

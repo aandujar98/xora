@@ -32,6 +32,11 @@ object XoraNetplayProtocol {
     const val TYPE_ASSIGN: Int = 8
     /** Joiner → host: request a different player seat (answered with ASSIGN + a barrier GO). */
     const val TYPE_SEAT: Int = 9
+    /**
+     * Host → joiners: JPEG of the host framebuffer (+ optional PCM) so home-console
+     * sessions stay one instance. Handheld link-cable sessions do not send this.
+     */
+    const val TYPE_VIDEO: Int = 10
     const val TYPE_CHUNK: Int = 100
 
     const val SESSION_CODE_ALPHABET: String = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -219,6 +224,48 @@ object XoraNetplayProtocol {
 
     fun decodeByeSlot(payload: ByteArray): Int =
         if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0
+
+    data class VideoPacket(
+        val seq: Int,
+        val jpeg: ByteArray,
+        val pcm: ShortArray,
+    )
+
+    fun encodeVideo(seq: Int, jpeg: ByteArray, pcm: ShortArray = ShortArray(0)): ByteArray {
+        val out = ByteArray(12 + jpeg.size + pcm.size * 2)
+        writeInt(out, 0, seq)
+        writeInt(out, 4, jpeg.size)
+        writeInt(out, 8, pcm.size)
+        if (jpeg.isNotEmpty()) System.arraycopy(jpeg, 0, out, 12, jpeg.size)
+        var i = 12 + jpeg.size
+        for (sample in pcm) {
+            out[i] = (sample.toInt() and 0xFF).toByte()
+            out[i + 1] = ((sample.toInt() ushr 8) and 0xFF).toByte()
+            i += 2
+        }
+        return out
+    }
+
+    fun decodeVideo(payload: ByteArray): VideoPacket {
+        require(payload.size >= 12) { "video payload too short" }
+        val jpegLen = readInt(payload, 4).coerceAtLeast(0)
+        val pcmCount = readInt(payload, 8).coerceAtLeast(0)
+        require(payload.size >= 12 + jpegLen + pcmCount * 2) { "video payload truncated" }
+        val jpeg = if (jpegLen == 0) {
+            ByteArray(0)
+        } else {
+            payload.copyOfRange(12, 12 + jpegLen)
+        }
+        val pcm = ShortArray(pcmCount)
+        var i = 12 + jpegLen
+        for (n in 0 until pcmCount) {
+            val lo = payload[i].toInt() and 0xFF
+            val hi = payload[i + 1].toInt() and 0xFF
+            pcm[n] = ((hi shl 8) or lo).toShort()
+            i += 2
+        }
+        return VideoPacket(seq = readInt(payload, 0), jpeg = jpeg, pcm = pcm)
+    }
 
     fun slotsMaskOf(slots: Iterable<Int>): Int {
         var mask = 0

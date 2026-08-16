@@ -84,10 +84,12 @@ import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
+import com.arcadia.shell.libretro.netplay.NetplaySessionMode
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
+import com.arcadia.shell.libretro.netplay.XoraNetplayVideo
 import com.arcadia.shell.libretro.netplay.netplayBannerText
 import com.arcadia.shell.libretro.netplay.formatJoinHostPort
 import com.arcadia.shell.libretro.netplay.parseJoinHostPort
@@ -163,6 +165,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var audioTrack: AudioTrack? = null
     /** Live gameplay bitmap presented via ImageView (updated in place + invalidate). */
     private var gameBitmap: Bitmap? = null
+    private var lastRemoteBitmap: Bitmap? = null
     private var bottomBitmap by mutableStateOf<Bitmap?>(null)
     private var frameTick by mutableIntStateOf(0)
     private var primaryGameView: ImageView? = null
@@ -1700,7 +1703,9 @@ class XoraLibretroActivity : ComponentActivity() {
         raSettings = raSettings.copy(hardcore = false)
     }
 
-    private fun netplayHello() = XoraNetplayProtocol.Hello(
+    private fun netplayHello(): XoraNetplayProtocol.Hello {
+        netplaySession?.setSessionModeFromPlatform(platformId)
+        return XoraNetplayProtocol.Hello(
         // Sessions are announced by XOrA Network username ("angel joined pal's session");
         // the local netplay nickname is only a fallback for signed-out LAN play.
         nickname = xoraNetworkUi.account?.username?.takeIf { it.isNotBlank() }
@@ -1708,7 +1713,8 @@ class XoraLibretroActivity : ComponentActivity() {
         coreName = coreName,
         platformId = platformId,
         romName = gameTitle,
-    )
+        )
+    }
 
     private fun refreshSaveSlots() {
         val fmt = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
@@ -2070,6 +2076,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 gameTitle,
                 hasController,
                 lastPadKeyLabel,
+                sharedConsole = netplaySession?.sessionModeNow == NetplaySessionMode.SharedConsole,
             ),
         )
     }
@@ -2234,8 +2241,6 @@ class XoraLibretroActivity : ComponentActivity() {
                         if (emuFrameIndex % 30 == 0) {
                             LibretroNative.nativePlugControllers()
                         }
-                        // Each device is one netplay seat: merge every local pad into this
-                        // player's slot. Overlay / seat-picker / invite must not drive the game.
                         val overlayBlocksGamePad = invitePromptOpen
                         val mixer = if (overlayBlocksGamePad) {
                             LibretroPadMixer.Snapshot()
@@ -2244,7 +2249,6 @@ class XoraLibretroActivity : ComponentActivity() {
                         }
                         val touch = netplayTouchButtons.get()
                         val local = mixer.copy(buttons = mixer.buttons or touch)
-                        // Assigned seats always send; Spectator used to mute P2 after a join.
                         val mute = xoraSettings.netplaySpectator &&
                             !session.hosting &&
                             session.playerSlotNow < 2
@@ -2258,22 +2262,44 @@ class XoraLibretroActivity : ComponentActivity() {
                             ry = if (mute) 0 else local.ry,
                         )
                         val pads = session.exchange(sent)
-                        // Port = player slot − 1: host pad drives port 0, joiners 2..4 drive 1..3.
-                        pads.pads.forEachIndexed { port, pad ->
-                            applyNativePad(port, pad)
-                        }
-                        // Stamp this device's current pad on its seat even if exchange had
-                        // no assigned slot yet — the joiner must feel P2 on their own screen.
-                        val selfPort = session.playerSlotNow - 1
-                        if (selfPort in 0..3) {
-                            applyNativePad(selfPort, sent)
-                        }
                         val live = sent.buttons != 0 ||
                             sent.lx.toInt() != 0 ||
                             sent.ly.toInt() != 0
                         if (live != netplayPadLive) {
                             netplayPadLive = live
                             refreshNetplayBanner()
+                        }
+                        val handheld = session.sessionModeNow == NetplaySessionMode.HandheldLink
+                        if (handheld) {
+                            // Each handheld is its own game (link-cable style). Local pad is P1.
+                            applyNativePad(0, sent)
+                            applyNativePad(1, LibretroPadMixer.Snapshot())
+                            applyNativePad(2, LibretroPadMixer.Snapshot())
+                            applyNativePad(3, LibretroPadMixer.Snapshot())
+                        } else if (session.hosting) {
+                            pads.pads.forEachIndexed { port, pad ->
+                                applyNativePad(port, pad)
+                            }
+                            val selfPort = session.playerSlotNow - 1
+                            if (selfPort in 0..3) applyNativePad(selfPort, sent)
+                        }
+                        if (session.runsLocalCore) {
+                            emuFrameIndex++
+                            LibretroNative.nativeRunFrame()
+                            raSession?.doFrame()
+                            val packed = LibretroNative.nativeCopyFrameRgba()
+                            val pcm = LibretroNative.nativeDrainAudio()
+                            packed?.let { presentFrame(it) }
+                            pcm?.let { audioTrack?.write(it, 0, it.size) }
+                            if (!handheld && session.hosting && packed != null) {
+                                XoraNetplayVideo.jpegFromPackedRgba(packed)?.let { jpeg ->
+                                    session.sendVideo(jpeg, pcm ?: ShortArray(0))
+                                }
+                            }
+                        } else {
+                            session.takeVideo()?.let { video ->
+                                presentRemoteVideo(video)
+                            }
                         }
                     } else {
                         if (emuFrameIndex % 180 == 0) {
@@ -2283,15 +2309,15 @@ class XoraLibretroActivity : ComponentActivity() {
                         applyNativePad(1, players.p2)
                         applyNativePad(2, players.p3)
                         applyNativePad(3, players.p4)
-                    }
-                    emuFrameIndex++
-                    LibretroNative.nativeRunFrame()
-                    raSession?.doFrame()
-                    LibretroNative.nativeCopyFrameRgba()?.let { packed ->
-                        presentFrame(packed)
-                    }
-                    LibretroNative.nativeDrainAudio()?.let { pcm ->
-                        audioTrack?.write(pcm, 0, pcm.size)
+                        emuFrameIndex++
+                        LibretroNative.nativeRunFrame()
+                        raSession?.doFrame()
+                        LibretroNative.nativeCopyFrameRgba()?.let { packed ->
+                            presentFrame(packed)
+                        }
+                        LibretroNative.nativeDrainAudio()?.let { pcm ->
+                            audioTrack?.write(pcm, 0, pcm.size)
+                        }
                     }
                     val elapsed = System.nanoTime() - start
                     val sleepMs = ((frameNs - elapsed) / 1_000_000L).coerceAtLeast(0L)
@@ -2368,6 +2394,37 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             primaryGameView?.invalidate()
             secondaryGameView?.invalidate()
+            frameTick++
+            if (!menuOpen) pinGameplaySurface()
+        }
+    }
+
+    private fun presentRemoteVideo(packet: XoraNetplayProtocol.VideoPacket) {
+        if (packet.pcm.isNotEmpty()) {
+            audioTrack?.write(packet.pcm, 0, packet.pcm.size)
+        }
+        val decoded = XoraNetplayVideo.bitmapFromJpeg(packet.jpeg) ?: return
+        runOnUiThread {
+            synchronized(bitmapLock) {
+                val old = lastRemoteBitmap
+                lastRemoteBitmap = decoded
+                gameBitmap = decoded
+                primaryGameView?.setImageBitmap(decoded)
+                stage?.let { stageView ->
+                    if (stageView.contentWidthPx != decoded.width ||
+                        stageView.contentHeightPx != decoded.height
+                    ) {
+                        stageView.contentWidthPx = decoded.width
+                        stageView.contentHeightPx = decoded.height
+                    }
+                }
+                primaryGameView?.post {
+                    if (old != null && old !== lastRemoteBitmap && !old.isRecycled) {
+                        old.recycle()
+                    }
+                }
+            }
+            primaryGameView?.invalidate()
             frameTick++
             if (!menuOpen) pinGameplaySurface()
         }
