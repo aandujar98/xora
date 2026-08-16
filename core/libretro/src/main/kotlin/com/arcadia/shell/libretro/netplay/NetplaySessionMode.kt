@@ -42,8 +42,14 @@ fun netplaySessionMode(platformId: String): NetplaySessionMode {
 fun NetplaySessionMode.isSharedConsole(): Boolean = this == NetplaySessionMode.SharedConsole
 
 /**
- * Home-console joiners never advance a local core — they show the host's video.
- * Applying the host savestate can crash or fail and used to kick the joiner immediately.
+ * Joiners never load the host snapshot. Home-console joiners only display host video.
+ * Handhelds each keep their own cart — cloning the host save overwrote the joiner and
+ * unserialize of mGBA SIO pointers crashed the lobby the moment a second person joined.
  */
-fun NetplaySessionMode.joinerAppliesHostState(): Boolean =
-    this == NetplaySessionMode.HandheldLink
+fun NetplaySessionMode.joinerAppliesHostState(): Boolean = false
+
+/**
+ * Home-console sessions freeze the host and broadcast a savestate so every pad restarts
+ * together. Handheld Game Link skips that barrier and just assigns a slot + GO.
+ */
+fun NetplaySessionMode.usesSavestateBarrier(): Boolean = this == NetplaySessionMode.SharedConsole

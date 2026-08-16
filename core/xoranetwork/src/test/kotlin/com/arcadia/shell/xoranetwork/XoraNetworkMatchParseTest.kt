@@ -74,6 +74,24 @@ class XoraNetworkMatchParseTest {
     }
 
     @Test
+    fun matchPresenceIgnoresSessionReplaceLeave() {
+        val payload = """
+            {"match_presence_event":{"match_id":"m1","joins":[{"user_id":"peer","session_id":"s2"}],"leaves":[{"user_id":"peer","session_id":"s1"}]}}
+        """.trimIndent()
+        val delta = parseMatchPresenceDelta(json.parseToJsonElement(payload) as JsonObject)!!
+        assertEquals(listOf("peer"), delta.joinedUserIds)
+        assertTrue(delta.leftUserIds.isEmpty())
+    }
+
+    @Test
+    fun matchPresenceKeepsRealLeaves() {
+        assertEquals(
+            listOf("gone"),
+            netPresenceLeaves(joined = listOf("peer"), left = listOf("gone", "peer")),
+        )
+    }
+
+    @Test
     fun realtimeErrorsStayFriendly() {
         val payload = """{"cid":"3","error":{"code":3,"message":"match not found"}}"""
         val message = parseRealtimeErrorMessage(json.parseToJsonElement(payload) as JsonObject)

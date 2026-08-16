@@ -305,10 +305,35 @@ class XoraNetplaySession(
                     return@launch
                 }
                 if (generation.get() != gen || !running.get()) return@launch
-                _state.value = _state.value.copy(status = "Connecting…")
-                runHostHandshake(link, hello, gen)
-                if (generation.get() != gen || !running.get()) return@launch
-                readLoop(link, gen)
+                while (generation.get() == gen && running.get()) {
+                    try {
+                        if (!linked.get()) {
+                            _state.value = _state.value.copy(status = "Connecting…")
+                            runHostHandshake(link, hello, gen)
+                        }
+                        if (generation.get() != gen || !running.get()) return@launch
+                        readLoop(link, gen)
+                        if (generation.get() == gen && running.get() && _state.value.online) {
+                            softUnlink(
+                                "Everyone left — code ${_state.value.sessionCode.ifBlank { "open" }} still live",
+                            )
+                            continue
+                        }
+                        return@launch
+                    } catch (t: Throwable) {
+                        if (generation.get() != gen) return@launch
+                        if (running.get() && _state.value.online) {
+                            // A failed join must not destroy the lobby — keep the code live.
+                            softUnlink(
+                                (t.message?.takeIf { it.isNotBlank() } ?: "Join failed") +
+                                    " — code ${_state.value.sessionCode.ifBlank { "open" }} still live",
+                            )
+                            continue
+                        }
+                        fail(t.message ?: "Host failed", gen)
+                        return@launch
+                    }
+                }
             } catch (t: Throwable) {
                 if (generation.get() == gen) fail(t.message ?: "Host failed", gen)
             }
@@ -570,8 +595,9 @@ class XoraNetplaySession(
     private fun beginJoinState(hello: XoraNetplayProtocol.Hello, applyState: suspend (ByteArray) -> Boolean) {
         running.set(true)
         isHost.set(false)
-        freezeCore.set(true)
         sessionMode.set(netplaySessionMode(hello.platformId))
+        // Handhelds keep running their own game during join. Freezing was for savestate load.
+        freezeCore.set(sessionMode.get().usesSavestateBarrier())
         applyStateRef.set(applyState)
     }
 
@@ -594,14 +620,12 @@ class XoraNetplaySession(
         selfHello: XoraNetplayProtocol.Hello,
         gen: Int,
     ) {
-        val deadline = System.currentTimeMillis() + 30_000L
         while (running.get() && generation.get() == gen) {
-            val remaining = (deadline - System.currentTimeMillis()).toInt()
-            if (remaining <= 0) {
-                fail("Peer did not send hello", gen)
-                return
+            val (type, payload) = try {
+                receiveControl(link, 30_000)
+            } catch (_: SocketTimeoutException) {
+                continue
             }
-            val (type, payload) = receiveControl(link, remaining)
             if (type != XoraNetplayProtocol.TYPE_HELLO) continue
             val peer = XoraNetplayProtocol.decodeHello(payload)
             if (peer.token == 0) continue // own broadcast echo
@@ -662,7 +686,8 @@ class XoraNetplaySession(
             }
             return
         }
-        freezeCore.set(true)
+        val handheld = !sessionMode.get().usesSavestateBarrier()
+        if (!handheld) freezeCore.set(true)
         _state.value = _state.value.copy(
             status = "Syncing ${peer.nickname.ifBlank { "Player $slot" }}…",
         )
@@ -671,6 +696,21 @@ class XoraNetplaySession(
             XoraNetplayProtocol.TYPE_ASSIGN,
             XoraNetplayProtocol.encodeAssign(peer.token, slot),
         )
+        if (handheld) {
+            // Two GBAs / PSps keep their own carts. A host savestate is large, includes
+            // live SIO pointers, and used to crash or kick Nakama the instant a friend joined.
+            joinerSlots.add(slot)
+            peerNames[slot] = peer.nickname.ifBlank { "Player $slot" }
+            val newEpoch = (epoch.get() + 1) and 0xFF
+            val mask = XoraNetplayProtocol.slotsMaskOf(joinerSlots + 1)
+            link.send(
+                XoraNetplayProtocol.TYPE_GO,
+                XoraNetplayProtocol.encodeGo(newEpoch, mask, sessionRoster()),
+            )
+            applyGo(newEpoch, mask)
+            refreshLinkedState()
+            return
+        }
         val savestate = captureStateRef.get()?.invoke()
         if (savestate == null) {
             fail("Could not capture save state", gen)
@@ -784,12 +824,23 @@ class XoraNetplaySession(
         joinerSlots.remove(from)
         joinerSlots.add(want)
         peerNames[want] = name
-        freezeCore.set(true)
-        _state.value = _state.value.copy(status = "Moving $name to Player $want…")
         link.send(
             XoraNetplayProtocol.TYPE_ASSIGN,
             XoraNetplayProtocol.encodeAssign(seat.token, want),
         )
+        if (!sessionMode.get().usesSavestateBarrier()) {
+            val newEpoch = (epoch.get() + 1) and 0xFF
+            val mask = XoraNetplayProtocol.slotsMaskOf(joinerSlots + 1)
+            link.send(
+                XoraNetplayProtocol.TYPE_GO,
+                XoraNetplayProtocol.encodeGo(newEpoch, mask, sessionRoster()),
+            )
+            applyGo(newEpoch, mask)
+            refreshLinkedState()
+            return
+        }
+        freezeCore.set(true)
+        _state.value = _state.value.copy(status = "Moving $name to Player $want…")
         val savestate = captureStateRef.get()?.invoke()
         if (savestate == null) {
             fail("Could not capture save state", gen)
@@ -858,6 +909,7 @@ class XoraNetplaySession(
         gen: Int,
     ) {
         val token = generateJoinToken()
+        val handheld = !sessionMode.get().usesSavestateBarrier()
         link.send(
             XoraNetplayProtocol.TYPE_HELLO,
             XoraNetplayProtocol.encodeHello(hello.copy(token = token)),
@@ -865,8 +917,9 @@ class XoraNetplaySession(
         var host: XoraNetplayProtocol.Hello? = null
         var slot = 0
         var statePayload: ByteArray? = null
+        var goPayload: ByteArray? = null
         var deadline = System.currentTimeMillis() + helloTimeoutMs
-        while (statePayload == null) {
+        while (true) {
             if (generation.get() != gen || !running.get()) return
             val remaining = (deadline - System.currentTimeMillis()).toInt()
             if (remaining <= 0) {
@@ -908,21 +961,31 @@ class XoraNetplaySession(
                         return
                     }
                     slot = assign.slot
-                    // The savestate download can be large; give it its own window.
                     deadline = maxOf(deadline, System.currentTimeMillis() + STATE_DOWNLOAD_TIMEOUT_MS)
                 }
                 XoraNetplayProtocol.TYPE_STATE -> {
                     // A state broadcast before our ASSIGN belongs to another joiner's barrier.
                     if (slot != 0) statePayload = payload
                 }
+                XoraNetplayProtocol.TYPE_GO -> {
+                    if (slot != 0) goPayload = payload
+                }
                 else -> Unit
             }
+            if (handheld && slot != 0 && goPayload != null) break
+            if (!handheld && statePayload != null) break
         }
         mySlot.set(slot)
         hostName.set(host?.nickname.orEmpty())
+        if (handheld) {
+            val go = XoraNetplayProtocol.decodeGo(goPayload!!)
+            applyGo(go.epoch, go.slotsMask, go.names)
+            refreshLinkedState()
+            return
+        }
         freezeCore.set(true)
         _state.value = _state.value.copy(status = "Loading host game…")
-        if (!applyIncomingState(statePayload)) {
+        if (!applyIncomingState(statePayload!!)) {
             fail("Could not load host save state", gen)
             return
         }

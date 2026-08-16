@@ -60,11 +60,22 @@ internal fun parseMatchData(root: JsonObject): XoraMatchDataMessage? {
 internal fun parseMatchPresenceDelta(root: JsonObject): XoraMatchPresenceDelta? {
     val event = root["match_presence_event"] as? JsonObject ?: return null
     val matchId = jsonString(event["match_id"])?.takeIf { it.isNotBlank() } ?: return null
+    val joined = userIdsInPresence(event["joins"])
+    val left = userIdsInPresence(event["leaves"])
     return XoraMatchPresenceDelta(
         matchId = matchId,
-        joinedUserIds = userIdsInPresence(event["joins"]),
-        leftUserIds = userIdsInPresence(event["leaves"]),
+        joinedUserIds = joined,
+        leftUserIds = netPresenceLeaves(joined, left),
     )
+}
+
+/**
+ * Nakama often reports the same user in both joins and leaves when their session id
+ * refreshes. Counting that as a leave used to drop the joiner and close the lobby.
+ */
+internal fun netPresenceLeaves(joined: List<String>, left: List<String>): List<String> {
+    val joinedSet = joined.filter { it.isNotBlank() }.toSet()
+    return left.filter { it.isNotBlank() && it !in joinedSet }
 }
 
 internal fun parseRealtimeErrorMessage(root: JsonObject): String? {

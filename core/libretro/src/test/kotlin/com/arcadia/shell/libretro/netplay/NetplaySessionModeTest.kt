@@ -23,7 +23,9 @@ class NetplaySessionModeTest {
     @Test
     fun sharedConsoleJoinersDoNotLoadHostSavestate() {
         assertEquals(false, NetplaySessionMode.SharedConsole.joinerAppliesHostState())
-        assertEquals(true, NetplaySessionMode.HandheldLink.joinerAppliesHostState())
+        assertEquals(false, NetplaySessionMode.HandheldLink.joinerAppliesHostState())
+        assertEquals(true, NetplaySessionMode.SharedConsole.usesSavestateBarrier())
+        assertEquals(false, NetplaySessionMode.HandheldLink.usesSavestateBarrier())
     }
 }
 

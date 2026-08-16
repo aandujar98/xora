@@ -57,7 +57,7 @@ internal class XoraNakamaNetplayLink(
                     sendRelayed(
                         XoraNetplayProtocol.TYPE_SERIAL,
                         serial,
-                        reliable = true,
+                        reliable = false,
                         swallowErrors = true,
                     )
                 }
