@@ -32,7 +32,9 @@ internal class JoinHandshakeProgress {
         goPayload = payload
     }
 
-    fun handheldReady(): Boolean = slot != 0 && goPayload != null
+    fun ready(): Boolean = slot != 0 && goPayload != null
+
+    fun handheldReady(): Boolean = ready()
 
     fun sharedStateReady(): Boolean = statePayload != null
 }

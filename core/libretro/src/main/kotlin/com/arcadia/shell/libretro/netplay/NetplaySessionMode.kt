@@ -49,7 +49,8 @@ fun NetplaySessionMode.isSharedConsole(): Boolean = this == NetplaySessionMode.S
 fun NetplaySessionMode.joinerAppliesHostState(): Boolean = false
 
 /**
- * Home-console sessions freeze the host and broadcast a savestate so every pad restarts
- * together. Handheld Game Link skips that barrier and just assigns a slot + GO.
+ * Home-console sessions used to freeze and broadcast a savestate. That payload
+ * kicked Nakama, and joiners never loaded it anyway (they display host video).
+ * Both modes now assign a slot and GO.
  */
 fun NetplaySessionMode.usesSavestateBarrier(): Boolean = this == NetplaySessionMode.SharedConsole

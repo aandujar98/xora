@@ -158,8 +158,8 @@ void clear_memory_maps() {
     g_mmap_descriptors.clear();
     g_mmap_addrspaces.clear();
     g_mmap = retro_memory_map{};
-    // Drop cached gba->sio pointers only. A full SIO reset here used to unplug the
-    // dummy link cable mid-session whenever the core refreshed SET_MEMORY_MAPS.
+    // Keep Game Link I/O pokes across SET_MEMORY_MAPS; a full SIO reset used to
+    // unplug the cable mid-session whenever the core refreshed maps.
     xora_gba_sio_drop_hook();
 }
 
@@ -1247,8 +1247,9 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRunFrame(JNIEnv*, jclass) {
     }
 }
 
-// mGBA reads SIOCNT/RCNT from gba->sio, not memory.io. Poking io[] alone leaves
-// Pokemon (and anything else) stuck on "connect the Game Link cable".
+// Game Link: poke the mmap'd GBA I/O page only. Walking emulator RAM for gba->sio
+// (string scan + guessed RCNT/SIOCNT pointers) crashed mGBA the instant Player 2
+// linked. Cable detect may be weaker; the session must stay up.
 namespace {
 
 constexpr uint32_t kGbaIoBase = 0x04000000u;
@@ -1260,55 +1261,10 @@ constexpr int kGbaRegRcnt = 0x134 / 2;
 constexpr uint16_t kGbaSiocntMulti = 0x2000u;
 constexpr uint16_t kGbaSiocntModeMask = 0x3000u;
 
-struct GbaSioLive {
-    uint16_t* io = nullptr;
-    uint8_t* sio = nullptr;
-    uint16_t* rcnt = nullptr;
-    uint16_t* siocnt = nullptr;
-};
-
-GbaSioLive g_gba_sio{};
 std::atomic<bool> g_sio_link_on{false};
 std::atomic<int> g_sio_local_id{0};
 std::atomic<uint16_t> g_sio_multi[4]{{0xFFFF}, {0xFFFF}, {0xFFFF}, {0xFFFF}};
 bool g_sio_logged_hook = false;
-bool g_sio_locate_missed = false;
-
-bool sio_mode_ok(int32_t mode) {
-    return mode == -1 || mode == 0 || mode == 1 || mode == 2 || mode == 3 ||
-        mode == 8 || mode == 12;
-}
-
-bool gba_owns_io(const void* gba, const uint16_t* io) {
-    if (!gba || !io) return false;
-    const auto g = reinterpret_cast<uintptr_t>(gba);
-    const auto i = reinterpret_cast<uintptr_t>(io);
-    return i > g && (i - g) < 0x100000u;
-}
-
-bool readable_cstr(const char* p, const char* want) {
-    if (!p || !want) return false;
-    const auto addr = reinterpret_cast<uintptr_t>(p);
-    if (addr < 0x10000u || (addr % sizeof(void*)) != 0) return false;
-    Dl_info info{};
-    if (dladdr(p, &info) == 0 || !info.dli_fbase) return false;
-    return std::strcmp(p, want) == 0;
-}
-
-bool sio_bind_fields(uint8_t* sio, uint16_t* io, GbaSioLive* out) {
-    if (!sio || !io || !out) return false;
-    void* gba = *reinterpret_cast<void**>(sio);
-    if (!gba_owns_io(gba, io)) return false;
-    const int32_t mode = *reinterpret_cast<int32_t*>(sio + sizeof(void*));
-    if (!sio_mode_ok(mode)) return false;
-    const size_t driver_off = sizeof(void*) + (sizeof(void*) == 8 ? 8 : 4);
-    const size_t rcnt_off = driver_off + sizeof(void*);
-    out->io = io;
-    out->sio = sio;
-    out->rcnt = reinterpret_cast<uint16_t*>(sio + rcnt_off);
-    out->siocnt = reinterpret_cast<uint16_t*>(sio + rcnt_off + 2);
-    return true;
-}
 
 uint16_t* gba_io_regs() {
     for (const auto& desc : g_mmap_descriptors) {
@@ -1319,82 +1275,27 @@ uint16_t* gba_io_regs() {
     return nullptr;
 }
 
-void gba_sio_collect_bases(uint16_t* io, uint8_t** bases, int* nbase) {
-    *nbase = 0;
-    auto push = [&](uint8_t* p) {
-        if (!p || *nbase >= 8) return;
-        for (int i = 0; i < *nbase; ++i) {
-            if (bases[i] == p) return;
-        }
-        bases[(*nbase)++] = p;
-    };
-    for (const auto& desc : g_mmap_descriptors) {
-        if (!desc.ptr) continue;
-        if (desc.start == 0x07000000u || desc.start == 0x05000000u ||
-            desc.start == 0x03000000u || desc.start == 0x02000000u ||
-            desc.start == kGbaIoBase) {
-            push(static_cast<uint8_t*>(desc.ptr));
-        }
-    }
-    push(reinterpret_cast<uint8_t*>(io));
-}
-
-bool gba_sio_locate_event(uint8_t* base, uint16_t* io, GbaSioLive* out) {
-    if (!base || !io || !out) return false;
-    constexpr size_t kScan = 0x40000;
-    for (size_t off = 0; off + 3 * sizeof(void*) < kScan; off += sizeof(void*)) {
-        const char* name = *reinterpret_cast<const char**>(base + off);
-        if (!readable_cstr(name, "GBA SIO Complete")) continue;
-        // mTimingEvent: context, callback, name. context is the GBASIO*.
-        uint8_t* event = base + off - 2 * sizeof(void*);
-        auto* sio = static_cast<uint8_t*>(*reinterpret_cast<void**>(event));
-        if (!sio_bind_fields(sio, io, out)) continue;
-        return true;
-    }
-    return false;
-}
-
-bool gba_sio_locate(uint16_t* io, GbaSioLive* out) {
-    if (!io || !out) return false;
-    if (g_gba_sio.sio && g_gba_sio.io == io && sio_bind_fields(g_gba_sio.sio, io, out)) {
-        return true;
-    }
-    if (g_sio_locate_missed) return false;
-    uint8_t* bases[8] = {};
-    int nbase = 0;
-    gba_sio_collect_bases(io, bases, &nbase);
-    for (int b = 0; b < nbase; ++b) {
-        if (gba_sio_locate_event(bases[b], io, out)) return true;
-    }
-    // Do not scan raw RAM for GBASIO layout. A false hit used to install a dummy
-    // driver into a random pointer and crash the core the moment Player 2 linked.
-    g_sio_locate_missed = true;
-    return false;
-}
-
-void gba_sio_apply_live(const GbaSioLive& live) {
-    if (!live.io) return;
+void gba_sio_apply_io(uint16_t* io) {
+    if (!io) return;
     const int id = g_sio_local_id.load(std::memory_order_relaxed);
     if (id >= 0 && id < 4) {
-        live.io[kGbaRegSiomltSend] = g_sio_multi[id].load(std::memory_order_relaxed);
+        io[kGbaRegSiomltSend] = g_sio_multi[id].load(std::memory_order_relaxed);
     }
     for (int i = 0; i < 4; ++i) {
         uint16_t word = g_sio_multi[i].load(std::memory_order_relaxed);
         if (word == 0xFFFF && g_sio_link_on.load(std::memory_order_relaxed) && i < 2) {
             word = 0;
         }
-        live.io[kGbaRegSiomulti0 + i] = word;
+        io[kGbaRegSiomulti0 + i] = word;
     }
 
-    uint16_t rcnt = live.rcnt ? *live.rcnt : live.io[kGbaRegRcnt];
+    uint16_t rcnt = io[kGbaRegRcnt];
     rcnt = static_cast<uint16_t>((rcnt & ~0x0004u) | 0x000Au); // SI=0, SD=1, SO=1
-    if (live.rcnt) *live.rcnt = rcnt;
-    live.io[kGbaRegRcnt] = rcnt;
+    io[kGbaRegRcnt] = rcnt;
 
-    uint16_t cnt = live.siocnt ? *live.siocnt : live.io[kGbaRegSiocnt];
+    uint16_t cnt = io[kGbaRegSiocnt];
     if ((cnt & kGbaSiocntModeMask) == kGbaSiocntMulti) {
-        // Keep BUSY (bit 7) and ERROR (bit 6). Clearing BUSY every poll aborted
-        // MULTI transfers and left games stuck on TRANSMITTING.
+        // Keep BUSY (bit 7) and ERROR (bit 6).
         cnt = static_cast<uint16_t>(cnt & ~0x003Cu); // SI, SD, ID
         cnt = static_cast<uint16_t>(cnt | 0x0008u | ((id & 3) << 4));
         if (id != 0) {
@@ -1405,36 +1306,20 @@ void gba_sio_apply_live(const GbaSioLive& live) {
     } else {
         cnt = static_cast<uint16_t>(cnt & ~0x0004u);
     }
-    if (live.siocnt) *live.siocnt = cnt;
-    live.io[kGbaRegSiocnt] = cnt;
+    io[kGbaRegSiocnt] = cnt;
 }
 
 void gba_sio_refresh(uint16_t* io) {
     if (!io || !g_sio_link_on.load(std::memory_order_relaxed)) return;
-    GbaSioLive live{};
-    if (gba_sio_locate(io, &live)) {
-        g_gba_sio = live;
-        // Never install a dummy GBASIODriver. mGBA's vtable does not match a
-        // guessed layout, and writing &g_sio_driver into a false hit crashed
-        // as soon as MULTI/SIO ran for Player 2.
-        if (!g_sio_logged_hook) {
-            g_sio_logged_hook = true;
-            ALOGI("GBA Game Link: hooked mGBA SIO (rcnt/siocnt)");
-        }
-    } else {
-        live.io = io;
-        if (!g_sio_logged_hook) {
-            g_sio_logged_hook = true;
-            ALOGW("GBA Game Link: I/O mapped but gba->sio not found; cable detect may fail");
-        }
+    if (!g_sio_logged_hook) {
+        g_sio_logged_hook = true;
+        ALOGI("GBA Game Link: writing SIOMULTI/SIOCNT/RCNT on mapped I/O only");
     }
-    gba_sio_apply_live(live);
+    gba_sio_apply_io(io);
 }
 
 void xora_gba_sio_drop_hook() {
-    g_gba_sio = GbaSioLive{};
     g_sio_logged_hook = false;
-    g_sio_locate_missed = false;
 }
 
 void xora_gba_sio_reset() {
@@ -1463,7 +1348,6 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioRead(JNIEnv* env, jcl
     uint16_t* io = gba_io_regs();
     if (!io) return nullptr;
     uint16_t cnt = io[kGbaRegSiocnt];
-    if (g_gba_sio.siocnt) cnt = *g_gba_sio.siocnt;
     jint packed[2] = {
         static_cast<jint>(io[kGbaRegSiomltSend]),
         static_cast<jint>(cnt),

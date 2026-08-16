@@ -2320,7 +2320,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         }
                         if (session.runsLocalCore) {
                             if (handheld) {
-                                // mGBA ignores memory.io for SIOCNT/RCNT; apply hits gba->sio.
+                                // Poke mapped GBA I/O (SIOMULTI / SIOCNT / RCNT) only.
                                 // Call even before the peer is linked so the game sees a cable.
                                 LibretroNative.nativeGbaSioSetEnabled(true)
                                 val snap = LibretroNative.nativeGbaSioRead()

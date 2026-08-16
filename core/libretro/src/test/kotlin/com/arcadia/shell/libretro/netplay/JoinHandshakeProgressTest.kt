@@ -30,13 +30,12 @@ class JoinHandshakeProgressTest {
     }
 
     @Test
-    fun sharedConsoleIgnoresStateUntilAssigned() {
+    fun sharedConsoleJoinCompletesOnGoWithoutSavestate() {
         val progress = JoinHandshakeProgress()
-        progress.onState(byteArrayOf(1, 2, 3))
-        assertFalse(progress.sharedStateReady())
         progress.onAssign(2)
-        progress.onState(byteArrayOf(4, 5, 6))
-        assertTrue(progress.sharedStateReady())
-        assertEquals(4.toByte(), progress.statePayload!![0])
+        assertFalse(progress.ready())
+        progress.onGo(XoraNetplayProtocol.encodeGo(epoch = 3, slotsMask = 0b11))
+        assertTrue(progress.ready())
+        assertFalse(progress.sharedStateReady())
     }
 }

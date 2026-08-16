@@ -39,11 +39,11 @@ object LibretroNative {
     /** Packed `[send, siocnt]` from GBA SIOMLT_SEND / live SIOCNT, or null if I/O is not mapped. */
     external fun nativeGbaSioRead(): IntArray?
     /**
-     * Publish SIOMULTI0–3 and this device's parent/child id into mGBA's live `gba->sio`
-     * (RCNT SI pin + SIOCNT + a dummy link driver). Call every handheld-link frame.
+     * Publish SIOMULTI0–3 and this device's parent/child id on the mapped GBA I/O page.
+     * Call every handheld-link frame. Never writes into guessed mGBA struct pointers.
      */
     external fun nativeGbaSioApply(multi: IntArray, localId: Int)
-    /** Keep the GBA Game Link hook armed while a handheld session is waiting or live. */
+    /** Keep the GBA Game Link I/O poke armed while a handheld session is waiting or live. */
     external fun nativeGbaSioSetEnabled(enabled: Boolean)
 
     /** Clear frontend core-option overrides (call before applying a fresh set). */
