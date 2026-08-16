@@ -48,11 +48,18 @@ fun netplayBannerText(
     ui: XoraNetplayUiState,
     padLive: Boolean = false,
     gameTitle: String = "",
+    hasController: Boolean = true,
 ): String {
     ui.error?.takeIf { it.isNotBlank() }?.let { return it }
     if (ui.linked && ui.playerSlot >= 1) {
-        val who = "You are Player ${ui.playerSlot}" + if (padLive) " · input" else ""
-        return who + "\n" + twoPlayerModeHint(gameTitle)
+        val who = "You are Player ${ui.playerSlot}" +
+            if (padLive) " · input" else " · no input"
+        val lines = mutableListOf(who)
+        if (!hasController) {
+            lines += "This phone has no controller. Use the touch pad, or plug one in."
+        }
+        lines += twoPlayerModeHint(gameTitle)
+        return lines.joinToString("\n")
     }
     if (ui.role != XoraNetplayRole.Idle &&
         ui.status.isNotBlank() &&

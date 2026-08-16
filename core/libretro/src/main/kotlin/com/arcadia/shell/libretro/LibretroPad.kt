@@ -300,6 +300,14 @@ class LibretroPadMixer {
     private val devices = LinkedHashMap<Int, DeviceState>()
     private val order = ArrayList<Int>()
 
+    fun setDigital(deviceId: Int, buttons: Int) {
+        synchronized(lock) {
+            val state = stateFor(deviceId)
+            state.keyButtons = buttons
+            state.axisButtons = 0
+        }
+    }
+
     fun keyDown(deviceId: Int, bit: Int) {
         synchronized(lock) {
             val state = stateFor(deviceId)

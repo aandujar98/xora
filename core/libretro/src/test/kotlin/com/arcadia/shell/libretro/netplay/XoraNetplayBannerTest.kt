@@ -54,6 +54,23 @@ class XoraNetplayBannerTest {
     }
 
     @Test
+    fun linkedJoinerWithoutPadSaysNoInputAndAsksForController() {
+        val text = netplayBannerText(
+            ui = XoraNetplayUiState(
+                role = XoraNetplayRole.Client,
+                linked = true,
+                playerSlot = 2,
+            ),
+            padLive = false,
+            gameTitle = "Super Mario Kart",
+            hasController = false,
+        )
+        assertTrue(text.startsWith("You are Player 2 · no input"))
+        assertTrue(text.contains("no controller"))
+        assertTrue(text.contains("touch pad"))
+    }
+
+    @Test
     fun otherGamesGetGenericTwoPlayerHint() {
         val text = netplayBannerText(
             ui = XoraNetplayUiState(linked = true, playerSlot = 2, role = XoraNetplayRole.Client),

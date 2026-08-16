@@ -176,6 +176,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var profileChipLetter: TextView? = null
     /** Non-interactive seat readout so a dead P2 can be distinguished from a missing character. */
     private var netplayHud: TextView? = null
+    private var netplayTouchPad: NetplayTouchPadView? = null
     @Volatile private var lastNetplayHud = ""
     @Volatile private var netplayPadLive = false
     private var profileName by mutableStateOf("Player")
@@ -263,11 +264,12 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private var inputManager: InputManager? = null
     private val inputDeviceListener = object : InputManager.InputDeviceListener {
-        override fun onInputDeviceAdded(deviceId: Int) = Unit
+        override fun onInputDeviceAdded(deviceId: Int) = syncTouchPad()
         override fun onInputDeviceRemoved(deviceId: Int) {
             padMixer.forget(deviceId)
+            syncTouchPad()
         }
-        override fun onInputDeviceChanged(deviceId: Int) = Unit
+        override fun onInputDeviceChanged(deviceId: Int) = syncTouchPad()
     }
 
     private fun refreshExpandTopology() {
@@ -381,6 +383,7 @@ class XoraLibretroActivity : ComponentActivity() {
         root.addView(dialogs)
         root.addView(createProfileChip())
         root.addView(createNetplayHud())
+        root.addView(createNetplayTouchPad())
 
         setContentView(root)
         applyOpaqueWindow()
@@ -394,6 +397,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 netplayUi = ui
                 if (!ui.linked) netplayPadLive = false
                 refreshNetplayBanner()
+                syncTouchPad()
                 ui.error?.let { showMenuMessage(it) }
                 if (ui.linked) {
                     lifecycleScope.launch { disableHardcoreForNetplay() }
@@ -858,8 +862,15 @@ class XoraLibretroActivity : ComponentActivity() {
                     toggleMenu()
                     return true
                 }
+                val netplayLinked = netplayUi.linked
                 if (menuOpen) {
-                    return handleInGameXmbKey(keyCode)
+                    val handled = handleInGameXmbKey(keyCode)
+                    if (netplayLinked) {
+                        LibretroPad.keyCodeToButton(keyCode, customMappings)?.let { bit ->
+                            padMixer.keyDown(event.deviceId, bit)
+                        }
+                    }
+                    return handled || netplayLinked
                 }
                 LibretroPad.keyCodeToButton(keyCode, customMappings)?.let { bit ->
                     padMixer.keyDown(event.deviceId, bit)
@@ -882,13 +893,19 @@ class XoraLibretroActivity : ComponentActivity() {
                     -> startHeld = false
                 }
                 if (menuOpen) {
-                    return LibretroPad.run { event.isFromGameController(customMappings) } ||
+                    val consumed = LibretroPad.run { event.isFromGameController(customMappings) } ||
                         LibretroPad.keyCodeToButton(keyCode, customMappings) != null ||
                         keyCode == KeyEvent.KEYCODE_BACK ||
                         keyCode == KeyEvent.KEYCODE_DPAD_UP ||
                         keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
                         keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
                         keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+                    if (netplayUi.linked) {
+                        LibretroPad.keyCodeToButton(keyCode, customMappings)?.let { bit ->
+                            padMixer.keyUp(event.deviceId, bit)
+                        }
+                    }
+                    return consumed
                 }
                 LibretroPad.keyCodeToButton(keyCode, customMappings)?.let { bit ->
                     padMixer.keyUp(event.deviceId, bit)
@@ -918,6 +935,17 @@ class XoraLibretroActivity : ComponentActivity() {
                 uiSounds.playCursor()
             }
             if (dir == 0) lastMenuStickDir = 0
+            if (netplayUi.linked && LibretroPad.run { event.isFromGameController() }) {
+                val (left, right) = LibretroPad.readAxes(event)
+                padMixer.motion(
+                    deviceId = event.deviceId,
+                    lx = left.first,
+                    ly = left.second,
+                    rx = right.first,
+                    ry = right.second,
+                    axisButtons = LibretroPad.digitalPadFromAxes(event),
+                )
+            }
             return true
         }
         if (!LibretroPad.run { event.isFromGameController() }) return false
@@ -1866,6 +1894,7 @@ class XoraLibretroActivity : ComponentActivity() {
         if (root.getChildAt(root.childCount - 1) !== chip) {
             chip.bringToFront()
         }
+        netplayTouchPad?.takeIf { it.visibility == View.VISIBLE }?.bringToFront()
         netplayHud?.takeIf { it.visibility == View.VISIBLE }?.bringToFront()
     }
 
@@ -1932,11 +1961,11 @@ class XoraLibretroActivity : ComponentActivity() {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL,
             ).apply {
                 leftMargin = (20 * density).toInt()
                 rightMargin = (20 * density).toInt()
-                bottomMargin = (28 * density).toInt()
+                topMargin = (72 * density).toInt()
             }
             setPadding(pad, pad, pad, pad)
             gravity = Gravity.CENTER
@@ -1955,8 +1984,36 @@ class XoraLibretroActivity : ComponentActivity() {
         }
     }
 
+    private fun createNetplayTouchPad(): NetplayTouchPadView {
+        val density = resources.displayMetrics.density
+        return NetplayTouchPadView(this).apply {
+            netplayTouchPad = this
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (176 * density).toInt(),
+                Gravity.BOTTOM,
+            )
+            visibility = View.GONE
+            onButtonsChanged = { buttons ->
+                padMixer.setDigital(NetplayTouchPadView.DEVICE_ID, buttons)
+            }
+        }
+    }
+
     private fun refreshNetplayBanner() {
-        setNetplayHud(netplayBannerText(netplayUi, netplayPadLive, gameTitle))
+        val hasController = LibretroPad.connectedControllers().isNotEmpty()
+        setNetplayHud(netplayBannerText(netplayUi, netplayPadLive, gameTitle, hasController))
+    }
+
+    private fun syncTouchPad() {
+        val show = netplayUi.linked && LibretroPad.connectedControllers().isEmpty()
+        val pad = netplayTouchPad ?: return
+        val next = if (show) View.VISIBLE else View.GONE
+        if (pad.visibility != next) {
+            pad.visibility = next
+            if (!show) padMixer.forget(NetplayTouchPadView.DEVICE_ID)
+        }
+        refreshNetplayBanner()
     }
 
     private fun setNetplayHud(text: String) {
@@ -2104,7 +2161,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         }
                         // Each device is one netplay seat: merge every local pad into this
                         // player's slot. Overlay / seat-picker / invite must not drive the game.
-                        val overlayBlocksGamePad = menuOpen || invitePromptOpen
+                        val overlayBlocksGamePad = invitePromptOpen
                         val local = if (overlayBlocksGamePad) {
                             LibretroPadMixer.Snapshot()
                         } else {
