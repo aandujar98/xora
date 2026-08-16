@@ -108,7 +108,7 @@ class XoraNetplayBannerTest {
             sharedConsole = false,
         )
         assertTrue(text.contains("your Game Boy"))
-        assertTrue(text.contains("Game Link"))
+        assertTrue(text.contains("Game Link cable"))
         assertTrue(!text.contains("2 PLAYER GAME"))
     }
 

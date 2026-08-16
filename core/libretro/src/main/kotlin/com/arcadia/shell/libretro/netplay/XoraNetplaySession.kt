@@ -73,7 +73,7 @@ fun netplayBannerText(
         if (sharedConsole) {
             lines += twoPlayerModeHint(gameTitle)
         } else {
-            lines += "Game Link is live. Stay on the transmitting / waiting screen on both devices."
+            lines += "Stay on this waiting screen on both devices. XOrA is the Game Link cable."
         }
         return lines.joinToString("\n")
     }
@@ -1283,6 +1283,10 @@ class XoraNetplaySession(
 
     internal fun ingestRemoteForTest(pad: XoraNetplayProtocol.PadFrame) {
         stashRemoteInput(XoraNetplayProtocol.encodePadFrame(pad))
+    }
+
+    internal fun ingestSerialForTest(slot: Int, send: Int, siocnt: Int = 0) {
+        stashSerial(XoraNetplayProtocol.encodeSerial(slot, send, siocnt))
     }
 
     /**

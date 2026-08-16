@@ -2285,6 +2285,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         }
                         if (session.runsLocalCore) {
                             if (handheld) {
+                                // mGBA ignores memory.io for SIOCNT/RCNT; apply hits gba->sio.
                                 LibretroNative.nativeGbaSioRead()?.let { snap ->
                                     val multi = session.exchangeSerial(snap[0], snap[1])
                                     LibretroNative.nativeGbaSioApply(

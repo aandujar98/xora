@@ -176,6 +176,18 @@ class XoraNetplaySessionSerialTest {
     }
 
     @Test
+    fun handheldSerialMergesPeerSendWordIntoSiomulti() {
+        val session = session()
+        session.bindForTest(slot = 1, mode = NetplaySessionMode.HandheldLink)
+        session.ingestSerialForTest(slot = 2, send = 0x8FFF)
+        val multi = session.exchangeSerial(0x8FFE)
+        assertEquals(0x8FFE, multi[0])
+        assertEquals(0x8FFF, multi[1])
+        assertEquals(0xFFFF, multi[2])
+        session.stop()
+    }
+
+    @Test
     fun sharedConsoleDoesNotSendSerial() {
         val session = session()
         val link = RecordingNetplayLink()

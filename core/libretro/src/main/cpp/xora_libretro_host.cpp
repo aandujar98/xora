@@ -78,6 +78,9 @@ struct CoreApi {
 
 namespace {
 
+void xora_gba_sio_on_poll();
+void xora_gba_sio_reset();
+
 CoreApi g_api;
 std::mutex g_mutex;
 std::string g_system_dir;
@@ -154,6 +157,7 @@ void clear_memory_maps() {
     g_mmap_descriptors.clear();
     g_mmap_addrspaces.clear();
     g_mmap = retro_memory_map{};
+    xora_gba_sio_reset();
 }
 
 template <typename T>
@@ -488,7 +492,9 @@ size_t audio_sample_batch(const int16_t* data, size_t frames) {
     return frames;
 }
 
-void input_poll() {}
+void input_poll() {
+    xora_gba_sio_on_poll();
+}
 
 bool is_multiplayer_adapter(const char* desc);
 
@@ -834,6 +840,7 @@ bool environment(unsigned cmd, void* data) {
 
 void unload_unlocked() {
     xora_host_memory_destroy();
+    xora_gba_sio_reset();
     clear_memory_maps();
     if (g_api.handle && g_game_loaded && g_api.unload_game) {
         g_api.unload_game();
@@ -1237,23 +1244,281 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRunFrame(JNIEnv*, jclass) {
     }
 }
 
-static uint16_t* gba_io_regs() {
+// mGBA reads SIOCNT/RCNT from gba->sio, not memory.io. Poking io[] alone leaves
+// Pokemon (and anything else) stuck on "connect the Game Link cable".
+namespace {
+
+constexpr uint32_t kGbaIoBase = 0x04000000u;
+constexpr size_t kGbaIoMinLen = 0x204u;
+constexpr int kGbaRegSiomulti0 = 0x120 / 2;
+constexpr int kGbaRegSiocnt = 0x128 / 2;
+constexpr int kGbaRegSiomltSend = 0x12A / 2;
+constexpr int kGbaRegRcnt = 0x134 / 2;
+constexpr int kGbaRegIf = 0x202 / 2;
+constexpr uint16_t kGbaSioIrqBit = 0x0080u;
+constexpr uint16_t kGbaSiocntMulti = 0x2000u;
+constexpr uint16_t kGbaSiocntModeMask = 0x3000u;
+
+struct GbaSioLive {
+    uint16_t* io = nullptr;
+    uint8_t* sio = nullptr;
+    uint16_t* rcnt = nullptr;
+    uint16_t* siocnt = nullptr;
+    void** driver_slot = nullptr;
+};
+
+GbaSioLive g_gba_sio{};
+std::atomic<bool> g_sio_link_on{false};
+std::atomic<int> g_sio_local_id{0};
+std::atomic<uint16_t> g_sio_multi[4]{{0xFFFF}, {0xFFFF}, {0xFFFF}, {0xFFFF}};
+bool g_sio_logged_hook = false;
+
+// Layout must match mGBA's GBASIODriver (include/mgba/gba/interface.h).
+struct XoraGbaSioDriver {
+    void* p;
+    bool (*init)(XoraGbaSioDriver*);
+    void (*deinit)(XoraGbaSioDriver*);
+    void (*reset)(XoraGbaSioDriver*);
+    uint32_t (*driverId)(const XoraGbaSioDriver*);
+    bool (*loadState)(XoraGbaSioDriver*, const void*, size_t);
+    void (*saveState)(XoraGbaSioDriver*, void**, size_t*);
+    void (*setMode)(XoraGbaSioDriver*, int);
+    bool (*handlesMode)(XoraGbaSioDriver*, int);
+    int (*connectedDevices)(XoraGbaSioDriver*);
+    int (*deviceId)(XoraGbaSioDriver*);
+    uint16_t (*writeSIOCNT)(XoraGbaSioDriver*, uint16_t);
+    uint16_t (*writeRCNT)(XoraGbaSioDriver*, uint16_t);
+    bool (*start)(XoraGbaSioDriver*);
+    void (*finishMultiplayer)(XoraGbaSioDriver*, uint16_t[4]);
+    uint8_t (*finishNormal8)(XoraGbaSioDriver*);
+    uint32_t (*finishNormal32)(XoraGbaSioDriver*);
+};
+
+XoraGbaSioDriver g_sio_driver{};
+
+bool sio_mode_ok(int32_t mode) {
+    return mode == -1 || mode == 0 || mode == 1 || mode == 2 || mode == 3 ||
+        mode == 8 || mode == 12;
+}
+
+bool gba_owns_io(const void* gba, const uint16_t* io) {
+    if (!gba || !io) return false;
+    const auto g = reinterpret_cast<uintptr_t>(gba);
+    const auto i = reinterpret_cast<uintptr_t>(io);
+    return i > g && (i - g) < 0x10000u;
+}
+
+bool readable_cstr(const char* p, const char* want) {
+    if (!p || !want) return false;
+    Dl_info info{};
+    if (dladdr(p, &info) == 0 || !info.dli_fbase) return false;
+    return std::strcmp(p, want) == 0;
+}
+
+bool sio_bind_fields(uint8_t* sio, uint16_t* io, GbaSioLive* out) {
+    if (!sio || !io || !out) return false;
+    void* gba = *reinterpret_cast<void**>(sio);
+    if (!gba_owns_io(gba, io)) return false;
+    const int32_t mode = *reinterpret_cast<int32_t*>(sio + sizeof(void*));
+    if (!sio_mode_ok(mode)) return false;
+    const size_t driver_off = sizeof(void*) + (sizeof(void*) == 8 ? 8 : 4);
+    const size_t rcnt_off = driver_off + sizeof(void*);
+    out->io = io;
+    out->sio = sio;
+    out->driver_slot = reinterpret_cast<void**>(sio + driver_off);
+    out->rcnt = reinterpret_cast<uint16_t*>(sio + rcnt_off);
+    out->siocnt = reinterpret_cast<uint16_t*>(sio + rcnt_off + 2);
+    return true;
+}
+
+uint16_t* gba_io_regs() {
     for (const auto& desc : g_mmap_descriptors) {
-        if (desc.start == 0x04000000u && desc.ptr && desc.len >= 0x204u) {
+        if (desc.start == kGbaIoBase && desc.ptr && desc.len >= kGbaIoMinLen) {
             return static_cast<uint16_t*>(desc.ptr);
         }
     }
     return nullptr;
 }
 
+bool gba_sio_locate(uint16_t* io, GbaSioLive* out) {
+    if (!io || !out) return false;
+    if (g_gba_sio.sio && g_gba_sio.io == io && sio_bind_fields(g_gba_sio.sio, io, out)) {
+        return true;
+    }
+    uint8_t* bases[3] = {nullptr, reinterpret_cast<uint8_t*>(io), nullptr};
+    int nbase = 2;
+    for (const auto& desc : g_mmap_descriptors) {
+        if (desc.start == 0x07000000u && desc.ptr) {
+            bases[0] = static_cast<uint8_t*>(desc.ptr);
+            break;
+        }
+    }
+    if (!bases[0]) {
+        bases[0] = bases[1];
+        nbase = 1;
+    }
+    constexpr size_t kScan = 0x40000;
+    for (int b = 0; b < nbase; ++b) {
+        uint8_t* base = bases[b];
+        if (!base) continue;
+        for (size_t off = 0; off + 3 * sizeof(void*) < kScan; off += sizeof(void*)) {
+            const char* name = *reinterpret_cast<const char**>(base + off);
+            if (!readable_cstr(name, "GBA SIO Complete")) continue;
+            uint8_t* event = base + off - 2 * sizeof(void*);
+            auto* sio = static_cast<uint8_t*>(*reinterpret_cast<void**>(event));
+            if (!sio_bind_fields(sio, io, out)) continue;
+            return true;
+        }
+    }
+    return false;
+}
+
+int sio_connected_count() {
+    int n = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (g_sio_multi[i].load(std::memory_order_relaxed) != 0xFFFF) ++n;
+    }
+    if (n < 1) n = 1;
+    if (n > 3) n = 3;
+    return n;
+}
+
+bool driver_init(XoraGbaSioDriver*) { return true; }
+void driver_noop(XoraGbaSioDriver*) {}
+uint32_t driver_id(const XoraGbaSioDriver*) { return 0x584F5241u; } // 'XORA'
+bool driver_load(XoraGbaSioDriver*, const void*, size_t) { return true; }
+void driver_save(XoraGbaSioDriver*, void**, size_t*) {}
+void driver_set_mode(XoraGbaSioDriver*, int) {}
+bool driver_handles(XoraGbaSioDriver*, int mode) {
+    return mode == 0 || mode == 1 || mode == 2 || mode == 8;
+}
+int driver_connected(XoraGbaSioDriver*) { return sio_connected_count(); }
+int driver_device_id(XoraGbaSioDriver*) {
+    return g_sio_local_id.load(std::memory_order_relaxed);
+}
+uint16_t driver_write_siocnt(XoraGbaSioDriver*, uint16_t value) {
+    if ((value & kGbaSiocntModeMask) == kGbaSiocntMulti) return value;
+    return static_cast<uint16_t>(value & ~0x0004u);
+}
+uint16_t driver_write_rcnt(XoraGbaSioDriver*, uint16_t value) {
+    return static_cast<uint16_t>((value & ~0x0004u) | 0x000Au);
+}
+bool driver_start(XoraGbaSioDriver*) { return true; }
+void driver_finish_mp(XoraGbaSioDriver*, uint16_t data[4]) {
+    if (!data) return;
+    for (int i = 0; i < 4; ++i) {
+        data[i] = g_sio_multi[i].load(std::memory_order_relaxed);
+    }
+}
+uint8_t driver_finish8(XoraGbaSioDriver*) { return 0xFF; }
+uint32_t driver_finish32(XoraGbaSioDriver*) { return 0xFFFFFFFFu; }
+
+void sio_driver_install(const GbaSioLive& live) {
+    if (!live.driver_slot) return;
+    if (!g_sio_driver.init) {
+        g_sio_driver.init = driver_init;
+        g_sio_driver.deinit = driver_noop;
+        g_sio_driver.reset = driver_noop;
+        g_sio_driver.driverId = driver_id;
+        g_sio_driver.loadState = driver_load;
+        g_sio_driver.saveState = driver_save;
+        g_sio_driver.setMode = driver_set_mode;
+        g_sio_driver.handlesMode = driver_handles;
+        g_sio_driver.connectedDevices = driver_connected;
+        g_sio_driver.deviceId = driver_device_id;
+        g_sio_driver.writeSIOCNT = driver_write_siocnt;
+        g_sio_driver.writeRCNT = driver_write_rcnt;
+        g_sio_driver.start = driver_start;
+        g_sio_driver.finishMultiplayer = driver_finish_mp;
+        g_sio_driver.finishNormal8 = driver_finish8;
+        g_sio_driver.finishNormal32 = driver_finish32;
+    }
+    g_sio_driver.p = live.sio;
+    if (*live.driver_slot != &g_sio_driver) {
+        *live.driver_slot = &g_sio_driver;
+    }
+}
+
+void gba_sio_apply_live(const GbaSioLive& live) {
+    if (!live.io) return;
+    const int id = g_sio_local_id.load(std::memory_order_relaxed);
+    if (id >= 0 && id < 4) {
+        live.io[kGbaRegSiomltSend] = g_sio_multi[id].load(std::memory_order_relaxed);
+    }
+    for (int i = 0; i < 4; ++i) {
+        live.io[kGbaRegSiomulti0 + i] = g_sio_multi[i].load(std::memory_order_relaxed);
+    }
+
+    uint16_t rcnt = live.rcnt ? *live.rcnt : live.io[kGbaRegRcnt];
+    rcnt = static_cast<uint16_t>((rcnt & ~0x0004u) | 0x000Au); // SI=0, SD=1, SO=1
+    if (live.rcnt) *live.rcnt = rcnt;
+    live.io[kGbaRegRcnt] = rcnt;
+
+    uint16_t cnt = live.siocnt ? *live.siocnt : live.io[kGbaRegSiocnt];
+    if ((cnt & kGbaSiocntModeMask) == kGbaSiocntMulti) {
+        cnt = static_cast<uint16_t>(cnt & ~0x00FCu); // SI, SD, ID, error, busy
+        cnt = static_cast<uint16_t>(cnt | 0x0008u | ((id & 3) << 4));
+        if (id != 0) cnt = static_cast<uint16_t>(cnt | 0x0004u);
+        live.io[kGbaRegIf] = static_cast<uint16_t>(live.io[kGbaRegIf] | kGbaSioIrqBit);
+    } else {
+        cnt = static_cast<uint16_t>(cnt & ~0x0004u);
+    }
+    if (live.siocnt) *live.siocnt = cnt;
+    live.io[kGbaRegSiocnt] = cnt;
+}
+
+void gba_sio_refresh(uint16_t* io) {
+    if (!io || !g_sio_link_on.load(std::memory_order_relaxed)) return;
+    GbaSioLive live{};
+    if (gba_sio_locate(io, &live)) {
+        g_gba_sio = live;
+        sio_driver_install(live);
+        if (!g_sio_logged_hook) {
+            g_sio_logged_hook = true;
+            ALOGI("GBA Game Link: hooked mGBA SIO (rcnt/siocnt + driver)");
+        }
+    } else {
+        live.io = io;
+        if (!g_sio_logged_hook) {
+            g_sio_logged_hook = true;
+            ALOGW("GBA Game Link: I/O mapped but gba->sio not found; cable detect may fail");
+        }
+    }
+    gba_sio_apply_live(live);
+}
+
+void xora_gba_sio_reset() {
+    g_gba_sio = GbaSioLive{};
+    g_sio_link_on.store(false, std::memory_order_relaxed);
+    g_sio_local_id.store(0, std::memory_order_relaxed);
+    for (auto& slot : g_sio_multi) slot.store(0xFFFF, std::memory_order_relaxed);
+    g_sio_logged_hook = false;
+    g_sio_driver.p = nullptr;
+}
+
+void xora_gba_sio_on_poll() {
+    if (!g_sio_link_on.load(std::memory_order_relaxed)) return;
+    uint16_t* io = gba_io_regs();
+    if (!io) return;
+    const int id = g_sio_local_id.load(std::memory_order_relaxed);
+    if (id >= 0 && id < 4) {
+        g_sio_multi[id].store(io[kGbaRegSiomltSend], std::memory_order_relaxed);
+    }
+    gba_sio_refresh(io);
+}
+
+}  // namespace
+
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioRead(JNIEnv* env, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
     uint16_t* io = gba_io_regs();
     if (!io) return nullptr;
+    uint16_t cnt = io[kGbaRegSiocnt];
+    if (g_gba_sio.siocnt) cnt = *g_gba_sio.siocnt;
     jint packed[2] = {
-        static_cast<jint>(io[0x12A / 2]), // SIOMLT_SEND
-        static_cast<jint>(io[0x128 / 2]), // SIOCNT
+        static_cast<jint>(io[kGbaRegSiomltSend]),
+        static_cast<jint>(cnt),
     };
     jintArray out = env->NewIntArray(2);
     if (!out) return nullptr;
@@ -1276,19 +1541,13 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioApply(
     if (n < 4) return;
     jint slots[4];
     env->GetIntArrayRegion(multi, 0, 4, slots);
-    uint16_t cnt = io[0x128 / 2];
-    if ((cnt & 0x3000u) != 0x2000u) return; // not GBA multi-player SIO mode
-    io[0x120 / 2] = static_cast<uint16_t>(slots[0] & 0xFFFF); // SIOMULTI0
-    io[0x122 / 2] = static_cast<uint16_t>(slots[1] & 0xFFFF);
-    io[0x124 / 2] = static_cast<uint16_t>(slots[2] & 0xFFFF);
-    io[0x126 / 2] = static_cast<uint16_t>(slots[3] & 0xFFFF);
     const int id = local_id < 0 ? 0 : (local_id > 3 ? 3 : local_id);
-    cnt &= static_cast<uint16_t>(~0x403Cu); // clear busy (bit 14), SI/SD/ID
-    cnt |= static_cast<uint16_t>((id & 3) << 4);
-    cnt |= 0x0008u; // SD = all GBAs ready
-    if (id != 0) cnt |= 0x0004u; // SI = child
-    io[0x128 / 2] = cnt;
-    io[0x202 / 2] = static_cast<uint16_t>(io[0x202 / 2] | 0x0080u); // IF: SIO IRQ
+    g_sio_local_id.store(id, std::memory_order_relaxed);
+    for (int i = 0; i < 4; ++i) {
+        g_sio_multi[i].store(static_cast<uint16_t>(slots[i] & 0xFFFF), std::memory_order_relaxed);
+    }
+    g_sio_link_on.store(true, std::memory_order_relaxed);
+    gba_sio_refresh(io);
 }
 
 extern "C" JNIEXPORT void JNICALL

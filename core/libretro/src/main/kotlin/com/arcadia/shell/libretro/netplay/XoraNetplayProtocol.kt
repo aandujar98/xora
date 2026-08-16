@@ -41,7 +41,8 @@ object XoraNetplayProtocol {
     const val TYPE_VIDEO: Int = 10
     /**
      * Handheld Game Link: 16-bit SIO send word for this device's slot. Both GBAs keep
-     * running; the frontend writes SIOMULTI0–3 so the cores can see each other.
+     * running; the frontend feeds mGBA's live SIO (not just `memory.io`) so the cores
+     * see a connected Game Link cable.
      */
     const val TYPE_SERIAL: Int = 11
     const val TYPE_CHUNK: Int = 100
