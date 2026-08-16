@@ -167,6 +167,8 @@ class XoraLibretroActivity : ComponentActivity() {
     private var gameRoot: FrameLayout? = null
     private var stage: XoraEmulatorStage? = null
     private var xmbOverlay: ComposeView? = null
+    /** Full-screen host for invite / seat-picker dialogs (the banner view is wrap-content). */
+    private var dialogOverlay: ComposeView? = null
     /** Topmost profile disc — tap clears a leftover white wash. */
     private var profileChip: FrameLayout? = null
     private var profileChipImage: ImageView? = null
@@ -221,7 +223,11 @@ class XoraLibretroActivity : ComponentActivity() {
             if (isFinishing || activityInBackground) return
             pinOpaqueWindow()
             if (!menuOpen) pinGameplaySurface()
-            keepProfileChipOnTop()
+            if (seatPickerOpen || invitePromptOpen) {
+                dialogOverlay?.bringToFront()
+            } else {
+                keepProfileChipOnTop()
+            }
             postWashFrame()
         }
     }
@@ -354,6 +360,20 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         xmbOverlay = xmb
         root.addView(xmb)
+        val dialogs = ComposeView(this).apply {
+            setBackgroundColor(AndroidColor.TRANSPARENT)
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            isClickable = false
+            isFocusable = false
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            visibility = View.GONE
+        }
+        dialogOverlay = dialogs
+        root.addView(dialogs)
         root.addView(createProfileChip())
 
         setContentView(root)
@@ -410,11 +430,8 @@ class XoraLibretroActivity : ComponentActivity() {
                     } else {
                         bannerName = hostUsername
                         line = "Joined $hostUsername's session — you are Player ${ui.playerSlot}"
-                        if (ui.online && ui.playerSlot >= 2) {
-                            // Let the joiner pick their seat: Players 2–4, taken ones greyed out.
-                            seatPickerFocus = (ui.playerSlot - 2).coerceIn(0, 2)
-                            seatPickerOpen = true
-                        }
+                        // Do not auto-open the seat picker: it used to sit in a wrap-content
+                        // corner view, eat every button, and send idle P2 pads until dismissed.
                     }
                     showMenuMessage(line)
                     shellNotifications.emit(
@@ -539,6 +556,25 @@ class XoraLibretroActivity : ComponentActivity() {
                                 }
                             },
                         )
+                    }
+                }
+            }
+        }
+
+        dialogOverlay?.setContent {
+            val settings by preferences.settings.collectAsStateWithLifecycle(
+                initialValue = ShellSettings(),
+            )
+            LaunchedEffect(seatPickerOpen, invitePromptOpen) {
+                syncDialogOverlay()
+            }
+            ArcadiaTheme(
+                darkTheme = true,
+                shellThemeId = settings.shellThemeId,
+                uiTextScale = settings.uiTextScale,
+            ) {
+                CompositionLocalProvider(LocalArcadiaHaze provides null) {
+                    Box(modifier = Modifier.fillMaxSize()) {
                         NetplayInvitePromptDialog(
                             prompt = pendingInvitePrompt.takeIf { invitePromptOpen },
                             onJoin = { confirmInvitePrompt() },
@@ -1193,9 +1229,22 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun pickNetplaySeat(slot: Int) {
         seatPickerOpen = false
+        syncDialogOverlay()
         if (slot == netplayUi.playerSlot) return
         netplaySession?.requestSeat(slot)
         showMenuMessage("Asking the host for Player $slot…")
+    }
+
+    /** Invite / seat-picker live on a full-screen view so they cannot trap input invisibly. */
+    private fun syncDialogOverlay() {
+        val show = seatPickerOpen || invitePromptOpen
+        dialogOverlay?.apply {
+            visibility = if (show) View.VISIBLE else View.GONE
+            isClickable = show
+            alpha = 1f
+            if (show) bringToFront()
+        }
+        if (!show) keepProfileChipOnTop()
     }
 
     /** A on a notification row: netplay invites open the Join / Not now window. */
@@ -1993,8 +2042,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         }
                         // Each device is one netplay seat: merge every local pad into this
                         // player's slot. Overlay / seat-picker / invite must not drive the game.
-                        val overlayBlocksGamePad =
-                            menuOpen || seatPickerOpen || invitePromptOpen
+                        val overlayBlocksGamePad = menuOpen || invitePromptOpen
                         val local = if (overlayBlocksGamePad) {
                             LibretroPadMixer.Snapshot()
                         } else {
