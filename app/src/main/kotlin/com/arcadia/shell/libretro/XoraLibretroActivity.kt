@@ -88,6 +88,7 @@ import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
 import com.arcadia.shell.libretro.netplay.netplayBannerText
+import com.arcadia.shell.libretro.netplay.formatJoinHostPort
 import com.arcadia.shell.libretro.netplay.parseJoinHostPort
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaProfile
