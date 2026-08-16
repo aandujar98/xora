@@ -1265,7 +1265,6 @@ struct GbaSioLive {
     uint8_t* sio = nullptr;
     uint16_t* rcnt = nullptr;
     uint16_t* siocnt = nullptr;
-    void** driver_slot = nullptr;
 };
 
 GbaSioLive g_gba_sio{};
@@ -1274,29 +1273,6 @@ std::atomic<int> g_sio_local_id{0};
 std::atomic<uint16_t> g_sio_multi[4]{{0xFFFF}, {0xFFFF}, {0xFFFF}, {0xFFFF}};
 bool g_sio_logged_hook = false;
 bool g_sio_locate_missed = false;
-
-// Layout must match mGBA's GBASIODriver (include/mgba/gba/interface.h).
-struct XoraGbaSioDriver {
-    void* p;
-    bool (*init)(XoraGbaSioDriver*);
-    void (*deinit)(XoraGbaSioDriver*);
-    void (*reset)(XoraGbaSioDriver*);
-    uint32_t (*driverId)(const XoraGbaSioDriver*);
-    bool (*loadState)(XoraGbaSioDriver*, const void*, size_t);
-    void (*saveState)(XoraGbaSioDriver*, void**, size_t*);
-    void (*setMode)(XoraGbaSioDriver*, int);
-    bool (*handlesMode)(XoraGbaSioDriver*, int);
-    int (*connectedDevices)(XoraGbaSioDriver*);
-    int (*deviceId)(XoraGbaSioDriver*);
-    uint16_t (*writeSIOCNT)(XoraGbaSioDriver*, uint16_t);
-    uint16_t (*writeRCNT)(XoraGbaSioDriver*, uint16_t);
-    bool (*start)(XoraGbaSioDriver*);
-    void (*finishMultiplayer)(XoraGbaSioDriver*, uint16_t[4]);
-    uint8_t (*finishNormal8)(XoraGbaSioDriver*);
-    uint32_t (*finishNormal32)(XoraGbaSioDriver*);
-};
-
-XoraGbaSioDriver g_sio_driver{};
 
 bool sio_mode_ok(int32_t mode) {
     return mode == -1 || mode == 0 || mode == 1 || mode == 2 || mode == 3 ||
@@ -1329,7 +1305,6 @@ bool sio_bind_fields(uint8_t* sio, uint16_t* io, GbaSioLive* out) {
     const size_t rcnt_off = driver_off + sizeof(void*);
     out->io = io;
     out->sio = sio;
-    out->driver_slot = reinterpret_cast<void**>(sio + driver_off);
     out->rcnt = reinterpret_cast<uint16_t*>(sio + rcnt_off);
     out->siocnt = reinterpret_cast<uint16_t*>(sio + rcnt_off + 2);
     return true;
@@ -1395,75 +1370,6 @@ bool gba_sio_locate(uint16_t* io, GbaSioLive* out) {
     // driver into a random pointer and crash the core the moment Player 2 linked.
     g_sio_locate_missed = true;
     return false;
-}
-
-int sio_connected_count() {
-    int n = 0;
-    for (int i = 0; i < 4; ++i) {
-        if (g_sio_multi[i].load(std::memory_order_relaxed) != 0xFFFF) ++n;
-    }
-    if (g_sio_link_on.load(std::memory_order_relaxed) && n < 2) n = 2;
-    if (n < 1) n = 1;
-    if (n > 4) n = 4;
-    return n;
-}
-
-bool driver_init(XoraGbaSioDriver*) { return true; }
-void driver_noop(XoraGbaSioDriver*) {}
-uint32_t driver_id(const XoraGbaSioDriver*) { return 0x584F5241u; } // 'XORA'
-bool driver_load(XoraGbaSioDriver*, const void*, size_t) { return true; }
-void driver_save(XoraGbaSioDriver*, void**, size_t*) {}
-void driver_set_mode(XoraGbaSioDriver*, int) {}
-bool driver_handles(XoraGbaSioDriver*, int mode) {
-    return mode == 0 || mode == 1 || mode == 2 || mode == 8;
-}
-int driver_connected(XoraGbaSioDriver*) { return sio_connected_count(); }
-int driver_device_id(XoraGbaSioDriver*) {
-    return g_sio_local_id.load(std::memory_order_relaxed);
-}
-uint16_t driver_write_siocnt(XoraGbaSioDriver*, uint16_t value) {
-    if ((value & kGbaSiocntModeMask) == kGbaSiocntMulti) return value;
-    return static_cast<uint16_t>(value & ~0x0004u);
-}
-uint16_t driver_write_rcnt(XoraGbaSioDriver*, uint16_t value) {
-    return static_cast<uint16_t>((value & ~0x0004u) | 0x000Au);
-}
-// true = mGBA schedules completeEvent / finishMultiplayer. false would mean
-// "the driver finishes the transfer itself", which left BUSY set forever.
-bool driver_start(XoraGbaSioDriver*) { return true; }
-void driver_finish_mp(XoraGbaSioDriver*, uint16_t data[4]) {
-    if (!data) return;
-    for (int i = 0; i < 4; ++i) {
-        data[i] = g_sio_multi[i].load(std::memory_order_relaxed);
-    }
-}
-uint8_t driver_finish8(XoraGbaSioDriver*) { return 0xFF; }
-uint32_t driver_finish32(XoraGbaSioDriver*) { return 0xFFFFFFFFu; }
-
-void sio_driver_install(const GbaSioLive& live) {
-    if (!live.driver_slot) return;
-    if (!g_sio_driver.init) {
-        g_sio_driver.init = driver_init;
-        g_sio_driver.deinit = driver_noop;
-        g_sio_driver.reset = driver_noop;
-        g_sio_driver.driverId = driver_id;
-        g_sio_driver.loadState = driver_load;
-        g_sio_driver.saveState = driver_save;
-        g_sio_driver.setMode = driver_set_mode;
-        g_sio_driver.handlesMode = driver_handles;
-        g_sio_driver.connectedDevices = driver_connected;
-        g_sio_driver.deviceId = driver_device_id;
-        g_sio_driver.writeSIOCNT = driver_write_siocnt;
-        g_sio_driver.writeRCNT = driver_write_rcnt;
-        g_sio_driver.start = driver_start;
-        g_sio_driver.finishMultiplayer = driver_finish_mp;
-        g_sio_driver.finishNormal8 = driver_finish8;
-        g_sio_driver.finishNormal32 = driver_finish32;
-    }
-    g_sio_driver.p = live.sio;
-    if (*live.driver_slot != &g_sio_driver) {
-        *live.driver_slot = &g_sio_driver;
-    }
 }
 
 void gba_sio_apply_live(const GbaSioLive& live) {
@@ -1536,7 +1442,6 @@ void xora_gba_sio_reset() {
     g_sio_link_on.store(false, std::memory_order_relaxed);
     g_sio_local_id.store(0, std::memory_order_relaxed);
     for (auto& slot : g_sio_multi) slot.store(0xFFFF, std::memory_order_relaxed);
-    g_sio_driver.p = nullptr;
 }
 
 void xora_gba_sio_on_poll() {
