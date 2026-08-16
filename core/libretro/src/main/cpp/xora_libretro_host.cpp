@@ -506,14 +506,32 @@ bool is_pad_device(unsigned id, const char* desc) {
         d.find("justifier") != std::string::npos || d.find("guncon") != std::string::npos ||
         d.find("lightgun") != std::string::npos || d.find("mouse") != std::string::npos ||
         d.find("paddle") != std::string::npos || d.find("tablet") != std::string::npos ||
-        d.find("keyboard") != std::string::npos || d.find("multitap") != std::string::npos) {
+        d.find("keyboard") != std::string::npos) {
         return false;
     }
     return true;
 }
 
-int pad_device_score(unsigned id, const char* desc) {
+bool is_multiplayer_adapter(const char* desc) {
+    if (!desc || !desc[0]) return false;
+    const std::string d = to_lower_copy(desc);
+    return d.find("multitap") != std::string::npos ||
+           d.find("four score") != std::string::npos ||
+           d.find("fourscore") != std::string::npos ||
+           d.find("4-player") != std::string::npos ||
+           d.find("4 player") != std::string::npos ||
+           d.find("teamplayer") != std::string::npos ||
+           d.find("team player") != std::string::npos ||
+           d.find("4-way") != std::string::npos ||
+           d.find("4 way") != std::string::npos;
+}
+
+int pad_device_score(unsigned port, unsigned id, const char* desc) {
     const std::string d = desc ? to_lower_copy(desc) : "";
+    if (is_multiplayer_adapter(desc)) {
+        // Never put an adapter on P1; prefer it on P2 so ports 2–4 light up.
+        return port == 0 ? -1 : 96;
+    }
     if (d.find("gamepad") != std::string::npos) return 90;
     if (d.find("gamecube") != std::string::npos) return 88;
     if (d.find("playstation controller") != std::string::npos) return 85;
@@ -548,7 +566,7 @@ void apply_controller_info(const retro_controller_info* ports) {
         for (unsigned i = 0; i < info.num_types; ++i) {
             const retro_controller_description& type = info.types[i];
             if (!is_pad_device(type.id, type.desc)) continue;
-            const int score = pad_device_score(type.id, type.desc);
+            const int score = pad_device_score(port, type.id, type.desc);
             if (score > best_score) {
                 best_score = score;
                 best_id = type.id;
@@ -559,7 +577,13 @@ void apply_controller_info(const retro_controller_info* ports) {
         count = port + 1;
         ALOGI("Controller port %u device %u (%s)", port, best_id, best_desc);
     }
-    if (count > 0) g_controller_ports = count;
+    if (count > 0) {
+        const unsigned fill = g_port_device[0];
+        for (unsigned port = count; port < kMaxControllerPorts; ++port) {
+            g_port_device[port] = fill;
+        }
+        g_controller_ports = kMaxControllerPorts;
+    }
 }
 
 int16_t analog_x_or_dpad(unsigned port) {
@@ -588,9 +612,11 @@ void plug_controllers() {
         const unsigned id = (g_controller_ports > port) ? g_port_device[port] : d0;
         g_api.set_controller_port_device(port, id);
     }
-    ALOGI("Plugged P1 device %u, P2 device %u (ports=%u)",
+    ALOGI("Plugged P1–P4 devices %u %u %u %u (ports=%u)",
           d0,
-          (g_controller_ports >= 2) ? g_port_device[1] : d0,
+          g_port_device[1],
+          g_port_device[2],
+          g_port_device[3],
           g_controller_ports);
     g_plugging_controllers = false;
 }
@@ -739,7 +765,7 @@ bool environment(unsigned cmd, void* data) {
         }
         case RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS: {
             if (!data) return false;
-            // NES/SNES/GC expose up to 4 sockets; we still only drive ports 0 and 1.
+            // NES/SNES/N64/PS/GC expose up to 4 sockets; we drive all of them.
             *static_cast<unsigned*>(data) = 4u;
             return true;
         }

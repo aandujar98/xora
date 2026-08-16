@@ -32,8 +32,8 @@ object LibretroNative {
     external fun nativeUnserialize(data: ByteArray): Boolean
     external fun nativeLastError(): String?
     /**
-     * Plug P1 and P2 using each core's SET_CONTROLLER_INFO device ids
-     * (NES/SNES gamepad, N64 pad, DualShock, GameCube controller, …).
+     * Plug P1–P4 using each core's SET_CONTROLLER_INFO device ids
+     * (NES/SNES gamepad, N64 pad, DualShock, GameCube controller, multitap, …).
      */
     external fun nativePlugControllers()
 

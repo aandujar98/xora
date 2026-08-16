@@ -283,6 +283,8 @@ class LibretroPadMixer {
     data class PlayerPads(
         val p1: Snapshot = Snapshot(),
         val p2: Snapshot = Snapshot(),
+        val p3: Snapshot = Snapshot(),
+        val p4: Snapshot = Snapshot(),
     )
 
     private class DeviceState {
@@ -337,8 +339,8 @@ class LibretroPadMixer {
 
     /**
      * Player 1 = preferred pad, Android controllerNumber 1, or the first gamepad.
-     * Player 2 = controllerNumber 2 or the next distinct gamepad.
-     * Keyboard / unpaired devices fold into P1 so they never steal the P2 slot.
+     * Players 2–4 = controllerNumber 2–4 or the next distinct gamepads in order.
+     * Keyboard / unpaired devices fold into P1 so they never steal a later slot.
      */
     fun snapshotPlayers(
         preferredName: String = "",
@@ -390,11 +392,17 @@ class LibretroPadMixer {
             ?: pads.firstOrNull()
         val remaining = pads.filter { it !== p1Group }
         val p2Group = remaining.firstOrNull { it.number == 2 } ?: remaining.firstOrNull()
+        val afterP2 = remaining.filter { it !== p2Group }
+        val p3Group = afterP2.firstOrNull { it.number == 3 } ?: afterP2.firstOrNull()
+        val afterP3 = afterP2.filter { it !== p3Group }
+        val p4Group = afterP3.firstOrNull { it.number == 4 } ?: afterP3.firstOrNull()
 
         val extraSnap = extras.fold(Snapshot()) { acc, group -> acc.merge(mergeGroup(group)) }
         PlayerPads(
             p1 = mergeGroup(p1Group).merge(extraSnap),
             p2 = mergeGroup(p2Group),
+            p3 = mergeGroup(p3Group),
+            p4 = mergeGroup(p4Group),
         )
     }
 

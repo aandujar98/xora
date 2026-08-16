@@ -31,6 +31,9 @@ object XoraCoreOptions {
         applyN64(platformId, coreName, out)
         applyPs1(platformId, coreName, out)
         applyGameCube(platformId, coreName, out)
+        applyGenesis(platformId, coreName, out)
+        applySaturn(platformId, coreName, out)
+        applyDreamcast(platformId, coreName, out)
         return out
     }
 
@@ -48,7 +51,10 @@ object XoraCoreOptions {
         }
         out["mesen_port1type"] = "Standard Controller"
         out["mesen_port2type"] = "Standard Controller"
-        out["nestopia_select_adapter"] = "disabled"
+        out["mesen_port3type"] = "Standard Controller"
+        out["mesen_port4type"] = "Standard Controller"
+        // auto lets Nestopia enable Four Score / Famicom when the ROM needs P3/P4.
+        out["nestopia_select_adapter"] = "auto"
     }
 
     private fun applySnes(
@@ -64,9 +70,11 @@ object XoraCoreOptions {
             return
         }
         out["bsnes_port_1"] = "Gamepad"
-        out["bsnes_port_2"] = "Gamepad"
+        out["bsnes_port_2"] = "Super Multitap"
         out["mesen-s_port1type"] = "Standard Controller"
         out["mesen-s_port2type"] = "Standard Controller"
+        out["mesen-s_port3type"] = "Standard Controller"
+        out["mesen-s_port4type"] = "Standard Controller"
     }
 
     private fun applyN64(
@@ -91,15 +99,19 @@ object XoraCoreOptions {
         out["mupen64plus-FrameDuping"] = "False"
         out["mupen64plus-pak1"] = "memory"
         out["mupen64plus-pak2"] = "memory"
+        out["mupen64plus-pak3"] = "memory"
+        out["mupen64plus-pak4"] = "memory"
         out["parallel-n64-pak1"] = "memory"
         out["parallel-n64-pak2"] = "memory"
+        out["parallel-n64-pak3"] = "memory"
+        out["parallel-n64-pak4"] = "memory"
         // ParaLLEl: software RDP avoids Vulkan (unsupported by the XOrA GLES host).
         out["parallel-n64-gfx"] = "angrylion"
     }
 
     /**
-     * Connect P1 and P2 on PlayStation cores. SwanStation/DuckStation default
-     * port 2 to None; PCSX-ReARMed needs an explicit pad2 type.
+     * Connect P1–P4 on PlayStation cores. SwanStation/DuckStation default extra
+     * ports to None; a multitap on port 2 is required for P3/P4.
      */
     private fun applyPs1(
         platformId: String,
@@ -116,18 +128,37 @@ object XoraCoreOptions {
         }
         out["pcsx_rearmed_pad1type"] = "analog"
         out["pcsx_rearmed_pad2type"] = "analog"
+        out["pcsx_rearmed_pad3type"] = "analog"
+        out["pcsx_rearmed_pad4type"] = "analog"
+        out["pcsx_rearmed_multitap"] = "port2"
         out["duckstation_Controller1.Type"] = "AnalogController"
         out["duckstation_Controller2.Type"] = "AnalogController"
+        out["duckstation_Controller3.Type"] = "AnalogController"
+        out["duckstation_Controller4.Type"] = "AnalogController"
         out["swanstation_Controller1.Type"] = "AnalogController"
         out["swanstation_Controller2.Type"] = "AnalogController"
+        out["swanstation_Controller3.Type"] = "AnalogController"
+        out["swanstation_Controller4.Type"] = "AnalogController"
         out["swanstation_Controller1_ForceAnalog"] = "true"
         out["swanstation_Controller2_ForceAnalog"] = "true"
+        out["swanstation_Controller3_ForceAnalog"] = "true"
+        out["swanstation_Controller4_ForceAnalog"] = "true"
         out["duckstation_Controller1_ForceAnalog"] = "true"
         out["duckstation_Controller2_ForceAnalog"] = "true"
+        out["duckstation_Controller3_ForceAnalog"] = "true"
+        out["duckstation_Controller4_ForceAnalog"] = "true"
+        out["duckstation_Multitap.Mode"] = "Port2Only"
+        out["swanstation_Multitap.Mode"] = "Port2Only"
+        out["duckstation_ControllerPorts.MultitapMode"] = "Port2Only"
+        out["swanstation_ControllerPorts.MultitapMode"] = "Port2Only"
         out["beetle_psx_pad1type"] = "analog"
         out["beetle_psx_pad2type"] = "analog"
+        out["beetle_psx_pad3type"] = "analog"
+        out["beetle_psx_pad4type"] = "analog"
         out["beetle_psx_hw_pad1type"] = "analog"
         out["beetle_psx_hw_pad2type"] = "analog"
+        out["beetle_psx_hw_pad3type"] = "analog"
+        out["beetle_psx_hw_pad4type"] = "analog"
     }
 
     /** Keep GameCube pads on ports 1–2 (not Wii 5–8) so the joiner is P2. */
@@ -147,6 +178,65 @@ object XoraCoreOptions {
         out["dolphin_port_2_type"] = "Standard Controller"
         out["dolphin_port_3_type"] = "Standard Controller"
         out["dolphin_port_4_type"] = "Standard Controller"
+    }
+
+    /** Genesis / Mega Drive: 6-button pads and a Team Player on port 2 for P3/P4. */
+    private fun applyGenesis(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "genesis" &&
+            platformId != "megadrive" &&
+            platformId != "sega32x" &&
+            platformId != "segacd" &&
+            platformId != "mastersystem" &&
+            !coreName.contains("genesis_plus", ignoreCase = true) &&
+            !coreName.contains("picodrive", ignoreCase = true)
+        ) {
+            return
+        }
+        out["picodrive_input1"] = "6 button pad"
+        out["picodrive_input2"] = "teamplayer"
+    }
+
+    /** Saturn 6-player adapter on port 2 so P3/P4 exist. */
+    private fun applySaturn(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "saturn" &&
+            !coreName.contains("saturn", ignoreCase = true) &&
+            !coreName.contains("yabause", ignoreCase = true) &&
+            !coreName.contains("kronos", ignoreCase = true)
+        ) {
+            return
+        }
+        out["beetle_saturn_multitap_port2"] = "enabled"
+        out["mednafen_saturn_multitap_port2"] = "enabled"
+    }
+
+    /** Dreamcast always has four maple ports — keep them as standard controllers. */
+    private fun applyDreamcast(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "dreamcast" &&
+            !coreName.contains("flycast", ignoreCase = true) &&
+            !coreName.contains("reicast", ignoreCase = true)
+        ) {
+            return
+        }
+        out["reicast_device1"] = "Gamepad"
+        out["reicast_device2"] = "Gamepad"
+        out["reicast_device3"] = "Gamepad"
+        out["reicast_device4"] = "Gamepad"
+        out["flycast_device1"] = "Gamepad"
+        out["flycast_device2"] = "Gamepad"
+        out["flycast_device3"] = "Gamepad"
+        out["flycast_device4"] = "Gamepad"
     }
 
     private fun applyNds(

@@ -375,7 +375,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 if (ui.linked && wasLinked && ui.playerCount > lastPlayerCount) {
                     // A third or fourth player joined an already-linked session.
                     lifecycleScope.launch(emuDispatcher) {
-                        LibretroNative.nativePlugControllers()
+                        applyCoreControllerOptions()
                     }
                     val newSlots = ui.playerNames.keys - lastPlayerNames.keys - ui.playerSlot
                     val joined = newSlots.sorted()
@@ -397,7 +397,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 if (!ui.linked) seatPickerOpen = false
                 if (ui.linked && !wasLinked) {
                     lifecycleScope.launch(emuDispatcher) {
-                        LibretroNative.nativePlugControllers()
+                        applyCoreControllerOptions()
                     }
                     audioTrack?.play()
                     hideSoftKeyboard()
@@ -753,7 +753,6 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun handlePadKey(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
         val customMappings = xoraSettings.buttonMappings
-        val netplayLinked = netplaySession?.linkedNow == true
         when (event.action) {
             KeyEvent.ACTION_DOWN -> {
                 if (invitePromptOpen) {
@@ -815,7 +814,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     toggleMenu()
                     return true
                 }
-                if (menuOpen && !netplayLinked) {
+                if (menuOpen) {
                     return handleInGameXmbKey(keyCode)
                 }
                 LibretroPad.keyCodeToButton(keyCode, customMappings)?.let { bit ->
@@ -838,7 +837,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     KeyEvent.KEYCODE_NUMPAD_ENTER,
                     -> startHeld = false
                 }
-                if (menuOpen && !netplayLinked) {
+                if (menuOpen) {
                     return LibretroPad.run { event.isFromGameController(customMappings) } ||
                         LibretroPad.keyCodeToButton(keyCode, customMappings) != null ||
                         keyCode == KeyEvent.KEYCODE_BACK ||
@@ -857,8 +856,8 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun handlePadMotion(event: MotionEvent): Boolean {
-        val netplayLinked = netplaySession?.linkedNow == true
-        if (menuOpen && !netplayLinked) {
+        if (invitePromptOpen || seatPickerOpen) return true
+        if (menuOpen) {
             val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
             val stickY = event.getAxisValue(MotionEvent.AXIS_Y)
             val y = if (kotlin.math.abs(hatY) > 0.5f) hatY else stickY
@@ -1951,6 +1950,18 @@ class XoraLibretroActivity : ComponentActivity() {
             }
     }
 
+    /** Re-apply P1–P4 core options and plug every advertised socket. */
+    private fun applyCoreControllerOptions() {
+        XoraCoreOptions.variablesFor(
+            platformId = platformId,
+            coreName = coreName,
+            settings = xoraSettings,
+        ).forEach { (key, value) ->
+            LibretroNative.nativeSetCoreVariable(key, value)
+        }
+        LibretroNative.nativePlugControllers()
+    }
+
     private fun applyNativePad(port: Int, pad: LibretroPadMixer.Snapshot) {
         LibretroNative.nativeSetPadStatePort(port, pad.buttons, pad.lx, pad.ly, pad.rx, pad.ry)
     }
@@ -1980,10 +1991,14 @@ class XoraLibretroActivity : ComponentActivity() {
                         if (emuFrameIndex % 90 == 0) {
                             LibretroNative.nativePlugControllers()
                         }
-                        val local = when {
-                            players.p1.hasInput() -> players.p1
-                            players.p2.hasInput() -> players.p2
-                            else -> padMixer.snapshot()
+                        // Each device is one netplay seat: merge every local pad into this
+                        // player's slot. Overlay / seat-picker / invite must not drive the game.
+                        val overlayBlocksGamePad =
+                            menuOpen || seatPickerOpen || invitePromptOpen
+                        val local = if (overlayBlocksGamePad) {
+                            LibretroPadMixer.Snapshot()
+                        } else {
+                            padMixer.snapshot()
                         }
                         val mute = xoraSettings.netplaySpectator && !session.hosting
                         val frameIndex = session.nextFrameIndex()
@@ -2006,6 +2021,8 @@ class XoraLibretroActivity : ComponentActivity() {
                         }
                         applyNativePad(0, players.p1)
                         applyNativePad(1, players.p2)
+                        applyNativePad(2, players.p3)
+                        applyNativePad(3, players.p4)
                     }
                     emuFrameIndex++
                     LibretroNative.nativeRunFrame()

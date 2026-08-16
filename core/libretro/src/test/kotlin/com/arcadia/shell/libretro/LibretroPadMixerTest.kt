@@ -117,5 +117,30 @@ class LibretroPadMixerTest {
         )
         assertEquals((1 shl LibretroPad.A) or (1 shl LibretroPad.LEFT), players.p1.buttons)
         assertEquals(0, players.p2.buttons)
+        assertEquals(0, players.p3.buttons)
+        assertEquals(0, players.p4.buttons)
+    }
+
+    @Test
+    fun thirdAndFourthControllersAreTheirOwnPlayers() {
+        val mixer = LibretroPadMixer()
+        mixer.keyDown(deviceId = 1, bit = LibretroPad.A)
+        mixer.keyDown(deviceId = 2, bit = LibretroPad.B)
+        mixer.keyDown(deviceId = 3, bit = LibretroPad.X)
+        mixer.keyDown(deviceId = 4, bit = LibretroPad.Y)
+        val players = mixer.snapshotPlayers(
+            connected = listOf(
+                1 to "Pad 1",
+                2 to "Pad 2",
+                3 to "Pad 3",
+                4 to "Pad 4",
+            ),
+            descriptorOf = { "id:$it" },
+            numberOf = { id -> id },
+        )
+        assertEquals(1 shl LibretroPad.A, players.p1.buttons)
+        assertEquals(1 shl LibretroPad.B, players.p2.buttons)
+        assertEquals(1 shl LibretroPad.X, players.p3.buttons)
+        assertEquals(1 shl LibretroPad.Y, players.p4.buttons)
     }
 }
