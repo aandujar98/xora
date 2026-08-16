@@ -116,6 +116,16 @@ class XoraNetplayProtocolTest {
     }
 
     @Test
+    fun seatRequestRoundTrip() {
+        val decoded = XoraNetplayProtocol.decodeSeat(
+            XoraNetplayProtocol.encodeSeat(token = -42, currentSlot = 2, requestedSlot = 4),
+        )
+        assertEquals(-42, decoded.token)
+        assertEquals(2, decoded.currentSlot)
+        assertEquals(4, decoded.requestedSlot)
+    }
+
+    @Test
     fun slotMaskHelpers() {
         assertEquals(0b0001, XoraNetplayProtocol.slotsMaskOf(listOf(1)))
         assertEquals(0b1111, XoraNetplayProtocol.slotsMaskOf(listOf(1, 2, 3, 4)))
@@ -161,10 +171,11 @@ class XoraNetplayProtocolTest {
             "xora-np-K7M2QX",
             XoraNetplayProtocol.matchNameForSessionCode("K7M2QX"),
         )
-        assertEquals(3, XoraNetplayProtocol.VERSION)
+        assertEquals(4, XoraNetplayProtocol.VERSION)
         assertEquals(4, XoraNetplayProtocol.MAX_PLAYERS)
         assertEquals(7, XoraNetplayProtocol.TYPE_GO)
         assertEquals(8, XoraNetplayProtocol.TYPE_ASSIGN)
+        assertEquals(9, XoraNetplayProtocol.TYPE_SEAT)
         val generated = XoraNetplayProtocol.generateSessionCode()
         assertEquals(6, generated.length)
         assertTrue(generated.all { it in XoraNetplayProtocol.SESSION_CODE_ALPHABET })

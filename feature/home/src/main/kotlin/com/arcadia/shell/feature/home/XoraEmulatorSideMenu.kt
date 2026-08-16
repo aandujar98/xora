@@ -115,6 +115,8 @@ sealed class EmulatorMenuAction {
     data object ReturnHome : EmulatorMenuAction()
     data class InviteFriendToSession(val username: String) : EmulatorMenuAction()
     data class MessageFriendComingSoon(val username: String) : EmulatorMenuAction()
+    /** Opens the Player 2–4 seat picker (taken seats greyed out) for online joiners. */
+    data object ChoosePlayerSeat : EmulatorMenuAction()
     /** A on a notification row — netplay invites open the Join / Not now window. */
     data class OpenNotification(val id: String) : EmulatorMenuAction()
     data object ClearAllNotifications : EmulatorMenuAction()
@@ -926,6 +928,17 @@ private fun paneRows(
                             ),
                         )
                     }
+                if (netplay.online && netplay.playerSlot >= 2) {
+                    add(
+                        MenuRow(
+                            id = "np-seat",
+                            title = "Choose your player",
+                            subtitle = "Pick Player 2–4 · taken seats are greyed out",
+                            icon = XmbIcon.GamePad,
+                            action = EmulatorMenuAction.ChoosePlayerSeat,
+                        ),
+                    )
+                }
             }
             add(
                 MenuRow(

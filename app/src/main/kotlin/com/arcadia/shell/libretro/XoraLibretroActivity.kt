@@ -77,6 +77,8 @@ import com.arcadia.shell.feature.home.NetplayInvitePrompt
 import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
 import com.arcadia.shell.feature.home.XoraInGameXmbController
 import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
+import com.arcadia.shell.feature.home.component.NetplaySeatOption
+import com.arcadia.shell.feature.home.component.NetplaySeatPickerDialog
 import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
@@ -186,6 +188,8 @@ class XoraLibretroActivity : ComponentActivity() {
     private val consumedNetplayInviteKeys = linkedSetOf<String>()
     private var notificationHistory by mutableStateOf<List<ShellNotificationHistoryItem>>(emptyList())
     private var notificationUnread by mutableIntStateOf(0)
+    private var seatPickerOpen by mutableStateOf(false)
+    private var seatPickerFocus by mutableIntStateOf(0)
     private val localNetworkPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -390,6 +394,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         ),
                     )
                 }
+                if (!ui.linked) seatPickerOpen = false
                 if (ui.linked && !wasLinked) {
                     lifecycleScope.launch(emuDispatcher) {
                         LibretroNative.nativePlugControllers()
@@ -405,6 +410,11 @@ class XoraLibretroActivity : ComponentActivity() {
                     } else {
                         bannerName = hostUsername
                         line = "Joined $hostUsername's session — you are Player ${ui.playerSlot}"
+                        if (ui.online && ui.playerSlot >= 2) {
+                            // Let the joiner pick their seat: Players 2–4, taken ones greyed out.
+                            seatPickerFocus = (ui.playerSlot - 2).coerceIn(0, 2)
+                            seatPickerOpen = true
+                        }
                     }
                     showMenuMessage(line)
                     shellNotifications.emit(
@@ -533,6 +543,13 @@ class XoraLibretroActivity : ComponentActivity() {
                             prompt = pendingInvitePrompt.takeIf { invitePromptOpen },
                             onJoin = { confirmInvitePrompt() },
                             onDecline = { dismissInvitePrompt() },
+                        )
+                        NetplaySeatPickerDialog(
+                            visible = seatPickerOpen,
+                            options = seatPickerOptions(),
+                            focusIndex = seatPickerFocus,
+                            onPick = { slot -> pickNetplaySeat(slot) },
+                            onDismiss = { seatPickerOpen = false },
                         )
                     }
                 }
@@ -751,6 +768,25 @@ class XoraLibretroActivity : ComponentActivity() {
                             dismissInvitePrompt()
                             return true
                         }
+                    }
+                    return true
+                }
+                if (seatPickerOpen) {
+                    when (keyCode) {
+                        KeyEvent.KEYCODE_DPAD_UP -> seatPickerFocus = (seatPickerFocus + 2) % 3
+                        KeyEvent.KEYCODE_DPAD_DOWN -> seatPickerFocus = (seatPickerFocus + 1) % 3
+                        KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER,
+                        KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+                        -> {
+                            val option = seatPickerOptions().getOrNull(seatPickerFocus)
+                            when {
+                                option == null || option.isCurrent -> seatPickerOpen = false
+                                option.taken -> showMenuMessage("Player ${option.slot} is taken")
+                                else -> pickNetplaySeat(option.slot)
+                            }
+                        }
+                        KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK ->
+                            seatPickerOpen = false
                     }
                     return true
                 }
@@ -1132,6 +1168,11 @@ class XoraLibretroActivity : ComponentActivity() {
                 showMenuMessage("Messaging is coming soon")
             }
             EmulatorMenuAction.ResetGame -> resetGameFromMenu()
+            EmulatorMenuAction.ChoosePlayerSeat -> {
+                closeMenu()
+                seatPickerFocus = (netplayUi.playerSlot - 2).coerceIn(0, 2)
+                seatPickerOpen = true
+            }
             is EmulatorMenuAction.OpenNotification -> openNotificationFromMenu(action.id)
             EmulatorMenuAction.ClearAllNotifications -> {
                 shellNotifications.clearHistory()
@@ -1139,6 +1180,23 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             EmulatorMenuAction.NotificationsSeen -> shellNotifications.markAllRead()
         }
+    }
+
+    /** Seats 2–4 for the picker; the host always owns Player 1. */
+    private fun seatPickerOptions(): List<NetplaySeatOption> =
+        (2..XoraNetplayProtocol.MAX_PLAYERS).map { slot ->
+            NetplaySeatOption(
+                slot = slot,
+                takenBy = netplayUi.playerNames[slot].orEmpty(),
+                isCurrent = slot == netplayUi.playerSlot,
+            )
+        }
+
+    private fun pickNetplaySeat(slot: Int) {
+        seatPickerOpen = false
+        if (slot == netplayUi.playerSlot) return
+        netplaySession?.requestSeat(slot)
+        showMenuMessage("Asking the host for Player $slot…")
     }
 
     /** A on a notification row: netplay invites open the Join / Not now window. */

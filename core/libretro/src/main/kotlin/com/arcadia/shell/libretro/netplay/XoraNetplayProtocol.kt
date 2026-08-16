@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets
  * savestate resync so stale pad frames can never poison a new session segment.
  */
 object XoraNetplayProtocol {
-    const val VERSION: Int = 3
+    const val VERSION: Int = 4
     const val MAX_PLAYERS: Int = 4
     const val MAX_PAYLOAD: Int = 32 * 1024 * 1024
     /** Nakama match data is small; savestates go out as [TYPE_CHUNK] pieces. */
@@ -30,6 +30,8 @@ object XoraNetplayProtocol {
     const val TYPE_GO: Int = 7
     /** Host → one joiner (matched by token): your player slot. Slot 0 = session full. */
     const val TYPE_ASSIGN: Int = 8
+    /** Joiner → host: request a different player seat (answered with ASSIGN + a barrier GO). */
+    const val TYPE_SEAT: Int = 9
     const val TYPE_CHUNK: Int = 100
 
     const val SESSION_CODE_ALPHABET: String = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -189,6 +191,26 @@ object XoraNetplayProtocol {
                 slotsMaskOf(listOf(1, 2))
             },
             names = names,
+        )
+    }
+
+    /** SEAT payload: request token + the joiner's current slot + the seat they want. */
+    fun encodeSeat(token: Int, currentSlot: Int, requestedSlot: Int): ByteArray {
+        val out = ByteArray(6)
+        writeInt(out, 0, token)
+        out[4] = (currentSlot and 0xFF).toByte()
+        out[5] = (requestedSlot and 0xFF).toByte()
+        return out
+    }
+
+    data class SeatRequest(val token: Int, val currentSlot: Int, val requestedSlot: Int)
+
+    fun decodeSeat(payload: ByteArray): SeatRequest {
+        require(payload.size >= 6) { "seat payload too short" }
+        return SeatRequest(
+            token = readInt(payload, 0),
+            currentSlot = payload[4].toInt() and 0xFF,
+            requestedSlot = payload[5].toInt() and 0xFF,
         )
     }
 

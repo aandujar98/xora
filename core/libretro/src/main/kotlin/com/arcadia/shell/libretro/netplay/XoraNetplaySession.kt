@@ -144,6 +144,8 @@ class XoraNetplaySession(
     private val applyStateRef = AtomicReference<(suspend (ByteArray) -> Boolean)?>(null)
     /** Host hello reused when admitting late joiners from the read loop. */
     private val lastSelfHello = AtomicReference<XoraNetplayProtocol.Hello?>(null)
+    /** Token of this joiner's in-flight seat-change request (0 = none). */
+    private val pendingSeatToken = AtomicInteger(0)
 
     val linkedNow: Boolean get() = linked.get()
     val hosting: Boolean get() = isHost.get() && running.get()
@@ -328,6 +330,26 @@ class XoraNetplaySession(
 
     fun nextFrameIndex(): Int = frameCounter.getAndIncrement()
 
+    /**
+     * Ask the host to move this joiner to [requestedSlot] (2..4). The host answers with an
+     * ASSIGN (seat granted or taken) and, when granted, a savestate barrier re-seats everyone.
+     */
+    fun requestSeat(requestedSlot: Int) {
+        if (isHost.get() || !linked.get() || !running.get()) return
+        val current = mySlot.get()
+        if (requestedSlot == current || requestedSlot !in 2..XoraNetplayProtocol.MAX_PLAYERS) return
+        val link = linkRef.get() ?: return
+        val token = generateJoinToken()
+        pendingSeatToken.set(token)
+        _state.value = _state.value.copy(status = "Asking the host for Player $requestedSlot…")
+        runCatching {
+            link.send(
+                XoraNetplayProtocol.TYPE_SEAT,
+                XoraNetplayProtocol.encodeSeat(token, current, requestedSlot),
+            )
+        }
+    }
+
     fun stop() {
         val leavingSlot = mySlot.get()
         generation.incrementAndGet()
@@ -365,6 +387,7 @@ class XoraNetplaySession(
         captureStateRef.set(null)
         applyStateRef.set(null)
         lastSelfHello.set(null)
+        pendingSeatToken.set(0)
         _state.value = XoraNetplayUiState(
             status = "Off",
             localAddresses = localIpv4Addresses(),
@@ -500,6 +523,44 @@ class XoraNetplaySession(
         link.send(XoraNetplayProtocol.TYPE_STATE, savestate)
 
         val expected = (joinerSlots + slot).toMutableSet()
+        val confirmed = collectStartBarrier(link, gen, expected)
+        if (generation.get() != gen || !running.get()) return
+
+        // Anyone who never confirmed the barrier is dropped so the game does not hang on them.
+        (expected - confirmed).forEach { lost ->
+            joinerSlots.remove(lost)
+            peerNames.remove(lost)
+        }
+        if (slot in confirmed) {
+            joinerSlots.add(slot)
+            peerNames[slot] = peer.nickname.ifBlank { "Player $slot" }
+        }
+        if (joinerSlots.isEmpty()) {
+            softUnlink("Nobody finished joining — still open")
+            return
+        }
+        val newEpoch = (epoch.get() + 1) and 0xFF
+        val mask = XoraNetplayProtocol.slotsMaskOf(joinerSlots + 1)
+        link.send(
+            XoraNetplayProtocol.TYPE_GO,
+            XoraNetplayProtocol.encodeGo(newEpoch, mask, sessionRoster()),
+        )
+        applyGo(newEpoch, mask)
+        refreshLinkedState()
+    }
+
+    /** Slot → XOrA username roster the host broadcasts with every GO. */
+    private fun sessionRoster(): Map<Int, String> = buildMap {
+        lastSelfHello.get()?.nickname?.takeIf { it.isNotBlank() }?.let { put(1, it) }
+        peerNames.forEach { (slot, name) -> if (name.isNotBlank()) put(slot, name) }
+    }
+
+    /** Wait for START from every slot in [expected]; parks HELLOs, honors BYEs. */
+    private suspend fun collectStartBarrier(
+        link: XoraNetplayLink,
+        gen: Int,
+        expected: MutableSet<Int>,
+    ): MutableSet<Int> {
         val confirmed = mutableSetOf<Int>()
         val deadline = System.currentTimeMillis() + START_BARRIER_TIMEOUT_MS
         while (confirmed != expected &&
@@ -539,19 +600,55 @@ class XoraNetplaySession(
                 else -> Unit
             }
         }
-        if (generation.get() != gen || !running.get()) return
+        return confirmed
+    }
 
-        // Anyone who never confirmed the barrier is dropped so the game does not hang on them.
+    /**
+     * Joiner asked for a different seat: re-map their slot, then run the same savestate
+     * barrier as a join so every device flips port mapping at the same frame.
+     */
+    private suspend fun handleSeatRequest(link: XoraNetplayLink, payload: ByteArray, gen: Int) {
+        val seat = runCatching { XoraNetplayProtocol.decodeSeat(payload) }.getOrNull() ?: return
+        val from = seat.currentSlot
+        val want = seat.requestedSlot
+        val movable = from in joinerSlots &&
+            want in 2..maxPlayersNow.get() &&
+            want != from &&
+            want !in joinerSlots
+        if (!movable) {
+            runCatching {
+                link.send(
+                    XoraNetplayProtocol.TYPE_ASSIGN,
+                    XoraNetplayProtocol.encodeAssign(seat.token, 0, XoraNetplayProtocol.REJECT_FULL),
+                )
+            }
+            return
+        }
+        val name = peerNames.remove(from) ?: "Player $want"
+        joinerSlots.remove(from)
+        joinerSlots.add(want)
+        peerNames[want] = name
+        freezeCore.set(true)
+        _state.value = _state.value.copy(status = "Moving $name to Player $want…")
+        link.send(
+            XoraNetplayProtocol.TYPE_ASSIGN,
+            XoraNetplayProtocol.encodeAssign(seat.token, want),
+        )
+        val savestate = captureStateRef.get()?.invoke()
+        if (savestate == null) {
+            fail("Could not capture save state", gen)
+            return
+        }
+        link.send(XoraNetplayProtocol.TYPE_STATE, savestate)
+        val expected = joinerSlots.toMutableSet()
+        val confirmed = collectStartBarrier(link, gen, expected)
+        if (generation.get() != gen || !running.get()) return
         (expected - confirmed).forEach { lost ->
             joinerSlots.remove(lost)
             peerNames.remove(lost)
         }
-        if (slot in confirmed) {
-            joinerSlots.add(slot)
-            peerNames[slot] = peer.nickname.ifBlank { "Player $slot" }
-        }
         if (joinerSlots.isEmpty()) {
-            softUnlink("Nobody finished joining — still open")
+            softUnlink("Everyone left — code ${_state.value.sessionCode.ifBlank { "open" }} still live")
             return
         }
         val newEpoch = (epoch.get() + 1) and 0xFF
@@ -562,12 +659,6 @@ class XoraNetplaySession(
         )
         applyGo(newEpoch, mask)
         refreshLinkedState()
-    }
-
-    /** Slot → XOrA username roster the host broadcasts with every GO. */
-    private fun sessionRoster(): Map<Int, String> = buildMap {
-        lastSelfHello.get()?.nickname?.takeIf { it.isNotBlank() }?.let { put(1, it) }
-        peerNames.forEach { (slot, name) -> if (name.isNotBlank()) put(slot, name) }
     }
 
     private suspend fun drainParkedHellos(
@@ -782,7 +873,31 @@ class XoraNetplaySession(
                         refreshLinkedState()
                     }
                 }
-                XoraNetplayProtocol.TYPE_ASSIGN, XoraNetplayProtocol.TYPE_START -> Unit
+                XoraNetplayProtocol.TYPE_ASSIGN -> {
+                    if (!isHost.get()) {
+                        val assign = runCatching {
+                            XoraNetplayProtocol.decodeAssign(payload)
+                        }.getOrNull()
+                        if (assign != null &&
+                            assign.token != 0 &&
+                            assign.token == pendingSeatToken.get()
+                        ) {
+                            pendingSeatToken.set(0)
+                            if (assign.slot == 0) {
+                                _state.value = _state.value.copy(
+                                    error = "That seat is already taken.",
+                                )
+                            } else {
+                                // The barrier STATE/GO that re-seats everyone follows.
+                                mySlot.set(assign.slot)
+                            }
+                        }
+                    }
+                }
+                XoraNetplayProtocol.TYPE_SEAT -> {
+                    if (isHost.get()) handleSeatRequest(link, payload, gen)
+                }
+                XoraNetplayProtocol.TYPE_START -> Unit
                 XoraNetplayProtocol.TYPE_BYE -> {
                     val gone = XoraNetplayProtocol.decodeByeSlot(payload)
                     when {
