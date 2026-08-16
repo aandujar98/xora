@@ -49,6 +49,7 @@ fun netplayBannerText(
     padLive: Boolean = false,
     gameTitle: String = "",
     hasController: Boolean = true,
+    lastKey: String = "",
 ): String {
     ui.error?.takeIf { it.isNotBlank() }?.let { return it }
     if (ui.linked && ui.playerSlot >= 1) {
@@ -56,7 +57,20 @@ fun netplayBannerText(
             if (padLive) " · input" else " · no input"
         val lines = mutableListOf(who)
         if (ui.playerSlot >= 2) {
-            lines += "Press the on-screen pad at the bottom of this phone."
+            if (hasController) {
+                lines += "Use this handheld's controls for Player ${ui.playerSlot}."
+                when {
+                    padLive -> Unit
+                    lastKey.startsWith("unmapped") ->
+                        lines += "Last key $lastKey — remap it in Gamepad settings."
+                    lastKey.isNotBlank() ->
+                        lines += "Last key $lastKey — if the racer still sits, pick 2 PLAYER GAME."
+                    else ->
+                        lines += "Press a face button or D-pad. Touch controls stay hidden while this pad is connected."
+                }
+            } else {
+                lines += "Press the on-screen pad at the bottom of this phone."
+            }
         } else if (!hasController) {
             lines += "This phone has no controller. Use the touch pad, or plug one in."
         }

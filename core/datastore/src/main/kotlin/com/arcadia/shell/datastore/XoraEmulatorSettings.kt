@@ -76,14 +76,45 @@ fun decodeButtonMappings(raw: String): Map<Int, Int> {
     return out
 }
 
-/** How XOrA scales the core framebuffer on screen. */
+/** How XOrA scales the core framebuffer on screen. [Core] is stored as Auto. */
 enum class XoraAspectMode {
-    /** Preserve aspect, letterbox (ContentScale.Fit). */
+    /** Auto: preserve the core framebuffer aspect (letterbox). */
     Core,
+    /** Classic 4:3 television. */
+    Ratio4x3,
+    /** SNES / many handhelds (~1.14:1). */
+    Ratio8x7,
+    /** 3:2 (GBA, many 8-bit computers). */
+    Ratio3x2,
+    /** Square. */
+    Ratio1x1,
+    /** 16:10 laptop / some handhelds. */
+    Ratio16x10,
+    /** Widescreen 16:9. */
+    Ratio16x9,
+    /** Ultrawide 21:9. */
+    Ratio21x9,
     /** Nearest integer multiple of the native resolution that fits. */
     Integer,
     /** Fill the panel (may stretch). */
     Stretch,
+}
+
+fun XoraAspectMode.next(): XoraAspectMode {
+    val all = XoraAspectMode.entries
+    return all[(ordinal + 1) % all.size]
+}
+
+/** Forced width/height, or null to use the framebuffer (Auto) / integer / stretch. */
+fun XoraAspectMode.forcedRatio(): Float? = when (this) {
+    XoraAspectMode.Core, XoraAspectMode.Integer, XoraAspectMode.Stretch -> null
+    XoraAspectMode.Ratio4x3 -> 4f / 3f
+    XoraAspectMode.Ratio8x7 -> 8f / 7f
+    XoraAspectMode.Ratio3x2 -> 3f / 2f
+    XoraAspectMode.Ratio1x1 -> 1f
+    XoraAspectMode.Ratio16x10 -> 16f / 10f
+    XoraAspectMode.Ratio16x9 -> 16f / 9f
+    XoraAspectMode.Ratio21x9 -> 21f / 9f
 }
 
 /** Core-side resolution multiplier when the Liberto core supports it. */
@@ -168,9 +199,16 @@ fun ThreeDsScreenLayout.label(): String = when (this) {
 }
 
 fun XoraAspectMode.label(): String = when (this) {
-    XoraAspectMode.Core -> "Core (fit)"
+    XoraAspectMode.Core -> "Auto"
+    XoraAspectMode.Ratio4x3 -> "4:3"
+    XoraAspectMode.Ratio8x7 -> "8:7"
+    XoraAspectMode.Ratio3x2 -> "3:2"
+    XoraAspectMode.Ratio1x1 -> "1:1"
+    XoraAspectMode.Ratio16x10 -> "16:10"
+    XoraAspectMode.Ratio16x9 -> "16:9"
+    XoraAspectMode.Ratio21x9 -> "21:9"
     XoraAspectMode.Integer -> "Integer scale"
-    XoraAspectMode.Stretch -> "Stretch"
+    XoraAspectMode.Stretch -> "Full screen"
 }
 
 fun XoraInternalResolution.label(): String = when (this) {

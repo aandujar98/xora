@@ -143,4 +143,29 @@ class LibretroPadMixerTest {
         assertEquals(1 shl LibretroPad.X, players.p3.buttons)
         assertEquals(1 shl LibretroPad.Y, players.p4.buttons)
     }
+
+    @Test
+    fun gpioKeysPadIsPlayerTwoNotFoldedIntoPlayerOne() {
+        val mixer = LibretroPadMixer()
+        mixer.keyDown(deviceId = 1, bit = LibretroPad.A)
+        mixer.keyDown(deviceId = 99, bit = LibretroPad.LEFT)
+        val players = mixer.snapshotPlayers(
+            connected = listOf(1 to "Pad A"),
+            descriptorOf = { "id:$it" },
+            numberOf = { 0 },
+            nameOf = { id -> if (id == 99) "gpio-keys" else "Pad A" },
+        )
+        assertEquals(1 shl LibretroPad.A, players.p1.buttons)
+        assertEquals(1 shl LibretroPad.LEFT, players.p2.buttons)
+    }
+
+    @Test
+    fun rgRotateNameIsAHandheldPad() {
+        assertTrue(LibretroPad.looksLikeHandheldPad("gpio-keys"))
+        assertTrue(LibretroPad.looksLikeHandheldPad("rg-rotate-joypad"))
+        assertTrue(LibretroPad.looksLikeHandheldPad("Anbernic RG Rotate"))
+        assertTrue(LibretroPad.looksLikeHandheldPad("adc-joystick"))
+        assertFalse(LibretroPad.looksLikeHandheldPad("qwerty"))
+        assertFalse(LibretroPad.looksLikeHandheldPad(""))
+    }
 }

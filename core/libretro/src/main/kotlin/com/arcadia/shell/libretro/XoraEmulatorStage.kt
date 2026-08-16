@@ -8,9 +8,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import com.arcadia.shell.datastore.XoraAspectMode
 import java.io.File
-import kotlin.math.floor
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Opaque gameplay stage: NSO bezel behind, framebuffer [ImageView] laid out in the game rect
@@ -25,8 +22,13 @@ class XoraEmulatorStage @JvmOverloads constructor(
         setBackgroundColor(Color.BLACK)
         scaleType = ImageView.ScaleType.FIT_XY
         adjustViewBounds = false
+        isFocusable = false
+        isFocusableInTouchMode = false
     }
-    val bezelView: NsoBezelView = NsoBezelView(context)
+    val bezelView: NsoBezelView = NsoBezelView(context).apply {
+        isFocusable = false
+        isFocusableInTouchMode = false
+    }
 
     var contentWidthPx: Int = 4
         set(value) {
@@ -87,39 +89,14 @@ class XoraEmulatorStage @JvmOverloads constructor(
         gameView.layout(rect[0], rect[1], rect[2], rect[3])
     }
 
-    private fun computeGameRect(viewW: Int, viewH: Int): IntArray {
-        if (viewW <= 0 || viewH <= 0) return intArrayOf(0, 0, viewW, viewH)
-        // Stretch fills the panel only when bezels are off. NSO overlays keep a fitted hole.
-        val layoutMode =
-            if (bezelsEnabled && aspectMode == XoraAspectMode.Stretch) XoraAspectMode.Core
-            else aspectMode
-        if (layoutMode == XoraAspectMode.Stretch) {
-            return intArrayOf(0, 0, viewW, viewH)
-        }
-        val fw = contentWidthPx.coerceAtLeast(1).toFloat()
-        val fh = contentHeightPx.coerceAtLeast(1).toFloat()
-        val (gameW, gameH) = when (layoutMode) {
-            XoraAspectMode.Stretch -> viewW.toFloat() to viewH.toFloat()
-            XoraAspectMode.Core -> {
-                val viewAspect = viewW / viewH.toFloat()
-                val gameAspect = fw / fh
-                if (gameAspect > viewAspect) {
-                    viewW.toFloat() to (viewW / gameAspect)
-                } else {
-                    (viewH * gameAspect) to viewH.toFloat()
-                }
-            }
-            XoraAspectMode.Integer -> {
-                val fit = min(viewW / fw, viewH / fh)
-                val auto = max(1, floor(fit.toDouble()).toInt())
-                val scale = if (integerScaleCap > 0) min(auto, integerScaleCap) else auto
-                (fw * scale) to (fh * scale)
-            }
-        }
-        val left = ((viewW - gameW) / 2f).toInt().coerceAtLeast(0)
-        val top = ((viewH - gameH) / 2f).toInt().coerceAtLeast(0)
-        val right = (left + gameW).toInt().coerceAtMost(viewW)
-        val bottom = (top + gameH).toInt().coerceAtMost(viewH)
-        return intArrayOf(left, top, right, bottom)
-    }
+    private fun computeGameRect(viewW: Int, viewH: Int): IntArray =
+        computeXoraGameRect(
+            viewW = viewW,
+            viewH = viewH,
+            contentWidthPx = contentWidthPx,
+            contentHeightPx = contentHeightPx,
+            aspectMode = aspectMode,
+            integerScaleCap = integerScaleCap,
+            bezelsEnabled = bezelsEnabled,
+        )
 }

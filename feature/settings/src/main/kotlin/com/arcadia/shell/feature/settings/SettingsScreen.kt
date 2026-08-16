@@ -1308,13 +1308,39 @@ fun SettingsScreen(
 
         item(key = "xora_display") {
             val xora = state.xoraEmulator
-            SettingsCard(title = "XOrA · Display (DS / 3DS)", modifier = Modifier.animateItem()) {
+            SettingsCard(title = "XOrA · Display", modifier = Modifier.animateItem()) {
                 Text(
-                    text = "Screen layout for dual-screen systems. Applied as Libretro core " +
-                        "options when a game starts (melonDS, Citra, …).",
+                    text = "Aspect ratio applies to every core, including the XOrA emulator. " +
+                        "Auto keeps the framebuffer. 16:9, 1:1, 4:3 and the other ratios " +
+                        "letterbox a forced box. DS / 3DS layout options are below.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                SettingsFieldLabel("Aspect ratio")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    XoraAspectMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = xora.aspectMode == mode,
+                            onClick = { viewModel.setXoraAspectMode(mode) },
+                            label = { Text(text = mode.label()) },
+                        )
+                    }
+                }
+                if (xora.aspectMode == XoraAspectMode.Integer) {
+                    val scaleLabel = if (xora.integerScale == 0) {
+                        "Auto (largest fit)"
+                    } else {
+                        "${xora.integerScale}×"
+                    }
+                    SettingsFieldLabel("Integer scale · $scaleLabel")
+                    Slider(
+                        value = xora.integerScale.toFloat(),
+                        onValueChange = { viewModel.setXoraIntegerScale(it.roundToInt()) },
+                        valueRange = 0f..6f,
+                        steps = 5,
+                    )
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 SettingsFieldLabel("Nintendo DS layout")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DualScreenLayout.entries.forEach { layout ->
@@ -1364,31 +1390,6 @@ fun SettingsScreen(
                     Switch(
                         checked = xora.expandDualDisplay,
                         onCheckedChange = viewModel::setXoraExpandDualDisplay,
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                SettingsFieldLabel("Aspect ratio")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    XoraAspectMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = xora.aspectMode == mode,
-                            onClick = { viewModel.setXoraAspectMode(mode) },
-                            label = { Text(text = mode.label()) },
-                        )
-                    }
-                }
-                if (xora.aspectMode == XoraAspectMode.Integer) {
-                    val scaleLabel = if (xora.integerScale == 0) {
-                        "Auto (largest fit)"
-                    } else {
-                        "${xora.integerScale}×"
-                    }
-                    SettingsFieldLabel("Integer scale · $scaleLabel")
-                    Slider(
-                        value = xora.integerScale.toFloat(),
-                        onValueChange = { viewModel.setXoraIntegerScale(it.roundToInt()) },
-                        valueRange = 0f..6f,
-                        steps = 5,
                     )
                 }
                 SettingsFieldLabel("Internal resolution (3DS / Citra)")

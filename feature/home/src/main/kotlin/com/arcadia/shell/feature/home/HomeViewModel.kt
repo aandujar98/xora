@@ -42,9 +42,9 @@ import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UI_TEXT_SCALE_PRESETS
 import com.arcadia.shell.datastore.UiFitMode
 import com.arcadia.shell.datastore.XmbTitleStyle
-import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XoraInternalResolution
+import com.arcadia.shell.datastore.next
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.isReduceMotionPreferred
@@ -2866,12 +2866,7 @@ class HomeViewModel @Inject constructor(
             val current = preferences.xoraEmulatorSettings.first()
             when (setting) {
                 XoraEmulatorXmbSetting.Aspect -> {
-                    val next = when (current.aspectMode) {
-                        XoraAspectMode.Core -> XoraAspectMode.Integer
-                        XoraAspectMode.Integer -> XoraAspectMode.Stretch
-                        XoraAspectMode.Stretch -> XoraAspectMode.Core
-                    }
-                    preferences.setXoraAspectMode(next)
+                    preferences.setXoraAspectMode(current.aspectMode.next())
                 }
                 XoraEmulatorXmbSetting.Bezels ->
                     preferences.setXoraBezelsEnabled(!current.bezelsEnabled)

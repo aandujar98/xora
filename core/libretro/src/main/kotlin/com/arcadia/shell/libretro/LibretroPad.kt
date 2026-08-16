@@ -72,6 +72,8 @@ object LibretroPad {
         KeyEvent.KEYCODE_BUTTON_R2 -> R2
         KeyEvent.KEYCODE_BUTTON_THUMBL -> L3
         KeyEvent.KEYCODE_BUTTON_THUMBR -> R3
+        KeyEvent.KEYCODE_BUTTON_C -> A
+        KeyEvent.KEYCODE_BUTTON_Z -> B
         // Generic HID pads that never get remapped to BUTTON_A/B.
         KeyEvent.KEYCODE_BUTTON_1 -> A
         KeyEvent.KEYCODE_BUTTON_2 -> B
@@ -135,7 +137,42 @@ object LibretroPad {
         else -> KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_")
     }
 
-    /** Connected pads as (id, name). */
+    /**
+     * Anbernic / RG Rotate / gpio-keys often expose D-pad + face buttons as KEYBOARD or
+     * DPAD instead of GAMEPAD. Those still have to count as extra local seats (P2–P4)
+     * and as a joiner's assigned pad.
+     */
+    fun looksLikeHandheldPad(name: String?, sources: Int = 0): Boolean {
+        val dpad = sources and InputDevice.SOURCE_DPAD == InputDevice.SOURCE_DPAD
+        val touch = sources and InputDevice.SOURCE_TOUCHSCREEN == InputDevice.SOURCE_TOUCHSCREEN
+        if (dpad && !touch) return true
+        val n = name.orEmpty().lowercase()
+        if (n.isBlank()) return false
+        if (n.contains("gpio") ||
+            n.contains("retrogame") ||
+            n.contains("joypad") ||
+            n.contains("joystick") ||
+            n.contains("adc") ||
+            n.contains("anbernic") ||
+            n.contains("odroid") ||
+            n.contains("h700") ||
+            n.contains("rk3566") ||
+            n.contains("rk3326") ||
+            n.contains("singleadc") ||
+            n.contains("nvec")
+        ) {
+            return true
+        }
+        return n.contains("rg") && (
+            n.contains("rotate") || n.contains("353") || n.contains("405") ||
+                n.contains("arc") || n.contains("cube") || n.contains("35xx") ||
+                n.contains("28xx") || n.contains("40xx") || n.contains("slide") ||
+                n.contains("flip") || n.contains("503") || n.contains("552") ||
+                n.contains("351") || n.contains("556") || n.contains("476")
+            )
+    }
+
+    /** Connected pads as (id, name). Includes gpio-keys / DPAD handhelds, not only GAMEPAD. */
     fun connectedControllers(): List<Pair<Int, String>> {
         val ids = runCatching { InputDevice.getDeviceIds() }.getOrNull() ?: return emptyList()
         val out = ArrayList<Pair<Int, String>>()
@@ -143,7 +180,8 @@ object LibretroPad {
             val device = runCatching { InputDevice.getDevice(id) }.getOrNull() ?: continue
             val sources = device.sources
             val isPad = sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
-                sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
+                sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK ||
+                looksLikeHandheldPad(device.name, sources)
             if (!isPad || device.isVirtual) continue
             val name = device.name?.takeIf { it.isNotBlank() } ?: "Controller $id"
             out += id to name
@@ -231,6 +269,38 @@ object LibretroPad {
         }
         val sources = device?.sources ?: source
         return sources and InputDevice.SOURCE_CLASS_JOYSTICK == InputDevice.SOURCE_CLASS_JOYSTICK
+    }
+
+    /**
+     * On Anbernic handhelds B is often KEYCODE_BACK. Phone Back must still open the pause
+     * menu; only pads / gpio-keys should treat Back as RetroPad B.
+     */
+    fun KeyEvent.handheldBackIsB(): Boolean {
+        if (keyCode != KeyEvent.KEYCODE_BACK) return false
+        if (isFromSource(InputDevice.SOURCE_GAMEPAD) ||
+            isFromSource(InputDevice.SOURCE_JOYSTICK) ||
+            isFromSource(InputDevice.SOURCE_DPAD)
+        ) {
+            return true
+        }
+        val device = device ?: return false
+        return looksLikeHandheldPad(device.name, device.sources)
+    }
+
+    fun padButtonFor(event: KeyEvent, customMappings: Map<Int, Int> = emptyMap()): Int? {
+        if (event.handheldBackIsB()) return B
+        return keyCodeToButton(event.keyCode, customMappings)
+    }
+
+    /** ADC joysticks / hats that are not SOURCE_GAMEPAD still have to drive the mixer. */
+    fun MotionEvent.shouldDrivePad(): Boolean {
+        if (isFromGameController()) return true
+        val device = device
+        if (device != null && looksLikeHandheldPad(device.name, device.sources)) return true
+        if (digitalPadFromAxes(this) != 0) return true
+        val (left, right) = readAxes(this)
+        return left.first.toInt() != 0 || left.second.toInt() != 0 ||
+            right.first.toInt() != 0 || right.second.toInt() != 0
     }
 
     fun descriptorOf(deviceId: Int): String =
@@ -349,12 +419,17 @@ class LibretroPadMixer {
      * Player 1 = preferred pad, Android controllerNumber 1, or the first gamepad.
      * Players 2–4 = controllerNumber 2–4 or the next distinct gamepads in order.
      * Keyboard / unpaired devices fold into P1 so they never steal a later slot.
+     * gpio-keys / Anbernic DPAD devices are extra seats, not P1 leftovers.
      */
     fun snapshotPlayers(
         preferredName: String = "",
         connected: List<Pair<Int, String>> = LibretroPad.connectedControllers(),
         descriptorOf: (Int) -> String = LibretroPad::descriptorOf,
         numberOf: (Int) -> Int = LibretroPad::controllerNumberOf,
+        nameOf: (Int) -> String = { id ->
+            connected.firstOrNull { it.first == id }?.second
+                ?: runCatching { InputDevice.getDevice(id)?.name }.getOrNull().orEmpty()
+        },
     ): PlayerPads = synchronized(lock) {
         data class Group(
             val ids: MutableList<Int> = ArrayList(),
@@ -376,11 +451,13 @@ class LibretroPadMixer {
         }
 
         val gamepadIds = connected.map { it.first }.toSet()
-        fun Group.isGamepad(): Boolean =
-            ids.any { it in gamepadIds } || number > 0
-
         fun Group.displayName(): String =
             connected.firstOrNull { it.first in ids }?.second.orEmpty()
+        fun Group.isGamepad(): Boolean =
+            ids.any { it in gamepadIds } ||
+                number > 0 ||
+                LibretroPad.looksLikeHandheldPad(displayName()) ||
+                ids.any { LibretroPad.looksLikeHandheldPad(nameOf(it)) }
 
         fun mergeGroup(group: Group?): Snapshot {
             if (group == null) return Snapshot()

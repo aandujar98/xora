@@ -90,6 +90,7 @@ sealed class EmulatorMenuAction {
     data class LoadSlot(val slot: Int) : EmulatorMenuAction()
     data object SetFullScreen : EmulatorMenuAction()
     data object SetNativeRatio : EmulatorMenuAction()
+    data object CycleAspectMode : EmulatorMenuAction()
     data object ToggleBezel : EmulatorMenuAction()
     data object CycleInternalResolution : EmulatorMenuAction()
     data object CycleIntegerScale : EmulatorMenuAction()
@@ -765,6 +766,13 @@ private fun paneRows(
     }
     EmulatorMenuPane.Display -> listOf(
         MenuRow(
+            id = "aspect",
+            title = "Aspect ratio",
+            subtitle = "${settings.aspectMode.label()} · A cycles Auto, 4:3, 16:9, 1:1…",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.CycleAspectMode,
+        ),
+        MenuRow(
             id = "full",
             title = "Full screen",
             subtitle = if (settings.aspectMode == XoraAspectMode.Stretch) "On" else "Stretch to fill",
@@ -773,7 +781,7 @@ private fun paneRows(
         ),
         MenuRow(
             id = "native",
-            title = "Native ratio",
+            title = "Auto (core)",
             subtitle = if (settings.aspectMode == XoraAspectMode.Core) "On" else "Keep framebuffer aspect",
             icon = XmbIcon.Display,
             action = EmulatorMenuAction.SetNativeRatio,
@@ -1173,6 +1181,13 @@ private fun paneRows(
     )
     EmulatorMenuPane.Graphics -> listOf(
         MenuRow(
+            id = "g-aspect",
+            title = "Aspect ratio",
+            subtitle = "${settings.aspectMode.label()} · A cycles",
+            icon = XmbIcon.Display,
+            action = EmulatorMenuAction.CycleAspectMode,
+        ),
+        MenuRow(
             id = "g-full",
             title = "Full screen",
             subtitle = settings.aspectMode.label(),
@@ -1181,8 +1196,8 @@ private fun paneRows(
         ),
         MenuRow(
             id = "g-native",
-            title = "Native ratio",
-            subtitle = "Core aspect",
+            title = "Auto (core)",
+            subtitle = "Framebuffer aspect",
             icon = XmbIcon.Display,
             action = EmulatorMenuAction.SetNativeRatio,
         ),

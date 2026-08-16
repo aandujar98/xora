@@ -71,6 +71,25 @@ class XoraNetplayBannerTest {
     }
 
     @Test
+    fun linkedJoinerWithPhysicalPadDoesNotAskForTouchOverlay() {
+        val text = netplayBannerText(
+            ui = XoraNetplayUiState(
+                role = XoraNetplayRole.Client,
+                linked = true,
+                playerSlot = 2,
+            ),
+            padLive = false,
+            gameTitle = "Super Mario Kart",
+            hasController = true,
+            lastKey = "",
+        )
+        assertTrue(text.startsWith("You are Player 2 · no input"))
+        assertTrue(text.contains("handheld"))
+        assertTrue(!text.contains("on-screen pad"))
+        assertTrue(!text.contains("bottom of this phone"))
+    }
+
+    @Test
     fun otherGamesGetGenericTwoPlayerHint() {
         val text = netplayBannerText(
             ui = XoraNetplayUiState(linked = true, playerSlot = 2, role = XoraNetplayRole.Client),
