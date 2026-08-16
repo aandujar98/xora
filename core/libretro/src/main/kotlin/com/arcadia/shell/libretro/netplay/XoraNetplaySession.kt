@@ -43,6 +43,39 @@ data class XoraNetplayUiState(
     val playerNames: Map<Int, String> = emptyMap(),
 )
 
+/** On-game netplay strip. Status used to live only in the pause menu, so a failed join looked like nothing. */
+fun netplayBannerText(
+    ui: XoraNetplayUiState,
+    padLive: Boolean = false,
+    gameTitle: String = "",
+): String {
+    ui.error?.takeIf { it.isNotBlank() }?.let { return it }
+    if (ui.linked && ui.playerSlot >= 1) {
+        val who = "You are Player ${ui.playerSlot}" + if (padLive) " · input" else ""
+        return who + "\n" + twoPlayerModeHint(gameTitle)
+    }
+    if (ui.role != XoraNetplayRole.Idle &&
+        ui.status.isNotBlank() &&
+        !ui.status.equals("Off", ignoreCase = true)
+    ) {
+        return ui.status
+    }
+    return ""
+}
+
+/**
+ * Super Mario Kart (and most 2P games) only read the second pad after 2-player mode is
+ * chosen on the title screen. A 1-player Grand Prix has no Player 2 to move.
+ */
+fun twoPlayerModeHint(gameTitle: String): String {
+    val title = gameTitle.lowercase()
+    return if (title.contains("mario kart") || title.contains("mariokart")) {
+        "Pick 2 PLAYER GAME on the title screen. 1 PLAYER Grand Prix has no Player 2."
+    } else {
+        "Start a 2-player game from the menu. A 1-player game ignores Player 2."
+    }
+}
+
 /** Pads to apply this frame after netplay delay; index = libretro port (slot − 1). */
 data class XoraNetplayExchange(
     val pads: List<XoraNetplayProtocol.PadFrame>,

@@ -87,7 +87,7 @@ import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
-import com.arcadia.shell.libretro.netplay.formatJoinHostPort
+import com.arcadia.shell.libretro.netplay.netplayBannerText
 import com.arcadia.shell.libretro.netplay.parseJoinHostPort
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaProfile
@@ -176,6 +176,7 @@ class XoraLibretroActivity : ComponentActivity() {
     /** Non-interactive seat readout so a dead P2 can be distinguished from a missing character. */
     private var netplayHud: TextView? = null
     @Volatile private var lastNetplayHud = ""
+    @Volatile private var netplayPadLive = false
     private var profileName by mutableStateOf("Player")
     /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
     private var menuMessage by mutableStateOf<String?>(null)
@@ -390,6 +391,8 @@ class XoraLibretroActivity : ComponentActivity() {
             var lastPlayerNames = emptyMap<Int, String>()
             netplaySession?.state?.collect { ui ->
                 netplayUi = ui
+                if (!ui.linked) netplayPadLive = false
+                refreshNetplayBanner()
                 ui.error?.let { showMenuMessage(it) }
                 if (ui.linked) {
                     lifecycleScope.launch { disableHardcoreForNetplay() }
@@ -1862,6 +1865,7 @@ class XoraLibretroActivity : ComponentActivity() {
         if (root.getChildAt(root.childCount - 1) !== chip) {
             chip.bringToFront()
         }
+        netplayHud?.takeIf { it.visibility == View.VISIBLE }?.bringToFront()
     }
 
     private fun createProfileChip(): FrameLayout {
@@ -1921,24 +1925,37 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun createNetplayHud(): TextView {
         val density = resources.displayMetrics.density
+        val pad = (14 * density).toInt()
         return TextView(this).apply {
             netplayHud = this
             layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.CENTER_HORIZONTAL,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
             ).apply {
-                topMargin = (12 * density).toInt()
+                leftMargin = (20 * density).toInt()
+                rightMargin = (20 * density).toInt()
+                bottomMargin = (28 * density).toInt()
             }
+            setPadding(pad, pad, pad, pad)
+            gravity = Gravity.CENTER
             setTextColor(AndroidColor.WHITE)
-            textSize = 14f
-            setShadowLayer(4f * density, 0f, 0f, AndroidColor.BLACK)
+            textSize = 16f
+            background = GradientDrawable().apply {
+                cornerRadius = 12f * density
+                setColor(AndroidColor.argb(210, 0, 0, 0))
+            }
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             isClickable = false
             isFocusable = false
             isFocusableInTouchMode = false
+            elevation = 20f * density
             visibility = View.GONE
         }
+    }
+
+    private fun refreshNetplayBanner() {
+        setNetplayHud(netplayBannerText(netplayUi, netplayPadLive, gameTitle))
     }
 
     private fun setNetplayHud(text: String) {
@@ -2116,10 +2133,10 @@ class XoraLibretroActivity : ComponentActivity() {
                         val live = sent.buttons != 0 ||
                             sent.lx.toInt() != 0 ||
                             sent.ly.toInt() != 0
-                        setNetplayHud(
-                            "P${session.playerSlotNow.coerceAtLeast(0)}" +
-                                if (live) " · input" else "",
-                        )
+                        if (live != netplayPadLive) {
+                            netplayPadLive = live
+                            refreshNetplayBanner()
+                        }
                     } else {
                         if (emuFrameIndex % 180 == 0) {
                             LibretroNative.nativePlugControllers()
@@ -2128,7 +2145,6 @@ class XoraLibretroActivity : ComponentActivity() {
                         applyNativePad(1, players.p2)
                         applyNativePad(2, players.p3)
                         applyNativePad(3, players.p4)
-                        setNetplayHud("")
                     }
                     emuFrameIndex++
                     LibretroNative.nativeRunFrame()
