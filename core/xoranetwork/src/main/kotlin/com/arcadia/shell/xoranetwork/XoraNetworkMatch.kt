@@ -78,6 +78,17 @@ internal fun netPresenceLeaves(joined: List<String>, left: List<String>): List<S
     return left.filter { it.isNotBlank() && it !in joinedSet }
 }
 
+/**
+ * Presence count dropping 2→1 must not close the match socket. Nakama often sends the
+ * joiner's old session_id as a *later* leave than the join; treating that as Closed
+ * threw "The other player left" and reset the host lobby. Real disconnects are BYE
+ * or the websocket dropping.
+ */
+internal fun presenceShouldCloseMatch(beforeCount: Int, afterCount: Int): Boolean {
+    // A 2→1 drop is usually a session_id refresh, not a real disconnect.
+    return beforeCount < 0 && afterCount < 0
+}
+
 internal fun parseRealtimeErrorMessage(root: JsonObject): String? {
     val error = root["error"] as? JsonObject ?: return null
     val raw = jsonString(error["message"]).orEmpty()

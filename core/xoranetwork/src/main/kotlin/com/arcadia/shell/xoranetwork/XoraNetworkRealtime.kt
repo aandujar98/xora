@@ -311,7 +311,7 @@ class XoraNetworkRealtime @Inject constructor(
                 matchMembers[delta.matchId]?.removeAll(delta.leftUserIds.toSet())
             }
             val after = matchMembers[delta.matchId]?.size ?: 0
-            if (before >= 2 && after < 2) {
+            if (presenceShouldCloseMatch(before, after)) {
                 matchQueue(delta.matchId).offer(MatchIngress.Closed)
             }
             return

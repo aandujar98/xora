@@ -1379,15 +1379,6 @@ bool gba_sio_locate_event(uint8_t* base, uint16_t* io, GbaSioLive* out) {
     return false;
 }
 
-bool gba_sio_locate_struct(uint8_t* base, uint16_t* io, GbaSioLive* out) {
-    if (!base || !io || !out) return false;
-    constexpr size_t kScan = 0x40000;
-    for (size_t off = 0; off + 3 * sizeof(void*) < kScan; off += sizeof(void*)) {
-        if (sio_bind_fields(base + off, io, out)) return true;
-    }
-    return false;
-}
-
 bool gba_sio_locate(uint16_t* io, GbaSioLive* out) {
     if (!io || !out) return false;
     if (g_gba_sio.sio && g_gba_sio.io == io && sio_bind_fields(g_gba_sio.sio, io, out)) {
@@ -1400,9 +1391,8 @@ bool gba_sio_locate(uint16_t* io, GbaSioLive* out) {
     for (int b = 0; b < nbase; ++b) {
         if (gba_sio_locate_event(bases[b], io, out)) return true;
     }
-    for (int b = 0; b < nbase; ++b) {
-        if (gba_sio_locate_struct(bases[b], io, out)) return true;
-    }
+    // Do not scan raw RAM for GBASIO layout. A false hit used to install a dummy
+    // driver into a random pointer and crash the core the moment Player 2 linked.
     g_sio_locate_missed = true;
     return false;
 }
@@ -1518,10 +1508,12 @@ void gba_sio_refresh(uint16_t* io) {
     GbaSioLive live{};
     if (gba_sio_locate(io, &live)) {
         g_gba_sio = live;
-        sio_driver_install(live);
+        // Never install a dummy GBASIODriver. mGBA's vtable does not match a
+        // guessed layout, and writing &g_sio_driver into a false hit crashed
+        // as soon as MULTI/SIO ran for Player 2.
         if (!g_sio_logged_hook) {
             g_sio_logged_hook = true;
-            ALOGI("GBA Game Link: hooked mGBA SIO (rcnt/siocnt + driver)");
+            ALOGI("GBA Game Link: hooked mGBA SIO (rcnt/siocnt)");
         }
     } else {
         live.io = io;

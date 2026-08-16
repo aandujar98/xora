@@ -92,6 +92,13 @@ class XoraNetworkMatchParseTest {
     }
 
     @Test
+    fun presenceCountDropDoesNotCloseTheMatch() {
+        assertFalse(presenceShouldCloseMatch(beforeCount = 2, afterCount = 1))
+        assertFalse(presenceShouldCloseMatch(beforeCount = 2, afterCount = 0))
+        assertFalse(presenceShouldCloseMatch(beforeCount = 1, afterCount = 1))
+    }
+
+    @Test
     fun realtimeErrorsStayFriendly() {
         val payload = """{"cid":"3","error":{"code":3,"message":"match not found"}}"""
         val message = parseRealtimeErrorMessage(json.parseToJsonElement(payload) as JsonObject)
