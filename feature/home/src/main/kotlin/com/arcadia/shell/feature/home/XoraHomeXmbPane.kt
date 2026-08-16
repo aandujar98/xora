@@ -179,7 +179,6 @@ fun XoraHomeXmbPane(
     val artworkScale = 1f + (holdProgress * 0.06f)
     val backdropMotion = rememberXmbBackdropMotion(
         categoryIndex = xmb.categoryIndex,
-        itemIndex = xmb.itemIndex,
         launchScale = artworkScale,
     )
 
@@ -394,7 +393,6 @@ fun XoraXmbHeroDetail(
     val artworkScale = 1f + (holdProgress * 0.06f)
     val backdropMotion = rememberXmbBackdropMotion(
         categoryIndex = xmb.categoryIndex,
-        itemIndex = xmb.itemIndex,
         launchScale = artworkScale,
     )
 
@@ -857,11 +855,14 @@ private data class FocusDetail(
     val titleStyle: XmbTitleStyle,
 )
 
-/** Ambient drift + selection parallax for wallpaper / hero plates. */
+/**
+ * Ambient drift + selection parallax for wallpaper / hero plates.
+ * Only left/right (category) navigation pans the wallpaper — moving up and down a
+ * column must not shift it vertically, so there is no item-index parallax.
+ */
 @Composable
 private fun rememberXmbBackdropMotion(
     categoryIndex: Int,
-    itemIndex: Int,
     launchScale: Float,
 ): Modifier {
     val reduceMotion = rememberReduceMotion()
@@ -872,14 +873,6 @@ private fun rememberXmbBackdropMotion(
             easing = FastOutSlowInEasing,
         ),
         label = "xmbParallaxX",
-    )
-    val parallaxY by animateFloatAsState(
-        targetValue = if (reduceMotion) 0f else itemIndex * 10f,
-        animationSpec = tween(
-            durationMillis = if (reduceMotion) 0 else XMB_SCROLL_MS,
-            easing = FastOutSlowInEasing,
-        ),
-        label = "xmbParallaxY",
     )
     // The drift moves the wallpaper, hero art and trailer layers, so leaving it running while the
     // shell is not being looked at redraws the largest surfaces in the app for nothing.
@@ -904,7 +897,7 @@ private fun rememberXmbBackdropMotion(
         scaleX = base
         scaleY = base
         translationX = -parallaxX + ambX
-        translationY = -parallaxY * 0.55f + ambY
+        translationY = ambY
     }
 }
 
