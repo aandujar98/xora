@@ -18,7 +18,8 @@ import java.util.zip.GZIPOutputStream
  * without being on the same LAN or forwarding a port.
  *
  * INPUT is queued off the emu thread so JSON + WebSocket send cannot stall the frame loop.
- * Packets are reliable so a dropped pad cannot split the two devices into separate games.
+ * Pad frames are unreliable: only the latest pad matters, and a reliable queue of stale
+ * frames used to delay (or starve) the seat the joiner is actually playing.
  */
 internal class XoraNakamaNetplayLink(
     private val network: XoraNetworkRepository,
@@ -46,7 +47,7 @@ internal class XoraNakamaNetplayLink(
                         matchId,
                         XoraNetplayProtocol.TYPE_INPUT,
                         payload,
-                        reliable = true,
+                        reliable = false,
                     )
                 }
             }

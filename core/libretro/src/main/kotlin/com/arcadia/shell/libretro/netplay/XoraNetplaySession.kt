@@ -23,7 +23,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicIntegerArray
 import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.locks.LockSupport
 
 enum class XoraNetplayRole { Idle, Host, Client }
 
@@ -100,6 +99,10 @@ fun formatJoinHostPort(host: String, port: Int): String {
  * epoch barrier, so pad frames from before a resync can never be confused with new ones.
  *
  * The emu thread calls [exchange] once per frame; a dedicated IO coroutine owns the link.
+ *
+ * Online pads are **latest-received**, not exact-frame lockstep. Nakama's JSON WebSocket
+ * RTT is often larger than a 12-frame buffer, and waiting on a missing frame stalled the
+ * emu thread so the two devices' frame counters never lined up — joiners stayed idle.
  */
 class XoraNetplaySession(
     private val scope: CoroutineScope,
@@ -134,10 +137,7 @@ class XoraNetplaySession(
     }
     private val missStreak = AtomicIntegerArray(XoraNetplayProtocol.MAX_PLAYERS)
     private val lastConsumed = AtomicIntegerArray(XoraNetplayProtocol.MAX_PLAYERS)
-    private val pendingLocal = ConcurrentHashMap<Int, XoraNetplayProtocol.PadFrame>()
-    private val lastLocal = AtomicReference(EMPTY_PAD)
     private val frameCounter = AtomicInteger(0)
-    private val inputDelay = AtomicInteger(0)
     private val freezeCore = AtomicBoolean(false)
 
     private val captureStateRef = AtomicReference<(suspend () -> ByteArray?)?>(null)
@@ -149,6 +149,8 @@ class XoraNetplaySession(
 
     val linkedNow: Boolean get() = linked.get()
     val hosting: Boolean get() = isHost.get() && running.get()
+    /** This device's seat (1 = host, 2..4 = joiners). 0 = not assigned yet. */
+    val playerSlotNow: Int get() = mySlot.get()
     /** True while a savestate is in flight — the core must not advance. */
     val holdEmulation: Boolean get() = freezeCore.get()
 
@@ -159,7 +161,7 @@ class XoraNetplaySession(
     ) {
         stop()
         val gen = generation.get()
-        beginHostState(online = false, maxPlayers = 2, hello = hello, captureState = captureState)
+        beginHostState(maxPlayers = 2, hello = hello, captureState = captureState)
         val addresses = localIpv4Addresses()
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Host,
@@ -205,12 +207,10 @@ class XoraNetplaySession(
         stop()
         val gen = generation.get()
         beginHostState(
-            online = true,
             maxPlayers = XoraNetplayProtocol.MAX_PLAYERS,
             hello = hello,
             captureState = captureState,
         )
-        inputDelay.set(ONLINE_INPUT_DELAY)
         linkRef.set(link)
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Host,
@@ -276,7 +276,6 @@ class XoraNetplaySession(
         stop()
         val gen = generation.get()
         beginJoinState(applyState)
-        inputDelay.set(ONLINE_INPUT_DELAY)
         linkRef.set(link)
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Client,
@@ -298,33 +297,25 @@ class XoraNetplaySession(
     /**
      * Send the current local pad and return the pads every port must apply this frame.
      *
-     * Online buffers [ONLINE_INPUT_DELAY] frames so RTT does not hitch, then waits for the
-     * matching remote pads of that delayed frame. A slot that misses its window briefly holds
-     * its last pad; a slot silent for [ZERO_AFTER_MISSES] frames goes neutral, and one silent
-     * for [STALL_SKIP_FRAMES] frames stops being waited on until its input reappears.
+     * This device's assigned seat gets the **current** local pad (no delay). Every other
+     * seat gets the newest remote pad we have for this epoch. A slot that goes silent
+     * holds its last pad briefly, then goes neutral after [ZERO_AFTER_MISSES] frames.
+     *
+     * Slot 0 is not coerced to Player 1 — an unassigned joiner must not tag INPUT as the
+     * host, or the real host drops it as an echo and P2 never moves.
      */
     fun exchange(local: XoraNetplayProtocol.PadFrame): XoraNetplayExchange {
-        val slot = mySlot.get().coerceIn(1, XoraNetplayProtocol.MAX_PLAYERS)
+        val slot = mySlot.get()
         val currentEpoch = epoch.get()
         val idle = XoraNetplayProtocol.PadFrame(frame = local.frame, buttons = 0)
         val pads = Array(XoraNetplayProtocol.MAX_PLAYERS) { idle }
         if (!linked.get()) return XoraNetplayExchange(pads.toList())
-        val frame = local.frame
-        val tagged = local.copy(slot = slot, epoch = currentEpoch)
-        pendingLocal[frame] = tagged
-        writeInput(tagged)
-        trimLocal(frame)
-        val delay = inputDelay.get().coerceAtLeast(0)
-        val target = frame - delay
-        if (target < 0) {
-            return XoraNetplayExchange(pads.toList())
+        if (slot in 1..XoraNetplayProtocol.MAX_PLAYERS) {
+            val tagged = local.copy(slot = slot, epoch = currentEpoch)
+            writeInput(tagged)
+            pads[slot - 1] = tagged
         }
-        val delayedLocal = pendingLocal[target]
-            ?: lastLocal.get().takeIf { it.frame >= 0 }
-            ?: idle
-        lastLocal.set(delayedLocal)
-        pads[slot - 1] = delayedLocal
-        collectRemotePads(pads, currentEpoch, target, slot, idle)
+        collectLatestRemotePads(pads, currentEpoch, slot, idle)
         return XoraNetplayExchange(pads.toList())
     }
 
@@ -382,7 +373,6 @@ class XoraNetplaySession(
         parkedHellos.clear()
         hostName.set("")
         frameCounter.set(0)
-        inputDelay.set(0)
         freezeCore.set(false)
         captureStateRef.set(null)
         applyStateRef.set(null)
@@ -395,7 +385,6 @@ class XoraNetplaySession(
     }
 
     private fun beginHostState(
-        online: Boolean,
         maxPlayers: Int,
         hello: XoraNetplayProtocol.Hello,
         captureState: suspend () -> ByteArray?,
@@ -404,7 +393,6 @@ class XoraNetplaySession(
         isHost.set(true)
         mySlot.set(1)
         maxPlayersNow.set(maxPlayers.coerceIn(2, XoraNetplayProtocol.MAX_PLAYERS))
-        inputDelay.set(if (online) ONLINE_INPUT_DELAY else 0)
         captureStateRef.set(captureState)
         lastSelfHello.set(hello)
     }
@@ -412,7 +400,6 @@ class XoraNetplaySession(
     private fun beginJoinState(applyState: suspend (ByteArray) -> Boolean) {
         running.set(true)
         isHost.set(false)
-        inputDelay.set(0)
         freezeCore.set(true)
         applyStateRef.set(applyState)
     }
@@ -424,8 +411,6 @@ class XoraNetplaySession(
             missStreak.set(i, 0)
             lastConsumed.set(i, -1)
         }
-        pendingLocal.clear()
-        lastLocal.set(EMPTY_PAD)
     }
 
     // ---------------------------------------------------------------------------------------
@@ -946,7 +931,7 @@ class XoraNetplaySession(
         }
     }
 
-    /** GO barrier: same epoch = mask-only update, new epoch = full lockstep restart. */
+    /** GO barrier: same epoch = mask-only update, new epoch = pad-buffer restart. */
     private fun applyGo(newEpoch: Int, mask: Int, names: Map<Int, String> = emptyMap()) {
         if (!isHost.get() && names.isNotEmpty()) {
             names[1]?.let { hostName.set(it) }
@@ -958,9 +943,8 @@ class XoraNetplaySession(
         activeSlotsMask.set(mask)
         if (changed) {
             frameCounter.set(0)
-            pendingLocal.clear()
-            lastLocal.set(EMPTY_PAD)
             for (i in 0 until XoraNetplayProtocol.MAX_PLAYERS) {
+                pendingRemote[i].clear()
                 missStreak.set(i, 0)
                 lastConsumed.set(i, -1)
                 lastRemote[i].set(EMPTY_PAD)
@@ -1039,57 +1023,52 @@ class XoraNetplaySession(
         }
     }
 
-    private fun trimLocal(frame: Int) {
-        val minKeep = frame - inputDelay.get() - 30
-        if (minKeep <= 0) return
-        pendingLocal.keys.removeAll { it < minKeep }
-    }
-
-    private fun collectRemotePads(
+    /**
+     * Fill every seat except [selfSlot] from the newest remote pad we have. Do not require
+     * an exact (epoch, frame) match — Nakama frames rarely share a counter — and never
+     * stall the emu thread waiting for one.
+     *
+     * Incoming pads are applied even when [activeSlotsMask] omitted that seat, so a late
+     * or lost GO mask cannot leave P2 idle while INPUT is arriving.
+     */
+    private fun collectLatestRemotePads(
         pads: Array<XoraNetplayProtocol.PadFrame>,
         currentEpoch: Int,
-        target: Int,
         selfSlot: Int,
         idle: XoraNetplayProtocol.PadFrame,
     ) {
-        val gen = generation.get()
-        val remoteSlots = XoraNetplayProtocol.slotsInMask(activeSlotsMask.get())
-            .filter { it != selfSlot }
-        if (remoteSlots.isEmpty()) return
-        val waiting = ArrayList<Int>(remoteSlots.size)
-        for (slot in remoteSlots) {
-            val pad = takeRemote(slot, currentEpoch, target)
-            when {
-                pad != null -> pads[slot - 1] = pad
-                missStreak.get(slot - 1) >= STALL_SKIP_FRAMES ->
-                    pads[slot - 1] = missPad(slot, idle) // silent slot: don't stall the frame
-                else -> waiting.add(slot)
+        for (slot in 1..XoraNetplayProtocol.MAX_PLAYERS) {
+            if (slot == selfSlot) continue
+            val latest = takeLatestRemote(slot, currentEpoch)
+            pads[slot - 1] = when {
+                latest != null -> latest
+                else -> missPad(slot, idle)
             }
         }
-        if (waiting.isEmpty()) return
-        val deadline = System.nanoTime() + INPUT_STALL_NS
-        while (waiting.isNotEmpty() && System.nanoTime() < deadline) {
-            if (!linked.get() || generation.get() != gen) break
-            val iterator = waiting.iterator()
-            while (iterator.hasNext()) {
-                val slot = iterator.next()
-                val pad = takeRemote(slot, currentEpoch, target)
-                if (pad != null) {
-                    pads[slot - 1] = pad
-                    iterator.remove()
-                }
-            }
-            if (waiting.isNotEmpty()) LockSupport.parkNanos(250_000L)
-        }
-        waiting.forEach { slot -> pads[slot - 1] = missPad(slot, idle) }
     }
 
-    private fun takeRemote(slot: Int, currentEpoch: Int, target: Int): XoraNetplayProtocol.PadFrame? {
-        val pad = pendingRemote[slot - 1].remove(padKey(currentEpoch, target)) ?: return null
+    private fun takeLatestRemote(slot: Int, currentEpoch: Int): XoraNetplayProtocol.PadFrame? {
+        val map = pendingRemote[slot - 1]
+        if (map.isEmpty()) return null
+        var best: XoraNetplayProtocol.PadFrame? = null
+        val stale = ArrayList<Long>()
+        for ((key, pad) in map) {
+            val keyEpoch = (key ushr 32).toInt()
+            if (keyEpoch != currentEpoch) {
+                stale.add(key)
+                continue
+            }
+            if (best == null || pad.frame > best.frame) best = pad
+        }
+        stale.forEach { map.remove(it) }
+        val chosen = best ?: return null
+        map.keys.removeAll { key ->
+            (key ushr 32).toInt() == currentEpoch && key.toInt() <= chosen.frame
+        }
         missStreak.set(slot - 1, 0)
-        lastConsumed.set(slot - 1, target)
-        lastRemote[slot - 1].set(pad)
-        return pad
+        lastConsumed.set(slot - 1, chosen.frame)
+        lastRemote[slot - 1].set(chosen)
+        return chosen
     }
 
     /**
@@ -1099,7 +1078,21 @@ class XoraNetplaySession(
     private fun missPad(slot: Int, idle: XoraNetplayProtocol.PadFrame): XoraNetplayProtocol.PadFrame {
         val streak = missStreak.incrementAndGet(slot - 1)
         if (streak >= ZERO_AFTER_MISSES) return idle
-        return lastRemote[slot - 1].get().takeIf { it.frame >= 0 } ?: idle
+        return lastRemote[slot - 1].get().takeIf { it.frame >= 0 && it.epoch == epoch.get() }
+            ?: idle
+    }
+
+    /** Test-only: mark this session linked as [slot] without a network handshake. */
+    internal fun bindForTest(slot: Int, epoch: Int = 1, slotsMask: Int = 0b1111) {
+        mySlot.set(slot)
+        this.epoch.set(epoch)
+        activeSlotsMask.set(slotsMask)
+        linked.set(true)
+        running.set(true)
+    }
+
+    internal fun ingestRemoteForTest(pad: XoraNetplayProtocol.PadFrame) {
+        stashRemoteInput(XoraNetplayProtocol.encodePadFrame(pad))
     }
 
     /**
@@ -1142,10 +1135,7 @@ class XoraNetplaySession(
     }
 
     companion object {
-        private const val ONLINE_INPUT_DELAY = 12
-        private const val INPUT_STALL_NS = 120_000_000L // 120ms per frame before hold-last
         private const val ZERO_AFTER_MISSES = 45 // ~0.75s of hold-last, then neutral pad
-        private const val STALL_SKIP_FRAMES = 240 // ~4s silent: stop waiting, quick-check only
         private const val START_BARRIER_TIMEOUT_MS = 60_000L
         private const val STATE_DOWNLOAD_TIMEOUT_MS = 90_000L
         private const val REMOTE_PRUNE_THRESHOLD = 1024

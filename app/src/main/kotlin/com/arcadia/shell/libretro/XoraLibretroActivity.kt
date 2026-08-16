@@ -1398,7 +1398,7 @@ class XoraLibretroActivity : ComponentActivity() {
             withContext(Dispatchers.Main.immediate) {
                 val hello = netplayHello()
                 netplaySession?.join(address, parsed.port, hello) { bytes ->
-                    withContext(emuDispatcher) { LibretroNative.nativeUnserialize(bytes) }
+                    applyNetplaySavestate(bytes)
                 }
                 showMenuMessage("Joining $address:${parsed.port}…")
             }
@@ -1477,7 +1477,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 hello = netplayHello(),
                 sessionCode = code,
             ) { bytes ->
-                withContext(emuDispatcher) { LibretroNative.nativeUnserialize(bytes) }
+                applyNetplaySavestate(bytes)
             }
             showMenuMessage("Joining $code…")
             preferences.clearPendingNetplayJoin()
@@ -1999,6 +1999,15 @@ class XoraLibretroActivity : ComponentActivity() {
             }
     }
 
+    /** Load a host savestate, then re-plug P2–P4 — cores often drop extra pads on unserialize. */
+    private suspend fun applyNetplaySavestate(bytes: ByteArray): Boolean {
+        return withContext(emuDispatcher) {
+            val ok = LibretroNative.nativeUnserialize(bytes)
+            if (ok) applyCoreControllerOptions()
+            ok
+        }
+    }
+
     /** Re-apply P1–P4 core options and plug every advertised socket. */
     private fun applyCoreControllerOptions() {
         XoraCoreOptions.variablesFor(
@@ -2037,7 +2046,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         (!paused && !menuOpen && !activityInBackground) -> {
                     val players = padMixer.snapshotPlayers(xoraSettings.preferredControllerName)
                     if (session?.linkedNow == true) {
-                        if (emuFrameIndex % 90 == 0) {
+                        if (emuFrameIndex % 30 == 0) {
                             LibretroNative.nativePlugControllers()
                         }
                         // Each device is one netplay seat: merge every local pad into this
@@ -2062,6 +2071,12 @@ class XoraLibretroActivity : ComponentActivity() {
                         // Port = player slot − 1: host pad drives port 0, joiners 2..4 drive 1..3.
                         pads.pads.forEachIndexed { port, pad ->
                             applyNativePad(port, pad)
+                        }
+                        // Stamp this device's current pad on its seat even if exchange had
+                        // no assigned slot yet — the joiner must feel P2 on their own screen.
+                        val selfPort = session.playerSlotNow - 1
+                        if (selfPort in 0..3) {
+                            applyNativePad(selfPort, sent)
                         }
                     } else {
                         if (emuFrameIndex % 180 == 0) {
