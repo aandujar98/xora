@@ -173,6 +173,9 @@ class XoraLibretroActivity : ComponentActivity() {
     private var profileChip: FrameLayout? = null
     private var profileChipImage: ImageView? = null
     private var profileChipLetter: TextView? = null
+    /** Non-interactive seat readout so a dead P2 can be distinguished from a missing character. */
+    private var netplayHud: TextView? = null
+    @Volatile private var lastNetplayHud = ""
     private var profileName by mutableStateOf("Player")
     /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
     private var menuMessage by mutableStateOf<String?>(null)
@@ -375,6 +378,7 @@ class XoraLibretroActivity : ComponentActivity() {
         dialogOverlay = dialogs
         root.addView(dialogs)
         root.addView(createProfileChip())
+        root.addView(createNetplayHud())
 
         setContentView(root)
         applyOpaqueWindow()
@@ -1915,6 +1919,37 @@ class XoraLibretroActivity : ComponentActivity() {
         return chip
     }
 
+    private fun createNetplayHud(): TextView {
+        val density = resources.displayMetrics.density
+        return TextView(this).apply {
+            netplayHud = this
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL,
+            ).apply {
+                topMargin = (12 * density).toInt()
+            }
+            setTextColor(AndroidColor.WHITE)
+            textSize = 14f
+            setShadowLayer(4f * density, 0f, 0f, AndroidColor.BLACK)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            isClickable = false
+            isFocusable = false
+            isFocusableInTouchMode = false
+            visibility = View.GONE
+        }
+    }
+
+    private fun setNetplayHud(text: String) {
+        if (text == lastNetplayHud) return
+        lastNetplayHud = text
+        runOnUiThread {
+            netplayHud?.text = text
+            netplayHud?.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
+        }
+    }
+
     private fun bindProfileChip(bitmap: Bitmap?, initial: String, fillColor: Int) {
         val oval = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
@@ -2078,6 +2113,13 @@ class XoraLibretroActivity : ComponentActivity() {
                         if (selfPort in 0..3) {
                             applyNativePad(selfPort, sent)
                         }
+                        val live = sent.buttons != 0 ||
+                            sent.lx.toInt() != 0 ||
+                            sent.ly.toInt() != 0
+                        setNetplayHud(
+                            "P${session.playerSlotNow.coerceAtLeast(0)}" +
+                                if (live) " · input" else "",
+                        )
                     } else {
                         if (emuFrameIndex % 180 == 0) {
                             LibretroNative.nativePlugControllers()
@@ -2086,6 +2128,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         applyNativePad(1, players.p2)
                         applyNativePad(2, players.p3)
                         applyNativePad(3, players.p4)
+                        setNetplayHud("")
                     }
                     emuFrameIndex++
                     LibretroNative.nativeRunFrame()

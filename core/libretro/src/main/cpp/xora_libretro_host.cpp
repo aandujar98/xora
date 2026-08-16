@@ -490,6 +490,8 @@ size_t audio_sample_batch(const int16_t* data, size_t frames) {
 
 void input_poll() {}
 
+bool is_multiplayer_adapter(const char* desc);
+
 bool is_pad_device(unsigned id, const char* desc) {
     if (id == RETRO_DEVICE_NONE) return false;
     const unsigned base = id & RETRO_DEVICE_MASK;
@@ -509,6 +511,9 @@ bool is_pad_device(unsigned id, const char* desc) {
         d.find("keyboard") != std::string::npos) {
         return false;
     }
+    // A multitap on port 2 replaces the P2 pad. Netplay writes joypad bits to that
+    // port, so the adapter must never be the plugged device.
+    if (is_multiplayer_adapter(desc)) return false;
     return true;
 }
 
@@ -527,11 +532,9 @@ bool is_multiplayer_adapter(const char* desc) {
 }
 
 int pad_device_score(unsigned port, unsigned id, const char* desc) {
+    (void)port;
     const std::string d = desc ? to_lower_copy(desc) : "";
-    if (is_multiplayer_adapter(desc)) {
-        // Never put an adapter on P1; prefer it on P2 so ports 2–4 light up.
-        return port == 0 ? -1 : 96;
-    }
+    if (is_multiplayer_adapter(desc)) return -1;
     if (d.find("gamepad") != std::string::npos) return 90;
     if (d.find("gamecube") != std::string::npos) return 88;
     if (d.find("playstation controller") != std::string::npos) return 85;

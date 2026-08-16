@@ -23,11 +23,11 @@ class XoraCoreOptionsTest {
         assertEquals("Standard Controller", mesen["mesen_port2type"])
         assertEquals("Standard Controller", mesen["mesen_port3type"])
         assertEquals("Standard Controller", mesen["mesen_port4type"])
-        assertEquals("auto", mesen["nestopia_select_adapter"])
+        assertEquals("disabled", mesen["nestopia_select_adapter"])
 
         val bsnes = XoraCoreOptions.variablesFor("snes", "bsnes", settings)
         assertEquals("Gamepad", bsnes["bsnes_port_1"])
-        assertEquals("Super Multitap", bsnes["bsnes_port_2"])
+        assertEquals("Gamepad", bsnes["bsnes_port_2"])
         assertEquals("Standard Controller", bsnes["mesen-s_port3type"])
         assertEquals("Standard Controller", bsnes["mesen-s_port4type"])
     }
@@ -52,14 +52,14 @@ class XoraCoreOptionsTest {
         assertEquals("analog", pcsx["pcsx_rearmed_pad2type"])
         assertEquals("analog", pcsx["pcsx_rearmed_pad3type"])
         assertEquals("analog", pcsx["pcsx_rearmed_pad4type"])
-        assertEquals("port2", pcsx["pcsx_rearmed_multitap"])
+        assertEquals("disabled", pcsx["pcsx_rearmed_multitap"])
 
         val swan = XoraCoreOptions.variablesFor("ps1", "swanstation", settings)
         assertEquals("AnalogController", swan["swanstation_Controller2.Type"])
         assertEquals("AnalogController", swan["swanstation_Controller4.Type"])
         assertEquals("true", swan["swanstation_Controller2_ForceAnalog"])
         assertEquals("AnalogController", swan["duckstation_Controller2.Type"])
-        assertEquals("Port2Only", swan["duckstation_Multitap.Mode"])
+        assertEquals("Off", swan["duckstation_Multitap.Mode"])
     }
 
     @Test
@@ -74,9 +74,29 @@ class XoraCoreOptionsTest {
     }
 
     @Test
-    fun genesisEnablesTeamPlayerOnPortTwo() {
+    fun genesisUsesSixButtonPadsOnBothPorts() {
         val vars = XoraCoreOptions.variablesFor("genesis", "picodrive", settings)
         assertEquals("6 button pad", vars["picodrive_input1"])
-        assertEquals("teamplayer", vars["picodrive_input2"])
+        assertEquals("6 button pad", vars["picodrive_input2"])
+    }
+
+    @Test
+    fun twoPlayerCoresNeverReplacePortTwoWithAnAdapter() {
+        val platforms = listOf(
+            "nes" to "fceumm",
+            "snes" to "bsnes",
+            "ps1" to "pcsx_rearmed",
+            "ps1" to "swanstation",
+            "genesis" to "picodrive",
+            "saturn" to "mednafen_saturn",
+        )
+        for ((platform, core) in platforms) {
+            val blob = XoraCoreOptions.variablesFor(platform, core, settings).values
+                .joinToString(" ")
+                .lowercase()
+            assertFalse("$core must not put a multitap on P2", blob.contains("multitap"))
+            assertFalse("$core must not put a team player on P2", blob.contains("teamplayer"))
+            assertFalse("$core must not use Port2Only", blob.contains("port2only"))
+        }
     }
 }

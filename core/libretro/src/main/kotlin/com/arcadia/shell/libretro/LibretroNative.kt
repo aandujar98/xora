@@ -33,7 +33,7 @@ object LibretroNative {
     external fun nativeLastError(): String?
     /**
      * Plug P1–P4 using each core's SET_CONTROLLER_INFO device ids
-     * (NES/SNES gamepad, N64 pad, DualShock, GameCube controller, multitap, …).
+     * (NES/SNES gamepad, N64 pad, DualShock, GameCube controller — never a multitap).
      */
     external fun nativePlugControllers()
 

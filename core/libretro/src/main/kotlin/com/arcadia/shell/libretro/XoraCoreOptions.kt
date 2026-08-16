@@ -53,8 +53,8 @@ object XoraCoreOptions {
         out["mesen_port2type"] = "Standard Controller"
         out["mesen_port3type"] = "Standard Controller"
         out["mesen_port4type"] = "Standard Controller"
-        // auto lets Nestopia enable Four Score / Famicom when the ROM needs P3/P4.
-        out["nestopia_select_adapter"] = "auto"
+        // Four Score turns port 2 into an adapter; P2 netplay then never sees a pad.
+        out["nestopia_select_adapter"] = "disabled"
     }
 
     private fun applySnes(
@@ -70,7 +70,7 @@ object XoraCoreOptions {
             return
         }
         out["bsnes_port_1"] = "Gamepad"
-        out["bsnes_port_2"] = "Super Multitap"
+        out["bsnes_port_2"] = "Gamepad"
         out["mesen-s_port1type"] = "Standard Controller"
         out["mesen-s_port2type"] = "Standard Controller"
         out["mesen-s_port3type"] = "Standard Controller"
@@ -111,7 +111,8 @@ object XoraCoreOptions {
 
     /**
      * Connect P1–P4 on PlayStation cores. SwanStation/DuckStation default extra
-     * ports to None; a multitap on port 2 is required for P3/P4.
+     * ports to None. Do **not** enable a multitap on port 2 — that replaces the
+     * P2 DualShock with an adapter, so the joiner's pad never reaches the game.
      */
     private fun applyPs1(
         platformId: String,
@@ -130,7 +131,7 @@ object XoraCoreOptions {
         out["pcsx_rearmed_pad2type"] = "analog"
         out["pcsx_rearmed_pad3type"] = "analog"
         out["pcsx_rearmed_pad4type"] = "analog"
-        out["pcsx_rearmed_multitap"] = "port2"
+        out["pcsx_rearmed_multitap"] = "disabled"
         out["duckstation_Controller1.Type"] = "AnalogController"
         out["duckstation_Controller2.Type"] = "AnalogController"
         out["duckstation_Controller3.Type"] = "AnalogController"
@@ -147,10 +148,10 @@ object XoraCoreOptions {
         out["duckstation_Controller2_ForceAnalog"] = "true"
         out["duckstation_Controller3_ForceAnalog"] = "true"
         out["duckstation_Controller4_ForceAnalog"] = "true"
-        out["duckstation_Multitap.Mode"] = "Port2Only"
-        out["swanstation_Multitap.Mode"] = "Port2Only"
-        out["duckstation_ControllerPorts.MultitapMode"] = "Port2Only"
-        out["swanstation_ControllerPorts.MultitapMode"] = "Port2Only"
+        out["duckstation_Multitap.Mode"] = "Off"
+        out["swanstation_Multitap.Mode"] = "Off"
+        out["duckstation_ControllerPorts.MultitapMode"] = "Off"
+        out["swanstation_ControllerPorts.MultitapMode"] = "Off"
         out["beetle_psx_pad1type"] = "analog"
         out["beetle_psx_pad2type"] = "analog"
         out["beetle_psx_pad3type"] = "analog"
@@ -180,7 +181,7 @@ object XoraCoreOptions {
         out["dolphin_port_4_type"] = "Standard Controller"
     }
 
-    /** Genesis / Mega Drive: 6-button pads and a Team Player on port 2 for P3/P4. */
+    /** Genesis / Mega Drive: 6-button pads on both ports. Team Player steals P2. */
     private fun applyGenesis(
         platformId: String,
         coreName: String,
@@ -197,10 +198,10 @@ object XoraCoreOptions {
             return
         }
         out["picodrive_input1"] = "6 button pad"
-        out["picodrive_input2"] = "teamplayer"
+        out["picodrive_input2"] = "6 button pad"
     }
 
-    /** Saturn 6-player adapter on port 2 so P3/P4 exist. */
+    /** Saturn: keep port 2 as a pad. The 6-player adapter replaces P2. */
     private fun applySaturn(
         platformId: String,
         coreName: String,
@@ -213,8 +214,8 @@ object XoraCoreOptions {
         ) {
             return
         }
-        out["beetle_saturn_multitap_port2"] = "enabled"
-        out["mednafen_saturn_multitap_port2"] = "enabled"
+        out["beetle_saturn_multitap_port2"] = "disabled"
+        out["mednafen_saturn_multitap_port2"] = "disabled"
     }
 
     /** Dreamcast always has four maple ports — keep them as standard controllers. */
