@@ -1237,6 +1237,60 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRunFrame(JNIEnv*, jclass) {
     }
 }
 
+static uint16_t* gba_io_regs() {
+    for (const auto& desc : g_mmap_descriptors) {
+        if (desc.start == 0x04000000u && desc.ptr && desc.len >= 0x204u) {
+            return static_cast<uint16_t*>(desc.ptr);
+        }
+    }
+    return nullptr;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioRead(JNIEnv* env, jclass) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    uint16_t* io = gba_io_regs();
+    if (!io) return nullptr;
+    jint packed[2] = {
+        static_cast<jint>(io[0x12A / 2]), // SIOMLT_SEND
+        static_cast<jint>(io[0x128 / 2]), // SIOCNT
+    };
+    jintArray out = env->NewIntArray(2);
+    if (!out) return nullptr;
+    env->SetIntArrayRegion(out, 0, 2, packed);
+    return out;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioApply(
+    JNIEnv* env,
+    jclass,
+    jintArray multi,
+    jint local_id
+) {
+    if (!multi) return;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    uint16_t* io = gba_io_regs();
+    if (!io) return;
+    jsize n = env->GetArrayLength(multi);
+    if (n < 4) return;
+    jint slots[4];
+    env->GetIntArrayRegion(multi, 0, 4, slots);
+    uint16_t cnt = io[0x128 / 2];
+    if ((cnt & 0x3000u) != 0x2000u) return; // not GBA multi-player SIO mode
+    io[0x120 / 2] = static_cast<uint16_t>(slots[0] & 0xFFFF); // SIOMULTI0
+    io[0x122 / 2] = static_cast<uint16_t>(slots[1] & 0xFFFF);
+    io[0x124 / 2] = static_cast<uint16_t>(slots[2] & 0xFFFF);
+    io[0x126 / 2] = static_cast<uint16_t>(slots[3] & 0xFFFF);
+    const int id = local_id < 0 ? 0 : (local_id > 3 ? 3 : local_id);
+    cnt &= static_cast<uint16_t>(~0x403Cu); // clear busy (bit 14), SI/SD/ID
+    cnt |= static_cast<uint16_t>((id & 3) << 4);
+    cnt |= 0x0008u; // SD = all GBAs ready
+    if (id != 0) cnt |= 0x0004u; // SI = child
+    io[0x128 / 2] = cnt;
+    io[0x202 / 2] = static_cast<uint16_t>(io[0x202 / 2] | 0x0080u); // IF: SIO IRQ
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeReset(JNIEnv*, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);

@@ -177,6 +177,7 @@ class XoraNetplayProtocolTest {
         assertEquals(8, XoraNetplayProtocol.TYPE_ASSIGN)
         assertEquals(9, XoraNetplayProtocol.TYPE_SEAT)
         assertEquals(10, XoraNetplayProtocol.TYPE_VIDEO)
+        assertEquals(11, XoraNetplayProtocol.TYPE_SERIAL)
         val generated = XoraNetplayProtocol.generateSessionCode()
         assertEquals(6, generated.length)
         assertTrue(generated.all { it in XoraNetplayProtocol.SESSION_CODE_ALPHABET })
@@ -257,5 +258,15 @@ class XoraNetplayProtocolTest {
         assertTrue(
             XoraNetplayProtocol.relayFrames(XoraNetplayProtocol.TYPE_STATE, tooBig).isNotEmpty(),
         )
+    }
+
+    @Test
+    fun serialRoundTripKeepsSlotAndSendWord() {
+        val decoded = XoraNetplayProtocol.decodeSerial(
+            XoraNetplayProtocol.encodeSerial(slot = 2, send = 0xA55A, siocnt = 0x5083),
+        )
+        assertEquals(2, decoded.slot)
+        assertEquals(0xA55A, decoded.send)
+        assertEquals(0x5083, decoded.siocnt)
     }
 }

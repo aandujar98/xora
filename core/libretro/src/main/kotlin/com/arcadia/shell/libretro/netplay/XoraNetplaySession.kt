@@ -64,14 +64,16 @@ fun netplayBannerText(
             }
             if (hasController) {
                 if (!sharedConsole) {
-                    lines += "This device is your game. The other player has theirs."
+                    lines += "This device is your Game Boy. The other player has theirs."
                 }
                 when {
                     padLive -> Unit
                     lastKey.startsWith("unmapped") ->
                         lines += "Last key $lastKey — remap it in Gamepad settings."
-                    lastKey.isNotBlank() ->
+                    lastKey.isNotBlank() && sharedConsole ->
                         lines += "Last key $lastKey — if the racer still sits, pick 2 PLAYER GAME."
+                    lastKey.isNotBlank() ->
+                        lines += "Last key $lastKey — this pad drives this Game Boy."
                     else ->
                         lines += "Press a face button or D-pad. Touch controls stay hidden while this pad is connected."
                 }
@@ -81,7 +83,11 @@ fun netplayBannerText(
         } else if (!hasController) {
             lines += "This phone has no controller. Use the touch pad, or plug one in."
         }
-        if (sharedConsole) lines += twoPlayerModeHint(gameTitle)
+        if (sharedConsole) {
+            lines += twoPlayerModeHint(gameTitle)
+        } else {
+            lines += "Game Link is live. Stay on the transmitting / waiting screen on both devices."
+        }
         return lines.joinToString("\n")
     }
     if (ui.role != XoraNetplayRole.Idle &&
@@ -215,6 +221,7 @@ class XoraNetplaySession(
     private val lastVideoSeq = AtomicInteger(-1)
     private val lastVideoSentMs = AtomicLong(0)
     private val videoMuteUntilMs = AtomicLong(0)
+    private val lastSerial = Array(XoraNetplayProtocol.MAX_PLAYERS) { AtomicInteger(0xFFFF) }
 
     val linkedNow: Boolean get() = linked.get()
     val hosting: Boolean get() = isHost.get() && running.get()
@@ -428,6 +435,40 @@ class XoraNetplaySession(
 
     fun takeVideo(): XoraNetplayProtocol.VideoPacket? = lastVideo.getAndSet(null)
 
+    /**
+     * Handheld Game Link: publish this device's SIO send word and return the 4-slot
+     * SIOMULTI table (missing players stay 0xFFFF).
+     */
+    fun exchangeSerial(localSend: Int, siocnt: Int = 0): IntArray {
+        val multi = IntArray(XoraNetplayProtocol.MAX_PLAYERS) { 0xFFFF }
+        if (!linked.get() || sessionMode.get() != NetplaySessionMode.HandheldLink) return multi
+        val slot = mySlot.get()
+        if (slot in 1..XoraNetplayProtocol.MAX_PLAYERS) {
+            lastSerial[slot - 1].set(localSend and 0xFFFF)
+            val link = linkRef.get()
+            if (link != null) {
+                runCatching {
+                    link.send(
+                        XoraNetplayProtocol.TYPE_SERIAL,
+                        XoraNetplayProtocol.encodeSerial(slot, localSend, siocnt),
+                    )
+                }
+            }
+        }
+        for (i in 0 until XoraNetplayProtocol.MAX_PLAYERS) {
+            multi[i] = lastSerial[i].get() and 0xFFFF
+        }
+        return multi
+    }
+
+    private fun stashSerial(payload: ByteArray) {
+        val packet = runCatching { XoraNetplayProtocol.decodeSerial(payload) }.getOrNull() ?: return
+        if (packet.slot == mySlot.get()) return
+        if (packet.slot in 1..XoraNetplayProtocol.MAX_PLAYERS) {
+            lastSerial[packet.slot - 1].set(packet.send and 0xFFFF)
+        }
+    }
+
     private fun stashVideo(payload: ByteArray) {
         if (isHost.get()) return
         val packet = runCatching { XoraNetplayProtocol.decodeVideo(payload) }.getOrNull() ?: return
@@ -501,6 +542,7 @@ class XoraNetplaySession(
         videoSeq.set(0)
         lastVideoSentMs.set(0)
         videoMuteUntilMs.set(0)
+        lastSerial.forEach { it.set(0xFFFF) }
         _state.value = XoraNetplayUiState(
             status = "Off",
             localAddresses = localIpv4Addresses(),
@@ -949,6 +991,7 @@ class XoraNetplaySession(
             when (type) {
                 XoraNetplayProtocol.TYPE_INPUT -> stashRemoteInput(payload)
                 XoraNetplayProtocol.TYPE_VIDEO -> stashVideo(payload)
+                XoraNetplayProtocol.TYPE_SERIAL -> stashSerial(payload)
                 XoraNetplayProtocol.TYPE_HELLO -> {
                     if (isHost.get()) {
                         val peer = XoraNetplayProtocol.decodeHello(payload)
@@ -1277,6 +1320,10 @@ class XoraNetplaySession(
             }
             if (type == XoraNetplayProtocol.TYPE_VIDEO) {
                 stashVideo(payload)
+                continue
+            }
+            if (type == XoraNetplayProtocol.TYPE_SERIAL) {
+                stashSerial(payload)
                 continue
             }
             return type to payload

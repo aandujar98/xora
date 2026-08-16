@@ -155,6 +155,39 @@ class XoraNetplaySessionVideoTest {
     }
 }
 
+class XoraNetplaySessionSerialTest {
+
+    private fun session(): XoraNetplaySession = XoraNetplaySession(CoroutineScope(Dispatchers.Unconfined))
+
+    @Test
+    fun handheldSerialFillsLocalSlotAndLeavesOthersEmpty() {
+        val session = session()
+        val link = RecordingNetplayLink()
+        session.bindForTest(slot = 1, mode = NetplaySessionMode.HandheldLink)
+        session.attachLinkForTest(link)
+        val multi = session.exchangeSerial(0x1234)
+        assertEquals(0x1234, multi[0])
+        assertEquals(0xFFFF, multi[1])
+        assertEquals(XoraNetplayProtocol.TYPE_SERIAL, link.sent[0].first)
+        val decoded = XoraNetplayProtocol.decodeSerial(link.sent[0].second)
+        assertEquals(1, decoded.slot)
+        assertEquals(0x1234, decoded.send)
+        session.stop()
+    }
+
+    @Test
+    fun sharedConsoleDoesNotSendSerial() {
+        val session = session()
+        val link = RecordingNetplayLink()
+        session.bindForTest(slot = 1)
+        session.attachLinkForTest(link)
+        val multi = session.exchangeSerial(0x22)
+        assertEquals(0xFFFF, multi[0])
+        assertEquals(0, link.sent.size)
+        session.stop()
+    }
+}
+
 private class RecordingNetplayLink : XoraNetplayLink {
     val sent = mutableListOf<Pair<Int, ByteArray>>()
 

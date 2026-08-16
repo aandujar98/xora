@@ -34,6 +34,7 @@ internal class XoraNakamaNetplayLink(
     // means every other player holds/zeroes that slot for its lockstep window.
     private val inputQueue = ArrayBlockingQueue<ByteArray>(256)
     private val videoQueue = ArrayBlockingQueue<ByteArray>(1)
+    private val serialQueue = ArrayBlockingQueue<ByteArray>(1)
     private val inputSender = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "xora-np-input").apply { isDaemon = true }
     }
@@ -49,6 +50,15 @@ internal class XoraNakamaNetplayLink(
                         reliable = true,
                         swallowErrors = true,
                         maxChunks = XoraNetplayProtocol.RELAY_MAX_CHUNKS,
+                    )
+                }
+                val serial = serialQueue.poll()
+                if (serial != null && !closed.get()) {
+                    sendRelayed(
+                        XoraNetplayProtocol.TYPE_SERIAL,
+                        serial,
+                        reliable = false,
+                        swallowErrors = true,
                     )
                 }
                 val payload = try {
@@ -71,6 +81,10 @@ internal class XoraNakamaNetplayLink(
         if (closed.get()) return
         if (type == XoraNetplayProtocol.TYPE_INPUT) {
             queueLatest(inputQueue, payload)
+            return
+        }
+        if (type == XoraNetplayProtocol.TYPE_SERIAL) {
+            queueLatest(serialQueue, payload)
             return
         }
         if (type == XoraNetplayProtocol.TYPE_VIDEO) {

@@ -36,6 +36,13 @@ object LibretroNative {
      * (NES/SNES gamepad, N64 pad, DualShock, GameCube controller — never a multitap).
      */
     external fun nativePlugControllers()
+    /** Packed `[send, siocnt]` from GBA SIOMLT_SEND / SIOCNT, or null if I/O is not mapped. */
+    external fun nativeGbaSioRead(): IntArray?
+    /**
+     * Write SIOMULTI0–3 (4 ints) and mark this GBA as player [localId] (0 = parent).
+     * Raises the SIO IRQ so the game can see the other Game Boy on the next frame.
+     */
+    external fun nativeGbaSioApply(multi: IntArray, localId: Int)
 
     /** Clear frontend core-option overrides (call before applying a fresh set). */
     external fun nativeClearCoreVariables()

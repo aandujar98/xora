@@ -2284,6 +2284,15 @@ class XoraLibretroActivity : ComponentActivity() {
                             if (selfPort in 0..3) applyNativePad(selfPort, sent)
                         }
                         if (session.runsLocalCore) {
+                            if (handheld) {
+                                LibretroNative.nativeGbaSioRead()?.let { snap ->
+                                    val multi = session.exchangeSerial(snap[0], snap[1])
+                                    LibretroNative.nativeGbaSioApply(
+                                        multi,
+                                        (session.playerSlotNow - 1).coerceIn(0, 3),
+                                    )
+                                }
+                            }
                             emuFrameIndex++
                             LibretroNative.nativeRunFrame()
                             raSession?.doFrame()
@@ -2291,6 +2300,15 @@ class XoraLibretroActivity : ComponentActivity() {
                             val pcm = LibretroNative.nativeDrainAudio()
                             packed?.let { presentFrame(it) }
                             pcm?.let { audioTrack?.write(it, 0, it.size) }
+                            if (handheld) {
+                                LibretroNative.nativeGbaSioRead()?.let { snap ->
+                                    val multi = session.exchangeSerial(snap[0], snap[1])
+                                    LibretroNative.nativeGbaSioApply(
+                                        multi,
+                                        (session.playerSlotNow - 1).coerceIn(0, 3),
+                                    )
+                                }
+                            }
                             if (!handheld && session.hosting && packed != null) {
                                 val online = session.onlineNow
                                 val jpeg = XoraNetplayVideo.jpegFromPackedRgba(

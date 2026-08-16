@@ -39,6 +39,11 @@ object XoraNetplayProtocol {
      * sessions stay one instance. Handheld link-cable sessions do not send this.
      */
     const val TYPE_VIDEO: Int = 10
+    /**
+     * Handheld Game Link: 16-bit SIO send word for this device's slot. Both GBAs keep
+     * running; the frontend writes SIOMULTI0–3 so the cores can see each other.
+     */
+    const val TYPE_SERIAL: Int = 11
     const val TYPE_CHUNK: Int = 100
 
     const val SESSION_CODE_ALPHABET: String = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -267,6 +272,29 @@ object XoraNetplayProtocol {
             i += 2
         }
         return VideoPacket(seq = readInt(payload, 0), jpeg = jpeg, pcm = pcm)
+    }
+
+    data class SerialPacket(
+        val slot: Int,
+        val send: Int,
+        val siocnt: Int = 0,
+    )
+
+    fun encodeSerial(slot: Int, send: Int, siocnt: Int = 0): ByteArray {
+        val out = ByteArray(5)
+        out[0] = (slot and 0xFF).toByte()
+        writeShort(out, 1, send and 0xFFFF)
+        writeShort(out, 3, siocnt and 0xFFFF)
+        return out
+    }
+
+    fun decodeSerial(payload: ByteArray): SerialPacket {
+        require(payload.size >= 3) { "serial payload too short" }
+        return SerialPacket(
+            slot = payload[0].toInt() and 0xFF,
+            send = readShort(payload, 1),
+            siocnt = if (payload.size >= 5) readShort(payload, 3) else 0,
+        )
     }
 
     fun slotsMaskOf(slots: Iterable<Int>): Int {

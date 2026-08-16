@@ -102,7 +102,27 @@ class XoraNetplayBannerTest {
             hasController = true,
             sharedConsole = false,
         )
-        assertTrue(text.contains("your game"))
+        assertTrue(text.contains("your Game Boy"))
+        assertTrue(text.contains("Game Link"))
+        assertTrue(!text.contains("2 PLAYER GAME"))
+    }
+
+    @Test
+    fun handheldLastKeyDoesNotAskForMarioKartMode() {
+        val text = netplayBannerText(
+            ui = XoraNetplayUiState(
+                role = XoraNetplayRole.Client,
+                linked = true,
+                playerSlot = 2,
+            ),
+            padLive = false,
+            gameTitle = "Mario Kart Super Circuit",
+            hasController = true,
+            lastKey = "Button A",
+            sharedConsole = false,
+        )
+        assertTrue(text.contains("Button A"))
+        assertTrue(text.contains("Game Link"))
         assertTrue(!text.contains("2 PLAYER GAME"))
     }
 
