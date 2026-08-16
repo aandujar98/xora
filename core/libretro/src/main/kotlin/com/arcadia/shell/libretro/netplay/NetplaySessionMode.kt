@@ -40,3 +40,10 @@ fun netplaySessionMode(platformId: String): NetplaySessionMode {
 }
 
 fun NetplaySessionMode.isSharedConsole(): Boolean = this == NetplaySessionMode.SharedConsole
+
+/**
+ * Home-console joiners never advance a local core — they show the host's video.
+ * Applying the host savestate can crash or fail and used to kick the joiner immediately.
+ */
+fun NetplaySessionMode.joinerAppliesHostState(): Boolean =
+    this == NetplaySessionMode.HandheldLink

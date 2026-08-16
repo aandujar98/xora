@@ -19,6 +19,12 @@ class NetplaySessionModeTest {
             assertEquals(id, NetplaySessionMode.SharedConsole, netplaySessionMode(id))
         }
     }
+
+    @Test
+    fun sharedConsoleJoinersDoNotLoadHostSavestate() {
+        assertEquals(false, NetplaySessionMode.SharedConsole.joinerAppliesHostState())
+        assertEquals(true, NetplaySessionMode.HandheldLink.joinerAppliesHostState())
+    }
 }
 
 class XoraNetplayVideoPacketTest {

@@ -107,3 +107,64 @@ class XoraNetplaySessionExchangeTest {
         session.stop()
     }
 }
+
+class XoraNetplaySessionVideoTest {
+
+    private fun session(): XoraNetplaySession = XoraNetplaySession(CoroutineScope(Dispatchers.Unconfined))
+
+    @Test
+    fun onlineHostStripsPcmAndRateLimitsVideo() {
+        val session = session()
+        val link = RecordingNetplayLink()
+        session.bindForTest(slot = 1, online = true)
+        session.attachLinkForTest(link)
+        session.armVideoForTest(muteUntilMs = 0L, lastSentMs = 0L)
+        val jpeg = ByteArray(40) { 7 }
+        session.sendVideo(jpeg, shortArrayOf(1, 2, 3, 4))
+        session.sendVideo(jpeg, shortArrayOf(9))
+        assertEquals(1, link.sent.size)
+        assertEquals(XoraNetplayProtocol.TYPE_VIDEO, link.sent[0].first)
+        val decoded = XoraNetplayProtocol.decodeVideo(link.sent[0].second)
+        assertEquals(jpeg.toList(), decoded.jpeg.toList())
+        assertEquals(0, decoded.pcm.size)
+        session.stop()
+    }
+
+    @Test
+    fun mutedWarmupDoesNotSendVideo() {
+        val session = session()
+        val link = RecordingNetplayLink()
+        session.bindForTest(slot = 1, online = true)
+        session.attachLinkForTest(link)
+        session.armVideoForTest(muteUntilMs = System.currentTimeMillis() + 10_000L)
+        session.sendVideo(ByteArray(8) { 1 }, ShortArray(0))
+        assertEquals(0, link.sent.size)
+        session.stop()
+    }
+
+    @Test
+    fun joinerNeverSendsHostVideo() {
+        val session = session()
+        val link = RecordingNetplayLink()
+        session.bindForTest(slot = 2, online = true)
+        session.attachLinkForTest(link)
+        session.armVideoForTest(muteUntilMs = 0L)
+        session.sendVideo(ByteArray(8) { 1 }, ShortArray(0))
+        assertEquals(0, link.sent.size)
+        session.stop()
+    }
+}
+
+private class RecordingNetplayLink : XoraNetplayLink {
+    val sent = mutableListOf<Pair<Int, ByteArray>>()
+
+    override fun send(type: Int, payload: ByteArray) {
+        sent += type to payload
+    }
+
+    override fun receive(timeoutMs: Int): Pair<Int, ByteArray> {
+        throw java.net.SocketTimeoutException("test")
+    }
+
+    override fun close() = Unit
+}

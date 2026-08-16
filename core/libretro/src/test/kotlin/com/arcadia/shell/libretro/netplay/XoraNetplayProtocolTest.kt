@@ -208,4 +208,54 @@ class XoraNetplayProtocolTest {
         val assembled = XoraNetplayProtocol.assembleChunks(parts, original.size)
         assertEquals(original.toList(), assembled.toList())
     }
+
+    @Test
+    fun relayFramesPassThroughSmallPayloads() {
+        val body = ByteArray(40) { it.toByte() }
+        val frames = XoraNetplayProtocol.relayFrames(XoraNetplayProtocol.TYPE_VIDEO, body)
+        assertEquals(1, frames.size)
+        assertEquals(XoraNetplayProtocol.TYPE_VIDEO, frames[0].first)
+        assertEquals(body.toList(), frames[0].second.toList())
+    }
+
+    @Test
+    fun relayFramesChunkVideoToNakamaSize() {
+        val body = ByteArray(2_500) { i -> (i * 7).toByte() }
+        val frames = XoraNetplayProtocol.relayFrames(XoraNetplayProtocol.TYPE_VIDEO, body)
+        assertTrue(frames.size > 1)
+        assertTrue(frames.all { it.first == XoraNetplayProtocol.TYPE_CHUNK })
+        assertTrue(frames.all { it.second.size <= 9 + XoraNetplayProtocol.RELAY_CHUNK_BYTES })
+        val parts = HashMap<Int, ByteArray>()
+        var total = 0
+        frames.forEach { (_, payload) ->
+            val decoded = XoraNetplayProtocol.decodeChunk(payload)
+            assertEquals(XoraNetplayProtocol.TYPE_VIDEO, decoded.originalType)
+            parts[decoded.index] = decoded.slice
+            total = decoded.total
+        }
+        val assembled = XoraNetplayProtocol.assembleChunks(parts, total)
+        assertEquals(body.toList(), assembled.toList())
+        val video = XoraNetplayProtocol.decodeVideo(
+            XoraNetplayProtocol.encodeVideo(3, body, ShortArray(0)),
+        )
+        assertEquals(3, video.seq)
+        assertEquals(0, video.pcm.size)
+    }
+
+    @Test
+    fun relayFramesDropPayloadsThatWouldFloodTheMatch() {
+        val tooBig = ByteArray(
+            XoraNetplayProtocol.RELAY_CHUNK_BYTES * (XoraNetplayProtocol.RELAY_MAX_CHUNKS + 1),
+        )
+        assertTrue(
+            XoraNetplayProtocol.relayFrames(
+                XoraNetplayProtocol.TYPE_VIDEO,
+                tooBig,
+                maxChunks = XoraNetplayProtocol.RELAY_MAX_CHUNKS,
+            ).isEmpty(),
+        )
+        assertTrue(
+            XoraNetplayProtocol.relayFrames(XoraNetplayProtocol.TYPE_STATE, tooBig).isNotEmpty(),
+        )
+    }
 }

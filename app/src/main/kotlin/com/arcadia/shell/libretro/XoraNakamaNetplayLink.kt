@@ -7,6 +7,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.net.SocketTimeoutException
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -20,6 +21,9 @@ import java.util.zip.GZIPOutputStream
  * INPUT is queued off the emu thread so JSON + WebSocket send cannot stall the frame loop.
  * Pad frames are unreliable: only the latest pad matters, and a reliable queue of stale
  * frames used to delay (or starve) the seat the joiner is actually playing.
+ *
+ * VIDEO is also queued, then sent as Nakama-sized [TYPE_CHUNK] pieces. A single JPEG used to
+ * exceed match_data limits and Nakama would drop the joiner the moment they linked.
  */
 internal class XoraNakamaNetplayLink(
     private val network: XoraNetworkRepository,
@@ -29,7 +33,7 @@ internal class XoraNakamaNetplayLink(
     // Large enough that a brief websocket stall doesn't drop pad frames — a dropped frame
     // means every other player holds/zeroes that slot for its lockstep window.
     private val inputQueue = ArrayBlockingQueue<ByteArray>(256)
-    private val videoQueue = ArrayBlockingQueue<ByteArray>(2)
+    private val videoQueue = ArrayBlockingQueue<ByteArray>(1)
     private val inputSender = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "xora-np-input").apply { isDaemon = true }
     }
@@ -39,14 +43,13 @@ internal class XoraNakamaNetplayLink(
             while (!closed.get()) {
                 val video = videoQueue.poll()
                 if (video != null && !closed.get()) {
-                    runCatching {
-                        network.sendMatchData(
-                            matchId,
-                            XoraNetplayProtocol.TYPE_VIDEO,
-                            video,
-                            reliable = false,
-                        )
-                    }
+                    sendRelayed(
+                        XoraNetplayProtocol.TYPE_VIDEO,
+                        video,
+                        reliable = true,
+                        swallowErrors = true,
+                        maxChunks = XoraNetplayProtocol.RELAY_MAX_CHUNKS,
+                    )
                 }
                 val payload = try {
                     inputQueue.poll(50, TimeUnit.MILLISECONDS)
@@ -54,14 +57,12 @@ internal class XoraNakamaNetplayLink(
                     break
                 } ?: continue
                 if (closed.get()) break
-                runCatching {
-                    network.sendMatchData(
-                        matchId,
-                        XoraNetplayProtocol.TYPE_INPUT,
-                        payload,
-                        reliable = false,
-                    )
-                }
+                sendRelayed(
+                    XoraNetplayProtocol.TYPE_INPUT,
+                    payload,
+                    reliable = false,
+                    swallowErrors = true,
+                )
             }
         }
     }
@@ -77,37 +78,34 @@ internal class XoraNakamaNetplayLink(
             return
         }
         val body = if (type == XoraNetplayProtocol.TYPE_STATE) gzip(payload) else payload
-        if (body.size <= XoraNetplayProtocol.RELAY_CHUNK_BYTES) {
-            network.sendMatchData(matchId, type, body, reliable = true)
-            return
-        }
-        val chunk = XoraNetplayProtocol.RELAY_CHUNK_BYTES
-        val count = (body.size + chunk - 1) / chunk
-        for (i in 0 until count) {
-            val start = i * chunk
-            val end = minOf(start + chunk, body.size)
-            network.sendMatchData(
-                matchId,
-                XoraNetplayProtocol.TYPE_CHUNK,
-                XoraNetplayProtocol.encodeChunk(
-                    originalType = type,
-                    index = i,
-                    count = count,
-                    total = body.size,
-                    slice = body.copyOfRange(start, end),
-                ),
-                reliable = true,
-            )
+        sendRelayed(type, body, reliable = true, swallowErrors = false)
+    }
+
+    private fun sendRelayed(
+        type: Int,
+        payload: ByteArray,
+        reliable: Boolean,
+        swallowErrors: Boolean,
+        maxChunks: Int = 0,
+    ) {
+        val frames = XoraNetplayProtocol.relayFrames(type, payload, maxChunks = maxChunks)
+        if (frames.isEmpty()) return
+        for ((opcode, body) in frames) {
+            if (closed.get()) return
+            val result = runCatching {
+                network.sendMatchData(matchId, opcode, body, reliable)
+            }
+            if (!swallowErrors) result.getOrThrow()
         }
     }
 
     // Chunk reassembly must survive across receive() calls: other players keep streaming
     // INPUT while a savestate is chunking through, and each interrupted call used to throw
     // the collected pieces away — the state could then never finish assembling.
-    private val chunkParts = LinkedHashMap<Int, ByteArray>()
-    private var chunkType = -1
-    private var chunkExpected = -1
-    private var chunkTotal = 0
+    // Video and state assemble independently so a JPEG cannot discard a savestate.
+    private val chunkParts = ConcurrentHashMap<Int, LinkedHashMap<Int, ByteArray>>()
+    private val chunkExpected = ConcurrentHashMap<Int, Int>()
+    private val chunkTotal = ConcurrentHashMap<Int, Int>()
 
     override fun receive(timeoutMs: Int): Pair<Int, ByteArray> {
         val deadline = if (timeoutMs <= 0) Long.MAX_VALUE else System.currentTimeMillis() + timeoutMs
@@ -125,22 +123,26 @@ internal class XoraNakamaNetplayLink(
                 val body = if (type == XoraNetplayProtocol.TYPE_STATE) maybeGunzip(payload) else payload
                 return type to body
             }
-            val part = XoraNetplayProtocol.decodeChunk(payload)
-            if (part.originalType != chunkType || part.count != chunkExpected) {
-                // A new transfer started; drop any stale partial one.
-                chunkParts.clear()
-                chunkType = part.originalType
-                chunkExpected = part.count
-                chunkTotal = part.total
+            val part = runCatching { XoraNetplayProtocol.decodeChunk(payload) }.getOrNull() ?: continue
+            val originalType = part.originalType
+            val expected = chunkExpected[originalType]
+            if (expected == null || expected != part.count || chunkTotal[originalType] != part.total) {
+                chunkParts[originalType] = LinkedHashMap()
+                chunkExpected[originalType] = part.count
+                chunkTotal[originalType] = part.total
             }
-            chunkParts[part.index] = part.slice
-            if (chunkExpected > 0 && chunkParts.size == chunkExpected) {
-                val assembled = XoraNetplayProtocol.assembleChunks(chunkParts, chunkTotal)
-                val originalType = chunkType
-                chunkParts.clear()
-                chunkType = -1
-                chunkExpected = -1
-                chunkTotal = 0
+            val parts = chunkParts.getOrPut(originalType) { LinkedHashMap() }
+            parts[part.index] = part.slice
+            val need = chunkExpected[originalType] ?: continue
+            val total = chunkTotal[originalType] ?: continue
+            if (need > 0 && parts.size == need) {
+                val assembled = runCatching {
+                    XoraNetplayProtocol.assembleChunks(parts, total)
+                }.getOrNull()
+                chunkParts.remove(originalType)
+                chunkExpected.remove(originalType)
+                chunkTotal.remove(originalType)
+                if (assembled == null) continue
                 val body = if (originalType == XoraNetplayProtocol.TYPE_STATE) {
                     maybeGunzip(assembled)
                 } else {

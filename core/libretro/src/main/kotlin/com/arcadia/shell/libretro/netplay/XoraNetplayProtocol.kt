@@ -17,8 +17,10 @@ object XoraNetplayProtocol {
     const val VERSION: Int = 4
     const val MAX_PLAYERS: Int = 4
     const val MAX_PAYLOAD: Int = 32 * 1024 * 1024
-    /** Nakama match data is small; savestates go out as [TYPE_CHUNK] pieces. */
+    /** Nakama match data is small; savestates and host video go out as [TYPE_CHUNK] pieces. */
     const val RELAY_CHUNK_BYTES: Int = 900
+    /** Drop a relay payload rather than flooding the match with dozens of chunks. */
+    const val RELAY_MAX_CHUNKS: Int = 16
 
     const val TYPE_HELLO: Int = 1
     const val TYPE_STATE: Int = 2
@@ -323,6 +325,34 @@ object XoraNetplayProtocol {
             total = readInt(payload, 5),
             slice = payload.copyOfRange(9, payload.size),
         )
+    }
+
+    /**
+     * Split [body] into Nakama-safe frames. A payload that already fits is one frame of
+     * [originalType]; larger bodies become [TYPE_CHUNK] pieces. When [maxChunks] is
+     * positive, payloads that would need more pieces are dropped (empty list) so a JPEG
+     * cannot flood the match. Savestates pass [maxChunks] = 0 (unlimited).
+     */
+    fun relayFrames(
+        originalType: Int,
+        body: ByteArray,
+        chunkBytes: Int = RELAY_CHUNK_BYTES,
+        maxChunks: Int = 0,
+    ): List<Pair<Int, ByteArray>> {
+        if (body.size <= chunkBytes) return listOf(originalType to body)
+        val count = (body.size + chunkBytes - 1) / chunkBytes
+        if (maxChunks > 0 && count > maxChunks) return emptyList()
+        return List(count) { i ->
+            val start = i * chunkBytes
+            val end = minOf(start + chunkBytes, body.size)
+            TYPE_CHUNK to encodeChunk(
+                originalType = originalType,
+                index = i,
+                count = count,
+                total = body.size,
+                slice = body.copyOfRange(start, end),
+            )
+        }
     }
 
     fun assembleChunks(parts: Map<Int, ByteArray>, total: Int): ByteArray {

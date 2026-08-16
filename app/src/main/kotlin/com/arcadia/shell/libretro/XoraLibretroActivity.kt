@@ -2292,9 +2292,21 @@ class XoraLibretroActivity : ComponentActivity() {
                             packed?.let { presentFrame(it) }
                             pcm?.let { audioTrack?.write(it, 0, it.size) }
                             if (!handheld && session.hosting && packed != null) {
-                                XoraNetplayVideo.jpegFromPackedRgba(packed)?.let { jpeg ->
-                                    session.sendVideo(jpeg, pcm ?: ShortArray(0))
-                                }
+                                val online = session.onlineNow
+                                val jpeg = XoraNetplayVideo.jpegFromPackedRgba(
+                                    packed,
+                                    maxWidth = if (online) {
+                                        XoraNetplayVideo.ONLINE_MAX_WIDTH
+                                    } else {
+                                        XoraNetplayVideo.MAX_WIDTH
+                                    },
+                                    maxBytes = if (online) {
+                                        XoraNetplayVideo.ONLINE_MAX_BYTES
+                                    } else {
+                                        XoraNetplayVideo.MAX_BYTES
+                                    },
+                                )
+                                jpeg?.let { session.sendVideo(it, pcm ?: ShortArray(0)) }
                             }
                         } else {
                             session.takeVideo()?.let { video ->

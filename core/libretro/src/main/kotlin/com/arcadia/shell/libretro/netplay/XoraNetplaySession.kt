@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicIntegerArray
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 enum class XoraNetplayRole { Idle, Host, Client }
@@ -212,9 +213,12 @@ class XoraNetplaySession(
     private val videoSeq = AtomicInteger(0)
     private val lastVideo = AtomicReference<XoraNetplayProtocol.VideoPacket?>(null)
     private val lastVideoSeq = AtomicInteger(-1)
+    private val lastVideoSentMs = AtomicLong(0)
+    private val videoMuteUntilMs = AtomicLong(0)
 
     val linkedNow: Boolean get() = linked.get()
     val hosting: Boolean get() = isHost.get() && running.get()
+    val onlineNow: Boolean get() = _state.value.online
     /** This device's seat (1 = host, 2..4 = joiners). 0 = not assigned yet. */
     val playerSlotNow: Int get() = mySlot.get()
     /** True while a savestate is in flight — the core must not advance. */
@@ -403,12 +407,21 @@ class XoraNetplaySession(
         if (!isHost.get() || !linked.get()) return
         if (sessionMode.get() != NetplaySessionMode.SharedConsole) return
         if (jpeg.isEmpty()) return
+        val now = System.currentTimeMillis()
+        if (now < videoMuteUntilMs.get()) return
+        val online = _state.value.online
+        val minInterval = if (online) ONLINE_VIDEO_MIN_INTERVAL_MS else LAN_VIDEO_MIN_INTERVAL_MS
+        if (now - lastVideoSentMs.get() < minInterval) return
+        if (online && jpeg.size > XoraNetplayVideo.ONLINE_MAX_BYTES) return
+        lastVideoSentMs.set(now)
         val seq = videoSeq.getAndIncrement()
         val link = linkRef.get() ?: return
+        // PCM bloats Nakama match_data past the size cap and kicks the joiner.
+        val audio = if (online) ShortArray(0) else pcm
         runCatching {
             link.send(
                 XoraNetplayProtocol.TYPE_VIDEO,
-                XoraNetplayProtocol.encodeVideo(seq, jpeg, pcm),
+                XoraNetplayProtocol.encodeVideo(seq, jpeg, audio),
             )
         }
     }
@@ -486,6 +499,8 @@ class XoraNetplaySession(
         lastVideo.set(null)
         lastVideoSeq.set(-1)
         videoSeq.set(0)
+        lastVideoSentMs.set(0)
+        videoMuteUntilMs.set(0)
         _state.value = XoraNetplayUiState(
             status = "Off",
             localAddresses = localIpv4Addresses(),
@@ -861,8 +876,7 @@ class XoraNetplaySession(
         hostName.set(host?.nickname.orEmpty())
         freezeCore.set(true)
         _state.value = _state.value.copy(status = "Loading host game…")
-        val applied = applyStateRef.get()?.invoke(statePayload) ?: false
-        if (!applied) {
+        if (!applyIncomingState(statePayload)) {
             fail("Could not load host save state", gen)
             return
         }
@@ -889,8 +903,7 @@ class XoraNetplaySession(
                     return
                 }
                 XoraNetplayProtocol.TYPE_STATE -> {
-                    val applied = applyStateRef.get()?.invoke(payload) ?: false
-                    if (!applied) {
+                    if (!applyIncomingState(payload)) {
                         fail("Could not load host save state", gen)
                         return
                     }
@@ -951,8 +964,7 @@ class XoraNetplaySession(
                         // Host is running a barrier for a new joiner — re-sync and confirm.
                         freezeCore.set(true)
                         _state.value = _state.value.copy(status = "Re-syncing with host…")
-                        val applied = applyStateRef.get()?.invoke(payload) ?: false
-                        if (!applied) {
+                        if (!applyIncomingState(payload)) {
                             fail("Could not load host save state", gen)
                             return
                         }
@@ -1063,6 +1075,10 @@ class XoraNetplaySession(
         }
         freezeCore.set(false)
         linked.set(true)
+        if (isHost.get()) {
+            val warmup = if (_state.value.online) ONLINE_VIDEO_WARMUP_MS else LAN_VIDEO_WARMUP_MS
+            videoMuteUntilMs.set(System.currentTimeMillis() + warmup)
+        }
     }
 
     private fun refreshLinkedState() {
@@ -1094,6 +1110,15 @@ class XoraNetplaySession(
             },
             error = null,
         )
+    }
+
+    /**
+     * Handheld joiners load the host snapshot onto their own core. Home-console joiners only
+     * display host video — unserialize used to fail (or crash) and kick them the instant they joined.
+     */
+    private suspend fun applyIncomingState(payload: ByteArray): Boolean {
+        if (!sessionMode.get().joinerAppliesHostState()) return true
+        return applyStateRef.get()?.invoke(payload) ?: false
     }
 
     private fun writeInput(frame: XoraNetplayProtocol.PadFrame) {
@@ -1194,12 +1219,36 @@ class XoraNetplaySession(
     }
 
     /** Test-only: mark this session linked as [slot] without a network handshake. */
-    internal fun bindForTest(slot: Int, epoch: Int = 1, slotsMask: Int = 0b1111) {
+    internal fun bindForTest(
+        slot: Int,
+        epoch: Int = 1,
+        slotsMask: Int = 0b1111,
+        host: Boolean = slot == 1,
+        online: Boolean = false,
+        mode: NetplaySessionMode = NetplaySessionMode.SharedConsole,
+    ) {
         mySlot.set(slot)
         this.epoch.set(epoch)
         activeSlotsMask.set(slotsMask)
         linked.set(true)
         running.set(true)
+        isHost.set(host)
+        sessionMode.set(mode)
+        _state.value = _state.value.copy(
+            linked = true,
+            online = online,
+            role = if (host) XoraNetplayRole.Host else XoraNetplayRole.Client,
+            playerSlot = slot,
+        )
+    }
+
+    internal fun attachLinkForTest(link: XoraNetplayLink) {
+        linkRef.set(link)
+    }
+
+    internal fun armVideoForTest(muteUntilMs: Long = 0L, lastSentMs: Long = 0L) {
+        videoMuteUntilMs.set(muteUntilMs)
+        lastVideoSentMs.set(lastSentMs)
     }
 
     internal fun ingestRemoteForTest(pad: XoraNetplayProtocol.PadFrame) {
@@ -1255,6 +1304,10 @@ class XoraNetplaySession(
         private const val STATE_DOWNLOAD_TIMEOUT_MS = 90_000L
         private const val REMOTE_PRUNE_THRESHOLD = 1024
         private const val REMOTE_HARD_CAP = 4096
+        internal const val ONLINE_VIDEO_MIN_INTERVAL_MS = 125L
+        internal const val LAN_VIDEO_MIN_INTERVAL_MS = 50L
+        internal const val ONLINE_VIDEO_WARMUP_MS = 700L
+        internal const val LAN_VIDEO_WARMUP_MS = 200L
 
         /** Token 0 is reserved for the host hello, so joiner tokens must be non-zero. */
         private fun generateJoinToken(): Int {
