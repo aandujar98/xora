@@ -160,6 +160,11 @@ class LibretroPadMixerTest {
     }
 
     @Test
+    fun backIsNotAFaceButton() {
+        assertEquals(null, LibretroPad.defaultKeyCodeToButton(android.view.KeyEvent.KEYCODE_BACK))
+    }
+
+    @Test
     fun rgRotateNameIsAHandheldPad() {
         assertTrue(LibretroPad.looksLikeHandheldPad("gpio-keys"))
         assertTrue(LibretroPad.looksLikeHandheldPad("rg-rotate-joypad"))

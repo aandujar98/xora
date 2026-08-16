@@ -888,6 +888,16 @@ class XoraLibretroActivity : ComponentActivity() {
                     toggleMenu()
                     return true
                 }
+                if (keyCode == KeyEvent.KEYCODE_BACK) {
+                    if (menuOpen) {
+                        handleInGameXmbKey(keyCode)
+                    } else if (pendingInvitePrompt != null) {
+                        invitePromptOpen = true
+                    } else {
+                        toggleMenu()
+                    }
+                    return true
+                }
                 val netplayLinked = netplayUi.linked
                 val mappedBit = LibretroPad.padButtonFor(event, customMappings)
                 if (netplayLinked) notePadKey(event, mappedBit)
@@ -904,14 +914,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 mappedBit?.let { bit ->
                     padMixer.keyDown(event.deviceId, bit)
                     noteLocalPadLive()
-                    return true
-                }
-                if (keyCode == KeyEvent.KEYCODE_BACK) {
-                    if (pendingInvitePrompt != null) {
-                        invitePromptOpen = true
-                    } else {
-                        toggleMenu()
-                    }
                     return true
                 }
             }

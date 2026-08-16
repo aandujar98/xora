@@ -271,26 +271,8 @@ object LibretroPad {
         return sources and InputDevice.SOURCE_CLASS_JOYSTICK == InputDevice.SOURCE_CLASS_JOYSTICK
     }
 
-    /**
-     * On Anbernic handhelds B is often KEYCODE_BACK. Phone Back must still open the pause
-     * menu; only pads / gpio-keys should treat Back as RetroPad B.
-     */
-    fun KeyEvent.handheldBackIsB(): Boolean {
-        if (keyCode != KeyEvent.KEYCODE_BACK) return false
-        if (isFromSource(InputDevice.SOURCE_GAMEPAD) ||
-            isFromSource(InputDevice.SOURCE_JOYSTICK) ||
-            isFromSource(InputDevice.SOURCE_DPAD)
-        ) {
-            return true
-        }
-        val device = device ?: return false
-        return looksLikeHandheldPad(device.name, device.sources)
-    }
-
-    fun padButtonFor(event: KeyEvent, customMappings: Map<Int, Int> = emptyMap()): Int? {
-        if (event.handheldBackIsB()) return B
-        return keyCodeToButton(event.keyCode, customMappings)
-    }
+    fun padButtonFor(event: KeyEvent, customMappings: Map<Int, Int> = emptyMap()): Int? =
+        keyCodeToButton(event.keyCode, customMappings)
 
     /** ADC joysticks / hats that are not SOURCE_GAMEPAD still have to drive the mixer. */
     fun MotionEvent.shouldDrivePad(): Boolean {
