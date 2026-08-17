@@ -20,6 +20,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <string>
@@ -143,6 +144,71 @@ std::map<std::string, std::string> g_var_defaults;
 std::map<std::string, std::string> g_var_query_cache;
 std::atomic<bool> g_vars_updated{false};
 std::string g_netplay_username = "Player";
+
+// Libretro netpacket (env 78) — gpSP Game Link / RFU rides this, not a host-IP core option.
+retro_netpacket_callback g_netpacket{};
+std::atomic<bool> g_netpacket_set{false};
+std::atomic<bool> g_netpacket_started{false};
+uint16_t g_netpacket_local_id = 0;
+struct NetpacketIo {
+    uint16_t client_id = 0;
+    int flags = 0;
+    std::vector<uint8_t> data;
+};
+std::mutex g_netpacket_io_mutex;
+std::deque<NetpacketIo> g_netpacket_incoming;
+std::deque<NetpacketIo> g_netpacket_outgoing;
+
+void netpacket_reset_unlocked() {
+    if (g_netpacket_started.load(std::memory_order_relaxed) && g_netpacket.stop) {
+        g_netpacket.stop();
+    }
+    g_netpacket_started.store(false, std::memory_order_relaxed);
+    g_netpacket_local_id = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_netpacket_io_mutex);
+        g_netpacket_incoming.clear();
+        g_netpacket_outgoing.clear();
+    }
+}
+
+void netpacket_clear_interface() {
+    netpacket_reset_unlocked();
+    g_netpacket = retro_netpacket_callback{};
+    g_netpacket_set.store(false, std::memory_order_relaxed);
+}
+
+void RETRO_CALLCONV netpacket_send(int flags, const void* buf, size_t len, uint16_t client_id) {
+    if ((!buf || len == 0) && (flags & RETRO_NETPACKET_FLUSH_HINT)) {
+        return;
+    }
+    if (!buf || len == 0) return;
+    if (len > 64 * 1024) len = 64 * 1024;
+    NetpacketIo packet;
+    packet.client_id = client_id;
+    packet.flags = flags;
+    packet.data.assign(static_cast<const uint8_t*>(buf), static_cast<const uint8_t*>(buf) + len);
+    std::lock_guard<std::mutex> lock(g_netpacket_io_mutex);
+    if (g_netpacket_outgoing.size() > 256) g_netpacket_outgoing.pop_front();
+    g_netpacket_outgoing.push_back(std::move(packet));
+}
+
+void netpacket_deliver_incoming() {
+    std::deque<NetpacketIo> batch;
+    {
+        std::lock_guard<std::mutex> lock(g_netpacket_io_mutex);
+        batch.swap(g_netpacket_incoming);
+    }
+    if (!g_netpacket.receive) return;
+    for (const auto& packet : batch) {
+        if (packet.data.empty()) continue;
+        g_netpacket.receive(packet.data.data(), packet.data.size(), packet.client_id);
+    }
+}
+
+void RETRO_CALLCONV netpacket_poll_receive() {
+    netpacket_deliver_incoming();
+}
 
 bool g_game_loaded = false;
 double g_fps = 60.0;
@@ -837,12 +903,23 @@ bool environment(unsigned cmd, void* data) {
             *static_cast<const retro_game_info_ext**>(data) = ext_ptr;
             return true;
         }
+        case RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE: {
+            if (!data) return false;
+            const auto* cb = static_cast<const retro_netpacket_callback*>(data);
+            if (!cb->start || !cb->receive) return false;
+            g_netpacket = *cb;
+            g_netpacket_set.store(true, std::memory_order_relaxed);
+            ALOGI("SET_NETPACKET_INTERFACE accepted (protocol %s)",
+                  cb->protocol_version ? cb->protocol_version : "core");
+            return true;
+        }
         default:
             return false;
     }
 }
 
 void unload_unlocked() {
+    netpacket_clear_interface();
     xora_gba_link_stop();
     xora_host_memory_destroy();
     xora_gba_sio_reset();
@@ -1276,6 +1353,10 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRunFrame(JNIEnv*, jclass) {
         if (xora_hw::is_active()) {
             xora_hw::ensure_context(0, 0);
         }
+        if (g_netpacket_started.load(std::memory_order_relaxed)) {
+            netpacket_deliver_incoming();
+            if (g_netpacket.poll) g_netpacket.poll();
+        }
         g_api.run();
     }
 }
@@ -1311,6 +1392,121 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaLinkStop(JNIEnv*, jclass
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaLinkActive(JNIEnv*, jclass) {
     return xora_gba_link_active() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketAvailable(JNIEnv*, jclass) {
+    return g_netpacket_set.load(std::memory_order_relaxed) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketStart(
+    JNIEnv*,
+    jclass,
+    jint local_client_id
+) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_netpacket_set.load(std::memory_order_relaxed) || !g_netpacket.start) {
+        g_last_error = "This core did not publish a netpacket interface";
+        return JNI_FALSE;
+    }
+    const uint16_t client_id = static_cast<uint16_t>(local_client_id & 0xFFFF);
+    if (g_netpacket_started.load(std::memory_order_relaxed)) {
+        if (g_netpacket_local_id == client_id) return JNI_TRUE;
+        if (g_netpacket.stop) g_netpacket.stop();
+        g_netpacket_started.store(false, std::memory_order_relaxed);
+    }
+    {
+        std::lock_guard<std::mutex> io(g_netpacket_io_mutex);
+        g_netpacket_incoming.clear();
+        g_netpacket_outgoing.clear();
+    }
+    g_netpacket_local_id = client_id;
+    g_netpacket.start(client_id, netpacket_send, netpacket_poll_receive);
+    g_netpacket_started.store(true, std::memory_order_relaxed);
+    ALOGI("netpacket start client_id=%u", static_cast<unsigned>(client_id));
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketStop(JNIEnv*, jclass) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    netpacket_reset_unlocked();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketPeerConnected(
+    JNIEnv*,
+    jclass,
+    jint client_id
+) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_netpacket_started.load(std::memory_order_relaxed)) return JNI_FALSE;
+    if (!g_netpacket.connected) return JNI_TRUE;
+    const bool ok = g_netpacket.connected(static_cast<uint16_t>(client_id & 0xFFFF));
+    ALOGI("netpacket connected client_id=%d accepted=%d", static_cast<int>(client_id), ok ? 1 : 0);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketPeerDisconnected(
+    JNIEnv*,
+    jclass,
+    jint client_id
+) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_netpacket_started.load(std::memory_order_relaxed) || !g_netpacket.disconnected) return;
+    g_netpacket.disconnected(static_cast<uint16_t>(client_id & 0xFFFF));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketIncoming(
+    JNIEnv* env,
+    jclass,
+    jint from_client_id,
+    jbyteArray data
+) {
+    if (!data) return;
+    const jsize length = env->GetArrayLength(data);
+    if (length <= 0) return;
+    NetpacketIo packet;
+    packet.client_id = static_cast<uint16_t>(from_client_id & 0xFFFF);
+    packet.data.resize(static_cast<size_t>(length));
+    env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte*>(packet.data.data()));
+    std::lock_guard<std::mutex> lock(g_netpacket_io_mutex);
+    if (g_netpacket_incoming.size() > 512) g_netpacket_incoming.pop_front();
+    g_netpacket_incoming.push_back(std::move(packet));
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketDrainOutgoing(JNIEnv* env, jclass) {
+    std::deque<NetpacketIo> batch;
+    {
+        std::lock_guard<std::mutex> lock(g_netpacket_io_mutex);
+        batch.swap(g_netpacket_outgoing);
+    }
+    jclass byteArrayClass = env->FindClass("[B");
+    if (!byteArrayClass) return nullptr;
+    jobjectArray arr = env->NewObjectArray(static_cast<jsize>(batch.size()), byteArrayClass, nullptr);
+    if (!arr) return nullptr;
+    jsize index = 0;
+    for (const auto& packet : batch) {
+        const jsize n = static_cast<jsize>(4 + packet.data.size());
+        jbyteArray item = env->NewByteArray(n);
+        if (!item) continue;
+        std::vector<jbyte> packed(static_cast<size_t>(n));
+        packed[0] = static_cast<jbyte>((packet.client_id >> 8) & 0xFF);
+        packed[1] = static_cast<jbyte>(packet.client_id & 0xFF);
+        packed[2] = static_cast<jbyte>((packet.flags >> 8) & 0xFF);
+        packed[3] = static_cast<jbyte>(packet.flags & 0xFF);
+        if (!packet.data.empty()) {
+            std::memcpy(packed.data() + 4, packet.data.data(), packet.data.size());
+        }
+        env->SetByteArrayRegion(item, 0, n, packed.data());
+        env->SetObjectArrayElement(arr, index++, item);
+        env->DeleteLocalRef(item);
+    }
+    return arr;
 }
 
 // Game Link: poke the mmap'd GBA I/O page only. Walking emulator RAM for gba->sio

@@ -21,38 +21,47 @@ class NetplaySessionModeTest {
     }
 
     @Test
-    fun gbaUsesEmbeddedLockstep() {
-        assertEquals(true, usesGbaLockstep("gba"))
-        assertEquals(true, usesGbaLockstep("GBA"))
-        assertEquals(false, usesGbaLockstep("gbc"))
-        assertEquals(false, usesGbaLockstep("snes"))
+    fun gbaUsesGpspNetpacketNotLockstep() {
+        assertEquals(false, usesGbaLockstep("gba"))
+        assertEquals(true, usesGbaGpspLink("gba"))
+        assertEquals(true, usesGbaGpspLink("GBA"))
+        assertEquals(false, usesGbaGpspLink("gbc"))
+        assertEquals(false, usesGbaGpspLink("snes"))
+        assertEquals("gpsp", netplayCoreName("gba", "mgba"))
+        assertEquals("snes9x", netplayCoreName("snes", "snes9x"))
+        assertEquals(0, gbaNetplayClientId(1))
+        assertEquals(1, gbaNetplayClientId(2))
     }
 
     @Test
-    fun gbaLockstepStartsOnceAfterHandshake() {
+    fun gbaNetpacketStartsOnceAfterHandshake() {
         assertEquals(
             true,
+            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 1, playerCount = 2, alreadyStarted = false),
+        )
+        assertEquals(
+            true,
+            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 2, playerCount = 2, alreadyStarted = false),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 1, playerCount = 1, alreadyStarted = false),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 1, playerCount = 2, alreadyStarted = true),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaNetpacket("snes", handheldLink = false, localSlot = 1, playerCount = 2, alreadyStarted = false),
+        )
+    }
+
+    @Test
+    fun gbaLockstepIsDisabled() {
+        assertEquals(
+            false,
             shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 1, alreadyActive = false, alreadyAttempted = false),
-        )
-        assertEquals(
-            true,
-            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 2, alreadyActive = false, alreadyAttempted = false),
-        )
-        assertEquals(
-            false,
-            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 1, alreadyActive = true, alreadyAttempted = false),
-        )
-        assertEquals(
-            false,
-            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 1, alreadyActive = false, alreadyAttempted = true),
-        )
-        assertEquals(
-            false,
-            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 0, alreadyActive = false, alreadyAttempted = false),
-        )
-        assertEquals(
-            false,
-            shouldStartGbaLockstep("snes", handheldLink = false, localSlot = 1, alreadyActive = false, alreadyAttempted = false),
         )
     }
 

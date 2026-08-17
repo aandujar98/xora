@@ -113,7 +113,7 @@ class XoraNetplayBannerTest {
     }
 
     @Test
-    fun gbaLockstepExplainsTwoLocalCores() {
+    fun gbaGpspLinkExplainsBuiltInCable() {
         val text = netplayBannerText(
             ui = XoraNetplayUiState(
                 role = XoraNetplayRole.Client,
@@ -124,18 +124,17 @@ class XoraNetplayBannerTest {
             gameTitle = "Mario Kart Super Circuit",
             hasController = true,
             sharedConsole = false,
-            gbaLockstep = true,
-            gbaLockstepLive = true,
+            gbaGpspLink = true,
+            gbaGpspLinkLive = true,
         )
-        assertTrue(text.contains("two GBAs"))
-        assertTrue(text.contains("link menu"))
-        assertTrue(text.contains("second GBA"))
+        assertTrue(text.contains("gpSP"))
+        assertTrue(text.contains("link menu") || text.contains("2-player"))
         assertTrue(!text.contains("your Game Boy"))
         assertTrue(!text.contains("2 PLAYER GAME"))
     }
 
     @Test
-    fun gbaLockstepBannerSaysWhenCableIsNotRunning() {
+    fun gbaGpspBannerWaitsForSecondPlayer() {
         val text = netplayBannerText(
             ui = XoraNetplayUiState(
                 role = XoraNetplayRole.Host,
@@ -146,10 +145,10 @@ class XoraNetplayBannerTest {
             gameTitle = "Kirby",
             hasController = true,
             sharedConsole = false,
-            gbaLockstep = true,
-            gbaLockstepLive = false,
+            gbaGpspLink = true,
+            gbaGpspLinkLive = false,
         )
-        assertTrue(text.contains("not running"))
+        assertTrue(text.contains("second player"))
         assertTrue(!text.contains("two GBAs"))
     }
 

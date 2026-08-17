@@ -82,6 +82,7 @@ class XoraCoreCatalog @Inject constructor(
             XoraCoreEntry("gb", "gambatte", "Gambatte", "GPLv2"),
             XoraCoreEntry("gbc", "gambatte", "Gambatte", "GPLv2"),
             XoraCoreEntry("gba", "mgba", "mGBA", "MPL-2.0"),
+            XoraCoreEntry("gba", "gpsp", "gpSP", "GPLv2"),
             XoraCoreEntry("nds", "melonds", "melonDS", "GPLv3"),
             XoraCoreEntry("3ds", "citra", "Citra", "GPLv2"),
             XoraCoreEntry("genesis", "genesis_plus_gx", "Genesis Plus GX", "Non-commercial"),

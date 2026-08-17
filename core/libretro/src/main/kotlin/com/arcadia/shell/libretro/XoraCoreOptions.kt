@@ -34,7 +34,17 @@ object XoraCoreOptions {
         applyGenesis(platformId, coreName, out)
         applySaturn(platformId, coreName, out)
         applyDreamcast(platformId, coreName, out)
+        applyGba(platformId, coreName, out)
         return out
+    }
+
+    private fun applyGba(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "gba" && !coreName.contains("gpsp", ignoreCase = true)) return
+        out["gpsp_serial"] = "auto"
     }
 
     private fun applyNes(

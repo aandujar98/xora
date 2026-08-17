@@ -54,6 +54,22 @@ object LibretroNative {
     external fun nativeGbaLinkStop()
     external fun nativeGbaLinkActive(): Boolean
 
+    /**
+     * True after the loaded core called SET_NETPACKET_INTERFACE (gpSP Game Link).
+     * Packets are bridged over the XOrA netplay session — joiners do not open a second socket.
+     */
+    external fun nativeNetpacketAvailable(): Boolean
+    /** [localClientId] is 0 for the host and slot−1 for joiners. */
+    external fun nativeNetpacketStart(localClientId: Int): Boolean
+    external fun nativeNetpacketStop()
+    external fun nativeNetpacketPeerConnected(clientId: Int): Boolean
+    external fun nativeNetpacketPeerDisconnected(clientId: Int)
+    external fun nativeNetpacketIncoming(fromClientId: Int, data: ByteArray)
+    /**
+     * Packed outgoing packets: each item is `u16be dest`, `u16be flags`, then payload.
+     */
+    external fun nativeNetpacketDrainOutgoing(): Array<ByteArray>?
+
     /** Clear frontend core-option overrides (call before applying a fresh set). */
     external fun nativeClearCoreVariables()
     /** Override a Libretro core option; cores read via GET_VARIABLE. */

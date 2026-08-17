@@ -234,6 +234,41 @@ class XoraNetplaySessionSerialTest {
         assertEquals(0, link.sent.size)
         session.stop()
     }
+
+    @Test
+    fun netpacketRoutesBroadcastToEveryoneExceptEcho() {
+        val session = session()
+        val link = RecordingNetplayLink()
+        session.bindForTest(slot = 2, host = false, mode = NetplaySessionMode.HandheldLink)
+        session.attachLinkForTest(link)
+        session.sendNetpacket(
+            dest = XoraNetplayProtocol.NETPACKET_BROADCAST,
+            flags = 1,
+            payload = byteArrayOf(1, 2, 3),
+        )
+        assertEquals(XoraNetplayProtocol.TYPE_NETPACKET, link.sent[0].first)
+        session.ingestNetpacketForTest(
+            XoraNetplayProtocol.Netpacket(
+                dest = XoraNetplayProtocol.NETPACKET_BROADCAST,
+                src = 0,
+                flags = 1,
+                payload = byteArrayOf(9),
+            ),
+        )
+        session.ingestNetpacketForTest(
+            XoraNetplayProtocol.Netpacket(
+                dest = 1,
+                src = 1,
+                flags = 1,
+                payload = byteArrayOf(8),
+            ),
+        )
+        val incoming = session.takeNetpackets()
+        assertEquals(1, incoming.size)
+        assertEquals(0, incoming[0].src)
+        assertEquals(listOf(9.toByte()), incoming[0].payload.toList())
+        session.stop()
+    }
 }
 
 private class RecordingNetplayLink : XoraNetplayLink {

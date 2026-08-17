@@ -34,8 +34,9 @@ internal class XoraNakamaNetplayLink(
     // means every other player holds/zeroes that slot for its lockstep window.
     private val inputQueue = ArrayBlockingQueue<ByteArray>(256)
     private val videoQueue = ArrayBlockingQueue<ByteArray>(1)
-    private val serialQueue = ArrayBlockingQueue<ByteArray>(1)
-    private val inputSender = Executors.newSingleThreadExecutor { runnable ->
+    private         val serialQueue = ArrayBlockingQueue<ByteArray>(1)
+        val netpacketQueue = ArrayBlockingQueue<ByteArray>(256)
+        private val inputSender = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "xora-np-input").apply { isDaemon = true }
     }
 
@@ -61,6 +62,25 @@ internal class XoraNakamaNetplayLink(
                         swallowErrors = true,
                     )
                 }
+                val netpacket = netpacketQueue.poll()
+                if (netpacket != null && !closed.get()) {
+                    sendRelayed(
+                        XoraNetplayProtocol.TYPE_NETPACKET,
+                        netpacket,
+                        reliable = true,
+                        swallowErrors = true,
+                    )
+                    val input = inputQueue.poll()
+                    if (input != null && !closed.get()) {
+                        sendRelayed(
+                            XoraNetplayProtocol.TYPE_INPUT,
+                            input,
+                            reliable = false,
+                            swallowErrors = true,
+                        )
+                    }
+                    continue
+                }
                 val payload = try {
                     inputQueue.poll(50, TimeUnit.MILLISECONDS)
                 } catch (_: InterruptedException) {
@@ -85,6 +105,17 @@ internal class XoraNakamaNetplayLink(
         }
         if (type == XoraNetplayProtocol.TYPE_SERIAL) {
             queueLatest(serialQueue, payload)
+            return
+        }
+        if (type == XoraNetplayProtocol.TYPE_NETPACKET) {
+            if (!netpacketQueue.offer(payload)) {
+                sendRelayed(
+                    XoraNetplayProtocol.TYPE_NETPACKET,
+                    payload,
+                    reliable = true,
+                    swallowErrors = true,
+                )
+            }
             return
         }
         if (type == XoraNetplayProtocol.TYPE_VIDEO) {

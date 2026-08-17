@@ -99,4 +99,10 @@ class XoraCoreOptionsTest {
             assertFalse("$core must not use Port2Only", blob.contains("port2only"))
         }
     }
+
+    @Test
+    fun gpspEnablesAutomaticLinkCable() {
+        val vars = XoraCoreOptions.variablesFor("gba", "gpsp", settings)
+        assertEquals("auto", vars["gpsp_serial"])
+    }
 }

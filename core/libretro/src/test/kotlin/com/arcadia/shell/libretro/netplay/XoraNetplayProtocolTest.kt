@@ -29,6 +29,48 @@ class XoraNetplayProtocolTest {
     }
 
     @Test
+    fun helloCarriesHostLanAddresses() {
+        val hello = XoraNetplayProtocol.Hello(
+            nickname = "host",
+            coreName = "gpsp",
+            platformId = "gba",
+            romName = "Kirby",
+            hostAddresses = listOf("192.168.1.20", "10.0.0.4"),
+            hostPort = 55435,
+        )
+        val decoded = XoraNetplayProtocol.decodeHello(XoraNetplayProtocol.encodeHello(hello))
+        assertEquals(listOf("192.168.1.20", "10.0.0.4"), decoded.hostAddresses)
+        assertEquals(55435, decoded.hostPort)
+    }
+
+    @Test
+    fun helloWithoutLanFieldsStaysCompatible() {
+        val legacyBody = listOf("4", "Player", "gpsp", "gba", "Game", "9")
+            .joinToString("\u0000")
+            .toByteArray(Charsets.UTF_8)
+        val decoded = XoraNetplayProtocol.decodeHello(legacyBody)
+        assertEquals(emptyList<String>(), decoded.hostAddresses)
+        assertEquals(0, decoded.hostPort)
+    }
+
+    @Test
+    fun netpacketRoundTrip() {
+        val payload = byteArrayOf(9, 8, 7, 6)
+        val decoded = XoraNetplayProtocol.decodeNetpacket(
+            XoraNetplayProtocol.encodeNetpacket(
+                dest = XoraNetplayProtocol.NETPACKET_BROADCAST,
+                src = 1,
+                flags = 5,
+                payload = payload,
+            ),
+        )
+        assertEquals(XoraNetplayProtocol.NETPACKET_BROADCAST, decoded.dest)
+        assertEquals(1, decoded.src)
+        assertEquals(5, decoded.flags)
+        assertEquals(payload.toList(), decoded.payload.toList())
+    }
+
+    @Test
     fun helloWithoutTokenDecodesAsZero() {
         val legacyBody = listOf("2", "Player", "core", "nes", "Game")
             .joinToString("\u0000")
@@ -181,6 +223,8 @@ class XoraNetplayProtocolTest {
         assertEquals(9, XoraNetplayProtocol.TYPE_SEAT)
         assertEquals(10, XoraNetplayProtocol.TYPE_VIDEO)
         assertEquals(11, XoraNetplayProtocol.TYPE_SERIAL)
+        assertEquals(12, XoraNetplayProtocol.TYPE_NETPACKET)
+        assertEquals(0xFFFF, XoraNetplayProtocol.NETPACKET_BROADCAST)
         val generated = XoraNetplayProtocol.generateSessionCode()
         assertEquals(6, generated.length)
         assertTrue(generated.all { it in XoraNetplayProtocol.SESSION_CODE_ALPHABET })

@@ -10,6 +10,7 @@ class NsoBezelCatalogTest {
     fun gbaStem() {
         assertEquals("nso-gba", NsoBezelCatalog.overlayStem("gba"))
         assertEquals("nso-gba", NsoBezelCatalog.overlayStem("unknown", "mgba_libretro"))
+        assertEquals("nso-gba", NsoBezelCatalog.overlayStem("unknown", "gpsp"))
     }
 
     @Test

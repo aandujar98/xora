@@ -19,6 +19,7 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicIntegerArray
@@ -42,6 +43,9 @@ data class XoraNetplayUiState(
     val playerCount: Int = 0,
     /** XOrA Network usernames by slot (1 = host) for everyone in the session. */
     val playerNames: Map<Int, String> = emptyMap(),
+    /** Host LAN IPv4s advertised in HELLO so joiners can auto-fill the join-IP field. */
+    val advertisedHostAddresses: List<String> = emptyList(),
+    val advertisedHostPort: Int = 0,
 )
 
 /** On-game netplay strip. Status used to live only in the pause menu, so a failed join looked like nothing. */
@@ -52,8 +56,10 @@ fun netplayBannerText(
     hasController: Boolean = true,
     @Suppress("UNUSED_PARAMETER") lastKey: String = "",
     sharedConsole: Boolean = true,
-    gbaLockstep: Boolean = false,
-    gbaLockstepLive: Boolean = false,
+    gbaGpspLink: Boolean = false,
+    gbaGpspLinkLive: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") gbaLockstep: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") gbaLockstepLive: Boolean = false,
 ): String {
     ui.error?.takeIf { it.isNotBlank() }?.let { return it }
     if (ui.linked && ui.playerSlot >= 1) {
@@ -63,7 +69,7 @@ fun netplayBannerText(
                 lines += "One game on the host. Your pad is Player ${ui.playerSlot} on that session."
             }
             if (hasController) {
-                if (!sharedConsole && !gbaLockstep) {
+                if (!sharedConsole && !gbaGpspLink) {
                     lines += "This device is your Game Boy. The other player has theirs."
                 }
             } else {
@@ -74,12 +80,11 @@ fun netplayBannerText(
         }
         if (sharedConsole) {
             lines += twoPlayerModeHint(gameTitle)
-        } else if (gbaLockstep && gbaLockstepLive) {
-            lines += "This phone runs two GBAs with a real in-process cable."
-            lines += "After the reboot, both players open the same link menu from the title screen."
-            lines += "The other player's pad steers the second GBA here. The game waits until that GBA is on this screen too."
-        } else if (gbaLockstep) {
-            lines += "GBA cable is not running on this phone yet. Leave and rejoin, or reinstall 0.2.101 on both devices."
+        } else if (gbaGpspLink && gbaGpspLinkLive) {
+            lines += "gpSP's Game Link is on. This session is the cable — no extra IP connect."
+            lines += "Both players open the same 2-player / link menu from the title screen."
+        } else if (gbaGpspLink) {
+            lines += "Waiting for a second player so gpSP can plug the Game Link cable."
         } else {
             lines += "Stay on this waiting screen on both devices. XOrA is the Game Link cable."
         }
@@ -219,6 +224,8 @@ class XoraNetplaySession(
     private val lastSerial = Array(XoraNetplayProtocol.MAX_PLAYERS) { AtomicInteger(0xFFFF) }
     private val lastSerialSentMs = AtomicLong(0)
     private val lastSerialSentWord = AtomicInteger(-1)
+    private val listenPort = AtomicInteger(0)
+    private val pendingNetpackets = ConcurrentLinkedQueue<XoraNetplayProtocol.Netpacket>()
 
     val linkedNow: Boolean get() = linked.get()
     val hosting: Boolean get() = isHost.get() && running.get()
@@ -251,11 +258,15 @@ class XoraNetplaySession(
         stop()
         val gen = generation.get()
         beginHostState(maxPlayers = 2, hello = hello, captureState = captureState)
+        listenPort.set(port)
         val addresses = localIpv4Addresses()
+        lastSelfHello.set(helloWithLan(hello, addresses, port))
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Host,
             status = hostStatus(addresses, port),
             localAddresses = addresses,
+            advertisedHostAddresses = addresses,
+            advertisedHostPort = port,
             playerSlot = 1,
             playerCount = 1,
         )
@@ -301,11 +312,16 @@ class XoraNetplaySession(
             captureState = captureState,
         )
         linkRef.set(link)
+        val addresses = localIpv4Addresses()
+        lastSelfHello.set(helloWithLan(hello, addresses, listenPort.get()))
         _state.value = XoraNetplayUiState(
             role = XoraNetplayRole.Host,
             status = "Code $sessionCode — waiting for a player",
             sessionCode = sessionCode,
             online = true,
+            localAddresses = addresses,
+            advertisedHostAddresses = addresses,
+            advertisedHostPort = listenPort.get(),
             playerSlot = 1,
             playerCount = 1,
         )
@@ -509,12 +525,48 @@ class XoraNetplaySession(
         return multi
     }
 
+    /**
+     * Send a gpSP netpacket over the live session. [dest] is a netpacket client id
+     * (0 = host) or [XoraNetplayProtocol.NETPACKET_BROADCAST].
+     */
+    fun sendNetpacket(dest: Int, flags: Int, payload: ByteArray) {
+        if (!linked.get() || payload.isEmpty()) return
+        val link = linkRef.get() ?: return
+        val src = gbaNetplayClientId(mySlot.get())
+        runCatching {
+            link.send(
+                XoraNetplayProtocol.TYPE_NETPACKET,
+                XoraNetplayProtocol.encodeNetpacket(dest, src, flags, payload),
+            )
+        }
+    }
+
+    fun takeNetpackets(): List<XoraNetplayProtocol.Netpacket> {
+        if (pendingNetpackets.isEmpty()) return emptyList()
+        val local = gbaNetplayClientId(mySlot.get())
+        val out = ArrayList<XoraNetplayProtocol.Netpacket>()
+        while (true) {
+            val packet = pendingNetpackets.poll() ?: break
+            if (packet.src == local) continue
+            if (packet.dest != XoraNetplayProtocol.NETPACKET_BROADCAST && packet.dest != local) {
+                continue
+            }
+            out.add(packet)
+        }
+        return out
+    }
+
     private fun stashSerial(payload: ByteArray) {
         val packet = runCatching { XoraNetplayProtocol.decodeSerial(payload) }.getOrNull() ?: return
         if (packet.slot == mySlot.get()) return
         if (packet.slot in 1..XoraNetplayProtocol.MAX_PLAYERS) {
             lastSerial[packet.slot - 1].set(packet.send and 0xFFFF)
         }
+    }
+
+    private fun stashNetpacket(payload: ByteArray) {
+        val packet = runCatching { XoraNetplayProtocol.decodeNetpacket(payload) }.getOrNull() ?: return
+        pendingNetpackets.add(packet)
     }
 
     private fun stashVideo(payload: ByteArray) {
@@ -593,6 +645,8 @@ class XoraNetplaySession(
         lastSerial.forEach { it.set(0xFFFF) }
         lastSerialSentMs.set(0)
         lastSerialSentWord.set(-1)
+        listenPort.set(0)
+        pendingNetpackets.clear()
         _state.value = XoraNetplayUiState(
             status = "Off",
             localAddresses = localIpv4Addresses(),
@@ -610,7 +664,8 @@ class XoraNetplaySession(
         sessionMode.set(netplaySessionMode(hello.platformId))
         maxPlayersNow.set(maxPlayers.coerceIn(2, XoraNetplayProtocol.MAX_PLAYERS))
         captureStateRef.set(captureState)
-        lastSelfHello.set(hello)
+        if (hello.hostPort > 0) listenPort.set(hello.hostPort)
+        lastSelfHello.set(helloWithLan(hello, localIpv4Addresses(), listenPort.get()))
     }
 
     private fun beginJoinState(hello: XoraNetplayProtocol.Hello, applyState: suspend (ByteArray) -> Boolean) {
@@ -837,6 +892,7 @@ class XoraNetplaySession(
                         return
                     }
                     progress.onHostHello(decoded)
+                    applyAdvertisedHost(decoded)
                 }
                 XoraNetplayProtocol.TYPE_ASSIGN -> {
                     val assign = XoraNetplayProtocol.decodeAssign(payload)
@@ -935,6 +991,7 @@ class XoraNetplaySession(
                 XoraNetplayProtocol.TYPE_INPUT -> stashRemoteInput(payload)
                 XoraNetplayProtocol.TYPE_VIDEO -> stashVideo(payload)
                 XoraNetplayProtocol.TYPE_SERIAL -> stashSerial(payload)
+                XoraNetplayProtocol.TYPE_NETPACKET -> stashNetpacket(payload)
                 XoraNetplayProtocol.TYPE_HELLO -> {
                     if (isHost.get()) {
                         val peer = XoraNetplayProtocol.decodeHello(payload)
@@ -1285,6 +1342,30 @@ class XoraNetplaySession(
         stashSerial(XoraNetplayProtocol.encodeSerial(slot, send, siocnt))
     }
 
+    internal fun ingestNetpacketForTest(packet: XoraNetplayProtocol.Netpacket) {
+        stashNetpacket(XoraNetplayProtocol.encodeNetpacket(packet.dest, packet.src, packet.flags, packet.payload))
+    }
+
+    private fun applyAdvertisedHost(hello: XoraNetplayProtocol.Hello) {
+        if (hello.hostAddresses.isEmpty() && hello.hostPort <= 0) return
+        _state.value = _state.value.copy(
+            advertisedHostAddresses = hello.hostAddresses.ifEmpty {
+                _state.value.advertisedHostAddresses
+            },
+            advertisedHostPort = hello.hostPort.takeIf { it > 0 }
+                ?: _state.value.advertisedHostPort,
+        )
+    }
+
+    private fun helloWithLan(
+        hello: XoraNetplayProtocol.Hello,
+        addresses: List<String>,
+        port: Int,
+    ): XoraNetplayProtocol.Hello = hello.copy(
+        hostAddresses = addresses.ifEmpty { hello.hostAddresses },
+        hostPort = if (port > 0) port else hello.hostPort,
+    )
+
     /**
      * Handshake receive that parks INPUT packets instead of treating them as control messages.
      * Nakama can deliver pad frames while a savestate is still applying.
@@ -1311,6 +1392,10 @@ class XoraNetplaySession(
             }
             if (type == XoraNetplayProtocol.TYPE_SERIAL) {
                 stashSerial(payload)
+                continue
+            }
+            if (type == XoraNetplayProtocol.TYPE_NETPACKET) {
+                stashNetpacket(payload)
                 continue
             }
             return type to payload

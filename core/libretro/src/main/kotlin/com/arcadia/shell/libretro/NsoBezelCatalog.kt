@@ -80,7 +80,7 @@ object NsoBezelCatalog {
     private fun fromCoreName(core: String): String? {
         if (core.isBlank()) return null
         return when {
-            core.contains("mgba") || core.contains("vba") -> "gba"
+            core.contains("gpsp") || core.contains("mgba") || core.contains("vba") -> "gba"
             core.contains("gambatte") || core.contains("sameboy") ||
                 core.contains("tgbdual") -> "gbc"
             core.contains("mupen") || core.contains("parallel_n64") -> "n64"

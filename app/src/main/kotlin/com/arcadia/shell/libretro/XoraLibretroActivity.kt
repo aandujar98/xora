@@ -84,15 +84,18 @@ import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
+import com.arcadia.shell.libretro.netplay.GBA_NETPLAY_CORE
 import com.arcadia.shell.libretro.netplay.NetplaySessionMode
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
 import com.arcadia.shell.libretro.netplay.XoraNetplayVideo
+import com.arcadia.shell.libretro.netplay.gbaNetplayClientId
 import com.arcadia.shell.libretro.netplay.netplayBannerText
-import com.arcadia.shell.libretro.netplay.shouldStartGbaLockstep
-import com.arcadia.shell.libretro.netplay.usesGbaLockstep
+import com.arcadia.shell.libretro.netplay.netplayCoreName
+import com.arcadia.shell.libretro.netplay.shouldStartGbaNetpacket
+import com.arcadia.shell.libretro.netplay.usesGbaGpspLink
 import com.arcadia.shell.libretro.netplay.formatJoinHostPort
 import com.arcadia.shell.libretro.netplay.parseJoinHostPort
 import com.arcadia.shell.retroachievements.RaAchievement
@@ -123,6 +126,7 @@ import okhttp3.OkHttpClient
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -189,8 +193,10 @@ class XoraLibretroActivity : ComponentActivity() {
     @Volatile private var netplayPadLive = false
     @Volatile private var lastPadKeyLabel = ""
     private val netplayTouchButtons = AtomicInteger(0)
-    /** GBA lockstep is started once per handshake. A failed start must not retry every frame. */
-    private val gbaLockstepAttempted = AtomicBoolean(false)
+    /** gpSP netpacket starts once a second player links. */
+    private val gbaNetpacketStarted = AtomicBoolean(false)
+    private val gbaNetpacketPeers = ConcurrentHashMap.newKeySet<Int>()
+    private var filledAdvertisedHost = false
     private var profileName by mutableStateOf("Player")
     /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
     private var menuMessage by mutableStateOf<String?>(null)
@@ -412,12 +418,25 @@ class XoraLibretroActivity : ComponentActivity() {
                     netplayPadLive = false
                     lastPadKeyLabel = ""
                     if (wasLinked) {
-                        gbaLockstepAttempted.set(false)
+                        gbaNetpacketStarted.set(false)
+                        gbaNetpacketPeers.clear()
                         lifecycleScope.launch(emuDispatcher) {
+                            LibretroNative.nativeNetpacketStop()
                             LibretroNative.nativeGbaLinkStop()
                         }
                     }
                 }
+                if (ui.role == XoraNetplayRole.Client &&
+                    !filledAdvertisedHost &&
+                    ui.advertisedHostAddresses.isNotEmpty()
+                ) {
+                    filledAdvertisedHost = true
+                    applyJoinTarget(
+                        ui.advertisedHostAddresses.first(),
+                        ui.advertisedHostPort.takeIf { it > 0 } ?: DEFAULT_NETPLAY_PORT,
+                    )
+                }
+                if (ui.role == XoraNetplayRole.Idle) filledAdvertisedHost = false
                 refreshNetplayBanner()
                 syncTouchPad()
                 ui.error?.let { showMenuMessage(it) }
@@ -1464,6 +1483,7 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun beginHostNetplay() {
         lifecycleScope.launch {
+            if (!ensureGbaNetplayCore()) return@launch
             disableHardcoreForNetplay()
             preferences.setXoraNetplayEnabled(true)
             withContext(Dispatchers.Main.immediate) {
@@ -1512,6 +1532,7 @@ class XoraLibretroActivity : ComponentActivity() {
         joinAddress = address
         joinPort = parsed.port
         lifecycleScope.launch {
+            if (!ensureGbaNetplayCore()) return@launch
             disableHardcoreForNetplay()
             preferences.setXoraNetplayEnabled(true)
             preferences.setXoraNetplayHostAddress(formatJoinHostPort(address, parsed.port))
@@ -1545,6 +1566,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 netplayUi.role == XoraNetplayRole.Host
         }
         if (existing != null) return existing
+        if (!ensureGbaNetplayCore()) return null
         disableHardcoreForNetplay()
         preferences.setXoraNetplayEnabled(true)
         preferences.setXoraNetplayUseRelay(true)
@@ -1581,6 +1603,7 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         joinCode = code
         lifecycleScope.launch {
+            if (!ensureGbaNetplayCore()) return@launch
             disableHardcoreForNetplay()
             preferences.setXoraNetplayEnabled(true)
             preferences.setXoraNetplayUseRelay(true)
@@ -1756,10 +1779,63 @@ class XoraLibretroActivity : ComponentActivity() {
         // the local netplay nickname is only a fallback for signed-out LAN play.
         nickname = xoraNetworkUi.account?.username?.takeIf { it.isNotBlank() }
             ?: xoraSettings.netplayNickname,
-        coreName = coreName,
+        coreName = netplayCoreName(platformId, coreName),
         platformId = platformId,
         romName = gameTitle,
+        hostPort = xoraSettings.netplayPort,
         )
+    }
+
+    /**
+     * GBA netplay uses gpSP's built-in link cable (libretro netpacket). Reload that core
+     * before the handshake so both devices advertise the same core name.
+     */
+    private suspend fun ensureGbaNetplayCore(): Boolean {
+        if (!usesGbaGpspLink(platformId)) return true
+        val rom = romFilePath
+        if (rom.isNullOrBlank()) {
+            showMenuMessage("Missing ROM for gpSP")
+            return false
+        }
+        showMenuMessage("Loading gpSP for GBA Game Link…")
+        val path = withContext(Dispatchers.IO) { coreDownloader.ensureCore(GBA_NETPLAY_CORE) }
+        if (path == null) {
+            showMenuMessage("Could not download gpSP. Check network / Settings → XOrA Emulator.")
+            return false
+        }
+        val alreadyGpsp = coreName.equals(GBA_NETPLAY_CORE, ignoreCase = true)
+        val available = withContext(emuDispatcher) { LibretroNative.nativeNetpacketAvailable() }
+        if (alreadyGpsp && available) {
+            withContext(emuDispatcher) { applyCoreControllerOptions() }
+            return true
+        }
+        val ok = withContext(emuDispatcher) {
+            coreName = GBA_NETPLAY_CORE
+            LibretroNative.nativeClearCoreVariables()
+            LibretroNative.nativeSetNetplayUsername(xoraSettings.netplayNickname)
+            XoraCoreOptions.variablesFor(
+                platformId = platformId,
+                coreName = coreName,
+                settings = xoraSettings,
+                expandActive = expandActive,
+            ).forEach { (key, value) ->
+                LibretroNative.nativeSetCoreVariable(key, value)
+            }
+            LibretroNative.nativeLoadCore(
+                path,
+                coreStore.systemDir.absolutePath,
+                coreStore.saveDirFor(platformId).absolutePath,
+            ) && LibretroNative.nativeLoadGame(rom)
+        }
+        if (!ok) {
+            val err = withContext(emuDispatcher) { LibretroNative.nativeLastError() }
+            showMenuMessage(err ?: "Could not load gpSP")
+            return false
+        }
+        withContext(emuDispatcher) { applyCoreControllerOptions() }
+        refreshOverlayFile()
+        showMenuMessage("gpSP ready — GBA link cable will turn on when a player joins")
+        return true
     }
 
     private fun refreshSaveSlots() {
@@ -2123,9 +2199,8 @@ class XoraLibretroActivity : ComponentActivity() {
                 hasController,
                 lastPadKeyLabel,
                 sharedConsole = netplaySession?.sessionModeNow == NetplaySessionMode.SharedConsole,
-                gbaLockstep = usesGbaLockstep(platformId),
-                gbaLockstepLive = usesGbaLockstep(platformId) &&
-                    LibretroNative.nativeGbaLinkActive(),
+                gbaGpspLink = usesGbaGpspLink(platformId),
+                gbaGpspLinkLive = usesGbaGpspLink(platformId) && gbaNetpacketStarted.get(),
             ),
         )
     }
@@ -2269,6 +2344,64 @@ class XoraLibretroActivity : ComponentActivity() {
         LibretroNative.nativeSetPadStatePort(port, pad.buttons, pad.lx, pad.ly, pad.rx, pad.ry)
     }
 
+    private fun pumpGbaNetpacket(session: XoraNetplaySession) {
+        session.takeNetpackets().forEach { packet ->
+            LibretroNative.nativeNetpacketIncoming(packet.src, packet.payload)
+        }
+        val handheld = session.sessionModeNow == NetplaySessionMode.HandheldLink
+        val start = shouldStartGbaNetpacket(
+            platformId = platformId,
+            handheldLink = handheld,
+            localSlot = session.playerSlotNow,
+            playerCount = session.playerCountNow,
+            alreadyStarted = gbaNetpacketStarted.get(),
+        )
+        if (start && gbaNetpacketStarted.compareAndSet(false, true)) {
+            val ok = LibretroNative.nativeNetpacketStart(gbaNetplayClientId(session.playerSlotNow))
+            if (!ok) {
+                gbaNetpacketStarted.set(false)
+                return
+            }
+            LibretroNative.nativeGbaSioSetEnabled(false)
+            refreshNetplayBanner()
+        }
+        if (gbaNetpacketStarted.get()) syncGbaNetpacketPeers(session)
+    }
+
+    private fun syncGbaNetpacketPeers(session: XoraNetplaySession) {
+        if (!session.hosting) return
+        val roster = session.state.value.playerNames.keys.ifEmpty {
+            (1..session.playerCountNow).toSet()
+        }
+        val live = roster
+            .filter { it != session.playerSlotNow }
+            .map { gbaNetplayClientId(it) }
+            .toSet()
+        for (peer in live) {
+            if (gbaNetpacketPeers.add(peer)) {
+                if (!LibretroNative.nativeNetpacketPeerConnected(peer)) {
+                    gbaNetpacketPeers.remove(peer)
+                }
+            }
+        }
+        val gone = gbaNetpacketPeers.filter { it !in live }
+        for (peer in gone) {
+            LibretroNative.nativeNetpacketPeerDisconnected(peer)
+            gbaNetpacketPeers.remove(peer)
+        }
+    }
+
+    private fun drainGbaNetpacket(session: XoraNetplaySession) {
+        val packets = LibretroNative.nativeNetpacketDrainOutgoing() ?: return
+        for (packed in packets) {
+            if (packed.size < 4) continue
+            val dest = ((packed[0].toInt() and 0xFF) shl 8) or (packed[1].toInt() and 0xFF)
+            val flags = ((packed[2].toInt() and 0xFF) shl 8) or (packed[3].toInt() and 0xFF)
+            val body = packed.copyOfRange(4, packed.size)
+            session.sendNetpacket(dest, flags, body)
+        }
+    }
+
     private fun startLoop() {
         runJob?.cancel()
         // Same OS thread as nativeLoadCore — required for Mupen/libco and GLES context affinity.
@@ -2310,10 +2443,7 @@ class XoraLibretroActivity : ComponentActivity() {
                             rx = if (mute) 0 else local.rx,
                             ry = if (mute) 0 else local.ry,
                         )
-                        val pads = session.exchange(
-                            sent,
-                            replayRemoteInOrder = usesGbaLockstep(platformId),
-                        )
+                        val pads = session.exchange(sent, replayRemoteInOrder = false)
                         val live = sent.buttons != 0 ||
                             sent.lx.toInt() != 0 ||
                             sent.ly.toInt() != 0
@@ -2322,51 +2452,8 @@ class XoraLibretroActivity : ComponentActivity() {
                             refreshNetplayBanner()
                         }
                         val handheld = session.sessionModeNow == NetplaySessionMode.HandheldLink
-                        val gbaLockstep = shouldStartGbaLockstep(
-                            platformId,
-                            handheldLink = handheld,
-                            localSlot = session.playerSlotNow,
-                            alreadyActive = LibretroNative.nativeGbaLinkActive(),
-                            alreadyAttempted = gbaLockstepAttempted.get(),
-                        )
-                        if (gbaLockstep && gbaLockstepAttempted.compareAndSet(false, true)) {
-                            val rom = romFilePath.orEmpty()
-                            val players = session.playerCountNow.coerceIn(2, 4)
-                            val ok = LibretroNative.nativeGbaLinkStart(
-                                rom,
-                                players,
-                                session.playerSlotNow,
-                            )
-                            if (ok) {
-                                LibretroNative.nativeGbaSioSetEnabled(false)
-                                withContext(Dispatchers.Main.immediate) {
-                                    Toast.makeText(
-                                        this@XoraLibretroActivity,
-                                        "Game Link: both GBAs rebooted with a real cable. Open the 2-player / link menu.",
-                                        Toast.LENGTH_LONG,
-                                    ).show()
-                                }
-                                refreshNetplayBanner()
-                            } else {
-                                val err = LibretroNative.nativeLastError()
-                                    ?: "Could not start GBA lockstep"
-                                withContext(Dispatchers.Main.immediate) {
-                                    Toast.makeText(
-                                        this@XoraLibretroActivity,
-                                        err,
-                                        Toast.LENGTH_LONG,
-                                    ).show()
-                                }
-                            }
-                        }
-                        if (handheld && LibretroNative.nativeGbaLinkActive()) {
-                            // Both GBAs live on this device. Apply every seat's pad.
-                            pads.pads.forEachIndexed { port, pad ->
-                                applyNativePad(port, pad)
-                            }
-                            val selfPort = session.playerSlotNow - 1
-                            if (selfPort in 0..3) applyNativePad(selfPort, sent)
-                        } else if (handheld) {
+                        pumpGbaNetpacket(session)
+                        if (handheld) {
                             // Each handheld is its own game (link-cable style). Local pad is P1.
                             applyNativePad(0, sent)
                             applyNativePad(1, LibretroPadMixer.Snapshot())
@@ -2380,10 +2467,8 @@ class XoraLibretroActivity : ComponentActivity() {
                             if (selfPort in 0..3) applyNativePad(selfPort, sent)
                         }
                         if (session.runsLocalCore) {
-                            val lockstep = LibretroNative.nativeGbaLinkActive()
-                            if (handheld && !lockstep) {
-                                // Poke mapped GBA I/O (SIOMULTI / SIOCNT / RCNT) only.
-                                // Call even before the peer is linked so the game sees a cable.
+                            val gpspLink = usesGbaGpspLink(platformId)
+                            if (handheld && !gpspLink) {
                                 LibretroNative.nativeGbaSioSetEnabled(true)
                                 val snap = LibretroNative.nativeGbaSioRead()
                                 val multi = session.exchangeSerial(
@@ -2397,12 +2482,13 @@ class XoraLibretroActivity : ComponentActivity() {
                             }
                             emuFrameIndex++
                             LibretroNative.nativeRunFrame()
-                            if (!lockstep) raSession?.doFrame()
+                            drainGbaNetpacket(session)
+                            raSession?.doFrame()
                             val packed = LibretroNative.nativeCopyFrameRgba()
                             val pcm = LibretroNative.nativeDrainAudio()
                             packed?.let { presentFrame(it) }
                             pcm?.let { audioTrack?.write(it, 0, it.size) }
-                            if (handheld && !lockstep) {
+                            if (handheld && !gpspLink) {
                                 val snap = LibretroNative.nativeGbaSioRead()
                                 val multi = session.exchangeSerial(
                                     snap?.getOrNull(0) ?: 0,

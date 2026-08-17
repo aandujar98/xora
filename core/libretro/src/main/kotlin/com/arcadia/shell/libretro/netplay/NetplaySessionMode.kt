@@ -39,26 +39,49 @@ fun netplaySessionMode(platformId: String): NetplaySessionMode {
     }
 }
 
-/** GBA Game Link uses embedded libmgba lockstep, not the downloaded libretro core. */
-fun usesGbaLockstep(platformId: String): Boolean =
+/** GBA Game Link now uses the gpSP libretro core's built-in netpacket cable. */
+@Suppress("UNUSED_PARAMETER")
+fun usesGbaLockstep(platformId: String): Boolean = false
+
+/** GBA netplay runs gpSP so each device can talk over the core's link-cable / RFU. */
+fun usesGbaGpspLink(platformId: String): Boolean =
     platformId.trim().equals("gba", ignoreCase = true)
 
+const val GBA_NETPLAY_CORE: String = "gpsp"
+
+fun netplayCoreName(platformId: String, currentCore: String): String =
+    if (usesGbaGpspLink(platformId)) GBA_NETPLAY_CORE else currentCore
+
+fun gbaNetplayClientId(playerSlot: Int): Int = (playerSlot - 1).coerceAtLeast(0)
+
 /**
- * Start in-process lockstep once per handshake. Retrying every frame after a
- * failed start toasted (or crashed) the lobby on join.
+ * Start gpSP netpacket once a second player is linked. Retrying every frame after a
+ * failed start would toast the lobby.
  */
+fun shouldStartGbaNetpacket(
+    platformId: String,
+    handheldLink: Boolean,
+    localSlot: Int,
+    playerCount: Int,
+    alreadyStarted: Boolean,
+): Boolean =
+    usesGbaGpspLink(platformId) &&
+        handheldLink &&
+        localSlot >= 1 &&
+        playerCount >= 2 &&
+        !alreadyStarted
+
+/**
+ * Start in-process lockstep once per handshake. Unused: GBA netplay now uses gpSP netpacket.
+ */
+@Suppress("UNUSED_PARAMETER")
 fun shouldStartGbaLockstep(
     platformId: String,
     handheldLink: Boolean,
     localSlot: Int,
     alreadyActive: Boolean,
     alreadyAttempted: Boolean,
-): Boolean =
-    usesGbaLockstep(platformId) &&
-        handheldLink &&
-        localSlot >= 1 &&
-        !alreadyActive &&
-        !alreadyAttempted
+): Boolean = false
 
 fun NetplaySessionMode.isSharedConsole(): Boolean = this == NetplaySessionMode.SharedConsole
 

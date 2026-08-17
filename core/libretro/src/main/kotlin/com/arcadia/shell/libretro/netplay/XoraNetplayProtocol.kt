@@ -45,7 +45,13 @@ object XoraNetplayProtocol {
      * see a connected Game Link cable.
      */
     const val TYPE_SERIAL: Int = 11
+    /**
+     * gpSP (and other netpacket cores): dest/src client ids plus the core's serial payload.
+     * Bridged over the existing LAN/Nakama session so joiners do not open a second socket.
+     */
+    const val TYPE_NETPACKET: Int = 12
     const val TYPE_CHUNK: Int = 100
+    const val NETPACKET_BROADCAST: Int = 0xFFFF
 
     const val SESSION_CODE_ALPHABET: String = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     const val SESSION_CODE_LENGTH: Int = 6
@@ -59,6 +65,9 @@ object XoraNetplayProtocol {
         val version: Int = VERSION,
         /** Random per-join token echoed back in ASSIGN so a joiner knows which slot is theirs. */
         val token: Int = 0,
+        /** Host LAN IPv4s so a joiner can auto-fill the join-IP field. Empty on joiners. */
+        val hostAddresses: List<String> = emptyList(),
+        val hostPort: Int = 0,
     )
 
     data class PadFrame(
@@ -87,6 +96,8 @@ object XoraNetplayProtocol {
             hello.platformId,
             hello.romName,
             hello.token.toString(),
+            hello.hostAddresses.joinToString(","),
+            hello.hostPort.takeIf { it > 0 }?.toString().orEmpty(),
         ).joinToString("\u0000")
         return body.toByteArray(StandardCharsets.UTF_8)
     }
@@ -100,6 +111,12 @@ object XoraNetplayProtocol {
             platformId = parts.getOrNull(3).orEmpty(),
             romName = parts.getOrNull(4).orEmpty(),
             token = parts.getOrNull(5)?.toIntOrNull() ?: 0,
+            hostAddresses = parts.getOrNull(6)
+                ?.split(',')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                .orEmpty(),
+            hostPort = parts.getOrNull(7)?.toIntOrNull() ?: 0,
         )
     }
 
@@ -295,6 +312,32 @@ object XoraNetplayProtocol {
             slot = payload[0].toInt() and 0xFF,
             send = readShort(payload, 1),
             siocnt = if (payload.size >= 5) readShort(payload, 3) else 0,
+        )
+    }
+
+    data class Netpacket(
+        val dest: Int,
+        val src: Int,
+        val flags: Int,
+        val payload: ByteArray,
+    )
+
+    fun encodeNetpacket(dest: Int, src: Int, flags: Int, payload: ByteArray): ByteArray {
+        val out = ByteArray(6 + payload.size)
+        writeShort(out, 0, dest and 0xFFFF)
+        writeShort(out, 2, src and 0xFFFF)
+        writeShort(out, 4, flags and 0xFFFF)
+        if (payload.isNotEmpty()) System.arraycopy(payload, 0, out, 6, payload.size)
+        return out
+    }
+
+    fun decodeNetpacket(payload: ByteArray): Netpacket {
+        require(payload.size >= 6) { "netpacket payload too short" }
+        return Netpacket(
+            dest = readShort(payload, 0),
+            src = readShort(payload, 2),
+            flags = readShort(payload, 4),
+            payload = if (payload.size == 6) ByteArray(0) else payload.copyOfRange(6, payload.size),
         )
     }
 

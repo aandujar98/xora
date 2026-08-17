@@ -116,6 +116,10 @@ class CoreDownloader @Inject constructor(
                 downloadCore(entry.core)
             }
         }
+        // GBA netplay uses gpSP's built-in Game Link, not the mGBA primary.
+        if (!store.isInstalled("gpsp")) {
+            downloadCore("gpsp")
+        }
         progress.value = CoreDownloadProgress(
             running = false,
             message = "Core download finished",
