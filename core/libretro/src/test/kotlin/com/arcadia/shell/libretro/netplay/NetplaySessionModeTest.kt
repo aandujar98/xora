@@ -86,6 +86,20 @@ class NetplaySessionModeTest {
     }
 
     @Test
+    fun gbaLockstepRomPathPicksACartInsideAFolder() {
+        val dir = java.io.File.createTempFile("rom-directory", "").apply {
+            delete()
+            mkdir()
+            deleteOnExit()
+        }
+        java.io.File(dir, "readme.txt").writeText("no")
+        val cart = java.io.File(dir, "Kirby.gba").apply { writeBytes(ByteArray(0x200) { 0 }) }
+        assertEquals(cart.absolutePath, resolveGbaLockstepRomPath(dir.absolutePath))
+        assertEquals(cart.absolutePath, resolveGbaLockstepRomPath(cart.absolutePath))
+        dir.deleteRecursively()
+    }
+
+    @Test
     fun sharedConsoleJoinersDoNotLoadHostSavestate() {
         assertEquals(false, NetplaySessionMode.SharedConsole.joinerAppliesHostState())
         assertEquals(false, NetplaySessionMode.HandheldLink.joinerAppliesHostState())

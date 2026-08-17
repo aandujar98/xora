@@ -27,7 +27,7 @@
 #include <mgba/gba/interface.h>
 #include <mgba/internal/gba/input.h>
 #include <mgba/internal/gba/sio/lockstep.h>
-#include <mgba-util/image.h>
+#include <mgba-util/vfs.h>
 
 #include <android/log.h>
 
@@ -188,8 +188,9 @@ void stop_unlocked() {
 
 bool start_unlocked(const char* rom_path, int players, int local_slot, std::string& error) {
     stop_unlocked();
-    if (!rom_path || !rom_path[0]) {
-        error = "GBA Game Link needs a ROM path";
+    std::vector<uint8_t> rom;
+    if (!xora_host_load_gba_rom(rom_path, rom, error)) {
+        if (error.empty()) error = "GBA Game Link needs a .gba or .zip cart";
         return false;
     }
     const int n = std::clamp(players, 2, kMaxPlayers);
@@ -231,8 +232,9 @@ bool start_unlocked(const char* rom_path, int players, int local_slot, std::stri
         player.core->opts.videoSync = false;
         player.core->opts.volume = 0x100;
         player.core->opts.rewindEnable = false;
-        if (!mCoreLoadFile(player.core, rom_path)) {
-            error = std::string("mGBA could not load ROM: ") + rom_path;
+        struct VFile* vf = VFileMemChunk(rom.data(), rom.size());
+        if (!vf || !player.core->loadROM(player.core, vf)) {
+            error = "mGBA could not map the Game Link cart into a second GBA";
             stop_unlocked();
             return false;
         }

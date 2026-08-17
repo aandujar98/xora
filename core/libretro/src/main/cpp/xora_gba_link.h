@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 /**
  * In-process mGBA Game Link: two (or more) libmgba cores on one lockstep
@@ -16,6 +17,12 @@ void xora_gba_link_run_frame();
 void xora_gba_link_reset();
 double xora_gba_link_fps();
 double xora_gba_link_sample_rate();
+
+/**
+ * Cart bytes for lockstep: the unzipped ROM libretro already loaded, or a
+ * .gba/.zip read from [path]. Never pass a folder into mCoreLoadFile.
+ */
+bool xora_host_load_gba_rom(const char* path, std::vector<uint8_t>& out, std::string& error);
 
 /** Libretro joypad bits from the host, port 0 = Player 1. */
 uint16_t xora_host_pad_buttons(int port);

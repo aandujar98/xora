@@ -96,6 +96,7 @@ import com.arcadia.shell.libretro.netplay.gbaLockstepPlayerCount
 import com.arcadia.shell.libretro.netplay.gbaNetplayClientId
 import com.arcadia.shell.libretro.netplay.netplayBannerText
 import com.arcadia.shell.libretro.netplay.netplayCoreName
+import com.arcadia.shell.libretro.netplay.resolveGbaLockstepRomPath
 import com.arcadia.shell.libretro.netplay.shouldArmGbaLinkCable
 import com.arcadia.shell.libretro.netplay.shouldMirrorGbaLockstepPartnerPad
 import com.arcadia.shell.libretro.netplay.shouldStartGbaLockstep
@@ -2387,7 +2388,7 @@ class XoraLibretroActivity : ComponentActivity() {
             alreadyAttempted = gbaLockstepAttempted.get(),
         )
         if (!start || !gbaLockstepAttempted.compareAndSet(false, true)) return false
-        val rom = romFilePath.orEmpty()
+        val rom = resolveGbaLockstepRomPath(romFilePath.orEmpty())
         val ok = LibretroNative.nativeGbaLinkStart(
             rom,
             gbaLockstepPlayerCount(session.playerCountNow),

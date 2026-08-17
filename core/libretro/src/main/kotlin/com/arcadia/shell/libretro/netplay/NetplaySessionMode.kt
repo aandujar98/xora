@@ -107,6 +107,24 @@ fun shouldMirrorGbaLockstepPartnerPad(linked: Boolean, playerCount: Int): Boolea
 /** Game Link is always two GBAs on this phone; 3–4 player MULTI can come later. */
 fun gbaLockstepPlayerCount(playerCount: Int): Int = playerCount.coerceIn(2, 4)
 
+private val GBA_CART_EXTENSIONS = setOf("gba", "agb", "mb", "bin", "elf")
+
+/**
+ * mGBA lockstep cannot fopen a folder (RetroArch's "ROM Directory") or a zip
+ * without libzip. Prefer a real cart file next to / inside that path.
+ */
+fun resolveGbaLockstepRomPath(romPath: String): String {
+    val file = java.io.File(romPath)
+    if (file.isFile) return file.absolutePath
+    if (!file.isDirectory) return romPath
+    val children = file.listFiles()?.filter { it.isFile }?.sortedBy { it.name.lowercase() }.orEmpty()
+    children.firstOrNull { it.extension.lowercase() in GBA_CART_EXTENSIONS }
+        ?.let { return it.absolutePath }
+    children.firstOrNull { it.extension.equals("zip", ignoreCase = true) }
+        ?.let { return it.absolutePath }
+    return romPath
+}
+
 fun NetplaySessionMode.isSharedConsole(): Boolean = this == NetplaySessionMode.SharedConsole
 
 /**

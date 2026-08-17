@@ -23,9 +23,11 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <dirent.h>
 #include <map>
 #include <mutex>
 #include <string>
+#include <sys/stat.h>
 #include <vector>
 
 #define LOG_TAG "XoraLibretro"
@@ -270,6 +272,49 @@ bool read_rom_file(const char* path, std::vector<uint8_t>& out, std::string& err
         std::fclose(file);
     }
     return true;
+}
+
+bool path_is_directory(const char* path) {
+    if (!path || !path[0]) return false;
+    struct stat st {};
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+bool gba_cart_extension(const std::string& ext) {
+    return ext == "gba" || ext == "agb" || ext == "mb" || ext == "bin" || ext == "elf";
+}
+
+std::string path_extension(const std::string& path);
+
+bool first_gba_cart_in_directory(const char* dir, std::string& found) {
+    if (!dir || !dir[0]) return false;
+    DIR* handle = opendir(dir);
+    if (!handle) return false;
+    std::string zip_fallback;
+    while (dirent* entry = readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+        const std::string ext = path_extension(name);
+        const std::string full = std::string(dir) + "/" + name;
+        if (gba_cart_extension(ext)) {
+            found = full;
+            closedir(handle);
+            return true;
+        }
+        if (zip_fallback.empty() && ext == "zip") zip_fallback = full;
+    }
+    closedir(handle);
+    if (!zip_fallback.empty()) {
+        found = zip_fallback;
+        return true;
+    }
+    return false;
+}
+
+bool bytes_look_like_zip(const std::vector<uint8_t>& bytes) {
+    return bytes.size() >= 4 &&
+        bytes[0] == 'P' && bytes[1] == 'K' &&
+        bytes[2] == 0x03 && bytes[3] == 0x04;
 }
 
 bool rom_file_exists(const char* path) {
@@ -1061,6 +1106,77 @@ void xora_host_push_stereo_s16(const int16_t* samples, size_t count) {
 void xora_host_set_timing(double fps, double sample_rate) {
     if (fps > 1.0) g_fps = fps;
     if (sample_rate > 1.0) g_sample_rate = sample_rate;
+}
+
+bool xora_host_load_gba_rom(const char* path, std::vector<uint8_t>& out, std::string& error) {
+    out.clear();
+    constexpr const char* kGbaZipExts = "gba|agb|bin|mb|elf";
+
+    auto unzip_if_needed = [&](const std::vector<uint8_t>& bytes, const std::string& src) -> bool {
+        const bool zip = bytes_look_like_zip(bytes) || path_extension(src) == "zip";
+        if (!zip) {
+            if (bytes.size() < 0xC0) {
+                error = "GBA cart is too small: " + src;
+                return false;
+            }
+            out = bytes;
+            return true;
+        }
+        std::vector<uint8_t> inner;
+        std::string inner_name;
+        std::string zip_error;
+        if (!extract_zip_entry(bytes, kGbaZipExts, inner, inner_name, zip_error)) {
+            error = zip_error.empty() ? ("Could not unzip GBA cart: " + src) : zip_error;
+            return false;
+        }
+        if (inner.size() < 0xC0) {
+            error = "Unzipped GBA cart is too small: " + inner_name;
+            return false;
+        }
+        ALOGI("GBA lockstep cart from zip '%s' (%zu bytes)", inner_name.c_str(), inner.size());
+        out = std::move(inner);
+        return true;
+    };
+
+    auto load_file = [&](const char* file_path) -> bool {
+        if (!file_path || !file_path[0]) return false;
+        std::string read_error;
+        std::vector<uint8_t> bytes;
+        if (!read_rom_file(file_path, bytes, read_error)) {
+            error = read_error;
+            return false;
+        }
+        return unzip_if_needed(std::move(bytes), file_path);
+    };
+
+    // Libretro already extracted the cart (zip → .gba). Reuse those bytes so
+    // lockstep never fopen()s a folder like "ROM Directory" or a zip mGBA
+    // cannot open (this build has no libzip).
+    if (!g_rom_buffer.empty()) {
+        const std::string src = !g_rom_path.empty() ? g_rom_path : (path ? path : "loaded ROM");
+        return unzip_if_needed(g_rom_buffer, src);
+    }
+
+    if (path && path[0] && path_is_directory(path)) {
+        std::string cart;
+        if (first_gba_cart_in_directory(path, cart)) {
+            ALOGW("GBA lockstep path was a folder; using %s", cart.c_str());
+            if (load_file(cart.c_str())) return true;
+        } else {
+            error = std::string("GBA Game Link needs a .gba/.zip file, not the folder ") + path;
+            return false;
+        }
+    } else if (load_file(path)) {
+        return true;
+    }
+
+    if (!g_rom_path.empty() && (!path || g_rom_path != path) && load_file(g_rom_path.c_str())) {
+        return true;
+    }
+    if (error.empty()) {
+        error = "No GBA cart bytes for Game Link";
+    }
+    return false;
 }
 
 extern "C" void get_core_memory_info(uint32_t id, rc_libretro_core_memory_info_t* info) {
