@@ -2574,6 +2574,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         delay(8)
                     }
                     session?.linkedNow == true ||
+                        LibretroNative.nativeGbaLinkActive() ||
                         (!paused && !menuOpen && !activityInBackground) -> {
                     val players = padMixer.snapshotPlayers(xoraSettings.preferredControllerName)
                     if (session?.linkedNow == true) {
