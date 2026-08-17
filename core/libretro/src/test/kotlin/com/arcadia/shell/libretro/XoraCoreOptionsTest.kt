@@ -210,6 +210,15 @@ class XoraCoreOptionsTest {
     }
 
     @Test
+    fun azaharForcesOpenGlInsteadOfAndroidVulkanDefault() {
+        val vars = XoraCoreOptions.variablesFor("3ds", "azahar", settings)
+        assertEquals("OpenGL", vars["citra_graphics_api"])
+        assertEquals("OpenGL", vars["azahar_graphics_api"])
+        val citra = XoraCoreOptions.variablesFor("3ds", "citra", settings)
+        assertEquals("OpenGL", citra["citra_graphics_api"])
+    }
+
+    @Test
     fun expandForcesStackedNdsLayoutAndAbsoluteTouch() {
         val vars = XoraCoreOptions.variablesFor(
             "nds",

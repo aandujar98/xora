@@ -367,6 +367,11 @@ object XoraCoreOptions {
         val citra = layout.toCitraValue()
         out["citra_layout_option"] = citra
         out["azahar_layout_option"] = citra
+        // Android Azahar defaults to Vulkan and ignores GET_PREFERRED_HW_RENDER.
+        // XOrA only implements GLES SET_HW_RENDER, so Auto/Vulkan prints
+        // "Failed to set HW renderer" and aborts load. Force the GLES3 path.
+        out["citra_graphics_api"] = "OpenGL"
+        out["azahar_graphics_api"] = "OpenGL"
         if (coreName.contains("panda", ignoreCase = true)) {
             out["panda3ds_layout"] = when (layout) {
                 ThreeDsScreenLayout.SideBySide -> "side_by_side"

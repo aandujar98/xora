@@ -1000,11 +1000,19 @@ bool environment(unsigned cmd, void* data) {
             if (!data) return false;
             return xora_hw::preferred_hw_context(static_cast<unsigned*>(data));
         }
+        case RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT:
+            // Azahar/Citra call this before SET_HW_RENDER on the OpenGL path.
+            return true;
         case RETRO_ENVIRONMENT_SET_HW_RENDER: {
             if (!data) return false;
             auto* cb = static_cast<retro_hw_render_callback*>(data);
             if (!xora_hw::accept_hw_render(cb)) {
-                ALOGW("SET_HW_RENDER rejected (unsupported or EGL init failed)");
+                ALOGW("SET_HW_RENDER rejected (type=%d — unsupported or EGL init failed)",
+                      static_cast<int>(cb->context_type));
+                if (cb->context_type == RETRO_HW_CONTEXT_VULKAN && g_core_message.empty()) {
+                    g_core_message =
+                        "Azahar asked for Vulkan. XOrA uses OpenGL ES — set Graphics API to OpenGL.";
+                }
                 return false;
             }
             return true;
