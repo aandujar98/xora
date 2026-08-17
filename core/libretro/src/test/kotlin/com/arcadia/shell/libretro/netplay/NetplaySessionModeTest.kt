@@ -84,7 +84,9 @@ class NetplaySessionModeTest {
         assertEquals(1, gbaLockstepHiddenPort(1))
         assertEquals(0, gbaLockstepHiddenPort(2))
         assertEquals(true, shouldMirrorGbaLockstepPartnerPad(linked = false, playerCount = 1))
-        assertEquals(true, shouldMirrorGbaLockstepPartnerPad(linked = true, playerCount = 2))
+        assertEquals(true, shouldMirrorGbaLockstepPartnerPad(linked = true, playerCount = 1))
+        assertEquals(false, shouldMirrorGbaLockstepPartnerPad(linked = true, playerCount = 2))
+        assertEquals(4, GBA_LOCKSTEP_INPUT_DELAY_FRAMES)
         assertEquals(2, gbaLockstepPlayerCount(1))
         assertEquals(2, gbaLockstepPlayerCount(2))
     }

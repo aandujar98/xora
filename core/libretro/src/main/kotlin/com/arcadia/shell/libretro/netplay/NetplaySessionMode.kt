@@ -115,13 +115,21 @@ fun gbaLockstepHiddenPort(localSlot: Int): Int {
 }
 
 /**
- * Clone this phone's pad onto the hidden GBA so both local cores enter MULTI.
- * That is how the host sees a cable alone — Player 2 needs the same clone.
+ * Clone this phone's pad onto the hidden GBA only while waiting alone.
+ * Once Player 2 is linked, Core 0 is P1's pad and Core 1 is P2's pad on both
+ * phones — cloning would make two private 2-player games that never meet.
  */
-fun shouldMirrorGbaLockstepPartnerPad(
-    @Suppress("UNUSED_PARAMETER") linked: Boolean,
-    @Suppress("UNUSED_PARAMETER") playerCount: Int,
-): Boolean = true
+fun shouldMirrorGbaLockstepPartnerPad(linked: Boolean, playerCount: Int): Boolean =
+    !linked || playerCount < 2
+
+/**
+ * Local pads wait this many frames before the lockstep cores see them, so P1
+ * and P2 land on both phones at the same tick instead of "me now, them later".
+ */
+const val GBA_LOCKSTEP_INPUT_DELAY_FRAMES: Int = 4
+
+/** Stall the faster phone briefly so it can apply the same delayed frame as the peer. */
+const val GBA_LOCKSTEP_REMOTE_WAIT_MS: Long = 48L
 
 /** Game Link is always two GBAs on this phone; 3–4 player MULTI can come later. */
 fun gbaLockstepPlayerCount(playerCount: Int): Int = playerCount.coerceIn(2, 4)

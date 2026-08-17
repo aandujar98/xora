@@ -91,6 +91,7 @@ import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
 import com.arcadia.shell.libretro.netplay.XoraNetplayVideo
+import com.arcadia.shell.libretro.netplay.GBA_LOCKSTEP_REMOTE_WAIT_MS
 import com.arcadia.shell.libretro.netplay.gbaLockstepGenerationKey
 import com.arcadia.shell.libretro.netplay.gbaLockstepHiddenPort
 import com.arcadia.shell.libretro.netplay.gbaLockstepLocalSlot
@@ -100,6 +101,7 @@ import com.arcadia.shell.libretro.netplay.netplayBannerText
 import com.arcadia.shell.libretro.netplay.netplayCoreName
 import com.arcadia.shell.libretro.netplay.resolveGbaLockstepRomPath
 import com.arcadia.shell.libretro.netplay.shouldArmGbaLinkCable
+import com.arcadia.shell.libretro.netplay.shouldMirrorGbaLockstepPartnerPad
 import com.arcadia.shell.libretro.netplay.shouldStartGbaLockstep
 import com.arcadia.shell.libretro.netplay.shouldStartGbaNetpacket
 import com.arcadia.shell.libretro.netplay.usesGbaLockstep
@@ -2334,8 +2336,9 @@ class XoraLibretroActivity : ComponentActivity() {
 
     /**
      * Lockstep cores always sit on this phone. Port 0 is Player 1, port 1 is Player 2.
-     * Clone this phone's pad onto the hidden GBA (host → Core 1, joiner → Core 0)
-     * so both local cores enter MULTI — the same cable trick for Player 1 and Player 2.
+     * While waiting alone, clone this phone's pad onto the hidden GBA so Kirby sees a
+     * cable. Once both players are linked, stop cloning — the hidden GBA is the other
+     * person, driven by their pad over the network.
      */
     private fun applyGbaLockstepPads(
         session: XoraNetplaySession,
@@ -2350,15 +2353,20 @@ class XoraLibretroActivity : ComponentActivity() {
         )
         val selfPort = (slot - 1).coerceIn(0, 1)
         val hiddenPort = gbaLockstepHiddenPort(slot)
+        val mirror = shouldMirrorGbaLockstepPartnerPad(session.linkedNow, session.playerCountNow)
         if (pads != null && sent != null) {
             pads.pads.forEachIndexed { port, pad -> applyNativePad(port, pad) }
-            applyNativePad(selfPort, sent)
+            // Linked lockstep already delayed this phone's pad in exchange().
+            // Overwriting with [sent] would put "me now" against "them then".
+            if (mirror) applyNativePad(selfPort, sent)
         } else if (local != null) {
             applyNativePad(selfPort, local)
         }
-        when {
-            sent != null -> applyNativePad(hiddenPort, sent)
-            local != null -> applyNativePad(hiddenPort, local)
+        if (mirror) {
+            when {
+                sent != null -> applyNativePad(hiddenPort, sent)
+                local != null -> applyNativePad(hiddenPort, local)
+            }
         }
     }
 
@@ -2405,7 +2413,7 @@ class XoraLibretroActivity : ComponentActivity() {
             LibretroNative.nativeGbaSioSetEnabled(false)
             refreshNetplayBanner()
             val text = if (joinedReset) {
-                "Player 2 joined — both GBAs reset with a real Game Link cable. Open the same 2-player / link menu on both devices."
+                "Player 2 joined — both phones reset. You are your seat; the hidden GBA is the other player. Open the same 2-player / link menu together."
             } else {
                 "Both GBAs rebooted with a real Game Link cable. Open the same 2-player / link menu on both devices."
             }
@@ -2552,9 +2560,11 @@ class XoraLibretroActivity : ComponentActivity() {
                             rx = if (mute) 0 else local.rx,
                             ry = if (mute) 0 else local.ry,
                         )
+                        val lockstepPads = usesGbaLockstep(platformId)
                         val pads = session.exchange(
                             sent,
-                            replayRemoteInOrder = usesGbaLockstep(platformId),
+                            replayRemoteInOrder = lockstepPads,
+                            waitForRemoteMs = if (lockstepPads) GBA_LOCKSTEP_REMOTE_WAIT_MS else 0L,
                         )
                         val live = sent.buttons != 0 ||
                             sent.lx.toInt() != 0 ||
