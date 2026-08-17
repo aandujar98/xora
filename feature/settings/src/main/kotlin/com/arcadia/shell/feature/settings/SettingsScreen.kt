@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.DualScreenLayout
+import com.arcadia.shell.datastore.NdsWfcServer
 import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.TrailerDisplayMode
@@ -1392,7 +1393,7 @@ fun SettingsScreen(
                         onCheckedChange = viewModel::setXoraExpandDualDisplay,
                     )
                 }
-                SettingsFieldLabel("Internal resolution (3DS / Citra)")
+                SettingsFieldLabel("Internal resolution (3DS / Azahar)")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     XoraInternalResolution.entries.forEach { res ->
                         FilterChip(
@@ -1453,10 +1454,11 @@ fun SettingsScreen(
             SettingsCard(title = "XOrA · Netplay", modifier = Modifier.animateItem()) {
                 Text(
                     text = "Host or join from the in-game side menu (Pause → Netplay). " +
-                        "Toggle Online or Local Wireless there. Online uses a 6-character " +
-                        "XOrA Network code (any Wi‑Fi or cellular, no port forwarding). " +
-                        "Local Wireless uses an IP and port on the same Wi‑Fi. Nickname is " +
-                        "shared with Libretro cores.",
+                        "Home consoles (NES, SNES, N64, Genesis, PS1, …) share one game on " +
+                        "the host — same as SNES. Handhelds each run their own game. " +
+                        "Online uses a 6-character XOrA Network code. Local Wireless uses " +
+                        "an IP and port on the same Wi‑Fi. Nickname is shared with cores " +
+                        "(DS MAC, PPSSPP MAC, Libretro username).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1543,6 +1545,109 @@ fun SettingsScreen(
                         enabled = xora.netplayEnabled,
                     )
                 }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    text = "Nintendo DS · Nintendo WFC",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "melonDS talks to fan-run Nintendo WFC servers (Kaeru, Wiimmfi). " +
+                        "Open Nintendo Wi-Fi Connection inside the game — Mario Kart DS " +
+                        "matchmaking is that menu, not XOrA Host/Join.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NdsWfcServer.entries.forEach { server ->
+                        FilterChip(
+                            selected = xora.ndsWfcServer == server,
+                            onClick = { viewModel.setXoraNdsWfcServer(server) },
+                            label = { Text(text = server.label()) },
+                        )
+                    }
+                }
+                if (xora.ndsWfcServer == NdsWfcServer.Custom) {
+                    var dnsDraft by remember(xora.ndsWfcCustomDns) {
+                        mutableStateOf(xora.ndsWfcCustomDns)
+                    }
+                    SettingsFieldLabel("Custom WFC DNS")
+                    OutlinedTextField(
+                        value = dnsDraft,
+                        onValueChange = { dnsDraft = it.take(64) },
+                        singleLine = true,
+                        placeholder = { Text("178.62.43.212") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { focus ->
+                                if (!focus.isFocused) {
+                                    viewModel.setXoraNdsWfcCustomDns(dnsDraft)
+                                }
+                            },
+                    )
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    text = "PSP · PPSSPP AdHoc",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Each PSP runs its own PPSSPP. WLAN and Pro AdHoc are how games " +
+                        "see other players. Hosting an XOrA session makes this device the " +
+                        "AdHoc server; joiners use the host IP (Default join address / " +
+                        "the host's advertised LAN IP).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = "Enable PPSSPP WLAN / AdHoc", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = xora.pspAdhocEnabled,
+                        onCheckedChange = viewModel::setXoraPspAdhocEnabled,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "This device is the AdHoc server",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = "Turn on for one phone when you are not using XOrA Host/Join.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = xora.pspAdhocIsServer,
+                        onCheckedChange = viewModel::setXoraPspAdhocIsServer,
+                        enabled = xora.pspAdhocEnabled,
+                    )
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    text = "3DS · Azahar rooms",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "XOrA's 3DS core is Azahar (Libretro). Public room browsing, " +
+                        "private rooms, and chat lobbies are standalone Azahar only — " +
+                        "the Libretro core cannot host Citra/Azahar rooms. Install Azahar " +
+                        "and pick it under Choose Emulator for multiplayer rooms. " +
+                        "Pretendo DNS is set in 3DS System Settings after boot, not here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 

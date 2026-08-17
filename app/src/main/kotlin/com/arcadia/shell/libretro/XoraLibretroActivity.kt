@@ -740,7 +740,8 @@ class XoraLibretroActivity : ComponentActivity() {
                     coreName = coreName,
                     settings = xora,
                     expandActive = expand,
-                ).forEach { (key, value) ->
+                    netplay = XoraCoreOptions.NetplayContext(),
+                ).forEach { (key, value) ->}
                     LibretroNative.nativeSetCoreVariable(key, value)
                 }
                 LibretroNative.nativeLoadCore(
@@ -1512,6 +1513,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 netplaySession?.host(xoraSettings.netplayPort, hello) {
                     withContext(emuDispatcher) { LibretroNative.nativeSerialize() }
                 }
+                lifecycleScope.launch(emuDispatcher) { applyCoreControllerOptions() }
                 showMenuMessage("Waiting for a player… this phone already has two GBAs on a Game Link cable")
             }
             armGbaGameLinkNow(host = true)
@@ -1563,6 +1565,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 netplaySession?.join(address, parsed.port, hello) { bytes ->
                     applyNetplaySavestate(bytes)
                 }
+                lifecycleScope.launch(emuDispatcher) { applyCoreControllerOptions() }
                 showMenuMessage("Joining $address:${parsed.port}…")
             }
             armGbaGameLinkNow(host = false)
@@ -1610,6 +1613,7 @@ class XoraLibretroActivity : ComponentActivity() {
         ) {
             withContext(emuDispatcher) { LibretroNative.nativeSerialize() }
         }
+        withContext(emuDispatcher) { applyCoreControllerOptions() }
         showMenuMessage("Code $code — share it. This phone already has two GBAs on a Game Link cable")
         armGbaGameLinkNow(host = true)
         return code
@@ -1646,6 +1650,7 @@ class XoraLibretroActivity : ComponentActivity() {
             ) { bytes ->
                 applyNetplaySavestate(bytes)
             }
+            withContext(emuDispatcher) { applyCoreControllerOptions() }
             showMenuMessage("Joining $code…")
             preferences.clearPendingNetplayJoin()
             armGbaGameLinkNow(host = false)
@@ -2190,6 +2195,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 gbaLockstep = usesGbaLockstep(platformId),
                 gbaLockstepLive = usesGbaLockstep(platformId) &&
                     LibretroNative.nativeGbaLinkActive(),
+                platformId = platformId,
             ),
         )
     }
@@ -2315,14 +2321,28 @@ class XoraLibretroActivity : ComponentActivity() {
 
     /** Re-apply P1–P4 core options and plug every advertised socket. */
     private fun applyCoreControllerOptions() {
+        val ui = netplayUi
         XoraCoreOptions.variablesFor(
             platformId = platformId,
             coreName = coreName,
             settings = xoraSettings,
+            netplay = XoraCoreOptions.NetplayContext(
+                hosting = ui.role == XoraNetplayRole.Host,
+                joining = ui.role == XoraNetplayRole.Client,
+                hostAddress = pspAdhocHostAddress(ui),
+            ),
         ).forEach { (key, value) ->
             LibretroNative.nativeSetCoreVariable(key, value)
         }
         LibretroNative.nativePlugControllers()
+    }
+
+    private fun pspAdhocHostAddress(ui: XoraNetplayUiState): String {
+        if (ui.role == XoraNetplayRole.Host) return "localhost"
+        ui.advertisedHostAddresses.firstOrNull()?.let { return it }
+        val fromJoin = joinAddress.trim()
+        if (fromJoin.isNotBlank()) return fromJoin.substringBefore(':')
+        return parseJoinHostPort(xoraSettings.netplayHostAddress, xoraSettings.netplayPort).host
     }
 
     private fun applyNativePad(port: Int, pad: LibretroPadMixer.Snapshot) {

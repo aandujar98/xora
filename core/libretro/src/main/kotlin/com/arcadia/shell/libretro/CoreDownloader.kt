@@ -40,27 +40,41 @@ class CoreDownloader @Inject constructor(
     suspend fun downloadCore(core: String): String? = withContext(Dispatchers.IO) {
         progress.value = CoreDownloadProgress(core = core, running = true, message = "Downloading $core…")
         val abi = store.abiFolder()
-        val url = "${catalog.repoBaseUrl.trimEnd('/')}/$abi/${store.coreFileName(core)}.zip"
+        val urls = CoreDownloadUrls.zipUrls(catalog.repoBaseUrl, abi, core)
         val tmpZip = File(store.corePath(core).parentFile, "${core}.download.zip")
         val tmpSo = File(store.corePath(core).parentFile, "${core}.download.so")
 
         try {
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "XOrA-Libretro/1.0")
-                .build()
-            http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    progress.value = CoreDownloadProgress(
-                        core = core,
-                        running = false,
-                        error = "HTTP ${response.code} for $core",
-                    )
-                    return@withContext null
+            var lastError: String? = null
+            var downloaded = false
+            for (url in urls) {
+                try {
+                    val request = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "XOrA-Libretro/1.0")
+                        .build()
+                    http.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            lastError = "HTTP ${response.code} for $core"
+                            return@use
+                        }
+                        response.body.byteStream().use { input ->
+                            tmpZip.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        downloaded = true
+                    }
+                    if (downloaded) break
+                } catch (t: Throwable) {
+                    lastError = t.message ?: "Download failed"
                 }
-                response.body.byteStream().use { input ->
-                    tmpZip.outputStream().use { output -> input.copyTo(output) }
-                }
+            }
+            if (!downloaded) {
+                progress.value = CoreDownloadProgress(
+                    core = core,
+                    running = false,
+                    error = lastError ?: "HTTP error for $core",
+                )
+                return@withContext null
             }
 
             val extracted = extractSoFromZip(tmpZip, tmpSo)

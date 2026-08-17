@@ -1,8 +1,12 @@
 package com.arcadia.shell.libretro
 
+import com.arcadia.shell.datastore.KAERU_WFC_DNS
+import com.arcadia.shell.datastore.NdsWfcServer
+import com.arcadia.shell.datastore.WIIMMFI_WFC_DNS
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -105,5 +109,91 @@ class XoraCoreOptionsTest {
         val vars = XoraCoreOptions.variablesFor("gba", "gpsp", settings)
         assertEquals("mul_poke", vars["gpsp_serial"])
         assertEquals("disabled", vars["gpsp_drc"])
+    }
+
+    @Test
+    fun remainingHomeConsolesPlugSecondPads() {
+        val pce = XoraCoreOptions.variablesFor("pcengine", "mednafen_pce_fast", settings)
+        assertEquals("disabled", pce["pce_fast_multitap"])
+        val stella = XoraCoreOptions.variablesFor("atari2600", "stella", settings)
+        assertEquals("Joystick", stella["stella_controller2"])
+        val opera = XoraCoreOptions.variablesFor("3do", "opera", settings)
+        assertEquals("4", opera["opera_active_devices"])
+        val amiga = XoraCoreOptions.variablesFor("amiga", "puae", settings)
+        assertEquals("RetroPad", amiga["puae_joyport2"])
+        val saturn = XoraCoreOptions.variablesFor("saturn", "mednafen_saturn", settings)
+        assertEquals("disabled", saturn["beetle_saturn_multitap_port1"])
+        assertEquals("disabled", saturn["beetle_saturn_multitap_port2"])
+    }
+
+    @Test
+    fun ndsDefaultsToKaeruWfc() {
+        val vars = XoraCoreOptions.variablesFor("nds", "melondsds", settings)
+        assertEquals("Indirect", vars["melonds_network_mode"])
+        assertEquals("indirect", vars["melonds_ds_network_mode"])
+        assertEquals(KAERU_WFC_DNS, vars["melonds_firmware_wfc_dns"])
+        assertEquals(KAERU_WFC_DNS, vars["melonds_ds_firmware_wfc_dns"])
+        assertEquals("from-username", vars["melonds_mac_address_mode"])
+        assertEquals("from-username", vars["melonds_ds_mac_address_mode"])
+    }
+
+    @Test
+    fun ndsCanSwitchToWiimmfiOrOff() {
+        val wiimmfi = XoraCoreOptions.variablesFor(
+            "nds",
+            "melonds",
+            settings.copy(ndsWfcServer = NdsWfcServer.Wiimmfi),
+        )
+        assertEquals(WIIMMFI_WFC_DNS, wiimmfi["melonds_firmware_wfc_dns"])
+        val off = XoraCoreOptions.variablesFor(
+            "nds",
+            "melonds",
+            settings.copy(ndsWfcServer = NdsWfcServer.Off),
+        )
+        assertEquals("Disabled", off["melonds_network_mode"])
+        assertEquals("0.0.0.0", off["melonds_firmware_wfc_dns"])
+        assertEquals("firmware", off["melonds_mac_address_mode"])
+    }
+
+    @Test
+    fun pspEnablesAdhocAndUniqueMac() {
+        val host = XoraCoreOptions.variablesFor(
+            "psp",
+            "ppsspp",
+            settings.copy(netplayNickname = "FlipDS"),
+            netplay = XoraCoreOptions.NetplayContext(hosting = true),
+        )
+        assertEquals("enabled", host["ppsspp_enable_wlan"])
+        assertEquals("enabled", host["ppsspp_enable_builtin_pro_ad_hoc_server"])
+        assertEquals("localhost", host["ppsspp_change_pro_ad_hoc_server_address"])
+        val joiner = XoraCoreOptions.variablesFor(
+            "psp",
+            "ppsspp",
+            settings.copy(netplayNickname = "RgCube"),
+            netplay = XoraCoreOptions.NetplayContext(
+                joining = true,
+                hostAddress = "192.168.1.20",
+            ),
+        )
+        assertEquals("disabled", joiner["ppsspp_enable_builtin_pro_ad_hoc_server"])
+        assertEquals("192.168.1.20", joiner["ppsspp_change_pro_ad_hoc_server_address"])
+        assertEquals("1", joiner["ppsspp_pro_ad_hoc_server_address01"])
+        assertEquals("9", joiner["ppsspp_pro_ad_hoc_server_address02"])
+        assertEquals("2", joiner["ppsspp_pro_ad_hoc_server_address03"])
+        assertNotEquals(host["ppsspp_change_mac_address01"] + host["ppsspp_change_mac_address02"],
+            joiner["ppsspp_change_mac_address01"] + joiner["ppsspp_change_mac_address02"])
+        val firstByte = (
+            (host.getValue("ppsspp_change_mac_address01").toInt(16) shl 4) or
+                host.getValue("ppsspp_change_mac_address02").toInt(16)
+            )
+        assertEquals(0, firstByte and 0x01)
+        assertEquals(0x02, firstByte and 0x02)
+    }
+
+    @Test
+    fun azaharGetsTheSameLayoutKeysAsCitra() {
+        val vars = XoraCoreOptions.variablesFor("3ds", "azahar", settings)
+        assertEquals(vars["citra_layout_option"], vars["azahar_layout_option"])
+        assertEquals(vars["citra_resolution_factor"], vars["azahar_resolution_factor"])
     }
 }

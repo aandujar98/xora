@@ -1,12 +1,15 @@
 package com.arcadia.shell.libretro
 
 import com.arcadia.shell.datastore.DualScreenLayout
+import com.arcadia.shell.datastore.NdsWfcServer
+import com.arcadia.shell.datastore.dns
 import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.toCitraFactor
 import com.arcadia.shell.datastore.toCitraValue
 import com.arcadia.shell.datastore.toMelonDsDsValue
 import com.arcadia.shell.datastore.toMelonDsValue
+import java.security.MessageDigest
 
 /**
  * Maps XOrA Emulator settings to Libretro core option key/value pairs
@@ -14,11 +17,19 @@ import com.arcadia.shell.datastore.toMelonDsValue
  */
 object XoraCoreOptions {
 
+    /** Live XOrA lobby, used to point PPSSPP AdHoc at the host. */
+    data class NetplayContext(
+        val hosting: Boolean = false,
+        val joining: Boolean = false,
+        val hostAddress: String = "",
+    )
+
     fun variablesFor(
         platformId: String,
         coreName: String,
         settings: XoraEmulatorSettings,
         expandActive: Boolean = false,
+        netplay: NetplayContext = NetplayContext(),
     ): Map<String, String> {
         val out = linkedMapOf<String, String>()
         when (platformId) {
@@ -34,7 +45,12 @@ object XoraCoreOptions {
         applyGenesis(platformId, coreName, out)
         applySaturn(platformId, coreName, out)
         applyDreamcast(platformId, coreName, out)
+        applyPcEngine(platformId, coreName, out)
+        applyAtari2600(platformId, coreName, out)
+        applyThreeDo(platformId, coreName, out)
+        applyAmiga(platformId, coreName, out)
         applyGba(platformId, coreName, out)
+        applyPsp(platformId, coreName, settings, netplay, out)
         return out
     }
 
@@ -228,8 +244,64 @@ object XoraCoreOptions {
         ) {
             return
         }
+        out["beetle_saturn_multitap_port1"] = "disabled"
         out["beetle_saturn_multitap_port2"] = "disabled"
+        out["mednafen_saturn_multitap_port1"] = "disabled"
         out["mednafen_saturn_multitap_port2"] = "disabled"
+        out["kronos_multitap_port1"] = "disabled"
+        out["kronos_multitap_port2"] = "disabled"
+    }
+
+    /** PC Engine: a 5-player adapter replaces P2 the same way a SNES multitap would. */
+    private fun applyPcEngine(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "pcengine" &&
+            platformId != "tg16" &&
+            !coreName.contains("pce", ignoreCase = true) &&
+            !coreName.contains("sgx", ignoreCase = true) &&
+            !coreName.contains("supergrafx", ignoreCase = true)
+        ) {
+            return
+        }
+        out["pce_multitap"] = "disabled"
+        out["pce_fast_multitap"] = "disabled"
+        out["sgx_multitap"] = "disabled"
+    }
+
+    /** Stella defaults extra ports off; both joysticks must be plugged for P2. */
+    private fun applyAtari2600(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "atari2600" && !coreName.contains("stella", ignoreCase = true)) return
+        out["stella_controller1"] = "Joystick"
+        out["stella_controller2"] = "Joystick"
+    }
+
+    /** Opera only emulates as many 3DO pads as this count. Default is often 1. */
+    private fun applyThreeDo(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "3do" && !coreName.contains("opera", ignoreCase = true)) return
+        out["opera_active_devices"] = "4"
+    }
+
+    /** PUAE: both joystick ports as RetroPads so the joiner is P2. */
+    private fun applyAmiga(
+        platformId: String,
+        coreName: String,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "amiga" && !coreName.contains("puae", ignoreCase = true)) return
+        out["puae_joyport"] = "joystick"
+        out["puae_joyport1"] = "RetroPad"
+        out["puae_joyport2"] = "RetroPad"
     }
 
     /** Dreamcast always has four maple ports — keep them as standard controllers. */
@@ -269,6 +341,8 @@ object XoraCoreOptions {
         out["melonds_screen_gap"] = gap.toString()
         out["melonds_ds_screen_layout1"] = melonDs
         out["melonds_ds_number_of_screen_layouts"] = "1"
+
+        applyNdsWfc(settings, out)
 
         if (coreName.contains("desmume", ignoreCase = true)) {
             out["desmume_screens_layout"] = when (layout) {
@@ -313,5 +387,99 @@ object XoraCoreOptions {
             out["azahar_resolution_factor"] = factor
         }
         // melonDS software renderer ignores most scale factors; leave layout-driven.
+    }
+
+    /**
+     * melonDS DS (`melonds_firmware_wfc_dns`) plus the older melonDS prefix. Unused
+     * keys are ignored by the loaded core.
+     */
+    private fun applyNdsWfc(
+        settings: XoraEmulatorSettings,
+        out: MutableMap<String, String>,
+    ) {
+        val off = settings.ndsWfcServer == NdsWfcServer.Off
+        val dns = settings.ndsWfcServer.dns(settings.ndsWfcCustomDns)
+        out["melonds_network_mode"] = if (off) "Disabled" else "Indirect"
+        out["melonds_ds_network_mode"] = if (off) "disabled" else "indirect"
+        out["melonds_firmware_wfc_dns"] = dns
+        out["melonds_ds_firmware_wfc_dns"] = dns
+        out["melonds_mac_address_mode"] = if (off) "firmware" else "from-username"
+        out["melonds_ds_mac_address_mode"] = if (off) "firmware" else "from-username"
+    }
+
+    /**
+     * PPSSPP AdHoc is not RetroArch netplay. Each phone runs PPSSPP; WLAN + the
+     * built-in Pro AdHoc server (host) / host IP (joiners) is how Mario Kart / SOCOM
+     * see other players.
+     */
+    private fun applyPsp(
+        platformId: String,
+        coreName: String,
+        settings: XoraEmulatorSettings,
+        netplay: NetplayContext,
+        out: MutableMap<String, String>,
+    ) {
+        if (platformId != "psp" && !coreName.contains("ppsspp", ignoreCase = true)) return
+        val inLobby = netplay.hosting || netplay.joining
+        if (!settings.pspAdhocEnabled && !inLobby) return
+        out["ppsspp_enable_wlan"] = "enabled"
+        val runServer = netplay.hosting || (!netplay.joining && settings.pspAdhocIsServer)
+        val server = when {
+            runServer -> "localhost"
+            else -> adhocHostAddress(netplay.hostAddress, settings.netplayHostAddress)
+        }
+        out["ppsspp_enable_builtin_pro_ad_hoc_server"] = if (runServer) "enabled" else "disabled"
+        out["ppsspp_change_pro_ad_hoc_server_address"] = server
+        out["ppsspp_forced_first_connect"] = "enabled"
+        out["ppsspp_enable_upnp"] = "disabled"
+        pspAdhocAddressDigits(server).forEachIndexed { index, digit ->
+            out["ppsspp_pro_ad_hoc_server_address${(index + 1).toString().padStart(2, '0')}"] = digit
+        }
+        macNibblesFromNickname(settings.netplayNickname).forEachIndexed { index, nibble ->
+            out["ppsspp_change_mac_address${(index + 1).toString().padStart(2, '0')}"] = nibble
+        }
+    }
+
+    internal fun adhocHostAddress(netplayHost: String, storedHost: String): String {
+        val raw = netplayHost.trim().ifBlank { storedHost.trim() }
+        val host = raw.substringBefore(':').trim()
+        if (host.isBlank() || host.equals("localhost", ignoreCase = true) || host == "127.0.0.1") {
+            return "localhost"
+        }
+        return host
+    }
+
+    /** PPSSPP splits IPv4 into 12 decimal digits (`192.168.001.010` → 1,9,2,…). */
+    internal fun pspAdhocAddressDigits(address: String): List<String> {
+        val host = address.trim().substringBefore(':')
+        val ip = if (host.equals("localhost", ignoreCase = true) || host.isBlank()) {
+            "127.0.0.1"
+        } else {
+            host
+        }
+        val octets = ip.split('.')
+        return (0..3).flatMap { i ->
+            val n = octets.getOrNull(i)?.toIntOrNull()?.coerceIn(0, 255) ?: 0
+            n.toString().padStart(3, '0').map { it.toString() }
+        }
+    }
+
+    /** 12 hex nibbles, locally-administered unicast, stable per nickname. */
+    internal fun macNibblesFromNickname(nickname: String): List<String> {
+        val seed = nickname.trim().ifBlank { "Player" }
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(seed.toByteArray(Charsets.UTF_8))
+        val nibbles = digest.flatMap { byte ->
+            val v = byte.toInt() and 0xFF
+            listOf(
+                ((v shr 4) and 0xF).toString(16).uppercase(),
+                (v and 0xF).toString(16).uppercase(),
+            )
+        }.take(12).toMutableList()
+        val first = (nibbles[0].toInt(16) shl 4) or nibbles[1].toInt(16)
+        val localUnicast = (first and 0xFE) or 0x02
+        nibbles[0] = ((localUnicast shr 4) and 0xF).toString(16).uppercase()
+        nibbles[1] = (localUnicast and 0xF).toString(16).uppercase()
+        return nibbles
     }
 }

@@ -45,6 +45,21 @@ data class XoraEmulatorSettings(
     /** Last host address typed in Join (IP or hostname). */
     val netplayHostAddress: String = "",
     /**
+     * Nintendo DS Nintendo WFC replacement. melonDS talks to Kaeru / Wiimmfi / AltWFC
+     * when this is not [NdsWfcServer.Off]; the in-game Nintendo Wi-Fi Connection menu
+     * is the matchmaking UI (Mario Kart DS, …).
+     */
+    val ndsWfcServer: NdsWfcServer = NdsWfcServer.Kaeru,
+    /** Used when [ndsWfcServer] is [NdsWfcServer.Custom]. */
+    val ndsWfcCustomDns: String = "",
+    /**
+     * PPSSPP WLAN / Pro AdHoc. Games use their own infrastructure menu; XOrA Host/Join
+     * points joiners at the host IP and runs the built-in AdHoc server on the host.
+     */
+    val pspAdhocEnabled: Boolean = true,
+    /** When not in an XOrA lobby, run PPSSPP's built-in Pro AdHoc server on this device. */
+    val pspAdhocIsServer: Boolean = false,
+    /**
      * Preferred physical controller name from [android.view.InputDevice.getName].
      * Blank = accept input from any connected gamepad.
      */
@@ -149,6 +164,36 @@ enum class ThreeDsScreenLayout {
 const val DEFAULT_NETPLAY_PORT = 55435
 const val MIN_NETPLAY_PORT = 1024
 const val MAX_NETPLAY_PORT = 65535
+
+/** Fan-run Nintendo WFC DNS targets understood by melonDS / melonDS DS. */
+enum class NdsWfcServer {
+    Off,
+    Kaeru,
+    Wiimmfi,
+    AltWfc,
+    Custom,
+}
+
+const val FIRMWARE_DEFAULT_WFC_DNS = "0.0.0.0"
+const val KAERU_WFC_DNS = "178.62.43.212"
+const val WIIMMFI_WFC_DNS = "95.217.77.181"
+const val ALTWFC_DNS = "172.104.88.237"
+
+fun NdsWfcServer.label(): String = when (this) {
+    NdsWfcServer.Off -> "Off"
+    NdsWfcServer.Kaeru -> "Kaeru WFC"
+    NdsWfcServer.Wiimmfi -> "Wiimmfi"
+    NdsWfcServer.AltWfc -> "AltWFC"
+    NdsWfcServer.Custom -> "Custom DNS"
+}
+
+fun NdsWfcServer.dns(custom: String = ""): String = when (this) {
+    NdsWfcServer.Off -> FIRMWARE_DEFAULT_WFC_DNS
+    NdsWfcServer.Kaeru -> KAERU_WFC_DNS
+    NdsWfcServer.Wiimmfi -> WIIMMFI_WFC_DNS
+    NdsWfcServer.AltWfc -> ALTWFC_DNS
+    NdsWfcServer.Custom -> custom.trim().ifBlank { KAERU_WFC_DNS }
+}
 
 fun DualScreenLayout.toMelonDsValue(): String = when (this) {
     DualScreenLayout.TopBottom -> "Top/Bottom"

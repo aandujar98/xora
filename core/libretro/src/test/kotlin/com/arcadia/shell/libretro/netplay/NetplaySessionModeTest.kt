@@ -15,7 +15,28 @@ class NetplaySessionModeTest {
 
     @Test
     fun homeConsolesShareOneInstance() {
-        listOf("nes", "snes", "n64", "genesis", "ps1", "gamecube").forEach { id ->
+        listOf(
+            "nes",
+            "snes",
+            "n64",
+            "genesis",
+            "ps1",
+            "gamecube",
+            "saturn",
+            "dreamcast",
+            "arcade",
+            "pcengine",
+            "atari2600",
+            "msx",
+            "c64",
+            "amiga",
+            "3do",
+            "dos",
+            "mastersystem",
+            "sega32x",
+            "segacd",
+            "wii",
+        ).forEach { id ->
             assertEquals(id, NetplaySessionMode.SharedConsole, netplaySessionMode(id))
         }
     }

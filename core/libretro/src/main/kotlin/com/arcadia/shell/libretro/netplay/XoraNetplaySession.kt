@@ -60,6 +60,7 @@ fun netplayBannerText(
     @Suppress("UNUSED_PARAMETER") gbaGpspLinkLive: Boolean = false,
     gbaLockstep: Boolean = false,
     @Suppress("UNUSED_PARAMETER") gbaLockstepLive: Boolean = false,
+    platformId: String = "",
 ): String {
     ui.error?.takeIf { it.isNotBlank() }?.let { return it }
     if (ui.linked && ui.playerSlot >= 1) {
@@ -70,7 +71,7 @@ fun netplayBannerText(
             }
             if (hasController) {
                 if (!sharedConsole && !gbaGpspLink && !gbaLockstep) {
-                    lines += "This device is your Game Boy. The other player has theirs."
+                    lines += handheldDeviceHint(platformId)
                 }
             } else {
                 lines += "Press the on-screen pad at the bottom of this phone."
@@ -85,7 +86,7 @@ fun netplayBannerText(
             lines += "You control Player ${ui.playerSlot}. The hidden GBA is the other player."
             lines += "Open the same 2-player / link menu on both devices together."
         } else {
-            lines += "Stay on this waiting screen on both devices. XOrA is the Game Link cable."
+            lines += handheldOnlineHint(platformId)
         }
         return lines.joinToString("\n")
     }
@@ -102,6 +103,27 @@ fun netplayBannerText(
  * Super Mario Kart (and most 2P games) only read the second pad after 2-player mode is
  * chosen on the title screen. A 1-player Grand Prix has no Player 2 to move.
  */
+fun handheldDeviceHint(platformId: String): String = when (platformId.trim().lowercase()) {
+    "nds" -> "This device is your DS. The other player has theirs."
+    "3ds" -> "This device is your 3DS. The other player has theirs."
+    "psp" -> "This device is your PSP. The other player has theirs."
+    else -> "This device is your Game Boy. The other player has theirs."
+}
+
+fun handheldOnlineHint(platformId: String): String = when (platformId.trim().lowercase()) {
+    "nds" ->
+        "Nintendo WFC is the online path. Open Nintendo Wi-Fi Connection in the game " +
+            "(Kaeru / Wiimmfi). XOrA Host/Join is only a local wireless link."
+    "psp" ->
+        "PPSSPP AdHoc is on. Open the game's wireless / infrastructure menu. " +
+            "The host is the AdHoc server."
+    "3ds" ->
+        "Public 3DS rooms and chat need standalone Azahar. In XOrA, use in-game online " +
+            "if the title supports it."
+    else ->
+        "Stay on this waiting screen on both devices. XOrA is the Game Link cable."
+}
+
 fun twoPlayerModeHint(gameTitle: String): String {
     val title = gameTitle.lowercase()
     return if (title.contains("mario kart") || title.contains("mariokart")) {

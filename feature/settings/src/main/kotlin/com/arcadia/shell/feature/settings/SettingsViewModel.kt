@@ -524,6 +524,22 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setXoraNetplayHostAddress(address) }
     }
 
+    fun setXoraNdsWfcServer(server: com.arcadia.shell.datastore.NdsWfcServer) {
+        viewModelScope.launch { preferences.setXoraNdsWfcServer(server) }
+    }
+
+    fun setXoraNdsWfcCustomDns(dns: String) {
+        viewModelScope.launch { preferences.setXoraNdsWfcCustomDns(dns) }
+    }
+
+    fun setXoraPspAdhocEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferences.setXoraPspAdhocEnabled(enabled) }
+    }
+
+    fun setXoraPspAdhocIsServer(enabled: Boolean) {
+        viewModelScope.launch { preferences.setXoraPspAdhocIsServer(enabled) }
+    }
+
     fun setRaEnabled(enabled: Boolean) {
         viewModelScope.launch { preferences.setRaEnabled(enabled) }
     }

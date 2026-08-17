@@ -438,6 +438,12 @@ class ShellPreferences @Inject constructor(
             netplaySpectator = prefs[Keys.XORA_NETPLAY_SPECTATOR] ?: false,
             netplayUseRelay = prefs[Keys.XORA_NETPLAY_RELAY] ?: false,
             netplayHostAddress = prefs[Keys.XORA_NETPLAY_HOST].orEmpty(),
+            ndsWfcServer = prefs[Keys.XORA_NDS_WFC]
+                ?.let { runCatching { NdsWfcServer.valueOf(it) }.getOrNull() }
+                ?: NdsWfcServer.Kaeru,
+            ndsWfcCustomDns = prefs[Keys.XORA_NDS_WFC_DNS].orEmpty(),
+            pspAdhocEnabled = prefs[Keys.XORA_PSP_ADHOC] ?: true,
+            pspAdhocIsServer = prefs[Keys.XORA_PSP_ADHOC_SERVER] ?: false,
             preferredControllerName = prefs[Keys.XORA_CONTROLLER_NAME].orEmpty(),
             buttonMappings = decodeButtonMappings(prefs[Keys.XORA_BUTTON_MAPPINGS].orEmpty()),
         )
@@ -781,6 +787,22 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setXoraNetplayHostAddress(address: String) = edit {
         it[Keys.XORA_NETPLAY_HOST] = address.trim().take(128)
+    }
+
+    suspend fun setXoraNdsWfcServer(server: NdsWfcServer) = edit {
+        it[Keys.XORA_NDS_WFC] = server.name
+    }
+
+    suspend fun setXoraNdsWfcCustomDns(dns: String) = edit {
+        it[Keys.XORA_NDS_WFC_DNS] = dns.trim().take(64)
+    }
+
+    suspend fun setXoraPspAdhocEnabled(enabled: Boolean) = edit {
+        it[Keys.XORA_PSP_ADHOC] = enabled
+    }
+
+    suspend fun setXoraPspAdhocIsServer(enabled: Boolean) = edit {
+        it[Keys.XORA_PSP_ADHOC_SERVER] = enabled
     }
 
     suspend fun setPendingNetplayJoin(join: PendingNetplayJoin) = edit {
@@ -1183,6 +1205,10 @@ class ShellPreferences @Inject constructor(
         val XORA_NETPLAY_SPECTATOR = booleanPreferencesKey("xora_netplay_spectator")
         val XORA_NETPLAY_RELAY = booleanPreferencesKey("xora_netplay_relay")
         val XORA_NETPLAY_HOST = stringPreferencesKey("xora_netplay_host")
+        val XORA_NDS_WFC = stringPreferencesKey("xora_nds_wfc_server")
+        val XORA_NDS_WFC_DNS = stringPreferencesKey("xora_nds_wfc_custom_dns")
+        val XORA_PSP_ADHOC = booleanPreferencesKey("xora_psp_adhoc_enabled")
+        val XORA_PSP_ADHOC_SERVER = booleanPreferencesKey("xora_psp_adhoc_is_server")
         val PENDING_NETPLAY_CODE = stringPreferencesKey("pending_netplay_join_code")
         val PENDING_NETPLAY_PLATFORM = stringPreferencesKey("pending_netplay_join_platform")
         val PENDING_NETPLAY_GAME = stringPreferencesKey("pending_netplay_join_game")

@@ -184,4 +184,60 @@ class XoraNetplayBannerTest {
         )
         assertTrue(text.contains("2-player game"))
     }
+
+    @Test
+    fun dsBannerPointsAtNintendoWfc() {
+        val text = netplayBannerText(
+            ui = XoraNetplayUiState(
+                role = XoraNetplayRole.Client,
+                linked = true,
+                playerSlot = 2,
+            ),
+            padLive = true,
+            gameTitle = "Mario Kart DS",
+            hasController = true,
+            sharedConsole = false,
+            platformId = "nds",
+        )
+        assertTrue(text.contains("Nintendo WFC") || text.contains("Wi-Fi Connection"))
+        assertTrue(text.contains("your DS"))
+        assertTrue(!text.contains("your Game Boy"))
+        assertTrue(!text.contains("2 PLAYER GAME"))
+    }
+
+    @Test
+    fun pspBannerPointsAtAdhoc() {
+        val text = netplayBannerText(
+            ui = XoraNetplayUiState(
+                role = XoraNetplayRole.Host,
+                linked = true,
+                playerSlot = 1,
+            ),
+            padLive = true,
+            gameTitle = "Monster Hunter Freedom Unite",
+            hasController = true,
+            sharedConsole = false,
+            platformId = "psp",
+        )
+        assertTrue(text.contains("AdHoc") || text.contains("infrastructure"))
+        assertTrue(!text.contains("2 PLAYER GAME"))
+    }
+
+    @Test
+    fun threeDsBannerDoesNotClaimInAppRooms() {
+        val text = netplayBannerText(
+            ui = XoraNetplayUiState(
+                role = XoraNetplayRole.Client,
+                linked = true,
+                playerSlot = 2,
+            ),
+            padLive = true,
+            gameTitle = "Mario Kart 7",
+            hasController = true,
+            sharedConsole = false,
+            platformId = "3ds",
+        )
+        assertTrue(text.contains("standalone Azahar"))
+        assertTrue(!text.contains("your Game Boy"))
+    }
 }
