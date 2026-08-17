@@ -113,7 +113,7 @@ class XoraNetplayBannerTest {
     }
 
     @Test
-    fun gbaGpspLinkExplainsBuiltInCable() {
+    fun gbaLockstepExplainsTwoLocalGbas() {
         val text = netplayBannerText(
             ui = XoraNetplayUiState(
                 role = XoraNetplayRole.Client,
@@ -124,18 +124,18 @@ class XoraNetplayBannerTest {
             gameTitle = "Mario Kart Super Circuit",
             hasController = true,
             sharedConsole = false,
-            gbaGpspLink = true,
-            gbaGpspLinkLive = true,
+            gbaLockstep = true,
+            gbaLockstepLive = true,
         )
-        assertTrue(text.contains("Game Link cable"))
+        assertTrue(text.contains("two GBAs") || text.contains("Game Link"))
         assertTrue(text.contains("link menu") || text.contains("2-player"))
         assertTrue(!text.contains("your Game Boy"))
         assertTrue(!text.contains("2 PLAYER GAME"))
-        assertTrue(!text.contains("second player"))
+        assertTrue(!text.contains("gpSP"))
     }
 
     @Test
-    fun gbaGpspBannerDoesNotWaitToPlugTheCable() {
+    fun gbaLockstepHostGetsTheSameCableHint() {
         val text = netplayBannerText(
             ui = XoraNetplayUiState(
                 role = XoraNetplayRole.Host,
@@ -146,13 +146,14 @@ class XoraNetplayBannerTest {
             gameTitle = "Kirby",
             hasController = true,
             sharedConsole = false,
-            gbaGpspLink = true,
-            gbaGpspLinkLive = false,
+            gbaLockstep = true,
+            gbaLockstepLive = true,
         )
+        assertTrue(text.contains("two GBAs"))
         assertTrue(text.contains("Game Link cable"))
-        assertTrue(text.contains("plugged"))
-        assertTrue(!text.contains("second player"))
-        assertTrue(!text.contains("two GBAs"))
+        assertTrue(text.contains("link menu") || text.contains("2-player"))
+        assertTrue(!text.contains("gpSP"))
+        assertTrue(!text.contains("2 PLAYER GAME"))
     }
 
     @Test

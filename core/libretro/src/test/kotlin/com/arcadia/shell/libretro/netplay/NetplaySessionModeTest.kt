@@ -21,68 +21,68 @@ class NetplaySessionModeTest {
     }
 
     @Test
-    fun gbaUsesGpspNetpacketNotLockstep() {
-        assertEquals(false, usesGbaLockstep("gba"))
-        assertEquals(true, usesGbaGpspLink("gba"))
-        assertEquals(true, usesGbaGpspLink("GBA"))
-        assertEquals(false, usesGbaGpspLink("gbc"))
-        assertEquals(false, usesGbaGpspLink("snes"))
-        assertEquals("gpsp", netplayCoreName("gba", "mgba"))
+    fun gbaUsesInProcessLockstepNotGpsp() {
+        assertEquals(true, usesGbaLockstep("gba"))
+        assertEquals(true, usesGbaLockstep("GBA"))
+        assertEquals(false, usesGbaLockstep("gbc"))
+        assertEquals(false, usesGbaGpspLink("gba"))
+        assertEquals("mgba", netplayCoreName("gba", "mgba"))
         assertEquals("snes9x", netplayCoreName("snes", "snes9x"))
         assertEquals(0, gbaNetplayClientId(1))
         assertEquals(1, gbaNetplayClientId(2))
     }
 
     @Test
-    fun gbaNetpacketStartsOnceTheHostHasASeat() {
+    fun gbaNetpacketStaysOff() {
         assertEquals(
-            true,
-            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 1, playerCount = 1, alreadyStarted = false),
-        )
-        assertEquals(
-            true,
+            false,
             shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 1, playerCount = 2, alreadyStarted = false),
         )
         assertEquals(
-            true,
-            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 2, playerCount = 2, alreadyStarted = false),
-        )
-        assertEquals(
             false,
-            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 0, playerCount = 1, alreadyStarted = false),
-        )
-        assertEquals(
-            false,
-            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 1, playerCount = 2, alreadyStarted = true),
-        )
-        assertEquals(
-            false,
-            shouldStartGbaNetpacket("snes", handheldLink = false, localSlot = 1, playerCount = 2, alreadyStarted = false),
-        )
-        assertEquals(
-            true,
             shouldArmGbaLinkCable("gba", handheldLink = true, localSlot = 1, hosting = true),
-        )
-        assertEquals(
-            true,
-            shouldArmGbaLinkCable("gba", handheldLink = true, localSlot = 0, hosting = true),
-        )
-        assertEquals(
-            false,
-            shouldArmGbaLinkCable("gba", handheldLink = true, localSlot = 0, hosting = false),
-        )
-        assertEquals(
-            false,
-            shouldArmGbaLinkCable("snes", handheldLink = false, localSlot = 1, hosting = true),
         )
     }
 
     @Test
-    fun gbaLockstepIsDisabled() {
+    fun gbaLockstepStartsOnceThisGbaHasASeat() {
         assertEquals(
-            false,
+            true,
             shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 1, alreadyActive = false, alreadyAttempted = false),
         )
+        assertEquals(
+            true,
+            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 2, alreadyActive = false, alreadyAttempted = false),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 0, alreadyActive = false, alreadyAttempted = false),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 1, alreadyActive = true, alreadyAttempted = false),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 1, alreadyActive = false, alreadyAttempted = true),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaLockstep("snes", handheldLink = false, localSlot = 1, alreadyActive = false, alreadyAttempted = false),
+        )
+    }
+
+    @Test
+    fun gbaLockstepRestartsWhenTheSecondPlayerLinks() {
+        assertEquals("solo:1", gbaLockstepGenerationKey(localSlot = 1, linked = false, playerCount = 1))
+        assertEquals("solo:1", gbaLockstepGenerationKey(localSlot = 1, linked = true, playerCount = 1))
+        assertEquals("linked:1:2", gbaLockstepGenerationKey(localSlot = 1, linked = true, playerCount = 2))
+        assertEquals("linked:2:2", gbaLockstepGenerationKey(localSlot = 2, linked = true, playerCount = 2))
+        assertEquals(true, shouldMirrorGbaLockstepPartnerPad(linked = false, playerCount = 1))
+        assertEquals(true, shouldMirrorGbaLockstepPartnerPad(linked = true, playerCount = 1))
+        assertEquals(false, shouldMirrorGbaLockstepPartnerPad(linked = true, playerCount = 2))
+        assertEquals(2, gbaLockstepPlayerCount(1))
+        assertEquals(2, gbaLockstepPlayerCount(2))
     }
 
     @Test

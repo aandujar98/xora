@@ -58,7 +58,7 @@ fun netplayBannerText(
     sharedConsole: Boolean = true,
     gbaGpspLink: Boolean = false,
     @Suppress("UNUSED_PARAMETER") gbaGpspLinkLive: Boolean = false,
-    @Suppress("UNUSED_PARAMETER") gbaLockstep: Boolean = false,
+    gbaLockstep: Boolean = false,
     @Suppress("UNUSED_PARAMETER") gbaLockstepLive: Boolean = false,
 ): String {
     ui.error?.takeIf { it.isNotBlank() }?.let { return it }
@@ -69,7 +69,7 @@ fun netplayBannerText(
                 lines += "One game on the host. Your pad is Player ${ui.playerSlot} on that session."
             }
             if (hasController) {
-                if (!sharedConsole && !gbaGpspLink) {
+                if (!sharedConsole && !gbaGpspLink && !gbaLockstep) {
                     lines += "This device is your Game Boy. The other player has theirs."
                 }
             } else {
@@ -80,9 +80,9 @@ fun netplayBannerText(
         }
         if (sharedConsole) {
             lines += twoPlayerModeHint(gameTitle)
-        } else if (gbaGpspLink) {
-            lines += "This GBA has a Game Link cable plugged in."
-            lines += "Open the same 2-player / link menu from the title screen on both devices."
+        } else if (gbaLockstep) {
+            lines += "This phone runs two GBAs with a real Game Link cable between them."
+            lines += "Open the same 2-player / link menu on both devices. Network only copies pads."
         } else {
             lines += "Stay on this waiting screen on both devices. XOrA is the Game Link cable."
         }

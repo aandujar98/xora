@@ -39,60 +39,73 @@ fun netplaySessionMode(platformId: String): NetplaySessionMode {
     }
 }
 
-/** GBA Game Link now uses the gpSP libretro core's built-in netpacket cable. */
-@Suppress("UNUSED_PARAMETER")
-fun usesGbaLockstep(platformId: String): Boolean = false
-
-/** GBA netplay runs gpSP so each device can talk over the core's link-cable / RFU. */
-fun usesGbaGpspLink(platformId: String): Boolean =
+/** GBA Game Link is two libmgba cores on one in-process SIO lockstep bus. */
+fun usesGbaLockstep(platformId: String): Boolean =
     platformId.trim().equals("gba", ignoreCase = true)
 
-const val GBA_NETPLAY_CORE: String = "gpsp"
+/** gpSP netpacket only fakes Pokemon/RFU. Kirby needs a real MULTI cable. */
+fun usesGbaGpspLink(platformId: String): Boolean = false
 
-fun netplayCoreName(platformId: String, currentCore: String): String =
-    if (usesGbaGpspLink(platformId)) GBA_NETPLAY_CORE else currentCore
+const val GBA_NETPLAY_CORE: String = "mgba"
+
+fun netplayCoreName(platformId: String, currentCore: String): String = currentCore
 
 fun gbaNetplayClientId(playerSlot: Int): Int = (playerSlot - 1).coerceAtLeast(0)
 
-/**
- * Plug gpSP's cable as soon as this GBA is hosting or has a seat. Waiting for a
- * second player left the host with send_fn=NULL, so Kirby never saw a cable.
- */
 fun shouldStartGbaNetpacket(
     platformId: String,
     handheldLink: Boolean,
     localSlot: Int,
     playerCount: Int,
     alreadyStarted: Boolean,
-): Boolean =
-    usesGbaGpspLink(platformId) &&
-        handheldLink &&
-        localSlot >= 1 &&
-        playerCount >= 1 &&
-        !alreadyStarted
+): Boolean = false
 
-/** Keep writing SIOCNT/SIOMULTI while a GBA netplay session is up, even before GO. */
 fun shouldArmGbaLinkCable(
     platformId: String,
     handheldLink: Boolean,
     localSlot: Int,
     hosting: Boolean,
-): Boolean =
-    usesGbaGpspLink(platformId) &&
-        handheldLink &&
-        (hosting || localSlot >= 1)
+): Boolean = false
 
 /**
- * Start in-process lockstep once per handshake. Unused: GBA netplay now uses gpSP netpacket.
+ * Start in-process lockstep once this GBA has a seat. Retrying every frame after a
+ * failed start toasted the lobby.
  */
-@Suppress("UNUSED_PARAMETER")
 fun shouldStartGbaLockstep(
     platformId: String,
     handheldLink: Boolean,
     localSlot: Int,
     alreadyActive: Boolean,
     alreadyAttempted: Boolean,
-): Boolean = false
+): Boolean =
+    usesGbaLockstep(platformId) &&
+        handheldLink &&
+        localSlot >= 1 &&
+        !alreadyActive &&
+        !alreadyAttempted
+
+/**
+ * Restart lockstep when the lobby changes (host waiting vs two players linked)
+ * so both phones reset together, the same way desktop mGBA starts both GBAs at once.
+ */
+fun gbaLockstepGenerationKey(localSlot: Int, linked: Boolean, playerCount: Int): String {
+    val slot = localSlot.coerceAtLeast(1)
+    return if (linked && playerCount >= 2) {
+        "linked:$slot:$playerCount"
+    } else {
+        "solo:$slot"
+    }
+}
+
+/**
+ * Until a second person is linked, copy P1's pad onto the hidden GBA so both
+ * local cores enter MULTI together. After P2 joins, each seat has its own pad.
+ */
+fun shouldMirrorGbaLockstepPartnerPad(linked: Boolean, playerCount: Int): Boolean =
+    !linked || playerCount < 2
+
+/** Game Link is always two GBAs on this phone; 3–4 player MULTI can come later. */
+fun gbaLockstepPlayerCount(playerCount: Int): Int = playerCount.coerceIn(2, 4)
 
 fun NetplaySessionMode.isSharedConsole(): Boolean = this == NetplaySessionMode.SharedConsole
 
