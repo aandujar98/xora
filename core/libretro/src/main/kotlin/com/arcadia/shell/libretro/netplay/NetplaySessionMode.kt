@@ -98,11 +98,30 @@ fun gbaLockstepGenerationKey(localSlot: Int, linked: Boolean, playerCount: Int):
 }
 
 /**
- * Until a second person is linked, copy P1's pad onto the hidden GBA so both
- * local cores enter MULTI together. After P2 joins, each seat has its own pad.
+ * Host sits as Player 1 immediately. A joiner is Player 2 for Game Link even
+ * before ASSIGN, matching how the host boots two GBAs the moment they press Host.
  */
-fun shouldMirrorGbaLockstepPartnerPad(linked: Boolean, playerCount: Int): Boolean =
-    !linked || playerCount < 2
+fun gbaLockstepLocalSlot(playerSlot: Int, hosting: Boolean, joining: Boolean): Int = when {
+    playerSlot >= 1 -> playerSlot
+    hosting -> 1
+    joining -> 2
+    else -> 0
+}
+
+/** Hidden GBA on this phone: host shows Core 0, joiner shows Core 1. */
+fun gbaLockstepHiddenPort(localSlot: Int): Int {
+    val self = (localSlot - 1).coerceIn(0, 1)
+    return 1 - self
+}
+
+/**
+ * Clone this phone's pad onto the hidden GBA so both local cores enter MULTI.
+ * That is how the host sees a cable alone — Player 2 needs the same clone.
+ */
+fun shouldMirrorGbaLockstepPartnerPad(
+    @Suppress("UNUSED_PARAMETER") linked: Boolean,
+    @Suppress("UNUSED_PARAMETER") playerCount: Int,
+): Boolean = true
 
 /** Game Link is always two GBAs on this phone; 3–4 player MULTI can come later. */
 fun gbaLockstepPlayerCount(playerCount: Int): Int = playerCount.coerceIn(2, 4)

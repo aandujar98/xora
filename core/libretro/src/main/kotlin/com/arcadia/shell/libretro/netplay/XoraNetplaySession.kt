@@ -227,6 +227,8 @@ class XoraNetplaySession(
 
     val linkedNow: Boolean get() = linked.get()
     val hosting: Boolean get() = isHost.get() && running.get()
+    /** Joiner in handshake or live — not the host. */
+    val joining: Boolean get() = running.get() && !isHost.get()
     val onlineNow: Boolean get() = _state.value.online
     /** This device's seat (1 = host, 2..4 = joiners). 0 = not assigned yet. */
     val playerSlotNow: Int get() = mySlot.get()
@@ -909,6 +911,7 @@ class XoraNetplaySession(
                         return
                     }
                     progress.onAssign(assign.slot)
+                    mySlot.set(assign.slot)
                     deadline = maxOf(deadline, System.currentTimeMillis() + STATE_DOWNLOAD_TIMEOUT_MS)
                 }
                 XoraNetplayProtocol.TYPE_STATE -> progress.onState(payload)

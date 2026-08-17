@@ -92,13 +92,14 @@ import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
 import com.arcadia.shell.libretro.netplay.XoraNetplayVideo
 import com.arcadia.shell.libretro.netplay.gbaLockstepGenerationKey
+import com.arcadia.shell.libretro.netplay.gbaLockstepHiddenPort
+import com.arcadia.shell.libretro.netplay.gbaLockstepLocalSlot
 import com.arcadia.shell.libretro.netplay.gbaLockstepPlayerCount
 import com.arcadia.shell.libretro.netplay.gbaNetplayClientId
 import com.arcadia.shell.libretro.netplay.netplayBannerText
 import com.arcadia.shell.libretro.netplay.netplayCoreName
 import com.arcadia.shell.libretro.netplay.resolveGbaLockstepRomPath
 import com.arcadia.shell.libretro.netplay.shouldArmGbaLinkCable
-import com.arcadia.shell.libretro.netplay.shouldMirrorGbaLockstepPartnerPad
 import com.arcadia.shell.libretro.netplay.shouldStartGbaLockstep
 import com.arcadia.shell.libretro.netplay.shouldStartGbaNetpacket
 import com.arcadia.shell.libretro.netplay.usesGbaLockstep
@@ -2332,9 +2333,9 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     /**
-     * Lockstep cores always sit on this phone. Port 0 is Player 1, port 1 is Player 2,
-     * on both devices. Until a joiner exists, copy P1 onto the hidden GBA so both
-     * cores can enter MULTI (otherwise Kirby keeps SD=0).
+     * Lockstep cores always sit on this phone. Port 0 is Player 1, port 1 is Player 2.
+     * Clone this phone's pad onto the hidden GBA (host → Core 1, joiner → Core 0)
+     * so both local cores enter MULTI — the same cable trick for Player 1 and Player 2.
      */
     private fun applyGbaLockstepPads(
         session: XoraNetplaySession,
@@ -2342,20 +2343,22 @@ class XoraLibretroActivity : ComponentActivity() {
         pads: XoraNetplayExchange?,
         local: LibretroPadMixer.Snapshot?,
     ) {
+        val slot = gbaLockstepLocalSlot(
+            playerSlot = session.playerSlotNow,
+            hosting = session.hosting,
+            joining = session.joining,
+        )
+        val selfPort = (slot - 1).coerceIn(0, 1)
+        val hiddenPort = gbaLockstepHiddenPort(slot)
         if (pads != null && sent != null) {
             pads.pads.forEachIndexed { port, pad -> applyNativePad(port, pad) }
-            val selfPort = session.playerSlotNow - 1
-            if (selfPort in 0..3) applyNativePad(selfPort, sent)
+            applyNativePad(selfPort, sent)
         } else if (local != null) {
-            applyNativePad(0, local)
-            val selfPort = (session.playerSlotNow - 1).coerceIn(0, 3)
             applyNativePad(selfPort, local)
         }
-        if (shouldMirrorGbaLockstepPartnerPad(session.linkedNow, session.playerCountNow)) {
-            when {
-                sent != null -> applyNativePad(1, sent)
-                local != null -> applyNativePad(1, local)
-            }
+        when {
+            sent != null -> applyNativePad(hiddenPort, sent)
+            local != null -> applyNativePad(hiddenPort, local)
         }
     }
 
@@ -2365,7 +2368,11 @@ class XoraLibretroActivity : ComponentActivity() {
      */
     private fun startGbaLockstepIfNeeded(session: XoraNetplaySession): Boolean {
         val handheld = session.sessionModeNow == NetplaySessionMode.HandheldLink
-        val slot = session.playerSlotNow.coerceAtLeast(if (session.hosting) 1 else 0)
+        val slot = gbaLockstepLocalSlot(
+            playerSlot = session.playerSlotNow,
+            hosting = session.hosting,
+            joining = session.joining,
+        )
         if (!usesGbaLockstep(platformId) || !handheld || slot < 1) return false
         val key = gbaLockstepGenerationKey(
             localSlot = slot,
@@ -2641,7 +2648,8 @@ class XoraLibretroActivity : ComponentActivity() {
                             LibretroNative.nativePlugControllers()
                         }
                         session?.takeIf {
-                            usesGbaLockstep(platformId) && (it.hosting || it.playerSlotNow >= 1)
+                            usesGbaLockstep(platformId) &&
+                                (it.hosting || it.joining || it.playerSlotNow >= 1)
                         }?.let { startGbaLockstepIfNeeded(it) }
                         val lockstep = LibretroNative.nativeGbaLinkActive()
                         if (lockstep && session != null) {
