@@ -2124,6 +2124,8 @@ class XoraLibretroActivity : ComponentActivity() {
                 lastPadKeyLabel,
                 sharedConsole = netplaySession?.sessionModeNow == NetplaySessionMode.SharedConsole,
                 gbaLockstep = usesGbaLockstep(platformId),
+                gbaLockstepLive = usesGbaLockstep(platformId) &&
+                    LibretroNative.nativeGbaLinkActive(),
             ),
         )
     }
@@ -2308,7 +2310,10 @@ class XoraLibretroActivity : ComponentActivity() {
                             rx = if (mute) 0 else local.rx,
                             ry = if (mute) 0 else local.ry,
                         )
-                        val pads = session.exchange(sent)
+                        val pads = session.exchange(
+                            sent,
+                            replayRemoteInOrder = usesGbaLockstep(platformId),
+                        )
                         val live = sent.buttons != 0 ||
                             sent.lx.toInt() != 0 ||
                             sent.ly.toInt() != 0

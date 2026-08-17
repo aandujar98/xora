@@ -23,6 +23,7 @@
 #include <mgba/core/log.h>
 #include <mgba/core/sync.h>
 #include <mgba/core/thread.h>
+#include <mgba-util/threading.h>
 #include <mgba/gba/interface.h>
 #include <mgba/internal/gba/input.h>
 #include <mgba/internal/gba/sio/lockstep.h>
@@ -221,7 +222,10 @@ bool start_unlocked(const char* rom_path, int players, int local_slot, std::stri
         mCoreInitConfig(player.core, "xora");
         mCoreConfigSetIntValue(&player.core->config, "hwaccelVideo", 0);
         mCoreConfigSetIntValue(&player.core->config, "threadedVideo", 0);
-        mCoreConfigSetDefaultValue(&player.core->config, "idleOptimization", "remove");
+        // Kirby / Pokemon poll SIO inside an idle loop. "remove" skips that poll
+        // and the game sits on "Please connect the Game Link cable" forever.
+        mCoreConfigSetValue(&player.core->config, "idleOptimization", "ignore");
+        player.core->loadConfig(player.core, &player.core->config);
         player.core->opts.skipBios = true;
         player.core->opts.audioSync = false;
         player.core->opts.videoSync = false;
@@ -274,8 +278,13 @@ bool start_unlocked(const char* rom_path, int players, int local_slot, std::stri
         Player& player = g_session.players[i];
         mCoreThreadReset(&player.thread);
         if (player.thread.impl) {
-            mCoreSyncSetVideoSync(&player.thread.impl->sync, true);
+            // Pace only the on-screen GBA off vsync. The hidden partner is
+            // gated by SIO lockstep; waiting 50ms per frame for its video
+            // desyncs the cable and Kirby never sees a child GBA.
+            mCoreSyncSetVideoSync(&player.thread.impl->sync, i == local);
+            MutexLock(&player.thread.impl->sync.audioBufferMutex);
             player.thread.impl->sync.audioWait = false;
+            MutexUnlock(&player.thread.impl->sync.audioBufferMutex);
         }
     }
 
@@ -308,14 +317,17 @@ void run_frame_unlocked() {
         }
     }
 
+    interrupt_all(session);
     apply_pads(session);
+    continue_all(session);
 
-    for (int i = 0; i < session.nPlayers; ++i) {
-        Player& player = session.players[i];
-        if (!player.threadLive || !player.thread.impl) continue;
-        const bool got = mCoreSyncWaitFrameStart(&player.thread.impl->sync);
-        if (got && i == session.localSlot) publish_local_frame(session);
-        mCoreSyncWaitFrameEnd(&player.thread.impl->sync);
+    Player& local = session.players[session.localSlot];
+    if (local.threadLive && local.thread.impl) {
+        mCoreSyncWaitFrameStart(&local.thread.impl->sync);
+        publish_local_frame(session);
+        mCoreSyncWaitFrameEnd(&local.thread.impl->sync);
+    } else {
+        publish_local_frame(session);
     }
 }
 

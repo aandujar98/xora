@@ -125,11 +125,32 @@ class XoraNetplayBannerTest {
             hasController = true,
             sharedConsole = false,
             gbaLockstep = true,
+            gbaLockstepLive = true,
         )
         assertTrue(text.contains("two GBAs"))
         assertTrue(text.contains("link menu"))
+        assertTrue(text.contains("second GBA"))
         assertTrue(!text.contains("your Game Boy"))
         assertTrue(!text.contains("2 PLAYER GAME"))
+    }
+
+    @Test
+    fun gbaLockstepBannerSaysWhenCableIsNotRunning() {
+        val text = netplayBannerText(
+            ui = XoraNetplayUiState(
+                role = XoraNetplayRole.Host,
+                linked = true,
+                playerSlot = 1,
+            ),
+            padLive = true,
+            gameTitle = "Kirby",
+            hasController = true,
+            sharedConsole = false,
+            gbaLockstep = true,
+            gbaLockstepLive = false,
+        )
+        assertTrue(text.contains("not running"))
+        assertTrue(!text.contains("two GBAs"))
     }
 
     @Test

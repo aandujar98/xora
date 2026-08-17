@@ -106,6 +106,29 @@ class XoraNetplaySessionExchangeTest {
         }
         session.stop()
     }
+
+    @Test
+    fun lockstepReplaysRemoteTapsInOrderInsteadOfCoalescing() {
+        val session = session()
+        session.bindForTest(slot = 1, epoch = 1)
+        session.ingestRemoteForTest(
+            XoraNetplayProtocol.PadFrame(frame = 3, buttons = 0x0100, slot = 2, epoch = 1),
+        )
+        session.ingestRemoteForTest(
+            XoraNetplayProtocol.PadFrame(frame = 4, buttons = 0, slot = 2, epoch = 1),
+        )
+        val down = session.exchange(
+            XoraNetplayProtocol.PadFrame(frame = 20, buttons = 1),
+            replayRemoteInOrder = true,
+        )
+        assertEquals(0x0100, down.pads[1].buttons)
+        val up = session.exchange(
+            XoraNetplayProtocol.PadFrame(frame = 21, buttons = 1),
+            replayRemoteInOrder = true,
+        )
+        assertEquals(0, up.pads[1].buttons)
+        session.stop()
+    }
 }
 
 class XoraNetplaySessionVideoTest {

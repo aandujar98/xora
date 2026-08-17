@@ -53,6 +53,7 @@ fun netplayBannerText(
     @Suppress("UNUSED_PARAMETER") lastKey: String = "",
     sharedConsole: Boolean = true,
     gbaLockstep: Boolean = false,
+    gbaLockstepLive: Boolean = false,
 ): String {
     ui.error?.takeIf { it.isNotBlank() }?.let { return it }
     if (ui.linked && ui.playerSlot >= 1) {
@@ -73,9 +74,12 @@ fun netplayBannerText(
         }
         if (sharedConsole) {
             lines += twoPlayerModeHint(gameTitle)
+        } else if (gbaLockstep && gbaLockstepLive) {
+            lines += "This phone runs two GBAs with a real in-process cable."
+            lines += "After the reboot, both players open the same link menu from the title screen."
+            lines += "The other player's pad steers the second GBA here. The game waits until that GBA is on this screen too."
         } else if (gbaLockstep) {
-            lines += "Both phones run two GBAs locked together, like mGBA's multiplayer windows."
-            lines += "This reboot is the cable. Open the game's 2-player / link menu on both screens."
+            lines += "GBA cable is not running on this phone yet. Leave and rejoin, or reinstall 0.2.101 on both devices."
         } else {
             lines += "Stay on this waiting screen on both devices. XOrA is the Game Link cable."
         }
@@ -415,7 +419,7 @@ class XoraNetplaySession(
      * Slot 0 is not coerced to Player 1 — an unassigned joiner must not tag INPUT as the
      * host, or the real host drops it as an echo and P2 never moves.
      */
-    fun exchange(local: XoraNetplayProtocol.PadFrame): XoraNetplayExchange {
+    fun exchange(local: XoraNetplayProtocol.PadFrame, replayRemoteInOrder: Boolean = false): XoraNetplayExchange {
         val slot = mySlot.get()
         val currentEpoch = epoch.get()
         val idle = XoraNetplayProtocol.PadFrame(frame = local.frame, buttons = 0)
@@ -426,7 +430,7 @@ class XoraNetplaySession(
             writeInput(tagged)
             pads[slot - 1] = tagged
         }
-        collectLatestRemotePads(pads, currentEpoch, slot, idle)
+        collectRemotePads(pads, currentEpoch, slot, idle, replayRemoteInOrder)
         return XoraNetplayExchange(pads.toList())
     }
 
@@ -1142,27 +1146,58 @@ class XoraNetplaySession(
     }
 
     /**
-     * Fill every seat except [selfSlot] from the newest remote pad we have. Do not require
-     * an exact (epoch, frame) match — Nakama frames rarely share a counter — and never
-     * stall the emu thread waiting for one.
+     * Fill every seat except [selfSlot] from queued remote pads.
      *
-     * Incoming pads are applied even when [activeSlotsMask] omitted that seat, so a late
-     * or lost GO mask cannot leave P2 idle while INPUT is arriving.
+     * Latest-wins is right for SNES-style shared-console play (you want the
+     * freshest stick). GBA lockstep must replay taps in order: coalescing
+     * A-down then A-up into one "latest" frame means the hidden second GBA
+     * never presses A and never reaches the link menu.
      */
-    private fun collectLatestRemotePads(
+    private fun collectRemotePads(
         pads: Array<XoraNetplayProtocol.PadFrame>,
         currentEpoch: Int,
         selfSlot: Int,
         idle: XoraNetplayProtocol.PadFrame,
+        replayRemoteInOrder: Boolean,
     ) {
         for (slot in 1..XoraNetplayProtocol.MAX_PLAYERS) {
             if (slot == selfSlot) continue
-            val latest = takeLatestRemote(slot, currentEpoch)
+            val latest = if (replayRemoteInOrder) {
+                takeOldestRemote(slot, currentEpoch)
+            } else {
+                takeLatestRemote(slot, currentEpoch)
+            }
             pads[slot - 1] = when {
                 latest != null -> latest
                 else -> missPad(slot, idle)
             }
         }
+    }
+
+    private fun takeOldestRemote(slot: Int, currentEpoch: Int): XoraNetplayProtocol.PadFrame? {
+        val map = pendingRemote[slot - 1]
+        if (map.isEmpty()) return null
+        var best: XoraNetplayProtocol.PadFrame? = null
+        var bestKey: Long? = null
+        val stale = ArrayList<Long>()
+        for ((key, pad) in map) {
+            val keyEpoch = (key ushr 32).toInt()
+            if (keyEpoch != currentEpoch) {
+                stale.add(key)
+                continue
+            }
+            if (best == null || pad.frame < best.frame) {
+                best = pad
+                bestKey = key
+            }
+        }
+        stale.forEach { map.remove(it) }
+        val chosen = best ?: return null
+        bestKey?.let { map.remove(it) }
+        missStreak.set(slot - 1, 0)
+        lastConsumed.set(slot - 1, chosen.frame)
+        lastRemote[slot - 1].set(chosen)
+        return chosen
     }
 
     private fun takeLatestRemote(slot: Int, currentEpoch: Int): XoraNetplayProtocol.PadFrame? {
