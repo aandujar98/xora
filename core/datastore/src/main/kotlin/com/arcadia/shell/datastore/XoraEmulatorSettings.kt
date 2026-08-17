@@ -14,8 +14,9 @@ data class XoraEmulatorSettings(
     /**
      * On dual-screen devices, put the top DS/3DS screen on the primary panel and the bottom
      * screen on the secondary panel (forces a stacked core layout, then splits the frame).
+     * Defaults on — only takes effect when a second display is actually present.
      */
-    val expandDualDisplay: Boolean = false,
+    val expandDualDisplay: Boolean = true,
     /** How the framebuffer is fitted inside the panel. */
     val aspectMode: XoraAspectMode = XoraAspectMode.Core,
     /** Cap for [XoraAspectMode.Integer] (1–8). 0 = auto (largest that fits). */

@@ -341,6 +341,9 @@ object XoraCoreOptions {
         out["melonds_screen_gap"] = gap.toString()
         out["melonds_ds_screen_layout1"] = melonDs
         out["melonds_ds_number_of_screen_layouts"] = "1"
+        // Absolute stylus — joystick/mouse modes ignore the Android touch screen.
+        out["melonds_touch_mode"] = "Touch"
+        out["melonds_ds_touch_mode"] = "absolute"
 
         applyNdsWfc(settings, out)
 

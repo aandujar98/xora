@@ -418,7 +418,7 @@ class ShellPreferences @Inject constructor(
             threeDsScreenLayout = prefs[Keys.XORA_3DS_LAYOUT]
                 ?.let { runCatching { ThreeDsScreenLayout.valueOf(it) }.getOrNull() }
                 ?: ThreeDsScreenLayout.TopBottom,
-            expandDualDisplay = prefs[Keys.XORA_EXPAND_DUAL] ?: false,
+            expandDualDisplay = prefs[Keys.XORA_EXPAND_DUAL] ?: true,
             aspectMode = prefs[Keys.XORA_ASPECT]
                 ?.let { runCatching { XoraAspectMode.valueOf(it) }.getOrNull() }
                 ?: XoraAspectMode.Core,

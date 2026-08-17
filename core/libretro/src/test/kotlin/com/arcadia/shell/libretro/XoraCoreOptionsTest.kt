@@ -1,7 +1,9 @@
 package com.arcadia.shell.libretro
 
+import com.arcadia.shell.datastore.DualScreenLayout
 import com.arcadia.shell.datastore.KAERU_WFC_DNS
 import com.arcadia.shell.datastore.NdsWfcServer
+import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.WIIMMFI_WFC_DNS
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import org.junit.Assert.assertEquals
@@ -195,5 +197,30 @@ class XoraCoreOptionsTest {
         val vars = XoraCoreOptions.variablesFor("3ds", "azahar", settings)
         assertEquals(vars["citra_layout_option"], vars["azahar_layout_option"])
         assertEquals(vars["citra_resolution_factor"], vars["azahar_resolution_factor"])
+    }
+
+    @Test
+    fun expandForcesStackedNdsLayoutAndAbsoluteTouch() {
+        val vars = XoraCoreOptions.variablesFor(
+            "nds",
+            "melonds",
+            settings.copy(ndsScreenLayout = DualScreenLayout.LeftRight),
+            expandActive = true,
+        )
+        assertEquals("Top/Bottom", vars["melonds_screen_layout"])
+        assertEquals("0", vars["melonds_screen_gap"])
+        assertEquals("Touch", vars["melonds_touch_mode"])
+        assertEquals("absolute", vars["melonds_ds_touch_mode"])
+    }
+
+    @Test
+    fun expandForcesStacked3dsLayout() {
+        val vars = XoraCoreOptions.variablesFor(
+            "3ds",
+            "azahar",
+            settings.copy(threeDsScreenLayout = ThreeDsScreenLayout.SideBySide),
+            expandActive = true,
+        )
+        assertEquals("Default Top-Bottom Screen", vars["azahar_layout_option"])
     }
 }

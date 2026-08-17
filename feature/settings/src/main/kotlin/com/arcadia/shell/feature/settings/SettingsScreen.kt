@@ -1382,8 +1382,9 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            text = "Top screen on the primary panel, bottom on the secondary " +
-                                "(clamshell / dual-screen devices).",
+                            text = "melonDS / Azahar: top screen fills the primary panel, " +
+                                "bottom (touch) screen fills the secondary. On by default " +
+                                "on clamshell / dual-screen devices.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

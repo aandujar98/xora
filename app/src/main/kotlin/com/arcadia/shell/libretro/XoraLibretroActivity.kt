@@ -363,6 +363,7 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         stage = stageView
         primaryGameView = stageView.gameView
+        bindPointerTouch(stageView.gameView, DualScreenPointerTarget.Combined)
         stageView.bezelView.onAvatarClick = { clearWhiteTintFromProfileTap() }
         stageView.bezelView.isClickable = true
         stageView.bezelView.setAvatarDrawn(false)
@@ -577,6 +578,23 @@ class XoraLibretroActivity : ComponentActivity() {
                 refreshExpandTopology()
                 applyStageSettings(xora)
                 applyAudioVolume(xora.audioVolume)
+                if (gameLoaded && platformId in DUAL_SCREEN_PLATFORMS) {
+                    withContext(emuDispatcher) { applyCoreControllerOptions() }
+                    bindPointerTouch(
+                        primaryGameView,
+                        if (expandActive) {
+                            DualScreenPointerTarget.TopHalf
+                        } else {
+                            DualScreenPointerTarget.Combined
+                        },
+                    )
+                }
+            }
+            LaunchedEffect(Unit) {
+                DisplayTopologyMonitor(this@XoraLibretroActivity).topology().collect {
+                    refreshExpandTopology()
+                    applyStageSettings(xoraSettings)
+                }
             }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
 
@@ -593,15 +611,21 @@ class XoraLibretroActivity : ComponentActivity() {
                             XoraScaledGameFrame(
                                 contentWidthPx = bottom.width,
                                 contentHeightPx = bottom.height,
-                                mode = xora.aspectMode,
+                                mode = XoraAspectMode.Stretch,
                                 integerScaleCap = xora.integerScale,
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 XoraGameImageView(
                                     bitmap = bottom,
                                     frameTick = frameTick,
-                                    aspectMode = xora.aspectMode,
-                                    onImageView = { secondaryGameView = it },
+                                    aspectMode = XoraAspectMode.Stretch,
+                                    onImageView = { view ->
+                                        secondaryGameView = view
+                                        bindPointerTouch(
+                                            view,
+                                            DualScreenPointerTarget.BottomHalf,
+                                        )
+                                    },
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
@@ -1171,6 +1195,7 @@ class XoraLibretroActivity : ComponentActivity() {
         refreshSaveSlots()
         refreshAchievementList()
         menuOpen = true
+        releasePointer()
         syncPaused()
         overlay.visibility = View.VISIBLE
         overlay.alpha = 1f
@@ -1875,9 +1900,10 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun applyStageSettings(xora: XoraEmulatorSettings) {
         val stageView = stage ?: return
-        stageView.aspectMode = xora.aspectMode
+        val fillEachPanel = expandActive
+        stageView.aspectMode = if (fillEachPanel) XoraAspectMode.Stretch else xora.aspectMode
         stageView.integerScaleCap = xora.integerScale
-        stageView.bezelsEnabled = xora.bezelsEnabled
+        stageView.bezelsEnabled = if (fillEachPanel) false else xora.bezelsEnabled
         primaryGameView?.scaleType = ImageView.ScaleType.FIT_XY
         refreshOverlayFile()
     }
@@ -2345,6 +2371,7 @@ class XoraLibretroActivity : ComponentActivity() {
             platformId = platformId,
             coreName = coreName,
             settings = xoraSettings,
+            expandActive = expandActive,
             netplay = XoraCoreOptions.NetplayContext(
                 hosting = ui.role == XoraNetplayRole.Host,
                 joining = ui.role == XoraNetplayRole.Client,
@@ -2370,6 +2397,58 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun applyNativePad(port: Int, pad: XoraNetplayProtocol.PadFrame) {
         LibretroNative.nativeSetPadStatePort(port, pad.buttons, pad.lx, pad.ly, pad.rx, pad.ry)
+    }
+
+    private fun bindPointerTouch(view: ImageView?, target: DualScreenPointerTarget) {
+        if (view == null) return
+        view.isClickable = true
+        view.isFocusable = false
+        view.isFocusableInTouchMode = false
+        view.setOnTouchListener { touched, event ->
+            handleGamePointer(touched as ImageView, event, target)
+        }
+    }
+
+    private fun releasePointer() {
+        LibretroNative.nativeSetPointerState(0, 0, false)
+    }
+
+    private fun handleGamePointer(
+        view: ImageView,
+        event: MotionEvent,
+        target: DualScreenPointerTarget,
+    ): Boolean {
+        if (platformId !in DUAL_SCREEN_PLATFORMS) return false
+        if (menuOpen || invitePromptOpen || !gameLoaded) {
+            releasePointer()
+            return false
+        }
+        when (event.actionMasked) {
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_CANCEL,
+            MotionEvent.ACTION_POINTER_UP,
+            -> {
+                releasePointer()
+                return true
+            }
+        }
+        val drawable = view.drawable
+        val mapped = DualScreenPointer.mapViewToPointer(
+            viewX = event.x,
+            viewY = event.y,
+            viewW = view.width,
+            viewH = view.height,
+            contentW = drawable?.intrinsicWidth ?: view.width,
+            contentH = drawable?.intrinsicHeight ?: view.height,
+            fill = view.scaleType == ImageView.ScaleType.FIT_XY,
+            target = target,
+            pressed = true,
+        ) ?: run {
+            releasePointer()
+            return false
+        }
+        LibretroNative.nativeSetPointerState(mapped.x, mapped.y, mapped.pressed)
+        return mapped.pressed
     }
 
     /**
@@ -2956,6 +3035,8 @@ private fun XoraGameImageView(
             ImageView(context).apply {
                 setBackgroundColor(AndroidColor.BLACK)
                 adjustViewBounds = false
+                isClickable = true
+                isFocusable = false
                 this.scaleType = scaleType
                 setImageBitmap(bitmap)
                 onImageView(this)

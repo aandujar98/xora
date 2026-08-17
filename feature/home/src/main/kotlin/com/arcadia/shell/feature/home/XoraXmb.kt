@@ -573,7 +573,7 @@ fun buildXoraEmulatorItems(
             id = "emu_expand",
             title = "Expand dual display",
             subtitle = when {
-                settings.expandDualDisplay -> "On · DS / 3DS top / bottom"
+                settings.expandDualDisplay -> "On · each DS/3DS screen fills a panel"
                 else -> "Off"
             },
             action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.ExpandDualDisplay),

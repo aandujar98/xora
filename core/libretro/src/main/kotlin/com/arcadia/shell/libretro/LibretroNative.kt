@@ -23,6 +23,8 @@ object LibretroNative {
         rx: Short,
         ry: Short,
     )
+    /** Libretro pointer / stylus. [x]/[y] are −32767…32767 over the core framebuffer. */
+    external fun nativeSetPointerState(x: Short, y: Short, pressed: Boolean)
     /** Packed `[width, height, pixels…]` or null when no frame yet. */
     external fun nativeCopyFrameRgba(): IntArray?
     external fun nativeDrainAudio(): ShortArray?

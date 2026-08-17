@@ -1224,7 +1224,11 @@ private fun paneRows(
         MenuRow(
             id = "g-dual",
             title = "Expand dual display",
-            subtitle = if (settings.expandDualDisplay) "On" else "Off",
+            subtitle = if (settings.expandDualDisplay) {
+                "On · each DS/3DS screen fills a panel"
+            } else {
+                "Off · both screens on this display"
+            },
             icon = XmbIcon.Display,
             action = EmulatorMenuAction.ToggleExpandDual,
         ),

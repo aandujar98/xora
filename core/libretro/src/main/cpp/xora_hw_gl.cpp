@@ -288,6 +288,10 @@ int gles_major_for(enum retro_hw_context_type type) {
         case RETRO_HW_CONTEXT_OPENGLES2:
         case RETRO_HW_CONTEXT_OPENGL:
             return 2;
+        case RETRO_HW_CONTEXT_OPENGL_CORE:
+            // Desktop Azahar asks for GL Core 3.3+. Android only has GLES; a GLES3
+            // context is what the Android Azahar build uses (USING_GLES).
+            return 3;
         default:
             return 0;
     }

@@ -95,6 +95,7 @@ std::string g_system_dir;
 std::string g_save_dir;
 std::string g_core_path;
 std::string g_last_error;
+std::string g_core_message;
 /** Kept for the loaded game lifetime — cores may retain path / buffer pointers. */
 std::string g_rom_path;
 std::vector<uint8_t> g_rom_buffer;
@@ -134,6 +135,9 @@ std::atomic<int16_t> g_axis_lx[4]{{0}, {0}, {0}, {0}};
 std::atomic<int16_t> g_axis_ly[4]{{0}, {0}, {0}, {0}};
 std::atomic<int16_t> g_axis_rx[4]{{0}, {0}, {0}, {0}};
 std::atomic<int16_t> g_axis_ry[4]{{0}, {0}, {0}, {0}};
+std::atomic<int16_t> g_pointer_x{0};
+std::atomic<int16_t> g_pointer_y{0};
+std::atomic<int16_t> g_pointer_pressed{0};
 
 // Device IDs from SET_CONTROLLER_INFO (core-specific subclasses, not always JOYPAD).
 constexpr unsigned kMaxControllerPorts = 4;
@@ -337,6 +341,13 @@ std::string path_extension(const std::string& path) {
     const auto dot = base.find_last_of('.');
     if (dot == std::string::npos || dot == 0) return "";
     return to_lower_copy(base.substr(dot + 1));
+}
+
+/** Azahar / melonDS mmap the cart. Never copy a 1 GB .cci into RAM as a fallback. */
+bool skip_buffer_fallback(const std::string& ext) {
+    return ext == "cci" || ext == "3ds" || ext == "cxi" || ext == "cia" ||
+        ext == "3dsx" || ext == "app" || ext == "zcci" || ext == "zcxi" ||
+        ext == "z3dsx" || ext == "nds" || ext == "dsi";
 }
 
 std::string path_directory(const std::string& path) {
@@ -776,6 +787,37 @@ int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id)
             return (buttons >> id) & 1 ? 0x7fff : 0;
         }
     }
+    if (masked == RETRO_DEVICE_POINTER) {
+        if (index != 0) return 0;
+        if (id == RETRO_DEVICE_ID_POINTER_X) {
+            return g_pointer_x.load(std::memory_order_relaxed);
+        }
+        if (id == RETRO_DEVICE_ID_POINTER_Y) {
+            return g_pointer_y.load(std::memory_order_relaxed);
+        }
+        if (id == RETRO_DEVICE_ID_POINTER_PRESSED) {
+            return g_pointer_pressed.load(std::memory_order_relaxed);
+        }
+        if (id == RETRO_DEVICE_ID_POINTER_COUNT) {
+            return g_pointer_pressed.load(std::memory_order_relaxed) ? 1 : 0;
+        }
+        if (id == RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN) {
+            return g_pointer_pressed.load(std::memory_order_relaxed) ? 0 : 1;
+        }
+        return 0;
+    }
+    if (masked == RETRO_DEVICE_MOUSE) {
+        if (id == RETRO_DEVICE_ID_MOUSE_X) {
+            return g_pointer_x.load(std::memory_order_relaxed);
+        }
+        if (id == RETRO_DEVICE_ID_MOUSE_Y) {
+            return g_pointer_y.load(std::memory_order_relaxed);
+        }
+        if (id == RETRO_DEVICE_ID_MOUSE_LEFT) {
+            return g_pointer_pressed.load(std::memory_order_relaxed);
+        }
+        return 0;
+    }
     return 0;
 }
 
@@ -948,7 +990,10 @@ bool environment(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
             if (!data) return false;
             *static_cast<uint64_t*>(data) =
-                (1ULL << RETRO_DEVICE_JOYPAD) | (1ULL << RETRO_DEVICE_ANALOG);
+                (1ULL << RETRO_DEVICE_JOYPAD) |
+                (1ULL << RETRO_DEVICE_ANALOG) |
+                (1ULL << RETRO_DEVICE_POINTER) |
+                (1ULL << RETRO_DEVICE_MOUSE);
             return true;
         }
         case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
@@ -998,6 +1043,24 @@ bool environment(unsigned cmd, void* data) {
             static const retro_game_info_ext* ext_ptr;
             ext_ptr = &g_game_info_ext;
             *static_cast<const retro_game_info_ext**>(data) = ext_ptr;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_MESSAGE: {
+            if (!data) return true;
+            const auto* msg = static_cast<const retro_message*>(data);
+            if (msg && msg->msg && msg->msg[0]) {
+                g_core_message = msg->msg;
+                ALOGI("SET_MESSAGE: %s", msg->msg);
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_MESSAGE_EXT: {
+            if (!data) return true;
+            const auto* msg = static_cast<const retro_message_ext*>(data);
+            if (msg && msg->msg && msg->msg[0]) {
+                g_core_message = msg->msg;
+                ALOGI("SET_MESSAGE_EXT: %s", msg->msg);
+            }
             return true;
         }
         case RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE: {
@@ -1322,6 +1385,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadGame(
     g_rom_path = path_c ? path_c : "";
     env->ReleaseStringUTFChars(rom_path, path_c);
     g_rom_buffer.clear();
+    g_core_message.clear();
     clear_game_info_ext();
 
     if (g_rom_path.empty()) {
@@ -1437,28 +1501,41 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadGame(
 
     bool ok = attempt_load(!need_fullpath && !g_rom_buffer.empty());
     // Fallback: some Android cores mis-report need_fullpath or accept either form.
+    // Never slurp a 1 GB 3DS cart into RAM — Azahar mmaps the path and rejects buffers.
     if (!ok) {
         ALOGW("Primary load failed; trying alternate path/buffer strategy");
         if (need_fullpath) {
-            if (g_rom_buffer.empty() && !from_archive) {
-                std::string read_error;
-                if (!read_rom_file(g_rom_path.c_str(), g_rom_buffer, read_error)) {
-                    ALOGW("Fallback buffer read failed: %s", read_error.c_str());
+            if (!skip_buffer_fallback(ext)) {
+                if (g_rom_buffer.empty() && !from_archive) {
+                    std::string read_error;
+                    if (!read_rom_file(g_rom_path.c_str(), g_rom_buffer, read_error)) {
+                        ALOGW("Fallback buffer read failed: %s", read_error.c_str());
+                    }
                 }
+                if (!g_rom_buffer.empty()) ok = attempt_load(true);
             }
-            if (!g_rom_buffer.empty()) ok = attempt_load(true);
         } else {
             ok = attempt_load(false);
         }
     }
 
     if (!ok) {
-        g_last_error = std::string("retro_load_game failed (core=") +
-            (info.library_name ? info.library_name : "?") +
-            ", ext=" + ext +
-            ", bytes=" + std::to_string(g_rom_buffer.size()) +
-            (from_archive ? ", from_zip" : "") +
-            ")";
+        if (!g_core_message.empty()) {
+            g_last_error = g_core_message;
+        } else if (skip_buffer_fallback(ext) &&
+            (ext == "cci" || ext == "3ds" || ext == "cxi" || ext == "cia" ||
+                ext == "3dsx" || ext == "zcci" || ext == "zcxi")) {
+            g_last_error =
+                "Azahar could not open this cart. It needs a decrypted .cci/.3ds "
+                "(encrypted 1:1 dumps fail) and a real file path — not a RAM copy.";
+        } else {
+            g_last_error = std::string("retro_load_game failed (core=") +
+                (info.library_name ? info.library_name : "?") +
+                ", ext=" + ext +
+                ", bytes=" + std::to_string(g_rom_buffer.size()) +
+                (from_archive ? ", from_zip" : "") +
+                ")";
+        }
         ALOGE("%s path=%s", g_last_error.c_str(), g_rom_path.c_str());
         g_rom_path.clear();
         g_rom_buffer.clear();
@@ -1987,6 +2064,19 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeSetPadStatePort(
     g_axis_ly[port].store(ly, std::memory_order_relaxed);
     g_axis_rx[port].store(rx, std::memory_order_relaxed);
     g_axis_ry[port].store(ry, std::memory_order_relaxed);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeSetPointerState(
+    JNIEnv*,
+    jclass,
+    jshort x,
+    jshort y,
+    jboolean pressed
+) {
+    g_pointer_x.store(x, std::memory_order_relaxed);
+    g_pointer_y.store(y, std::memory_order_relaxed);
+    g_pointer_pressed.store(pressed ? 1 : 0, std::memory_order_relaxed);
 }
 
 extern "C" JNIEXPORT jintArray JNICALL
