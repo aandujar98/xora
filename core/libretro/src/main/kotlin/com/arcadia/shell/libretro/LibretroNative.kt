@@ -46,6 +46,14 @@ object LibretroNative {
     /** Keep the GBA Game Link I/O poke armed while a handheld session is waiting or live. */
     external fun nativeGbaSioSetEnabled(enabled: Boolean)
 
+    /**
+     * Start in-process mGBA lockstep (two cores + a real SIO cable). [localSlot] is 1-based.
+     * Both devices must call this with the same ROM after the netplay handshake.
+     */
+    external fun nativeGbaLinkStart(romPath: String, players: Int, localSlot: Int): Boolean
+    external fun nativeGbaLinkStop()
+    external fun nativeGbaLinkActive(): Boolean
+
     /** Clear frontend core-option overrides (call before applying a fresh set). */
     external fun nativeClearCoreVariables()
     /** Override a Libretro core option; cores read via GET_VARIABLE. */

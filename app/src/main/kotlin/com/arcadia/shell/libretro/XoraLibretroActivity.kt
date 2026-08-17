@@ -91,6 +91,7 @@ import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
 import com.arcadia.shell.libretro.netplay.XoraNetplayVideo
 import com.arcadia.shell.libretro.netplay.netplayBannerText
+import com.arcadia.shell.libretro.netplay.usesGbaLockstep
 import com.arcadia.shell.libretro.netplay.formatJoinHostPort
 import com.arcadia.shell.libretro.netplay.parseJoinHostPort
 import com.arcadia.shell.retroachievements.RaAchievement
@@ -2112,6 +2113,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 hasController,
                 lastPadKeyLabel,
                 sharedConsole = netplaySession?.sessionModeNow == NetplaySessionMode.SharedConsole,
+                gbaLockstep = usesGbaLockstep(platformId),
             ),
         )
     }
@@ -2305,7 +2307,47 @@ class XoraLibretroActivity : ComponentActivity() {
                             refreshNetplayBanner()
                         }
                         val handheld = session.sessionModeNow == NetplaySessionMode.HandheldLink
-                        if (handheld) {
+                        val gbaLockstep = usesGbaLockstep(platformId) &&
+                            handheld &&
+                            session.playerSlotNow >= 1
+                        if (gbaLockstep && !LibretroNative.nativeGbaLinkActive()) {
+                            val rom = romFilePath.orEmpty()
+                            val players = session.playerCountNow.coerceIn(2, 4)
+                            val ok = LibretroNative.nativeGbaLinkStart(
+                                rom,
+                                players,
+                                session.playerSlotNow,
+                            )
+                            if (ok) {
+                                LibretroNative.nativeGbaSioSetEnabled(false)
+                                withContext(Dispatchers.Main.immediate) {
+                                    Toast.makeText(
+                                        this@XoraLibretroActivity,
+                                        "Game Link: both GBAs rebooted with a real cable. Open the 2-player / link menu.",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                                refreshNetplayBanner()
+                            } else {
+                                val err = LibretroNative.nativeLastError()
+                                    ?: "Could not start GBA lockstep"
+                                withContext(Dispatchers.Main.immediate) {
+                                    Toast.makeText(
+                                        this@XoraLibretroActivity,
+                                        err,
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            }
+                        }
+                        if (handheld && LibretroNative.nativeGbaLinkActive()) {
+                            // Both GBAs live on this device. Apply every seat's pad.
+                            pads.pads.forEachIndexed { port, pad ->
+                                applyNativePad(port, pad)
+                            }
+                            val selfPort = session.playerSlotNow - 1
+                            if (selfPort in 0..3) applyNativePad(selfPort, sent)
+                        } else if (handheld) {
                             // Each handheld is its own game (link-cable style). Local pad is P1.
                             applyNativePad(0, sent)
                             applyNativePad(1, LibretroPadMixer.Snapshot())
@@ -2319,7 +2361,8 @@ class XoraLibretroActivity : ComponentActivity() {
                             if (selfPort in 0..3) applyNativePad(selfPort, sent)
                         }
                         if (session.runsLocalCore) {
-                            if (handheld) {
+                            val lockstep = LibretroNative.nativeGbaLinkActive()
+                            if (handheld && !lockstep) {
                                 // Poke mapped GBA I/O (SIOMULTI / SIOCNT / RCNT) only.
                                 // Call even before the peer is linked so the game sees a cable.
                                 LibretroNative.nativeGbaSioSetEnabled(true)
@@ -2335,12 +2378,12 @@ class XoraLibretroActivity : ComponentActivity() {
                             }
                             emuFrameIndex++
                             LibretroNative.nativeRunFrame()
-                            raSession?.doFrame()
+                            if (!lockstep) raSession?.doFrame()
                             val packed = LibretroNative.nativeCopyFrameRgba()
                             val pcm = LibretroNative.nativeDrainAudio()
                             packed?.let { presentFrame(it) }
                             pcm?.let { audioTrack?.write(it, 0, it.size) }
-                            if (handheld) {
+                            if (handheld && !lockstep) {
                                 val snap = LibretroNative.nativeGbaSioRead()
                                 val multi = session.exchangeSerial(
                                     snap?.getOrNull(0) ?: 0,

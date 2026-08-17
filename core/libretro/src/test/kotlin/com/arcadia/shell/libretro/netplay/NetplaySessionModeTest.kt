@@ -21,6 +21,14 @@ class NetplaySessionModeTest {
     }
 
     @Test
+    fun gbaUsesEmbeddedLockstep() {
+        assertEquals(true, usesGbaLockstep("gba"))
+        assertEquals(true, usesGbaLockstep("GBA"))
+        assertEquals(false, usesGbaLockstep("gbc"))
+        assertEquals(false, usesGbaLockstep("snes"))
+    }
+
+    @Test
     fun sharedConsoleJoinersDoNotLoadHostSavestate() {
         assertEquals(false, NetplaySessionMode.SharedConsole.joinerAppliesHostState())
         assertEquals(false, NetplaySessionMode.HandheldLink.joinerAppliesHostState())

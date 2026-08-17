@@ -113,6 +113,26 @@ class XoraNetplayBannerTest {
     }
 
     @Test
+    fun gbaLockstepExplainsTwoLocalCores() {
+        val text = netplayBannerText(
+            ui = XoraNetplayUiState(
+                role = XoraNetplayRole.Client,
+                linked = true,
+                playerSlot = 2,
+            ),
+            padLive = true,
+            gameTitle = "Mario Kart Super Circuit",
+            hasController = true,
+            sharedConsole = false,
+            gbaLockstep = true,
+        )
+        assertTrue(text.contains("two GBAs"))
+        assertTrue(text.contains("link menu"))
+        assertTrue(!text.contains("your Game Boy"))
+        assertTrue(!text.contains("2 PLAYER GAME"))
+    }
+
+    @Test
     fun handheldLastKeyDoesNotAskForMarioKartMode() {
         val text = netplayBannerText(
             ui = XoraNetplayUiState(

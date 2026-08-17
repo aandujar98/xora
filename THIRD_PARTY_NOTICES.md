@@ -1,7 +1,11 @@
 # Third-party notices — XOrA Emulator (Libretro)
 
 XOrA embeds a **Libretro host** (`:core:libretro`) and can download **Libretro cores** at runtime
-from the public Libretro Android nightly buildbot. Cores are **not** shipped inside the APK.
+from the public Libretro Android nightly buildbot. Most cores are **not** shipped inside the APK.
+
+For GBA Game Link, XOrA also embeds **libmgba** (Mozilla Public License 2.0) and runs two GBA
+cores in-process on mGBA's SIO lockstep coordinator — the same arrangement as desktop mGBA's
+"New multiplayer window". Matching libretro mGBA cores on two phones is not a cable.
 
 XOrA does **not** include ROMs, BIOS images, or other copyrighted game content. You must supply
 only files you have the right to use.
@@ -10,6 +14,12 @@ only files you have the right to use.
 
 - **libretro.h** — Copyright (C) 2010–2024 The RetroArch team  
   MIT-style permission notice (see header in `core/libretro/src/main/cpp/libretro.h`).
+
+## Embedded libmgba (GBA Game Link)
+
+- **libmgba** — Copyright (c) 2013–2026 Jeffrey Pfau  
+  Mozilla Public License 2.0. Source: [mgba-emu/mgba](https://github.com/mgba-emu/mgba).  
+  Fetched at build time into `core/libretro/src/main/cpp/third_party/mgba/` (not shipped as a separate `.so`; linked into `libxora_libretro.so`).
 
 ## Downloaded cores (examples)
 

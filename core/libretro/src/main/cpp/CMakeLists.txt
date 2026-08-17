@@ -1,6 +1,35 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(xora_libretro)
 
+# In-process mGBA Game Link (MPL-2.0). LIBMGBA_ONLY skips Qt/SDL/deps.
+# Do not use FetchContent URL here: the Android NDK toolchain rewrites it
+# into a local path and ExternalProject fails.
+set(LIBMGBA_ONLY ON CACHE BOOL "Build only libmgba" FORCE)
+set(M_CORE_GBA ON CACHE BOOL "" FORCE)
+set(M_CORE_GB OFF CACHE BOOL "" FORCE)
+set(ENABLE_DEBUGGERS OFF CACHE BOOL "" FORCE)
+set(ENABLE_SCRIPTING OFF CACHE BOOL "" FORCE)
+set(BUILD_QT OFF CACHE BOOL "" FORCE)
+set(BUILD_SDL OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(DISABLE_FRONTENDS ON CACHE BOOL "" FORCE)
+set(DISABLE_DEPS ON CACHE BOOL "" FORCE)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+set(MGBA_SRC "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mgba")
+if(NOT EXISTS "${MGBA_SRC}/CMakeLists.txt")
+    message(STATUS "Cloning mGBA into ${MGBA_SRC}")
+    execute_process(
+        COMMAND git clone --depth 1 https://github.com/mgba-emu/mgba.git "${MGBA_SRC}"
+        RESULT_VARIABLE MGBA_CLONE
+    )
+    if(NOT MGBA_CLONE EQUAL 0)
+        message(FATAL_ERROR "Could not clone mGBA for GBA Game Link")
+    endif()
+endif()
+add_subdirectory("${MGBA_SRC}" "${CMAKE_CURRENT_BINARY_DIR}/mgba" EXCLUDE_FROM_ALL)
+
 set(RCHEEVOS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rcheevos)
 
 set(RCHEEVOS_SOURCES
@@ -37,6 +66,7 @@ set(RCHEEVOS_SOURCES
 
 add_library(xora_libretro SHARED
     xora_libretro_host.cpp
+    xora_gba_link.cpp
     xora_hw_gl.cpp
     xora_ra_client.cpp
     ${RCHEEVOS_SOURCES}
@@ -53,10 +83,16 @@ target_include_directories(xora_libretro PRIVATE
     ${RCHEEVOS_DIR}/include
     ${RCHEEVOS_DIR}/src
     ${RCHEEVOS_DIR}/src/rcheevos
+    ${MGBA_SRC}/include
+    ${MGBA_SRC}/src
+    ${CMAKE_CURRENT_BINARY_DIR}/mgba/include
 )
 
 target_compile_definitions(xora_libretro PRIVATE
     RC_DISABLE_LUA=1
+    BUILD_STATIC
+    M_CORE_GBA
+    ENABLE_VFS
 )
 
 target_link_libraries(xora_libretro
@@ -66,6 +102,7 @@ target_link_libraries(xora_libretro
     ${GLESv2-lib}
     ${z-lib}
     dl
+    mgba
 )
 
 target_compile_features(xora_libretro PUBLIC cxx_std_20)

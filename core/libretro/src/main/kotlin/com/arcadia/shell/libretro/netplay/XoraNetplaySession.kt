@@ -52,6 +52,7 @@ fun netplayBannerText(
     hasController: Boolean = true,
     @Suppress("UNUSED_PARAMETER") lastKey: String = "",
     sharedConsole: Boolean = true,
+    gbaLockstep: Boolean = false,
 ): String {
     ui.error?.takeIf { it.isNotBlank() }?.let { return it }
     if (ui.linked && ui.playerSlot >= 1) {
@@ -61,7 +62,7 @@ fun netplayBannerText(
                 lines += "One game on the host. Your pad is Player ${ui.playerSlot} on that session."
             }
             if (hasController) {
-                if (!sharedConsole) {
+                if (!sharedConsole && !gbaLockstep) {
                     lines += "This device is your Game Boy. The other player has theirs."
                 }
             } else {
@@ -72,6 +73,9 @@ fun netplayBannerText(
         }
         if (sharedConsole) {
             lines += twoPlayerModeHint(gameTitle)
+        } else if (gbaLockstep) {
+            lines += "Both phones run two GBAs locked together, like mGBA's multiplayer windows."
+            lines += "This reboot is the cable. Open the game's 2-player / link menu on both screens."
         } else {
             lines += "Stay on this waiting screen on both devices. XOrA is the Game Link cable."
         }
@@ -220,6 +224,7 @@ class XoraNetplaySession(
     /** True while a savestate is in flight — the core must not advance. */
     val holdEmulation: Boolean get() = freezeCore.get()
     val sessionModeNow: NetplaySessionMode get() = sessionMode.get()
+    val playerCountNow: Int get() = _state.value.playerCount
     /** Home consoles: only the host advances the core. Handhelds: every device runs its own. */
     val runsLocalCore: Boolean
         get() = !linked.get() ||

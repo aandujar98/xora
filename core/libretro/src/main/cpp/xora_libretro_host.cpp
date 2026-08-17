@@ -4,6 +4,7 @@
  * Also captures memory maps for RetroAchievements (rcheevos).
  */
 #include "libretro.h"
+#include "xora_gba_link.h"
 #include "xora_hw_gl.h"
 #include "xora_ra_memory.h"
 
@@ -842,6 +843,7 @@ bool environment(unsigned cmd, void* data) {
 }
 
 void unload_unlocked() {
+    xora_gba_link_stop();
     xora_host_memory_destroy();
     xora_gba_sio_reset();
     clear_memory_maps();
@@ -903,6 +905,33 @@ bool load_symbols(void* handle) {
 }
 
 }  // namespace
+
+uint16_t xora_host_pad_buttons(int port) {
+    if (port < 0 || port >= static_cast<int>(kMaxControllerPorts)) return 0;
+    return g_pad_buttons[port].load(std::memory_order_relaxed);
+}
+
+void xora_host_publish_frame_argb(int width, int height, const uint32_t* pixels) {
+    if (width <= 0 || height <= 0 || !pixels) return;
+    std::lock_guard<std::mutex> lock(g_frame_mutex);
+    g_frame_w = width;
+    g_frame_h = height;
+    g_frame_rgba.assign(
+        pixels,
+        pixels + static_cast<size_t>(width) * static_cast<size_t>(height)
+    );
+}
+
+void xora_host_push_stereo_s16(const int16_t* samples, size_t count) {
+    if (!samples || count == 0) return;
+    std::lock_guard<std::mutex> lock(g_audio_mutex);
+    g_audio.insert(g_audio.end(), samples, samples + count);
+}
+
+void xora_host_set_timing(double fps, double sample_rate) {
+    if (fps > 1.0) g_fps = fps;
+    if (sample_rate > 1.0) g_sample_rate = sample_rate;
+}
 
 extern "C" void get_core_memory_info(uint32_t id, rc_libretro_core_memory_info_t* info) {
     if (!info) return;
@@ -1238,6 +1267,10 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeUnload(JNIEnv*, jclass) {
 extern "C" JNIEXPORT void JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeRunFrame(JNIEnv*, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (xora_gba_link_active()) {
+        xora_gba_link_run_frame();
+        return;
+    }
     if (g_api.handle && g_game_loaded && g_api.run) {
         // Keep the EGL context current for GLES cores on this emu thread.
         if (xora_hw::is_active()) {
@@ -1245,6 +1278,39 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeRunFrame(JNIEnv*, jclass) {
         }
         g_api.run();
     }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaLinkStart(
+    JNIEnv* env,
+    jclass,
+    jstring rom_path,
+    jint players,
+    jint local_slot
+) {
+    if (!rom_path) return JNI_FALSE;
+    const char* path = env->GetStringUTFChars(rom_path, nullptr);
+    if (!path) return JNI_FALSE;
+    std::string error;
+    bool ok = false;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        ok = xora_gba_link_start(path, static_cast<int>(players), static_cast<int>(local_slot) - 1, error);
+        if (!ok && !error.empty()) g_last_error = error;
+    }
+    env->ReleaseStringUTFChars(rom_path, path);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaLinkStop(JNIEnv*, jclass) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    xora_gba_link_stop();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaLinkActive(JNIEnv*, jclass) {
+    return xora_gba_link_active() ? JNI_TRUE : JNI_FALSE;
 }
 
 // Game Link: poke the mmap'd GBA I/O page only. Walking emulator RAM for gba->sio
@@ -1398,6 +1464,10 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioSetEnabled(
 extern "C" JNIEXPORT void JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeReset(JNIEnv*, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (xora_gba_link_active()) {
+        xora_gba_link_reset();
+        return;
+    }
     if (g_api.handle && g_game_loaded && g_api.reset) g_api.reset();
 }
 
@@ -1468,11 +1538,13 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeDrainAudio(JNIEnv* env, jcl
 
 extern "C" JNIEXPORT jdouble JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeGetFps(JNIEnv*, jclass) {
+    if (xora_gba_link_active()) return xora_gba_link_fps();
     return g_fps;
 }
 
 extern "C" JNIEXPORT jdouble JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeGetSampleRate(JNIEnv*, jclass) {
+    if (xora_gba_link_active()) return xora_gba_link_sample_rate();
     return g_sample_rate;
 }
 

@@ -39,6 +39,10 @@ fun netplaySessionMode(platformId: String): NetplaySessionMode {
     }
 }
 
+/** GBA Game Link uses embedded libmgba lockstep, not the downloaded libretro core. */
+fun usesGbaLockstep(platformId: String): Boolean =
+    platformId.trim().equals("gba", ignoreCase = true)
+
 fun NetplaySessionMode.isSharedConsole(): Boolean = this == NetplaySessionMode.SharedConsole
 
 /**
