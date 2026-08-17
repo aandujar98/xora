@@ -45,6 +45,8 @@ object LibretroNative {
     external fun nativeGbaSioApply(multi: IntArray, localId: Int)
     /** Keep the GBA Game Link I/O poke armed while a handheld session is waiting or live. */
     external fun nativeGbaSioSetEnabled(enabled: Boolean)
+    /** True when GBA I/O is reachable (mmap or gpSP io_registers). */
+    external fun nativeGbaSioMapped(): Boolean
 
     /**
      * Start in-process mGBA lockstep (two cores + a real SIO cable). [localSlot] is 1-based.

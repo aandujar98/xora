@@ -127,15 +127,15 @@ class XoraNetplayBannerTest {
             gbaGpspLink = true,
             gbaGpspLinkLive = true,
         )
-        assertTrue(text.contains("gpSP"))
-        assertTrue(text.contains("reset"))
+        assertTrue(text.contains("Game Link cable"))
         assertTrue(text.contains("link menu") || text.contains("2-player"))
         assertTrue(!text.contains("your Game Boy"))
         assertTrue(!text.contains("2 PLAYER GAME"))
+        assertTrue(!text.contains("second player"))
     }
 
     @Test
-    fun gbaGpspBannerWaitsForSecondPlayer() {
+    fun gbaGpspBannerDoesNotWaitToPlugTheCable() {
         val text = netplayBannerText(
             ui = XoraNetplayUiState(
                 role = XoraNetplayRole.Host,
@@ -149,7 +149,9 @@ class XoraNetplayBannerTest {
             gbaGpspLink = true,
             gbaGpspLinkLive = false,
         )
-        assertTrue(text.contains("second player"))
+        assertTrue(text.contains("Game Link cable"))
+        assertTrue(text.contains("plugged"))
+        assertTrue(!text.contains("second player"))
         assertTrue(!text.contains("two GBAs"))
     }
 

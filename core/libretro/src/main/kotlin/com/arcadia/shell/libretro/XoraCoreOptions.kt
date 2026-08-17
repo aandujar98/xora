@@ -44,9 +44,11 @@ object XoraCoreOptions {
         out: MutableMap<String, String>,
     ) {
         if (platformId != "gba" && !coreName.contains("gpsp", ignoreCase = true)) return
-        // auto leaves most carts (Kirby, Mario Kart, …) with serial disabled.
-        // mul_poke is gpSP's generic 2–4 player Game Link cable.
+        // auto leaves Kirby / Mario Kart with serial disabled (gba_over flags = 0).
+        // mul_poke is gpSP's generic 2–4 player Game Link. Interpreter so SIO writes
+        // hit write_siocnt instead of a stale DRC block.
         out["gpsp_serial"] = "mul_poke"
+        out["gpsp_drc"] = "disabled"
     }
 
     private fun applyNes(

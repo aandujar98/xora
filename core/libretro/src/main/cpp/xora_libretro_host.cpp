@@ -12,7 +12,9 @@
 
 #include <android/log.h>
 #include <dlfcn.h>
+#include <elf.h>
 #include <jni.h>
+#include <link.h>
 #include <zlib.h>
 
 #include <atomic>
@@ -83,11 +85,13 @@ namespace {
 void xora_gba_sio_on_poll();
 void xora_gba_sio_reset();
 void xora_gba_sio_drop_hook();
+void resolve_core_io_registers();
 
 CoreApi g_api;
 std::mutex g_mutex;
 std::string g_system_dir;
 std::string g_save_dir;
+std::string g_core_path;
 std::string g_last_error;
 /** Kept for the loaded game lifetime — cores may retain path / buffer pointers. */
 std::string g_rom_path;
@@ -785,6 +789,11 @@ bool environment(unsigned cmd, void* data) {
             cb->log = log_printf;
             return true;
         }
+        case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION: {
+            if (!data) return false;
+            *static_cast<unsigned*>(data) = 2;
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_VARIABLE: {
             if (!data) return false;
             auto* var = static_cast<retro_variable*>(data);
@@ -824,6 +833,49 @@ bool environment(unsigned cmd, void* data) {
             }
             return true;
         }
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS: {
+            if (!data) return false;
+            const auto* defs = static_cast<const retro_core_option_definition*>(data);
+            std::lock_guard<std::mutex> lock(g_vars_mutex);
+            for (; defs && defs->key; ++defs) {
+                g_var_defaults[defs->key] = defs->default_value ? defs->default_value : "";
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL: {
+            if (!data) return false;
+            const auto* intl = static_cast<const retro_core_options_intl*>(data);
+            const auto* defs = intl->us;
+            std::lock_guard<std::mutex> lock(g_vars_mutex);
+            for (; defs && defs->key; ++defs) {
+                g_var_defaults[defs->key] = defs->default_value ? defs->default_value : "";
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: {
+            if (!data) return false;
+            const auto* v2 = static_cast<const retro_core_options_v2*>(data);
+            const auto* defs = v2->definitions;
+            std::lock_guard<std::mutex> lock(g_vars_mutex);
+            for (; defs && defs->key; ++defs) {
+                g_var_defaults[defs->key] = defs->default_value ? defs->default_value : "";
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: {
+            if (!data) return false;
+            const auto* intl = static_cast<const retro_core_options_v2_intl*>(data);
+            const auto* v2 = intl->us ? intl->us : intl->local;
+            const auto* defs = v2 ? v2->definitions : nullptr;
+            std::lock_guard<std::mutex> lock(g_vars_mutex);
+            for (; defs && defs->key; ++defs) {
+                g_var_defaults[defs->key] = defs->default_value ? defs->default_value : "";
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK:
+            return true;
         case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: {
             if (!data) return false;
             *static_cast<bool*>(data) = g_vars_updated.exchange(false);
@@ -939,6 +991,7 @@ void unload_unlocked() {
     g_pixel_fmt = PixelFmt::Xrgb1555;
     reset_port_devices();
     g_rom_path.clear();
+    g_core_path.clear();
     g_rom_buffer.clear();
     g_rom_buffer.shrink_to_fit();
     g_content_overrides.clear();
@@ -1104,6 +1157,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadCore(
     const char* save_c = save_dir ? env->GetStringUTFChars(save_dir, nullptr) : nullptr;
     g_system_dir = sys_c ? sys_c : "";
     g_save_dir = save_c ? save_c : "";
+    g_core_path = core_c ? core_c : "";
 
     void* handle = dlopen(core_c, RTLD_LOCAL | RTLD_NOW);
     if (sys_c) env->ReleaseStringUTFChars(system_dir, sys_c);
@@ -1299,6 +1353,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadGame(
 
     g_game_loaded = true;
     plug_controllers();
+    resolve_core_io_registers();
     unsigned hw_w = 640;
     unsigned hw_h = 480;
     if (g_api.get_system_av_info) {
@@ -1416,11 +1471,11 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketStart(
         if (g_netpacket.stop) g_netpacket.stop();
         g_netpacket_started.store(false, std::memory_order_relaxed);
     }
-        g_netpacket_local_id = client_id;
-        g_netpacket.start(client_id, netpacket_send, netpacket_poll_receive);
-        g_netpacket_started.store(true, std::memory_order_relaxed);
-        ALOGI("netpacket start client_id=%u", static_cast<unsigned>(client_id));
-        return JNI_TRUE;
+    g_netpacket_local_id = client_id;
+    g_netpacket.start(client_id, netpacket_send, netpacket_poll_receive);
+    g_netpacket_started.store(true, std::memory_order_relaxed);
+    ALOGI("netpacket start client_id=%u", static_cast<unsigned>(client_id));
+    return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1504,9 +1559,9 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketDrainOutgoing(JNIE
     return arr;
 }
 
-// Game Link: poke the mmap'd GBA I/O page only. Walking emulator RAM for gba->sio
-// (string scan + guessed RCNT/SIOCNT pointers) crashed mGBA the instant Player 2
-// linked. Cable detect may be weaker; the session must stay up.
+// Game Link: poke GBA I/O (mmap, or gpSP's hidden io_registers) so the cart sees a
+// plugged cable even before Player 2 joins. gpSP's Pokemon handshake never fills
+// SIOMULTI1 for Kirby / Mario Kart; 0xFFFF there is "no Game Link cable".
 namespace {
 
 constexpr uint32_t kGbaIoBase = 0x04000000u;
@@ -1522,6 +1577,120 @@ std::atomic<bool> g_sio_link_on{false};
 std::atomic<int> g_sio_local_id{0};
 std::atomic<uint16_t> g_sio_multi[4]{{0xFFFF}, {0xFFFF}, {0xFFFF}, {0xFFFF}};
 bool g_sio_logged_hook = false;
+uint16_t* g_core_io_registers = nullptr;
+
+bool so_path_matches(const char* loaded, const std::string& want) {
+    if (!loaded || !loaded[0] || want.empty()) return false;
+    if (want == loaded) return true;
+    if (std::strstr(loaded, "gpsp_libretro") && want.find("gpsp") != std::string::npos) {
+        return true;
+    }
+    const char* slash = std::strrchr(loaded, '/');
+    const char* file = slash ? slash + 1 : loaded;
+    auto pos = want.rfind('/');
+    const std::string want_file = pos == std::string::npos ? want : want.substr(pos + 1);
+    return want_file == file;
+}
+
+template <typename Ehdr, typename Shdr, typename Sym>
+uintptr_t elf_symbol_value(FILE* file, const char* symbol) {
+    Ehdr eh{};
+    if (std::fseek(file, 0, SEEK_SET) != 0) return 0;
+    if (std::fread(&eh, sizeof(eh), 1, file) != 1) return 0;
+    if (eh.e_shoff == 0 || eh.e_shentsize != sizeof(Shdr) || eh.e_shnum == 0) return 0;
+    std::vector<Shdr> sections(eh.e_shnum);
+    if (std::fseek(file, static_cast<long>(eh.e_shoff), SEEK_SET) != 0) return 0;
+    if (std::fread(sections.data(), sizeof(Shdr), eh.e_shnum, file) != eh.e_shnum) return 0;
+    for (const auto& sec : sections) {
+        if (sec.sh_type != SHT_SYMTAB && sec.sh_type != SHT_DYNSYM) continue;
+        if (sec.sh_entsize != sizeof(Sym) || sec.sh_link >= eh.e_shnum) continue;
+        const Shdr& strsec = sections[sec.sh_link];
+        if (strsec.sh_size == 0 || strsec.sh_size > 8 * 1024 * 1024) continue;
+        std::vector<char> strings(static_cast<size_t>(strsec.sh_size) + 1, 0);
+        if (std::fseek(file, static_cast<long>(strsec.sh_offset), SEEK_SET) != 0) continue;
+        if (std::fread(strings.data(), 1, static_cast<size_t>(strsec.sh_size), file) !=
+            static_cast<size_t>(strsec.sh_size)) {
+            continue;
+        }
+        const size_t count = static_cast<size_t>(sec.sh_size / sizeof(Sym));
+        if (count == 0 || count > 2 * 1024 * 1024) continue;
+        std::vector<Sym> syms(count);
+        if (std::fseek(file, static_cast<long>(sec.sh_offset), SEEK_SET) != 0) continue;
+        if (std::fread(syms.data(), sizeof(Sym), count, file) != count) continue;
+        for (const auto& sym : syms) {
+            if (sym.st_name == 0 || sym.st_name >= strsec.sh_size) continue;
+            if (std::strcmp(strings.data() + sym.st_name, symbol) != 0) continue;
+            if (sym.st_shndx == SHN_UNDEF || sym.st_value == 0) continue;
+            return static_cast<uintptr_t>(sym.st_value);
+        }
+    }
+    return 0;
+}
+
+uintptr_t elf_symbol_offset(const char* path, const char* symbol) {
+    if (!path || !path[0] || !symbol) return 0;
+    FILE* file = std::fopen(path, "rb");
+    if (!file) return 0;
+    unsigned char ident[EI_NIDENT]{};
+    const size_t n = std::fread(ident, 1, sizeof(ident), file);
+    uintptr_t value = 0;
+    if (n == sizeof(ident) && ident[EI_MAG0] == ELFMAG0 && ident[EI_MAG1] == ELFMAG1 &&
+        ident[EI_MAG2] == ELFMAG2 && ident[EI_MAG3] == ELFMAG3) {
+        if (ident[EI_CLASS] == ELFCLASS64) {
+            value = elf_symbol_value<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>(file, symbol);
+        } else if (ident[EI_CLASS] == ELFCLASS32) {
+            value = elf_symbol_value<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>(file, symbol);
+        }
+    }
+    std::fclose(file);
+    return value;
+}
+
+struct IoSymSearch {
+    const std::string* so_path = nullptr;
+    uintptr_t offset = 0;
+    uint16_t* result = nullptr;
+};
+
+int find_io_registers_phdr(dl_phdr_info* info, size_t, void* data) {
+    auto* search = static_cast<IoSymSearch*>(data);
+    if (!search || !search->so_path || !info) return 0;
+    if (!so_path_matches(info->dlpi_name, *search->so_path)) return 0;
+    if (search->offset == 0) return 0;
+    search->result = reinterpret_cast<uint16_t*>(
+        static_cast<uintptr_t>(info->dlpi_addr) + search->offset);
+    return 1;
+}
+
+void resolve_core_io_registers() {
+    g_core_io_registers = nullptr;
+    if (g_api.handle) {
+        if (void* p = dlsym(g_api.handle, "io_registers")) {
+            g_core_io_registers = static_cast<uint16_t*>(p);
+            ALOGI("GBA I/O: dlsym io_registers at %p", static_cast<void*>(p));
+            return;
+        }
+        dlerror();
+    }
+    if (g_core_path.empty()) return;
+    const uintptr_t offset = elf_symbol_offset(g_core_path.c_str(), "io_registers");
+    if (offset == 0) {
+        ALOGW("GBA I/O: io_registers not in %s", g_core_path.c_str());
+        return;
+    }
+    IoSymSearch search;
+    search.so_path = &g_core_path;
+    search.offset = offset;
+    dl_iterate_phdr(find_io_registers_phdr, &search);
+    g_core_io_registers = search.result;
+    if (g_core_io_registers) {
+        ALOGI("GBA I/O: ELF io_registers at %p (offset 0x%lx)",
+              static_cast<void*>(g_core_io_registers),
+              static_cast<unsigned long>(offset));
+    } else {
+        ALOGW("GBA I/O: loaded gpSP image not found for ELF io_registers");
+    }
+}
 
 uint16_t* gba_io_regs() {
     for (const auto& desc : g_mmap_descriptors) {
@@ -1529,7 +1698,7 @@ uint16_t* gba_io_regs() {
             return static_cast<uint16_t*>(desc.ptr);
         }
     }
-    return nullptr;
+    return g_core_io_registers;
 }
 
 void gba_sio_apply_io(uint16_t* io) {
@@ -1583,6 +1752,7 @@ void xora_gba_sio_reset() {
     xora_gba_sio_drop_hook();
     g_sio_link_on.store(false, std::memory_order_relaxed);
     g_sio_local_id.store(0, std::memory_order_relaxed);
+    g_core_io_registers = nullptr;
     for (auto& slot : g_sio_multi) slot.store(0xFFFF, std::memory_order_relaxed);
 }
 
@@ -1650,6 +1820,11 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioSetEnabled(
     if (enabled != JNI_TRUE) return;
     uint16_t* io = gba_io_regs();
     if (io) gba_sio_refresh(io);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioMapped(JNIEnv*, jclass) {
+    return gba_io_regs() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL

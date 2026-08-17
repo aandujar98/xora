@@ -34,7 +34,11 @@ class NetplaySessionModeTest {
     }
 
     @Test
-    fun gbaNetpacketStartsOnceAfterHandshake() {
+    fun gbaNetpacketStartsOnceTheHostHasASeat() {
+        assertEquals(
+            true,
+            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 1, playerCount = 1, alreadyStarted = false),
+        )
         assertEquals(
             true,
             shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 1, playerCount = 2, alreadyStarted = false),
@@ -45,7 +49,7 @@ class NetplaySessionModeTest {
         )
         assertEquals(
             false,
-            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 1, playerCount = 1, alreadyStarted = false),
+            shouldStartGbaNetpacket("gba", handheldLink = true, localSlot = 0, playerCount = 1, alreadyStarted = false),
         )
         assertEquals(
             false,
@@ -54,6 +58,22 @@ class NetplaySessionModeTest {
         assertEquals(
             false,
             shouldStartGbaNetpacket("snes", handheldLink = false, localSlot = 1, playerCount = 2, alreadyStarted = false),
+        )
+        assertEquals(
+            true,
+            shouldArmGbaLinkCable("gba", handheldLink = true, localSlot = 1, hosting = true),
+        )
+        assertEquals(
+            true,
+            shouldArmGbaLinkCable("gba", handheldLink = true, localSlot = 0, hosting = true),
+        )
+        assertEquals(
+            false,
+            shouldArmGbaLinkCable("gba", handheldLink = true, localSlot = 0, hosting = false),
+        )
+        assertEquals(
+            false,
+            shouldArmGbaLinkCable("snes", handheldLink = false, localSlot = 1, hosting = true),
         )
     }
 

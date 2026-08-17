@@ -57,7 +57,7 @@ fun netplayBannerText(
     @Suppress("UNUSED_PARAMETER") lastKey: String = "",
     sharedConsole: Boolean = true,
     gbaGpspLink: Boolean = false,
-    gbaGpspLinkLive: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") gbaGpspLinkLive: Boolean = false,
     @Suppress("UNUSED_PARAMETER") gbaLockstep: Boolean = false,
     @Suppress("UNUSED_PARAMETER") gbaLockstepLive: Boolean = false,
 ): String {
@@ -80,11 +80,9 @@ fun netplayBannerText(
         }
         if (sharedConsole) {
             lines += twoPlayerModeHint(gameTitle)
-        } else if (gbaGpspLink && gbaGpspLinkLive) {
-            lines += "gpSP's Game Link cable is on. Both games reset so the cable is plugged in."
-            lines += "Open the same 2-player / link menu from the title screen on both devices."
         } else if (gbaGpspLink) {
-            lines += "Waiting for a second player so gpSP can plug the Game Link cable."
+            lines += "This GBA has a Game Link cable plugged in."
+            lines += "Open the same 2-player / link menu from the title screen on both devices."
         } else {
             lines += "Stay on this waiting screen on both devices. XOrA is the Game Link cable."
         }

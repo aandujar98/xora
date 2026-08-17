@@ -55,8 +55,8 @@ fun netplayCoreName(platformId: String, currentCore: String): String =
 fun gbaNetplayClientId(playerSlot: Int): Int = (playerSlot - 1).coerceAtLeast(0)
 
 /**
- * Start gpSP netpacket once a second player is linked. Retrying every frame after a
- * failed start would toast the lobby.
+ * Plug gpSP's cable as soon as this GBA is hosting or has a seat. Waiting for a
+ * second player left the host with send_fn=NULL, so Kirby never saw a cable.
  */
 fun shouldStartGbaNetpacket(
     platformId: String,
@@ -68,8 +68,19 @@ fun shouldStartGbaNetpacket(
     usesGbaGpspLink(platformId) &&
         handheldLink &&
         localSlot >= 1 &&
-        playerCount >= 2 &&
+        playerCount >= 1 &&
         !alreadyStarted
+
+/** Keep writing SIOCNT/SIOMULTI while a GBA netplay session is up, even before GO. */
+fun shouldArmGbaLinkCable(
+    platformId: String,
+    handheldLink: Boolean,
+    localSlot: Int,
+    hosting: Boolean,
+): Boolean =
+    usesGbaGpspLink(platformId) &&
+        handheldLink &&
+        (hosting || localSlot >= 1)
 
 /**
  * Start in-process lockstep once per handshake. Unused: GBA netplay now uses gpSP netpacket.
