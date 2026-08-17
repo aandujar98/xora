@@ -741,7 +741,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     settings = xora,
                     expandActive = expand,
                     netplay = XoraCoreOptions.NetplayContext(),
-                ).forEach { (key, value) ->}
+                ).forEach { (key, value) ->
                     LibretroNative.nativeSetCoreVariable(key, value)
                 }
                 LibretroNative.nativeLoadCore(
