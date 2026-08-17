@@ -122,15 +122,6 @@ fun gbaLockstepHiddenPort(localSlot: Int): Int {
 fun shouldMirrorGbaLockstepPartnerPad(linked: Boolean, playerCount: Int): Boolean =
     !linked || playerCount < 2
 
-/**
- * Local pads wait this many frames before the lockstep cores see them, so P1
- * and P2 land on both phones at the same tick instead of "me now, them later".
- */
-const val GBA_LOCKSTEP_INPUT_DELAY_FRAMES: Int = 4
-
-/** Stall the faster phone briefly so it can apply the same delayed frame as the peer. */
-const val GBA_LOCKSTEP_REMOTE_WAIT_MS: Long = 48L
-
 /** Game Link is always two GBAs on this phone; 3–4 player MULTI can come later. */
 fun gbaLockstepPlayerCount(playerCount: Int): Int = playerCount.coerceIn(2, 4)
 

@@ -91,7 +91,6 @@ import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
 import com.arcadia.shell.libretro.netplay.XoraNetplayVideo
-import com.arcadia.shell.libretro.netplay.GBA_LOCKSTEP_REMOTE_WAIT_MS
 import com.arcadia.shell.libretro.netplay.gbaLockstepGenerationKey
 import com.arcadia.shell.libretro.netplay.gbaLockstepHiddenPort
 import com.arcadia.shell.libretro.netplay.gbaLockstepLocalSlot
@@ -2356,9 +2355,7 @@ class XoraLibretroActivity : ComponentActivity() {
         val mirror = shouldMirrorGbaLockstepPartnerPad(session.linkedNow, session.playerCountNow)
         if (pads != null && sent != null) {
             pads.pads.forEachIndexed { port, pad -> applyNativePad(port, pad) }
-            // Linked lockstep already delayed this phone's pad in exchange().
-            // Overwriting with [sent] would put "me now" against "them then".
-            if (mirror) applyNativePad(selfPort, sent)
+            applyNativePad(selfPort, sent)
         } else if (local != null) {
             applyNativePad(selfPort, local)
         }
@@ -2560,11 +2557,9 @@ class XoraLibretroActivity : ComponentActivity() {
                             rx = if (mute) 0 else local.rx,
                             ry = if (mute) 0 else local.ry,
                         )
-                        val lockstepPads = usesGbaLockstep(platformId)
                         val pads = session.exchange(
                             sent,
-                            replayRemoteInOrder = lockstepPads,
-                            waitForRemoteMs = if (lockstepPads) GBA_LOCKSTEP_REMOTE_WAIT_MS else 0L,
+                            replayRemoteInOrder = usesGbaLockstep(platformId),
                         )
                         val live = sent.buttons != 0 ||
                             sent.lx.toInt() != 0 ||
