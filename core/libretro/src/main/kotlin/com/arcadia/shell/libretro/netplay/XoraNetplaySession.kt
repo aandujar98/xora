@@ -207,6 +207,8 @@ class XoraNetplaySession(
     private val lastConsumed = AtomicIntegerArray(XoraNetplayProtocol.MAX_PLAYERS)
     private val frameCounter = AtomicInteger(0)
     private val freezeCore = AtomicBoolean(false)
+    private val localPadDelay = ArrayDeque<XoraNetplayProtocol.PadFrame>()
+    private val padDelayLock = Any()
 
     private val captureStateRef = AtomicReference<(suspend () -> ByteArray?)?>(null)
     private val applyStateRef = AtomicReference<(suspend (ByteArray) -> Boolean)?>(null)
@@ -429,11 +431,11 @@ class XoraNetplaySession(
     /**
      * Send the current local pad and return the pads every port must apply this frame.
      *
-     * This device's assigned seat gets the **current** local pad (no delay). Every other
-     * seat gets a remote pad for this epoch. GBA lockstep ([replayRemoteInOrder]) replays
-     * those taps in arrival order so A-down then A-up both reach the hidden GBA. Frame
-     * numbers are not matched across phones — the two clocks drift, and waiting on an
-     * exact tick stalled every frame (~20 fps) while Player 1's partner GBA sat idle.
+     * Shared-console seats apply the current local pad immediately. GBA lockstep
+     * ([replayRemoteInOrder]) still sends immediately, but the **host** applies its
+     * own pad [GBA_LOCKSTEP_INPUT_DELAY_FRAMES] late so Player 2's network taps
+     * line up. The joiner stays immediate. Remote taps replay oldest-first; frame
+     * numbers are not matched and the emu thread does not stall.
      *
      * Slot 0 is not coerced to Player 1 — an unassigned joiner must not tag INPUT as the
      * host, or the real host drops it as an echo and P2 never moves.
@@ -450,7 +452,11 @@ class XoraNetplaySession(
         if (slot in 1..XoraNetplayProtocol.MAX_PLAYERS) {
             val tagged = local.copy(slot = slot, epoch = currentEpoch)
             writeInput(tagged)
-            pads[slot - 1] = tagged
+            pads[slot - 1] = if (replayRemoteInOrder && isHost.get()) {
+                enqueueDelayedLocal(tagged) ?: idle
+            } else {
+                tagged
+            }
         }
         collectRemotePads(pads, currentEpoch, slot, idle, replayRemoteInOrder)
         return XoraNetplayExchange(pads.toList())
@@ -690,6 +696,7 @@ class XoraNetplaySession(
             missStreak.set(i, 0)
             lastConsumed.set(i, -1)
         }
+        clearDelayedLocal()
     }
 
     // ---------------------------------------------------------------------------------------
@@ -1122,6 +1129,7 @@ class XoraNetplaySession(
                 lastConsumed.set(i, -1)
                 lastRemote[i].set(EMPTY_PAD)
             }
+            clearDelayedLocal()
         }
         freezeCore.set(false)
         linked.set(true)
@@ -1237,6 +1245,18 @@ class XoraNetplaySession(
                 else -> missPad(slot, idle)
             }
         }
+    }
+
+    private fun enqueueDelayedLocal(tagged: XoraNetplayProtocol.PadFrame): XoraNetplayProtocol.PadFrame? {
+        synchronized(padDelayLock) {
+            localPadDelay.addLast(tagged)
+            if (localPadDelay.size <= GBA_LOCKSTEP_INPUT_DELAY_FRAMES) return null
+            return localPadDelay.removeFirst()
+        }
+    }
+
+    private fun clearDelayedLocal() {
+        synchronized(padDelayLock) { localPadDelay.clear() }
     }
 
     private fun takeOldestRemote(slot: Int, currentEpoch: Int): XoraNetplayProtocol.PadFrame? {

@@ -141,8 +141,44 @@ class XoraNetplaySessionExchangeTest {
             XoraNetplayProtocol.PadFrame(frame = 96, buttons = 0x0001),
             replayRemoteInOrder = true,
         )
-        assertEquals(0x0001, out.pads[0].buttons)
+        assertEquals(0, out.pads[0].buttons)
         assertEquals(0x0100, out.pads[1].buttons)
+        session.stop()
+    }
+
+    @Test
+    fun lockstepHostDelaysLocalPadThenAppliesIt() {
+        val session = session()
+        session.bindForTest(slot = 1, epoch = 1)
+        val delay = GBA_LOCKSTEP_INPUT_DELAY_FRAMES
+        repeat(delay) { frame ->
+            val warmup = session.exchange(
+                XoraNetplayProtocol.PadFrame(frame = frame, buttons = 0x0001),
+                replayRemoteInOrder = true,
+            )
+            assertEquals("warmup $frame", 0, warmup.pads[0].buttons)
+        }
+        val live = session.exchange(
+            XoraNetplayProtocol.PadFrame(frame = delay, buttons = 0x00AA),
+            replayRemoteInOrder = true,
+        )
+        assertEquals(0x0001, live.pads[0].buttons)
+        session.stop()
+    }
+
+    @Test
+    fun lockstepJoinerKeepsLocalPadImmediate() {
+        val session = session()
+        session.bindForTest(slot = 2, epoch = 1)
+        session.ingestRemoteForTest(
+            XoraNetplayProtocol.PadFrame(frame = 0, buttons = 0x0004, slot = 1, epoch = 1),
+        )
+        val out = session.exchange(
+            XoraNetplayProtocol.PadFrame(frame = 0, buttons = 0x00FF),
+            replayRemoteInOrder = true,
+        )
+        assertEquals(0x0004, out.pads[0].buttons)
+        assertEquals(0x00FF, out.pads[1].buttons)
         session.stop()
     }
 }

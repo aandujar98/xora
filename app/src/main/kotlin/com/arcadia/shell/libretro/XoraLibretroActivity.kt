@@ -2355,7 +2355,9 @@ class XoraLibretroActivity : ComponentActivity() {
         val mirror = shouldMirrorGbaLockstepPartnerPad(session.linkedNow, session.playerCountNow)
         if (pads != null && sent != null) {
             pads.pads.forEachIndexed { port, pad -> applyNativePad(port, pad) }
-            applyNativePad(selfPort, sent)
+            // Host lockstep already delayed this seat in exchange(). Overwriting
+            // with [sent] would make Player 1 instant again and Player 2 late.
+            if (mirror) applyNativePad(selfPort, sent)
         } else if (local != null) {
             applyNativePad(selfPort, local)
         }

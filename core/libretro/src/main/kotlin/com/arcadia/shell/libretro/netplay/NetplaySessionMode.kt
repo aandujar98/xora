@@ -122,6 +122,13 @@ fun gbaLockstepHiddenPort(localSlot: Int): Int {
 fun shouldMirrorGbaLockstepPartnerPad(linked: Boolean, playerCount: Int): Boolean =
     !linked || playerCount < 2
 
+/**
+ * Host-only: hold Player 1's pad this many frames so Player 2's network taps
+ * land on the hidden GBA at the same time. The joiner stays immediate — that
+ * side already felt instant. Do not stall the emu thread or match frame ids.
+ */
+const val GBA_LOCKSTEP_INPUT_DELAY_FRAMES: Int = 3
+
 /** Game Link is always two GBAs on this phone; 3–4 player MULTI can come later. */
 fun gbaLockstepPlayerCount(playerCount: Int): Int = playerCount.coerceIn(2, 4)
 
