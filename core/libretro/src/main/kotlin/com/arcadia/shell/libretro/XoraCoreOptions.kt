@@ -44,7 +44,9 @@ object XoraCoreOptions {
         out: MutableMap<String, String>,
     ) {
         if (platformId != "gba" && !coreName.contains("gpsp", ignoreCase = true)) return
-        out["gpsp_serial"] = "auto"
+        // auto leaves most carts (Kirby, Mario Kart, …) with serial disabled.
+        // mul_poke is gpSP's generic 2–4 player Game Link cable.
+        out["gpsp_serial"] = "mul_poke"
     }
 
     private fun applyNes(

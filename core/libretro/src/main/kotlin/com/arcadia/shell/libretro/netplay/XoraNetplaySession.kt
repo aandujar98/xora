@@ -81,8 +81,8 @@ fun netplayBannerText(
         if (sharedConsole) {
             lines += twoPlayerModeHint(gameTitle)
         } else if (gbaGpspLink && gbaGpspLinkLive) {
-            lines += "gpSP's Game Link is on. This session is the cable — no extra IP connect."
-            lines += "Both players open the same 2-player / link menu from the title screen."
+            lines += "gpSP's Game Link cable is on. Both games reset so the cable is plugged in."
+            lines += "Open the same 2-player / link menu from the title screen on both devices."
         } else if (gbaGpspLink) {
             lines += "Waiting for a second player so gpSP can plug the Game Link cable."
         } else {

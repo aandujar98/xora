@@ -1803,12 +1803,6 @@ class XoraLibretroActivity : ComponentActivity() {
             showMenuMessage("Could not download gpSP. Check network / Settings → XOrA Emulator.")
             return false
         }
-        val alreadyGpsp = coreName.equals(GBA_NETPLAY_CORE, ignoreCase = true)
-        val available = withContext(emuDispatcher) { LibretroNative.nativeNetpacketAvailable() }
-        if (alreadyGpsp && available) {
-            withContext(emuDispatcher) { applyCoreControllerOptions() }
-            return true
-        }
         val ok = withContext(emuDispatcher) {
             coreName = GBA_NETPLAY_CORE
             LibretroNative.nativeClearCoreVariables()
@@ -2345,9 +2339,6 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun pumpGbaNetpacket(session: XoraNetplaySession) {
-        session.takeNetpackets().forEach { packet ->
-            LibretroNative.nativeNetpacketIncoming(packet.src, packet.payload)
-        }
         val handheld = session.sessionModeNow == NetplaySessionMode.HandheldLink
         val start = shouldStartGbaNetpacket(
             platformId = platformId,
@@ -2363,9 +2354,14 @@ class XoraLibretroActivity : ComponentActivity() {
                 return
             }
             LibretroNative.nativeGbaSioSetEnabled(false)
+            if (session.hosting) syncGbaNetpacketPeers(session)
+            LibretroNative.nativeReset()
             refreshNetplayBanner()
         }
         if (gbaNetpacketStarted.get()) syncGbaNetpacketPeers(session)
+        session.takeNetpackets().forEach { packet ->
+            LibretroNative.nativeNetpacketIncoming(packet.src, packet.payload)
+        }
     }
 
     private fun syncGbaNetpacketPeers(session: XoraNetplaySession) {

@@ -1416,16 +1416,11 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketStart(
         if (g_netpacket.stop) g_netpacket.stop();
         g_netpacket_started.store(false, std::memory_order_relaxed);
     }
-    {
-        std::lock_guard<std::mutex> io(g_netpacket_io_mutex);
-        g_netpacket_incoming.clear();
-        g_netpacket_outgoing.clear();
-    }
-    g_netpacket_local_id = client_id;
-    g_netpacket.start(client_id, netpacket_send, netpacket_poll_receive);
-    g_netpacket_started.store(true, std::memory_order_relaxed);
-    ALOGI("netpacket start client_id=%u", static_cast<unsigned>(client_id));
-    return JNI_TRUE;
+        g_netpacket_local_id = client_id;
+        g_netpacket.start(client_id, netpacket_send, netpacket_poll_receive);
+        g_netpacket_started.store(true, std::memory_order_relaxed);
+        ALOGI("netpacket start client_id=%u", static_cast<unsigned>(client_id));
+        return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL

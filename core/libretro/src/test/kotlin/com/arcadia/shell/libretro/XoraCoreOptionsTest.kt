@@ -103,6 +103,6 @@ class XoraCoreOptionsTest {
     @Test
     fun gpspEnablesAutomaticLinkCable() {
         val vars = XoraCoreOptions.variablesFor("gba", "gpsp", settings)
-        assertEquals("auto", vars["gpsp_serial"])
+        assertEquals("mul_poke", vars["gpsp_serial"])
     }
 }

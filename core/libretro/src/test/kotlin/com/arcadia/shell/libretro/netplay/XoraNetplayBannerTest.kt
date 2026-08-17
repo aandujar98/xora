@@ -128,6 +128,7 @@ class XoraNetplayBannerTest {
             gbaGpspLinkLive = true,
         )
         assertTrue(text.contains("gpSP"))
+        assertTrue(text.contains("reset"))
         assertTrue(text.contains("link menu") || text.contains("2-player"))
         assertTrue(!text.contains("your Game Boy"))
         assertTrue(!text.contains("2 PLAYER GAME"))
