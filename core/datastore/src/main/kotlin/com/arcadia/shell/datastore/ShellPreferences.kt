@@ -442,6 +442,7 @@ class ShellPreferences @Inject constructor(
                 ?.let { runCatching { NdsWfcServer.valueOf(it) }.getOrNull() }
                 ?: NdsWfcServer.Kaeru,
             ndsWfcCustomDns = prefs[Keys.XORA_NDS_WFC_DNS].orEmpty(),
+            azaharLobbyApiUrl = prefs[Keys.XORA_AZAHAR_LOBBY_API].orEmpty(),
             pspAdhocEnabled = prefs[Keys.XORA_PSP_ADHOC] ?: true,
             pspAdhocIsServer = prefs[Keys.XORA_PSP_ADHOC_SERVER] ?: false,
             preferredControllerName = prefs[Keys.XORA_CONTROLLER_NAME].orEmpty(),
@@ -795,6 +796,10 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setXoraNdsWfcCustomDns(dns: String) = edit {
         it[Keys.XORA_NDS_WFC_DNS] = dns.trim().take(64)
+    }
+
+    suspend fun setXoraAzaharLobbyApiUrl(url: String) = edit {
+        it[Keys.XORA_AZAHAR_LOBBY_API] = url.trim().take(256)
     }
 
     suspend fun setXoraPspAdhocEnabled(enabled: Boolean) = edit {
@@ -1207,6 +1212,7 @@ class ShellPreferences @Inject constructor(
         val XORA_NETPLAY_HOST = stringPreferencesKey("xora_netplay_host")
         val XORA_NDS_WFC = stringPreferencesKey("xora_nds_wfc_server")
         val XORA_NDS_WFC_DNS = stringPreferencesKey("xora_nds_wfc_custom_dns")
+        val XORA_AZAHAR_LOBBY_API = stringPreferencesKey("xora_azahar_lobby_api")
         val XORA_PSP_ADHOC = booleanPreferencesKey("xora_psp_adhoc_enabled")
         val XORA_PSP_ADHOC_SERVER = booleanPreferencesKey("xora_psp_adhoc_is_server")
         val PENDING_NETPLAY_CODE = stringPreferencesKey("pending_netplay_join_code")

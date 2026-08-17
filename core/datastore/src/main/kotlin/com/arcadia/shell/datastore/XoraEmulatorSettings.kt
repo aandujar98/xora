@@ -54,6 +54,11 @@ data class XoraEmulatorSettings(
     /** Used when [ndsWfcServer] is [NdsWfcServer.Custom]. */
     val ndsWfcCustomDns: String = "",
     /**
+     * Azahar / Citra-style public room list (`GET {url}/lobby`). Blank = try the
+     * built-in community endpoints. Libretro Azahar cannot join those rooms.
+     */
+    val azaharLobbyApiUrl: String = "",
+    /**
      * PPSSPP WLAN / Pro AdHoc. Games use their own infrastructure menu; XOrA Host/Join
      * points joiners at the host IP and runs the built-in AdHoc server on the host.
      */
@@ -186,6 +191,18 @@ fun NdsWfcServer.label(): String = when (this) {
     NdsWfcServer.Wiimmfi -> "Wiimmfi"
     NdsWfcServer.AltWfc -> "AltWFC"
     NdsWfcServer.Custom -> "Custom DNS"
+}
+
+/** Overlay cycle skips Custom (that DNS is typed in Settings). */
+fun NdsWfcServer.nextPublic(): NdsWfcServer {
+    val cycle = listOf(
+        NdsWfcServer.Kaeru,
+        NdsWfcServer.Wiimmfi,
+        NdsWfcServer.AltWfc,
+        NdsWfcServer.Off,
+    )
+    val index = cycle.indexOf(this)
+    return if (index < 0) cycle.first() else cycle[(index + 1) % cycle.size]
 }
 
 fun NdsWfcServer.dns(custom: String = ""): String = when (this) {

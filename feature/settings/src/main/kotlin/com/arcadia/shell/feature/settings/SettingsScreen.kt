@@ -1643,9 +1643,33 @@ fun SettingsScreen(
                 Text(
                     text = "XOrA's 3DS core is Azahar (Libretro). Public room browsing, " +
                         "private rooms, and chat lobbies are standalone Azahar only — " +
-                        "the Libretro core cannot host Citra/Azahar rooms. Install Azahar " +
-                        "and pick it under Choose Emulator for multiplayer rooms. " +
-                        "Pretendo DNS is set in 3DS System Settings after boot, not here.",
+                        "the Libretro core cannot host Citra/Azahar rooms. The in-game " +
+                        "overlay can list rooms from a community lobby URL; joining still " +
+                        "needs standalone Azahar. Pretendo DNS is set in 3DS System " +
+                        "Settings after boot, not here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                var lobbyDraft by remember(xora.azaharLobbyApiUrl) {
+                    mutableStateOf(xora.azaharLobbyApiUrl)
+                }
+                SettingsFieldLabel("Public lobby API")
+                OutlinedTextField(
+                    value = lobbyDraft,
+                    onValueChange = { lobbyDraft = it.take(256) },
+                    singleLine = true,
+                    placeholder = { Text("https://api.citra-emu.org") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focus ->
+                            if (!focus.isFocused) {
+                                viewModel.setXoraAzaharLobbyApiUrl(lobbyDraft)
+                            }
+                        },
+                )
+                Text(
+                    text = "Blank tries the historical Citra lobby. GET {url}/lobby must " +
+                        "return a Citra-style rooms list.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

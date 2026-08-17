@@ -6,6 +6,7 @@ import com.arcadia.shell.datastore.NdsWfcServer
 import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.WIIMMFI_WFC_DNS
 import com.arcadia.shell.datastore.XoraEmulatorSettings
+import com.arcadia.shell.datastore.nextPublic
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -155,6 +156,15 @@ class XoraCoreOptionsTest {
         assertEquals("Disabled", off["melonds_network_mode"])
         assertEquals("0.0.0.0", off["melonds_firmware_wfc_dns"])
         assertEquals("firmware", off["melonds_mac_address_mode"])
+    }
+
+    @Test
+    fun ndsPublicWfcCycleSkipsCustom() {
+        assertEquals(NdsWfcServer.Wiimmfi, NdsWfcServer.Kaeru.nextPublic())
+        assertEquals(NdsWfcServer.AltWfc, NdsWfcServer.Wiimmfi.nextPublic())
+        assertEquals(NdsWfcServer.Off, NdsWfcServer.AltWfc.nextPublic())
+        assertEquals(NdsWfcServer.Kaeru, NdsWfcServer.Off.nextPublic())
+        assertEquals(NdsWfcServer.Kaeru, NdsWfcServer.Custom.nextPublic())
     }
 
     @Test

@@ -65,7 +65,9 @@ import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XoraInternalResolution
+import com.arcadia.shell.datastore.label
 import com.arcadia.shell.datastore.next
+import com.arcadia.shell.datastore.nextPublic
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.LocalArcadiaHaze
 import com.arcadia.shell.display.DisplayTopologyMonitor
@@ -84,6 +86,8 @@ import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
+import com.arcadia.shell.libretro.netplay.AzaharLobbyUi
+import com.arcadia.shell.libretro.netplay.AzaharPublicLobbies
 import com.arcadia.shell.libretro.netplay.NetplaySessionMode
 import com.arcadia.shell.libretro.netplay.XoraNetplayExchange
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
@@ -217,6 +221,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var joinPort by mutableStateOf(DEFAULT_NETPLAY_PORT)
     private var joinCode by mutableStateOf("")
     private var netplayUi by mutableStateOf(XoraNetplayUiState())
+    private var azaharLobbyUi by mutableStateOf(AzaharLobbyUi())
     private var netplaySession: XoraNetplaySession? = null
     private var pendingNetplayHost = false
     private var pendingNetplayJoin = false
@@ -575,6 +580,10 @@ class XoraLibretroActivity : ComponentActivity() {
             )
             LaunchedEffect(xora) {
                 xoraSettings = xora
+                azaharLobbyUi = azaharLobbyUi.copy(
+                    standaloneInstalled =
+                        AzaharPublicLobbies.installedStandalonePackage(packageManager) != null,
+                )
                 refreshExpandTopology()
                 applyStageSettings(xora)
                 applyAudioVolume(xora.audioVolume)
@@ -727,6 +736,8 @@ class XoraLibretroActivity : ComponentActivity() {
                         raStatus = raStatusLine,
                         notifications = notificationHistory,
                         notificationUnread = notificationUnread,
+                        platformId = platformId,
+                        publicLobbies = azaharLobbyUi,
                     )
                 }
             }
@@ -1388,6 +1399,66 @@ class XoraLibretroActivity : ComponentActivity() {
                 shellNotifications.markAllRead()
                 lifecycleScope.launch { xoraNetwork.refreshNetplayInvites() }
             }
+            EmulatorMenuAction.CycleNdsWfc -> cycleNdsWfcFromMenu()
+            EmulatorMenuAction.RefreshAzaharLobbies -> refreshAzaharLobbiesFromMenu()
+            EmulatorMenuAction.OpenStandaloneAzahar -> openStandaloneAzaharFromMenu()
+            is EmulatorMenuAction.SelectAzaharRoom -> {
+                val game = action.game.ifBlank { "no game set" }
+                showMenuMessage(
+                    "${action.name} · $game. Libretro Azahar cannot join Citra rooms — " +
+                        "open standalone Azahar.",
+                )
+            }
+        }
+    }
+
+    private fun cycleNdsWfcFromMenu() {
+        lifecycleScope.launch {
+            val next = xoraSettings.ndsWfcServer.nextPublic()
+            preferences.setXoraNdsWfcServer(next)
+            xoraSettings = xoraSettings.copy(ndsWfcServer = next)
+            withContext(emuDispatcher) { applyCoreControllerOptions() }
+            showMenuMessage(
+                "WFC ${next.label()}. Open Nintendo Wi-Fi Connection in the game. " +
+                    "Reset if the new DNS does not apply.",
+            )
+        }
+    }
+
+    private fun refreshAzaharLobbiesFromMenu() {
+        if (azaharLobbyUi.loading) return
+        azaharLobbyUi = azaharLobbyUi.copy(
+            loading = true,
+            status = "Refreshing public rooms…",
+            standaloneInstalled = AzaharPublicLobbies.installedStandalonePackage(packageManager) != null,
+        )
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                AzaharPublicLobbies.fetchRooms(okHttpClient, xoraSettings.azaharLobbyApiUrl)
+            }
+            val installed = AzaharPublicLobbies.installedStandalonePackage(packageManager) != null
+            azaharLobbyUi = AzaharLobbyUi(
+                rooms = result.rooms,
+                status = result.error ?: when {
+                    result.rooms.isEmpty() -> "No public rooms on this lobby right now."
+                    else -> "${result.rooms.size} rooms · join in standalone Azahar"
+                },
+                loading = false,
+                sourceUrl = result.sourceUrl,
+                standaloneInstalled = installed,
+            )
+            result.error?.let { showMenuMessage(it) }
+        }
+    }
+
+    private fun openStandaloneAzaharFromMenu() {
+        if (AzaharPublicLobbies.launchStandalone(this)) {
+            showMenuMessage("Opened standalone Azahar")
+        } else {
+            showMenuMessage(
+                "Standalone Azahar is not installed. Install Azahar (Vanilla or Play) " +
+                    "to join public rooms.",
+            )
         }
     }
 

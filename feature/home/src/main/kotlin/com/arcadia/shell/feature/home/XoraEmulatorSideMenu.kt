@@ -46,15 +46,20 @@ import androidx.compose.ui.unit.sp
 import com.arcadia.shell.datastore.DEFAULT_NETPLAY_PORT
 import com.arcadia.shell.datastore.MAX_NETPLAY_PORT
 import com.arcadia.shell.datastore.MIN_NETPLAY_PORT
+import com.arcadia.shell.datastore.NdsWfcServer
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.label
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
 import com.arcadia.shell.launcher.notifications.toCopy
+import com.arcadia.shell.libretro.netplay.AzaharLobbyUi
+import com.arcadia.shell.libretro.netplay.AzaharPublicLobbies
+import com.arcadia.shell.libretro.netplay.PublicLobbyKind
 import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
+import com.arcadia.shell.libretro.netplay.publicLobbyKind
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.xoranetwork.XoraFriendState
 import com.arcadia.shell.xoranetwork.XoraNetworkState
@@ -75,6 +80,7 @@ enum class EmulatorMenuPane {
     Gamepad,
     Graphics,
     Audio,
+    PublicLobbies,
 }
 
 data class EmulatorSaveSlotUi(
@@ -123,6 +129,13 @@ sealed class EmulatorMenuAction {
     data object ClearAllNotifications : EmulatorMenuAction()
     /** Fired when the Notifications pane opens so unread counts reset. */
     data object NotificationsSeen : EmulatorMenuAction()
+    /** melonDS public WFC: Kaeru → Wiimmfi → AltWFC → Off. */
+    data object CycleNdsWfc : EmulatorMenuAction()
+    /** Refresh Citra/Azahar `GET {api}/lobby` rooms. */
+    data object RefreshAzaharLobbies : EmulatorMenuAction()
+    /** Launch installed standalone Azahar (libretro cannot join those rooms). */
+    data object OpenStandaloneAzahar : EmulatorMenuAction()
+    data class SelectAzaharRoom(val name: String, val game: String) : EmulatorMenuAction()
 }
 
 private data class MenuRow(
@@ -159,6 +172,8 @@ fun XoraEmulatorSideMenu(
     raStatus: String? = null,
     notifications: List<ShellNotificationHistoryItem> = emptyList(),
     notificationUnread: Int = 0,
+    platformId: String = "",
+    publicLobbies: AzaharLobbyUi = AzaharLobbyUi(),
 ) {
     var rootIndex by remember { mutableIntStateOf(0) }
     var pane by remember { mutableStateOf(EmulatorMenuPane.None) }
@@ -168,6 +183,11 @@ fun XoraEmulatorSideMenu(
     LaunchedEffect(pane) {
         if (pane == EmulatorMenuPane.Notifications) {
             onAction(EmulatorMenuAction.NotificationsSeen)
+        }
+        if (pane == EmulatorMenuPane.PublicLobbies &&
+            publicLobbyKind(platformId) == PublicLobbyKind.AzaharRooms
+        ) {
+            onAction(EmulatorMenuAction.RefreshAzaharLobbies)
         }
     }
 
@@ -299,6 +319,8 @@ fun XoraEmulatorSideMenu(
         gameTitle = gameTitle,
         friendUsername = friendActionUsername,
         notifications = notifications,
+        platformId = platformId,
+        publicLobbies = publicLobbies,
     )
     val paneFocus = paneIndex.coerceIn(0, (paneRows.size - 1).coerceAtLeast(0))
     val rootFocus = rootIndex.coerceIn(0, rootRows.lastIndex)
@@ -419,6 +441,10 @@ fun XoraEmulatorSideMenu(
                 pane = EmulatorMenuPane.XoraNetwork
                 paneIndex = 0
             }
+            EmulatorMenuPane.PublicLobbies -> {
+                pane = EmulatorMenuPane.Netplay
+                paneIndex = 0
+            }
             EmulatorMenuPane.None -> onDismiss()
             else -> {
                 pane = EmulatorMenuPane.None
@@ -518,7 +544,11 @@ fun XoraEmulatorSideMenu(
                     .padding(vertical = 14.dp),
             ) {
                 Text(
-                    text = paneTitle(pane, friendDisplayName(network, friendActionUsername)),
+                    text = paneTitle(
+                        pane,
+                        friendDisplayName(network, friendActionUsername),
+                        platformId,
+                    ),
                     color = Color.White,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -705,7 +735,11 @@ private fun networkRootSubtitle(network: XoraNetworkState, gameTitle: String): S
     else -> "Signed in as ${network.account?.username.orEmpty().ifBlank { "you" }}"
 }
 
-private fun paneTitle(pane: EmulatorMenuPane, friendName: String = ""): String = when (pane) {
+private fun paneTitle(
+    pane: EmulatorMenuPane,
+    friendName: String = "",
+    platformId: String = "",
+): String = when (pane) {
     EmulatorMenuPane.Save -> "Save state"
     EmulatorMenuPane.Load -> "Load state"
     EmulatorMenuPane.Display -> "Display"
@@ -720,6 +754,10 @@ private fun paneTitle(pane: EmulatorMenuPane, friendName: String = ""): String =
     EmulatorMenuPane.Gamepad -> "Gamepad"
     EmulatorMenuPane.Graphics -> "Graphics"
     EmulatorMenuPane.Audio -> "Audio"
+    EmulatorMenuPane.PublicLobbies -> when (publicLobbyKind(platformId)) {
+        PublicLobbyKind.NdsWfc -> "Nintendo WFC"
+        else -> "Public rooms"
+    }
     EmulatorMenuPane.None -> ""
 }
 
@@ -744,6 +782,8 @@ private fun paneRows(
     gameTitle: String,
     friendUsername: String = "",
     notifications: List<ShellNotificationHistoryItem> = emptyList(),
+    platformId: String = "",
+    publicLobbies: AzaharLobbyUi = AzaharLobbyUi(),
 ): List<MenuRow> = when (pane) {
     EmulatorMenuPane.None -> emptyList()
     EmulatorMenuPane.Save -> saveSlots.map { slot ->
@@ -899,7 +939,7 @@ private fun paneRows(
                 icon = XmbIcon.Network,
                 action = EmulatorMenuAction.ToggleNetplayOnline,
             ),
-        ) + modeRows + buildList {
+        ) + modeRows + publicLobbyNetplayRows(platformId, settings, publicLobbies) + buildList {
             add(
                 MenuRow(
                     id = "np-spec",
@@ -1247,6 +1287,157 @@ private fun paneRows(
             subtitle = "−10%",
             icon = XmbIcon.Sound,
             action = EmulatorMenuAction.VolumeDown,
+        ),
+    )
+    EmulatorMenuPane.PublicLobbies -> publicLobbyPaneRows(platformId, settings, publicLobbies)
+}
+
+private fun publicLobbyNetplayRows(
+    platformId: String,
+    settings: XoraEmulatorSettings,
+    publicLobbies: AzaharLobbyUi,
+): List<MenuRow> = when (publicLobbyKind(platformId)) {
+    PublicLobbyKind.NdsWfc -> listOf(
+        MenuRow(
+            id = "np-wfc",
+            title = "Public WFC · ${settings.ndsWfcServer.label()}",
+            subtitle = "A cycles Kaeru / Wiimmfi / AltWFC / Off · then open " +
+                "Nintendo Wi-Fi Connection in the game",
+            icon = XmbIcon.Network,
+            action = EmulatorMenuAction.CycleNdsWfc,
+        ),
+        MenuRow(
+            id = "np-lobbies",
+            title = "Public lobbies",
+            subtitle = "Nintendo WFC matchmaking is inside the game, not XOrA Host/Join",
+            icon = XmbIcon.Friends,
+            pane = EmulatorMenuPane.PublicLobbies,
+        ),
+    )
+    PublicLobbyKind.AzaharRooms -> listOf(
+        MenuRow(
+            id = "np-lobbies",
+            title = "Public rooms",
+            subtitle = when {
+                publicLobbies.loading -> "Refreshing…"
+                publicLobbies.rooms.isNotEmpty() ->
+                    "${publicLobbies.rooms.size} rooms · libretro cannot join them"
+                publicLobbies.status.isNotBlank() -> publicLobbies.status
+                else -> "Browse Citra/Azahar rooms · join in standalone Azahar"
+            },
+            icon = XmbIcon.Friends,
+            pane = EmulatorMenuPane.PublicLobbies,
+        ),
+    )
+    PublicLobbyKind.None -> emptyList()
+}
+
+private fun publicLobbyPaneRows(
+    platformId: String,
+    settings: XoraEmulatorSettings,
+    publicLobbies: AzaharLobbyUi,
+): List<MenuRow> = when (publicLobbyKind(platformId)) {
+    PublicLobbyKind.NdsWfc -> listOf(
+        MenuRow(
+            id = "wfc-server",
+            title = "WFC server · ${settings.ndsWfcServer.label()}",
+            subtitle = "A cycles Kaeru / Wiimmfi / AltWFC / Off. Reset the game if " +
+                "Nintendo Wi-Fi Connection does not pick up the new DNS.",
+            icon = XmbIcon.Network,
+            action = EmulatorMenuAction.CycleNdsWfc,
+        ),
+        MenuRow(
+            id = "wfc-how",
+            title = "Open Nintendo Wi-Fi Connection",
+            subtitle = "Mario Kart DS and other WFC titles list public rooms in that " +
+                "in-game menu. XOrA Host/Join is only local wireless.",
+            icon = XmbIcon.Play,
+        ),
+        MenuRow(
+            id = "wfc-note",
+            title = "Custom DNS",
+            subtitle = if (settings.ndsWfcServer == NdsWfcServer.Custom) {
+                settings.ndsWfcCustomDns.ifBlank { "Set a DNS in Settings" }
+            } else {
+                "Type a custom WFC DNS in Settings → Nintendo DS"
+            },
+            icon = XmbIcon.Settings,
+        ),
+    )
+    PublicLobbyKind.AzaharRooms -> buildList {
+        add(
+            MenuRow(
+                id = "az-refresh",
+                title = if (publicLobbies.loading) "Refreshing rooms…" else "Refresh rooms",
+                subtitle = publicLobbies.status.ifBlank {
+                    if (publicLobbies.sourceUrl.isNotBlank()) {
+                        "Last source ${publicLobbies.sourceUrl}"
+                    } else {
+                        "GET {lobby URL}/lobby · Azahar has no official public rooms"
+                    }
+                },
+                icon = XmbIcon.Repeat,
+                action = EmulatorMenuAction.RefreshAzaharLobbies,
+            ),
+        )
+        add(
+            MenuRow(
+                id = "az-standalone",
+                title = if (publicLobbies.standaloneInstalled) {
+                    "Open standalone Azahar"
+                } else {
+                    "Standalone Azahar not installed"
+                },
+                subtitle = if (publicLobbies.standaloneInstalled) {
+                    "Libretro Azahar cannot join Citra rooms. A opens the installed app."
+                } else {
+                    "Install Azahar (Vanilla or Play) to join public or private rooms."
+                },
+                icon = XmbIcon.Emulator,
+                action = EmulatorMenuAction.OpenStandaloneAzahar,
+            ),
+        )
+        add(
+            MenuRow(
+                id = "az-pretendo",
+                title = "Official-online replacement",
+                subtitle = "Pretendo is set in 3DS System Settings after boot, not here.",
+                icon = XmbIcon.Settings,
+            ),
+        )
+        if (publicLobbies.rooms.isEmpty() && !publicLobbies.loading) {
+            add(
+                MenuRow(
+                    id = "az-empty",
+                    title = "No rooms listed",
+                    subtitle = publicLobbies.status.ifBlank {
+                        "Set a community lobby URL in Settings, or open standalone Azahar."
+                    },
+                    icon = XmbIcon.Notifications,
+                ),
+            )
+        }
+        publicLobbies.rooms.forEachIndexed { index, room ->
+            add(
+                MenuRow(
+                    id = "az-room-$index",
+                    title = room.name.ifBlank { "Room ${index + 1}" },
+                    subtitle = AzaharPublicLobbies.roomSubtitle(room),
+                    icon = XmbIcon.Friends,
+                    action = EmulatorMenuAction.SelectAzaharRoom(
+                        name = room.name.ifBlank { "Room ${index + 1}" },
+                        game = room.preferredGame,
+                    ),
+                ),
+            )
+        }
+    }
+    PublicLobbyKind.None -> listOf(
+        MenuRow(
+            id = "lobby-none",
+            title = "No public lobbies",
+            subtitle = "This core does not expose a public room list.",
+            icon = XmbIcon.Notifications,
         ),
     )
 }

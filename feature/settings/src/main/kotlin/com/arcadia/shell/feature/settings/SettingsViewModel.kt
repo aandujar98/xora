@@ -532,6 +532,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setXoraNdsWfcCustomDns(dns) }
     }
 
+    fun setXoraAzaharLobbyApiUrl(url: String) {
+        viewModelScope.launch { preferences.setXoraAzaharLobbyApiUrl(url) }
+    }
+
     fun setXoraPspAdhocEnabled(enabled: Boolean) {
         viewModelScope.launch { preferences.setXoraPspAdhocEnabled(enabled) }
     }
