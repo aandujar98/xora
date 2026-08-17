@@ -5,12 +5,24 @@
  * SIOMULTI over Nakama cannot look like a GBA cable. Each device instead
  * runs every player's GBA locally; the cable stays in-process. Netplay
  * only copies joypad bits so both phones stay on the same buttons.
+ *
+ * Sleep/wake must park a real mCoreThread, the same way desktop mGBA's
+ * "New multiplayer window" does. A cooperative runLoop on one thread
+ * desyncs player->asleep and SIGSEGVs the moment the second player sits.
  */
 
 #include "xora_gba_link.h"
 
+#ifndef USE_PTHREADS
+#error "xora_gba_link.cpp must be compiled with -DUSE_PTHREADS so GBASIOLockstepCoordinator matches libmgba"
+#endif
+
+#include <mgba/core/config.h>
 #include <mgba/core/core.h>
+#include <mgba/core/lockstep.h>
 #include <mgba/core/log.h>
+#include <mgba/core/sync.h>
+#include <mgba/core/thread.h>
 #include <mgba/gba/interface.h>
 #include <mgba/internal/gba/input.h>
 #include <mgba/internal/gba/sio/lockstep.h>
@@ -20,6 +32,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -35,21 +48,21 @@ namespace {
 constexpr int kMaxPlayers = 4;
 constexpr int kGbaWidth = GBA_VIDEO_HORIZONTAL_PIXELS;
 constexpr int kGbaHeight = GBA_VIDEO_VERTICAL_PIXELS;
-constexpr int kMaxRunLoops = 4'000'000;
 
 struct LockstepUser {
-    mLockstepUser d{};
+    mLockstepThreadUser d{};
     int slot = 0;
-    bool sleeping = false;
 };
 
 struct Player {
     mCore* core = nullptr;
+    mCoreThread thread{};
     GBASIOLockstepDriver driver{};
     LockstepUser user{};
     std::vector<mColor> video;
     mAVStream stream{};
     bool audioTap = false;
+    bool threadLive = false;
 };
 
 struct Session {
@@ -64,14 +77,6 @@ std::mutex g_lock;
 Session g_session;
 std::atomic<bool> g_active{false};
 mLogger g_logger{};
-
-void sleep_cb(mLockstepUser* user) {
-    reinterpret_cast<LockstepUser*>(user)->sleeping = true;
-}
-
-void wake_cb(mLockstepUser* user) {
-    reinterpret_cast<LockstepUser*>(user)->sleeping = false;
-}
 
 int requested_id_cb(mLockstepUser* user) {
     return reinterpret_cast<LockstepUser*>(user)->slot;
@@ -133,9 +138,34 @@ void publish_local_frame(Session& session) {
     xora_host_publish_frame_argb(kGbaWidth, kGbaHeight, argb.data());
 }
 
+void interrupt_all(Session& session) {
+    for (int i = 0; i < session.nPlayers; ++i) {
+        if (session.players[i].threadLive) mCoreThreadInterrupt(&session.players[i].thread);
+    }
+}
+
+void continue_all(Session& session) {
+    for (int i = 0; i < session.nPlayers; ++i) {
+        if (session.players[i].threadLive) mCoreThreadContinue(&session.players[i].thread);
+    }
+}
+
 void stop_unlocked() {
+    g_active.store(false, std::memory_order_release);
+
     for (int i = 0; i < g_session.nPlayers; ++i) {
         Player& player = g_session.players[i];
+        if (player.threadLive && player.thread.impl) {
+            mCoreThreadEnd(&player.thread);
+        }
+    }
+    for (int i = 0; i < g_session.nPlayers; ++i) {
+        Player& player = g_session.players[i];
+        if (player.threadLive && player.thread.impl) {
+            mCoreThreadJoin(&player.thread);
+        }
+        player.threadLive = false;
+        player.thread = {};
         if (player.core) {
             player.core->setAVStream(player.core, nullptr);
             player.core->setPeripheral(player.core, mPERIPH_GBA_LINK_PORT, nullptr);
@@ -153,7 +183,6 @@ void stop_unlocked() {
         g_session.coordinatorLive = false;
     }
     g_session = {};
-    g_active.store(false, std::memory_order_release);
 }
 
 bool start_unlocked(const char* rom_path, int players, int local_slot, std::string& error) {
@@ -190,10 +219,14 @@ bool start_unlocked(const char* rom_path, int players, int local_slot, std::stri
             return false;
         }
         mCoreInitConfig(player.core, "xora");
+        mCoreConfigSetIntValue(&player.core->config, "hwaccelVideo", 0);
+        mCoreConfigSetIntValue(&player.core->config, "threadedVideo", 0);
+        mCoreConfigSetDefaultValue(&player.core->config, "idleOptimization", "remove");
         player.core->opts.skipBios = true;
         player.core->opts.audioSync = false;
         player.core->opts.videoSync = false;
         player.core->opts.volume = 0x100;
+        player.core->opts.rewindEnable = false;
         if (!mCoreLoadFile(player.core, rom_path)) {
             error = std::string("mGBA could not load ROM: ") + rom_path;
             stop_unlocked();
@@ -201,37 +234,63 @@ bool start_unlocked(const char* rom_path, int players, int local_slot, std::stri
         }
         player.video.assign(static_cast<size_t>(kGbaWidth * kGbaHeight), 0);
         player.core->setVideoBuffer(player.core, player.video.data(), kGbaWidth);
-
-        player.user.slot = i;
-        player.user.sleeping = false;
-        player.user.d.sleep = sleep_cb;
-        player.user.d.wake = wake_cb;
-        player.user.d.requestedId = requested_id_cb;
-        player.user.d.playerIdChanged = nullptr;
-
-        GBASIOLockstepDriverCreate(&player.driver, &player.user.d);
-        GBASIOLockstepCoordinatorAttach(&g_session.coordinator, &player.driver);
-        player.core->setPeripheral(player.core, mPERIPH_GBA_LINK_PORT, &player.driver.d);
+        player.core->setAudioBufferSize(player.core, 2048);
 
         player.audioTap = (i == local);
         player.stream = {};
         player.stream.postAudioFrame = post_audio_frame;
         player.core->setAVStream(player.core, &player.stream);
-        player.core->reset(player.core);
+
+        player.thread = {};
+        player.thread.core = player.core;
+        player.thread.logger.logger = &g_logger;
+        if (!mCoreThreadStart(&player.thread)) {
+            error = "mGBA thread failed to start";
+            stop_unlocked();
+            return false;
+        }
+        player.threadLive = true;
+        if (mCoreThreadHasCrashed(&player.thread)) {
+            error = "mGBA thread crashed while loading";
+            stop_unlocked();
+            return false;
+        }
+    }
+
+    // Same sequence as Qt MultiplayerController::attachGame: pause every
+    // core, plug the lockstep cable, then reboot so both carts see it.
+    interrupt_all(g_session);
+    for (int i = 0; i < n; ++i) {
+        Player& player = g_session.players[i];
+        mLockstepThreadUserInit(&player.user.d, &player.thread);
+        player.user.slot = i;
+        player.user.d.d.requestedId = requested_id_cb;
+        GBASIOLockstepDriverCreate(&player.driver, &player.user.d.d);
+        GBASIOLockstepCoordinatorAttach(&g_session.coordinator, &player.driver);
+        player.core->setPeripheral(player.core, mPERIPH_GBA_LINK_PORT, &player.driver.d);
+    }
+    continue_all(g_session);
+    for (int i = 0; i < n; ++i) {
+        Player& player = g_session.players[i];
+        mCoreThreadReset(&player.thread);
+        if (player.thread.impl) {
+            mCoreSyncSetVideoSync(&player.thread.impl->sync, true);
+            player.thread.impl->sync.audioWait = false;
+        }
     }
 
     g_active.store(true, std::memory_order_release);
     const unsigned rate = g_session.players[local].core->audioSampleRate(
         g_session.players[local].core);
     xora_host_set_timing(59.7275, rate > 1 ? static_cast<double>(rate) : 32768.0);
-    ALOGI("GBA lockstep: %d cores, local P%d, cable is in-process mGBA", n, local + 1);
+    ALOGI("GBA lockstep: %d mCoreThreads, local P%d, cable is in-process mGBA", n, local + 1);
     return true;
 }
 
 void apply_pads(Session& session) {
     for (int i = 0; i < session.nPlayers; ++i) {
         Player& player = session.players[i];
-        if (!player.core) continue;
+        if (!player.core || !player.threadLive) continue;
         player.core->setKeys(player.core, retro_to_gba_keys(xora_host_pad_buttons(i)));
     }
 }
@@ -239,50 +298,25 @@ void apply_pads(Session& session) {
 void run_frame_unlocked() {
     Session& session = g_session;
     if (session.nPlayers < 2) return;
+
+    for (int i = 0; i < session.nPlayers; ++i) {
+        Player& player = session.players[i];
+        if (player.threadLive && mCoreThreadHasCrashed(&player.thread)) {
+            ALOGE("GBA lockstep: core %d crashed; leaving the libretro GBA running", i);
+            stop_unlocked();
+            return;
+        }
+    }
+
     apply_pads(session);
 
-    uint32_t target[kMaxPlayers];
     for (int i = 0; i < session.nPlayers; ++i) {
-        target[i] = session.players[i].core->frameCounter(session.players[i].core) + 1;
+        Player& player = session.players[i];
+        if (!player.threadLive || !player.thread.impl) continue;
+        const bool got = mCoreSyncWaitFrameStart(&player.thread.impl->sync);
+        if (got && i == session.localSlot) publish_local_frame(session);
+        mCoreSyncWaitFrameEnd(&player.thread.impl->sync);
     }
-
-    int loops = 0;
-    int stuck = 0;
-    while (loops < kMaxRunLoops) {
-        bool done = true;
-        for (int i = 0; i < session.nPlayers; ++i) {
-            if (session.players[i].core->frameCounter(session.players[i].core) < target[i]) {
-                done = false;
-                break;
-            }
-        }
-        if (done) break;
-
-        bool ran = false;
-        for (int i = 0; i < session.nPlayers; ++i) {
-            Player& player = session.players[i];
-            if (player.user.sleeping || !player.core) continue;
-            player.core->runLoop(player.core);
-            ran = true;
-        }
-        if (!ran) {
-            ++stuck;
-            if (stuck == 1) {
-                ALOGW("GBA lockstep: every core is asleep; waking");
-            }
-            for (int i = 0; i < session.nPlayers; ++i) {
-                session.players[i].user.sleeping = false;
-            }
-            if (stuck > 64) break;
-        } else {
-            stuck = 0;
-        }
-        ++loops;
-    }
-    if (loops >= kMaxRunLoops) {
-        ALOGW("GBA lockstep: frame scheduler hit the loop cap");
-    }
-    publish_local_frame(session);
 }
 
 }  // namespace
@@ -312,8 +346,7 @@ void xora_gba_link_reset() {
     if (!g_active.load(std::memory_order_relaxed)) return;
     for (int i = 0; i < g_session.nPlayers; ++i) {
         Player& player = g_session.players[i];
-        if (player.core) player.core->reset(player.core);
-        player.user.sleeping = false;
+        if (player.threadLive) mCoreThreadReset(&player.thread);
     }
 }
 

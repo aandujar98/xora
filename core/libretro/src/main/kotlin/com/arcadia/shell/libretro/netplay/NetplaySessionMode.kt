@@ -43,6 +43,23 @@ fun netplaySessionMode(platformId: String): NetplaySessionMode {
 fun usesGbaLockstep(platformId: String): Boolean =
     platformId.trim().equals("gba", ignoreCase = true)
 
+/**
+ * Start in-process lockstep once per handshake. Retrying every frame after a
+ * failed start toasted (or crashed) the lobby on join.
+ */
+fun shouldStartGbaLockstep(
+    platformId: String,
+    handheldLink: Boolean,
+    localSlot: Int,
+    alreadyActive: Boolean,
+    alreadyAttempted: Boolean,
+): Boolean =
+    usesGbaLockstep(platformId) &&
+        handheldLink &&
+        localSlot >= 1 &&
+        !alreadyActive &&
+        !alreadyAttempted
+
 fun NetplaySessionMode.isSharedConsole(): Boolean = this == NetplaySessionMode.SharedConsole
 
 /**

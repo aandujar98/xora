@@ -91,6 +91,7 @@ import com.arcadia.shell.libretro.netplay.XoraNetplaySession
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
 import com.arcadia.shell.libretro.netplay.XoraNetplayVideo
 import com.arcadia.shell.libretro.netplay.netplayBannerText
+import com.arcadia.shell.libretro.netplay.shouldStartGbaLockstep
 import com.arcadia.shell.libretro.netplay.usesGbaLockstep
 import com.arcadia.shell.libretro.netplay.formatJoinHostPort
 import com.arcadia.shell.libretro.netplay.parseJoinHostPort
@@ -123,6 +124,7 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
@@ -187,6 +189,8 @@ class XoraLibretroActivity : ComponentActivity() {
     @Volatile private var netplayPadLive = false
     @Volatile private var lastPadKeyLabel = ""
     private val netplayTouchButtons = AtomicInteger(0)
+    /** GBA lockstep is started once per handshake. A failed start must not retry every frame. */
+    private val gbaLockstepAttempted = AtomicBoolean(false)
     private var profileName by mutableStateOf("Player")
     /** Feedback shown inside the pause menu. A toast would pull focus off the game window. */
     private var menuMessage by mutableStateOf<String?>(null)
@@ -407,6 +411,12 @@ class XoraLibretroActivity : ComponentActivity() {
                 if (!ui.linked) {
                     netplayPadLive = false
                     lastPadKeyLabel = ""
+                    if (wasLinked) {
+                        gbaLockstepAttempted.set(false)
+                        lifecycleScope.launch(emuDispatcher) {
+                            LibretroNative.nativeGbaLinkStop()
+                        }
+                    }
                 }
                 refreshNetplayBanner()
                 syncTouchPad()
@@ -2307,10 +2317,14 @@ class XoraLibretroActivity : ComponentActivity() {
                             refreshNetplayBanner()
                         }
                         val handheld = session.sessionModeNow == NetplaySessionMode.HandheldLink
-                        val gbaLockstep = usesGbaLockstep(platformId) &&
-                            handheld &&
-                            session.playerSlotNow >= 1
-                        if (gbaLockstep && !LibretroNative.nativeGbaLinkActive()) {
+                        val gbaLockstep = shouldStartGbaLockstep(
+                            platformId,
+                            handheldLink = handheld,
+                            localSlot = session.playerSlotNow,
+                            alreadyActive = LibretroNative.nativeGbaLinkActive(),
+                            alreadyAttempted = gbaLockstepAttempted.get(),
+                        )
+                        if (gbaLockstep && gbaLockstepAttempted.compareAndSet(false, true)) {
                             val rom = romFilePath.orEmpty()
                             val players = session.playerCountNow.coerceIn(2, 4)
                             val ok = LibretroNative.nativeGbaLinkStart(

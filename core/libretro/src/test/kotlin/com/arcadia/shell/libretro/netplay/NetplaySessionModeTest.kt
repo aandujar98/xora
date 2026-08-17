@@ -29,6 +29,34 @@ class NetplaySessionModeTest {
     }
 
     @Test
+    fun gbaLockstepStartsOnceAfterHandshake() {
+        assertEquals(
+            true,
+            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 1, alreadyActive = false, alreadyAttempted = false),
+        )
+        assertEquals(
+            true,
+            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 2, alreadyActive = false, alreadyAttempted = false),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 1, alreadyActive = true, alreadyAttempted = false),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 1, alreadyActive = false, alreadyAttempted = true),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaLockstep("gba", handheldLink = true, localSlot = 0, alreadyActive = false, alreadyAttempted = false),
+        )
+        assertEquals(
+            false,
+            shouldStartGbaLockstep("snes", handheldLink = false, localSlot = 1, alreadyActive = false, alreadyAttempted = false),
+        )
+    }
+
+    @Test
     fun sharedConsoleJoinersDoNotLoadHostSavestate() {
         assertEquals(false, NetplaySessionMode.SharedConsole.joinerAppliesHostState())
         assertEquals(false, NetplaySessionMode.HandheldLink.joinerAppliesHostState())

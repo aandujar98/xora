@@ -15,6 +15,8 @@ set(BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(BUILD_STATIC ON CACHE BOOL "" FORCE)
 set(DISABLE_FRONTENDS ON CACHE BOOL "" FORCE)
 set(DISABLE_DEPS ON CACHE BOOL "" FORCE)
+# Lockstep SIO lives in GBA_SIO_SRC, which CMake skips when MINIMAL_CORE is on.
+set(MINIMAL_CORE OFF CACHE BOOL "" FORCE)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(MGBA_SRC "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mgba")
@@ -93,6 +95,10 @@ target_compile_definitions(xora_libretro PRIVATE
     BUILD_STATIC
     M_CORE_GBA
     ENABLE_VFS
+    ENABLE_DIRECTORIES
+    # Must match libmgba: without this, Mutex in our TU is void* and the
+    # coordinator struct does not match the pthread mutex libmgba linked.
+    USE_PTHREADS
 )
 
 target_link_libraries(xora_libretro
@@ -108,6 +114,6 @@ target_link_libraries(xora_libretro
 target_compile_features(xora_libretro PUBLIC cxx_std_20)
 # rcheevos is C; keep warnings softer there.
 target_compile_options(xora_libretro PRIVATE
-    $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -fno-exceptions -fno-rtti>
+    $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -fno-exceptions -fno-rtti -pthread>
     $<$<COMPILE_LANGUAGE:C>:-Wno-unused-parameter>
 )
