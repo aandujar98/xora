@@ -135,7 +135,7 @@ object AzaharPublicLobbies {
                     .get()
                     .build()
                 client.newCall(request).execute().use { response ->
-                    val body = response.body?.string().orEmpty()
+                    val body = response.body.string()
                     if (!response.isSuccessful) {
                         error("HTTP ${response.code}")
                     }
