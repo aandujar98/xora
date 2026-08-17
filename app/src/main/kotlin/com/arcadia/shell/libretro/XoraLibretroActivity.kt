@@ -1185,7 +1185,8 @@ class XoraLibretroActivity : ComponentActivity() {
         runCatching {
             // Lockstep GBAs keep producing PCM on their own threads. Pausing
             // AudioTrack here drops the first drain after Host and the game
-            // stays silent for the rest of the session.
+            // stays silent for the rest of the session. Keep the track live
+            // whenever lockstep is running, including the Host overlay.
             if (netplaySession?.linkedNow == true ||
                 LibretroNative.nativeGbaLinkActive()
             ) {
