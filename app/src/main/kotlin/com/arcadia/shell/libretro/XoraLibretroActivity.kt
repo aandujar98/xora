@@ -1183,7 +1183,12 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun syncPaused() {
         paused = menuOpen || userPaused
         runCatching {
-            if (netplaySession?.linkedNow == true) {
+            // Lockstep GBAs keep producing PCM on their own threads. Pausing
+            // AudioTrack here drops the first drain after Host and the game
+            // stays silent for the rest of the session.
+            if (netplaySession?.linkedNow == true ||
+                LibretroNative.nativeGbaLinkActive()
+            ) {
                 audioTrack?.play()
             } else if (paused) {
                 audioTrack?.pause()
@@ -2278,7 +2283,20 @@ class XoraLibretroActivity : ComponentActivity() {
         Choreographer.getInstance().postFrameCallback(washFrameCallback)
     }
 
+    private fun restartAudio() {
+        runCatching {
+            audioTrack?.stop()
+            audioTrack?.release()
+        }
+        audioTrack = null
+        startAudio()
+    }
+
     private fun startAudio() {
+        if (audioTrack != null) {
+            runCatching { audioTrack?.play() }
+            return
+        }
         val sampleRate = LibretroNative.nativeGetSampleRate().toInt().coerceIn(8000, 96000)
         val minBuf = AudioTrack.getMinBufferSize(
             sampleRate,
@@ -2431,6 +2449,9 @@ class XoraLibretroActivity : ComponentActivity() {
         if (ok) {
             LibretroNative.nativeGbaSioSetEnabled(false)
             refreshNetplayBanner()
+            lifecycleScope.launch(Dispatchers.Main.immediate) {
+                restartAudio()
+            }
             val text = if (joinedReset) {
                 "Player 2 joined — both phones reset. You are your seat; the hidden GBA is the other player. Open the same 2-player / link menu together."
             } else {

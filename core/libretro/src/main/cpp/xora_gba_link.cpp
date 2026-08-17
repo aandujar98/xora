@@ -27,6 +27,7 @@
 #include <mgba/gba/interface.h>
 #include <mgba/internal/gba/input.h>
 #include <mgba/internal/gba/sio/lockstep.h>
+#include <mgba-util/audio-buffer.h>
 #include <mgba-util/vfs.h>
 
 #include <android/log.h>
@@ -95,19 +96,34 @@ void mgba_log(mLogger*, int category, enum mLogLevel level, const char* format, 
     __android_log_print(prio, "mGBA", "%s: %s", name ? name : "mgba", buf);
 }
 
-Player* player_from_stream(mAVStream* stream) {
-    if (!stream) return nullptr;
-    for (int i = 0; i < g_session.nPlayers; ++i) {
-        if (&g_session.players[i].stream == stream) return &g_session.players[i];
+/** Same consume path as desktop mGBA / SDL. The lockstep cores run on
+ *  mCoreThreads; libretro audio callbacks stop the moment lockstep starts. */
+void pull_local_audio(Session& session) {
+    Player& local = session.players[session.localSlot];
+    if (!local.core || !local.threadLive || !local.thread.impl) return;
+    struct mAudioBuffer* buf = local.core->getAudioBuffer(local.core);
+    if (!buf) return;
+    mCoreSyncLockAudio(&local.thread.impl->sync);
+    const size_t frames = mAudioBufferAvailable(buf);
+    if (frames == 0) {
+        mCoreSyncUnlockAudio(&local.thread.impl->sync);
+        return;
     }
-    return nullptr;
-}
-
-void post_audio_frame(mAVStream* stream, int16_t left, int16_t right) {
-    Player* player = player_from_stream(stream);
-    if (!player || !player->audioTap) return;
-    const int16_t pair[2] = {left, right};
-    xora_host_push_stereo_s16(pair, 2);
+    const unsigned channels = buf->channels ? buf->channels : 2u;
+    std::vector<int16_t> pcm(frames * channels);
+    const size_t got = mAudioBufferRead(buf, pcm.data(), frames);
+    mCoreSyncConsumeAudio(&local.thread.impl->sync);
+    if (got == 0) return;
+    if (channels == 2) {
+        xora_host_push_stereo_s16(pcm.data(), got * 2);
+        return;
+    }
+    std::vector<int16_t> stereo(got * 2);
+    for (size_t i = 0; i < got; ++i) {
+        stereo[i * 2] = pcm[i];
+        stereo[i * 2 + 1] = pcm[i];
+    }
+    xora_host_push_stereo_s16(stereo.data(), stereo.size());
 }
 
 uint32_t retro_to_gba_keys(uint16_t buttons) {
@@ -244,7 +260,6 @@ bool start_unlocked(const char* rom_path, int players, int local_slot, std::stri
 
         player.audioTap = (i == local);
         player.stream = {};
-        player.stream.postAudioFrame = post_audio_frame;
         player.core->setAVStream(player.core, &player.stream);
 
         player.thread = {};
@@ -327,9 +342,11 @@ void run_frame_unlocked() {
     if (local.threadLive && local.thread.impl) {
         mCoreSyncWaitFrameStart(&local.thread.impl->sync);
         publish_local_frame(session);
+        pull_local_audio(session);
         mCoreSyncWaitFrameEnd(&local.thread.impl->sync);
     } else {
         publish_local_frame(session);
+        pull_local_audio(session);
     }
 }
 
