@@ -1534,8 +1534,10 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadGame(
             (ext == "cci" || ext == "3ds" || ext == "cxi" || ext == "cia" ||
                 ext == "3dsx" || ext == "zcci" || ext == "zcxi")) {
             g_last_error =
-                "Azahar could not open this cart. It needs a decrypted .cci/.3ds "
-                "(encrypted 1:1 dumps fail) and a real file path — not a RAM copy.";
+                "Azahar could not open this cart. It needs a decrypted .cci "
+                "(a decrypted .3ds of the same CCI image also works). Encrypted "
+                "1:1 dumps fail — Azahar removed encrypted load. Homebrew .3dsx "
+                "is fine. XOrA cannot decrypt carts.";
         } else {
             g_last_error = std::string("retro_load_game failed (core=") +
                 (info.library_name ? info.library_name : "?") +

@@ -772,6 +772,17 @@ class XoraLibretroActivity : ComponentActivity() {
             val saveImport = withContext(Dispatchers.IO) {
                 saveFileImporter.importForGame(platformId, romPath)
             }
+            if (platformId.equals("3ds", ignoreCase = true)) {
+                val crypto = withContext(Dispatchers.IO) { ThreeDsCart.inspect(romPath) }
+                if (crypto == ThreeDsCartCrypto.Encrypted) {
+                    Toast.makeText(
+                        this@XoraLibretroActivity,
+                        ThreeDsCart.LOAD_ENCRYPTED_ERROR,
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@launch
+                }
+            }
             // Core init + first frames must share one OS thread (Mupen/libco).
             val ok = withContext(emuDispatcher) {
                 val xora = preferences.xoraEmulatorSettings.first()
@@ -802,7 +813,12 @@ class XoraLibretroActivity : ComponentActivity() {
                 val err = withContext(emuDispatcher) {
                     LibretroNative.nativeLastError()
                 } ?: "Failed to load game"
-                Toast.makeText(this@XoraLibretroActivity, err, Toast.LENGTH_LONG).show()
+                val shown = if (platformId.equals("3ds", ignoreCase = true)) {
+                    ThreeDsCart.loadFailureMessage(romPath, err)
+                } else {
+                    err
+                }
+                Toast.makeText(this@XoraLibretroActivity, shown, Toast.LENGTH_LONG).show()
                 return@launch
             }
             gameLoaded = true

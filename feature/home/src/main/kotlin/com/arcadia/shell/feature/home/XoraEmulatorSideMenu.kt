@@ -1471,6 +1471,15 @@ private fun publicLobbyPaneRows(
         )
         add(
             MenuRow(
+                id = "az-cart",
+                title = "Cart · decrypted .cci",
+                subtitle = "Encrypted 1:1 dumps will not boot. Azahar removed encrypted " +
+                    "load. A decrypted .3ds of the same CCI image works. Homebrew .3dsx is fine.",
+                icon = XmbIcon.Folder,
+            ),
+        )
+        add(
+            MenuRow(
                 id = "az-standalone",
                 title = if (publicLobbies.standaloneInstalled) {
                     "Open standalone Azahar"

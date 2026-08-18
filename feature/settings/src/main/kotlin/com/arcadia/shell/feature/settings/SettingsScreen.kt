@@ -1675,6 +1675,20 @@ fun SettingsScreen(
                 )
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text(
+                    text = "3DS · Cart dumps",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Azahar will not launch encrypted games (standalone or in XOrA). " +
+                        "Use a decrypted .cci — a decrypted .3ds of the same CCI image also " +
+                        "works. Encrypted 1:1 dumps fail. Homebrew .3dsx is fine. XOrA " +
+                        "cannot decrypt carts.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
                     text = "3DS · Pretendo",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
