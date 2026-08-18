@@ -1679,35 +1679,14 @@ fun SettingsScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "Pretendo is not a DNS switch like DS Kaeru/Wiimmfi. Official " +
-                        "online uses Nimbus (Home Menu CIA) plus a dumped NAND. Libretro " +
-                        "Azahar cannot dump system files, install CIAs, or boot the Home " +
-                        "Menu — do that in standalone Azahar, then play Pretendo titles " +
-                        "there. Prep keeps New 3DS mode and the Azahar sdmc/nand folder ready.",
+                    text = "Pretendo cannot run in XOrA Emulator. DS Kaeru works here " +
+                        "because melonDS libretro has a WFC DNS option. 3DS Pretendo is " +
+                        "Nimbus (Home Menu CIA) plus a dumped NAND, plus standalone Azahar's " +
+                        "LLE online modules and 3GX plugin loader — Azahar libretro never " +
+                        "reads those settings. Play Pretendo titles in standalone Azahar.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Pretendo prep",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            text = "New 3DS + virtual SD for the Azahar user folder.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = xora.threeDsPretendoPrep,
-                        onCheckedChange = viewModel::setXoraThreeDsPretendoPrep,
-                    )
-                }
             }
         }
 

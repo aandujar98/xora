@@ -3,13 +3,12 @@ package com.arcadia.shell.libretro.netplay
 import java.io.File
 
 /**
- * Pretendo is not a DNS lobby like melonDS Kaeru/Wiimmfi.
+ * Pretendo does not run inside XOrA Emulator.
  *
- * Official 3DS Pretendo uses Nimbus (a CIA on the Home Menu) plus Luma IPS patches
- * on the virtual SD, after a real NAND dump. Libretro Azahar cannot install CIAs,
- * boot the Home Menu, or enable standalone's "required LLE modules for online".
- * Setup happens in standalone Azahar; XOrA can keep the Azahar user folder ready
- * and point people at that app.
+ * DS Kaeru/Wiimmfi work in XOrA because melonDS libretro exposes a WFC DNS option.
+ * 3DS Pretendo is Nimbus (Home Menu CIA + Luma/3GX patches) on a dumped NAND, plus
+ * standalone Azahar's "required LLE modules for online" and 3GX plugin loader.
+ * Upstream Azahar libretro never parses those settings — extra core options are ignored.
  */
 data class AzaharPretendoUi(
     val prepEnabled: Boolean = false,
@@ -19,15 +18,11 @@ data class AzaharPretendoUi(
 ) {
     fun overlaySubtitle(): String = when {
         nandPresent && nimbusPatches ->
-            "NAND + Nimbus patches found · finish in standalone Azahar"
-        nandPresent ->
-            "NAND present · copy Nimbus luma into sdmc, then open standalone"
-        nimbusPatches ->
-            "Nimbus patches present · dump system files in standalone Azahar"
-        prepEnabled ->
-            "Prep on · dump NAND and run Nimbus in standalone Azahar"
+            "Not in XOrA Emulator · NAND + Nimbus files are for standalone Azahar"
+        nandPresent || nimbusPatches ->
+            "Not in XOrA Emulator · play Pretendo in standalone Azahar"
         else ->
-            "Official-online replacement · Nimbus, not a DNS switch"
+            "Not in XOrA Emulator · Nimbus + NAND + LLE, not a DNS switch"
     }
 }
 

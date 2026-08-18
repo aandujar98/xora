@@ -59,8 +59,8 @@ data class XoraEmulatorSettings(
      */
     val azaharLobbyApiUrl: String = "",
     /**
-     * 3DS Pretendo prep. Not a DNS switch — Nimbus + dumped NAND live in standalone
-     * Azahar. When on, XOrA keeps New 3DS + virtual SD and the Azahar user folder ready.
+     * Kept for older installs. Does not put Pretendo on XOrA Emulator — Azahar libretro
+     * has no Nimbus / LLE-online / plugin-loader options. Prefer standalone Azahar.
      */
     val threeDsPretendoPrep: Boolean = false,
     /**

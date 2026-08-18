@@ -239,8 +239,8 @@ class XoraNetplayBannerTest {
         )
         assertTrue(text.contains("standalone Azahar"))
         assertTrue(text.contains("Pretendo"))
+        assertTrue(text.contains("not in XOrA Emulator") || text.contains("Not in XOrA"))
         assertTrue(text.contains("Nimbus"))
-        assertTrue(text.contains("DNS"))
         assertTrue(!text.contains("your Game Boy"))
     }
 }

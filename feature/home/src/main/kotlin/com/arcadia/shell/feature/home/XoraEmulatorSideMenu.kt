@@ -1305,7 +1305,7 @@ private fun paneRows(
         ),
     )
     EmulatorMenuPane.PublicLobbies -> publicLobbyPaneRows(platformId, settings, publicLobbies)
-    EmulatorMenuPane.Pretendo -> pretendoPaneRows(settings, pretendo)
+    EmulatorMenuPane.Pretendo -> pretendoPaneRows(pretendo)
 }
 
 private fun publicLobbyNetplayRows(
@@ -1347,7 +1347,7 @@ private fun publicLobbyNetplayRows(
         ),
         MenuRow(
             id = "np-pretendo",
-            title = if (settings.threeDsPretendoPrep) "Pretendo prep on" else "Pretendo",
+            title = "Pretendo · not in XOrA",
             subtitle = pretendo.overlaySubtitle(),
             icon = XmbIcon.Network,
             pane = EmulatorMenuPane.Pretendo,
@@ -1424,8 +1424,8 @@ private fun publicLobbyPaneRows(
         add(
             MenuRow(
                 id = "az-pretendo",
-                title = "Pretendo",
-                subtitle = "Official-online replacement · Nimbus in standalone Azahar, not a DNS switch",
+                title = "Pretendo · not in XOrA",
+                subtitle = "Cannot run in XOrA Emulator. Open standalone Azahar for Nimbus + NAND.",
                 icon = XmbIcon.Network,
                 pane = EmulatorMenuPane.Pretendo,
             ),
@@ -1468,53 +1468,46 @@ private fun publicLobbyPaneRows(
 }
 
 private fun pretendoPaneRows(
-    settings: XoraEmulatorSettings,
     pretendo: AzaharPretendoUi,
 ): List<MenuRow> = listOf(
     MenuRow(
-        id = "pt-toggle",
-        title = if (settings.threeDsPretendoPrep) "Pretendo prep on" else "Pretendo prep off",
-        subtitle = "Keeps New 3DS + virtual SD. Pretendo itself is Nimbus, not a DNS switch.",
-        icon = XmbIcon.Network,
-        action = EmulatorMenuAction.TogglePretendoPrep,
+        id = "pt-unavailable",
+        title = "Not in XOrA Emulator",
+        subtitle = "DS Kaeru works here because melonDS has a WFC DNS option. Pretendo is " +
+            "Nimbus + dumped NAND + LLE modules. Azahar libretro never reads those settings.",
+        icon = XmbIcon.Notifications,
     ),
     MenuRow(
         id = "pt-status",
         title = when {
-            pretendo.nandPresent && pretendo.nimbusPatches -> "NAND and Nimbus patches found"
-            pretendo.nandPresent -> "NAND found · Nimbus patches missing"
-            pretendo.nimbusPatches -> "Nimbus patches found · NAND missing"
-            else -> "No Pretendo files yet"
+            pretendo.nandPresent && pretendo.nimbusPatches ->
+                "NAND and Nimbus files found · still standalone only"
+            pretendo.nandPresent -> "NAND found · does not enable Pretendo in XOrA"
+            pretendo.nimbusPatches -> "Nimbus files found · does not enable Pretendo in XOrA"
+            else -> "No NAND / Nimbus files in the XOrA Azahar folder"
         },
-        subtitle = pretendo.userDir.ifBlank { "Azahar folder is created under 3DS saves" },
+        subtitle = pretendo.userDir.ifBlank { "Azahar folder is under 3DS saves" },
         icon = XmbIcon.Folder,
         action = EmulatorMenuAction.RefreshPretendoStatus,
     ),
     MenuRow(
-        id = "pt-dump",
-        title = "1. Dump system files",
-        subtitle = "In standalone Azahar: Set Up System Files with the Arctic Setup Tool " +
-            "on a homebrewed 3DS. Libretro cannot dump NAND.",
+        id = "pt-why",
+        title = "Why XOrA cannot host it",
+        subtitle = "Libretro Azahar cannot install CIAs, boot Home Menu, run Nimbus, or " +
+            "enable 'required LLE modules for online' / the 3GX plugin loader.",
         icon = XmbIcon.Settings,
     ),
     MenuRow(
-        id = "pt-nimbus",
-        title = "2. Install Nimbus",
-        subtitle = "Install nimbus.cia in standalone Azahar, copy the luma folder into sdmc, " +
-            "boot Home Menu, open Nimbus, tap Pretendo.",
-        icon = XmbIcon.Play,
-    ),
-    MenuRow(
         id = "pt-play",
-        title = "3. Play on Pretendo",
-        subtitle = "Friends, Miiverse replacement, and official-online games run in standalone " +
-            "Azahar after Nimbus. XOrA cannot boot the Home Menu or install CIAs.",
+        title = "Play Pretendo in standalone Azahar",
+        subtitle = "Set Up System Files, install nimbus.cia, copy luma to sdmc, boot Home " +
+            "Menu, tap Pretendo. Friends and official-online games run in that app.",
         icon = XmbIcon.Friends,
     ),
     MenuRow(
         id = "pt-standalone",
         title = "Open standalone Azahar",
-        subtitle = "That app is the Pretendo setup UI (NAND dump, CIA, Home Menu, Nimbus).",
+        subtitle = "That app is the Pretendo emulator. XOrA only launches 3DS games locally.",
         icon = XmbIcon.Emulator,
         action = EmulatorMenuAction.OpenStandaloneAzahar,
     ),

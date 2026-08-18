@@ -21,6 +21,7 @@ class AzaharPretendoTest {
         assertFalse(ui.nimbusPatches)
         assertTrue(ui.prepEnabled)
         assertTrue(ui.userDir.endsWith("Azahar"))
+        assertTrue(ui.overlaySubtitle().contains("Not in XOrA Emulator"))
         assertTrue(ui.overlaySubtitle().contains("NAND", ignoreCase = true))
         assertTrue(ui.overlaySubtitle().contains("Nimbus", ignoreCase = true))
     }
@@ -67,11 +68,12 @@ class AzaharPretendoTest {
     }
 
     @Test
-    fun overlaySubtitleDoesNotClaimADnsLobby() {
+    fun overlaySubtitleSaysNotInXoraEmulator() {
         val idle = AzaharPretendoUi().overlaySubtitle()
+        assertTrue(idle.contains("Not in XOrA Emulator"))
         assertTrue(idle.contains("Nimbus"))
-        assertTrue(idle.contains("DNS"))
         val ready = AzaharPretendoUi(nandPresent = true, nimbusPatches = true).overlaySubtitle()
+        assertTrue(ready.contains("Not in XOrA Emulator"))
         assertTrue(ready.contains("standalone Azahar"))
         assertFalse(ready.contains("lobby", ignoreCase = true))
     }
