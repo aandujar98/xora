@@ -48,7 +48,7 @@ data class XoraNetplayUiState(
     val advertisedHostPort: Int = 0,
 )
 
-/** On-game netplay strip. Status used to live only in the pause menu, so a failed join looked like nothing. */
+/** Pause-menu netplay copy. Not drawn over gameplay — the old HUD blocked the screen. */
 fun netplayBannerText(
     ui: XoraNetplayUiState,
     @Suppress("UNUSED_PARAMETER") padLive: Boolean = false,

@@ -107,7 +107,6 @@ import com.arcadia.shell.libretro.netplay.gbaLockstepHiddenPort
 import com.arcadia.shell.libretro.netplay.gbaLockstepLocalSlot
 import com.arcadia.shell.libretro.netplay.gbaLockstepPlayerCount
 import com.arcadia.shell.libretro.netplay.gbaNetplayClientId
-import com.arcadia.shell.libretro.netplay.netplayBannerText
 import com.arcadia.shell.libretro.netplay.netplayCoreName
 import com.arcadia.shell.libretro.netplay.resolveGbaLockstepRomPath
 import com.arcadia.shell.libretro.netplay.shouldArmGbaLinkCable
@@ -205,12 +204,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var profileChip: FrameLayout? = null
     private var profileChipImage: ImageView? = null
     private var profileChipLetter: TextView? = null
-    /** Non-interactive seat readout so a dead P2 can be distinguished from a missing character. */
-    private var netplayHud: TextView? = null
     private var netplayTouchPad: NetplayTouchPadView? = null
-    @Volatile private var lastNetplayHud = ""
-    @Volatile private var netplayPadLive = false
-    @Volatile private var lastPadKeyLabel = ""
     private val netplayTouchButtons = AtomicInteger(0)
     /** gpSP netpacket starts once a second player links. Unused while GBA uses lockstep. */
     private val gbaNetpacketStarted = AtomicBoolean(false)
@@ -426,7 +420,6 @@ class XoraLibretroActivity : ComponentActivity() {
         dialogOverlay = dialogs
         root.addView(dialogs)
         root.addView(createProfileChip())
-        root.addView(createNetplayHud())
         root.addView(createNetplayTouchPad())
 
         setContentView(root)
@@ -440,8 +433,6 @@ class XoraLibretroActivity : ComponentActivity() {
             netplaySession?.state?.collect { ui ->
                 netplayUi = ui
                 if (ui.role == XoraNetplayRole.Idle) {
-                    netplayPadLive = false
-                    lastPadKeyLabel = ""
                     if (wasLinked ||
                         gbaNetpacketStarted.get() ||
                         gbaLockstepAttempted.get() ||
@@ -457,9 +448,6 @@ class XoraLibretroActivity : ComponentActivity() {
                             LibretroNative.nativeGbaSioSetEnabled(false)
                         }
                     }
-                } else if (!ui.linked) {
-                    netplayPadLive = false
-                    lastPadKeyLabel = ""
                 }
                 if (ui.role == XoraNetplayRole.Client &&
                     !filledAdvertisedHost &&
@@ -472,7 +460,6 @@ class XoraLibretroActivity : ComponentActivity() {
                     )
                 }
                 if (ui.role == XoraNetplayRole.Idle) filledAdvertisedHost = false
-                refreshNetplayBanner()
                 syncTouchPad()
                 ui.error?.let { showMenuMessage(it) }
                 if (ui.linked) {
@@ -1017,20 +1004,17 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
                 val netplayLinked = netplayUi.linked
                 val mappedBit = LibretroPad.padButtonFor(event, customMappings)
-                if (netplayLinked) notePadKey(event, mappedBit)
                 if (menuOpen) {
                     val handled = handleInGameXmbKey(keyCode)
                     if (netplayLinked) {
                         mappedBit?.let { bit ->
                             padMixer.keyDown(event.deviceId, bit)
-                            noteLocalPadLive()
                         }
                     }
                     return handled || netplayLinked
                 }
                 mappedBit?.let { bit ->
                     padMixer.keyDown(event.deviceId, bit)
-                    noteLocalPadLive()
                     return true
                 }
             }
@@ -1108,24 +1092,7 @@ class XoraLibretroActivity : ComponentActivity() {
             ry = right.second,
             axisButtons = LibretroPad.digitalPadFromAxes(event),
         )
-        val live = left.first.toInt() != 0 || left.second.toInt() != 0 ||
-            LibretroPad.digitalPadFromAxes(event) != 0
-        if (live) noteLocalPadLive()
         return true
-    }
-
-    private fun notePadKey(event: KeyEvent, mappedBit: Int?) {
-        val label = LibretroPad.keyCodeLabel(event.keyCode)
-        lastPadKeyLabel = if (mappedBit != null) label else "unmapped $label"
-        refreshNetplayBanner()
-    }
-
-    private fun noteLocalPadLive() {
-        if (!netplayUi.linked) return
-        if (!netplayPadLive) {
-            netplayPadLive = true
-            refreshNetplayBanner()
-        }
     }
 
     private fun startRaSession(romPath: String) {
@@ -2257,7 +2224,6 @@ class XoraLibretroActivity : ComponentActivity() {
         if (root.getChildAt(root.childCount - 1) !== chip) {
             chip.bringToFront()
         }
-        netplayHud?.takeIf { it.visibility == View.VISIBLE }?.bringToFront()
         // Last so bottom taps hit the pad, not the SNES bezel / game ImageView.
         netplayTouchPad?.takeIf { it.visibility == View.VISIBLE }?.bringToFront()
     }
@@ -2317,37 +2283,6 @@ class XoraLibretroActivity : ComponentActivity() {
         return chip
     }
 
-    private fun createNetplayHud(): TextView {
-        val density = resources.displayMetrics.density
-        val pad = (14 * density).toInt()
-        return TextView(this).apply {
-            netplayHud = this
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.CENTER_HORIZONTAL,
-            ).apply {
-                leftMargin = (20 * density).toInt()
-                rightMargin = (20 * density).toInt()
-                topMargin = (72 * density).toInt()
-            }
-            setPadding(pad, pad, pad, pad)
-            gravity = Gravity.CENTER
-            setTextColor(AndroidColor.WHITE)
-            textSize = 16f
-            background = GradientDrawable().apply {
-                cornerRadius = 12f * density
-                setColor(AndroidColor.argb(210, 0, 0, 0))
-            }
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            isClickable = false
-            isFocusable = false
-            isFocusableInTouchMode = false
-            elevation = 20f * density
-            visibility = View.GONE
-        }
-    }
-
     private fun createNetplayTouchPad(): NetplayTouchPadView {
         val density = resources.displayMetrics.density
         return NetplayTouchPadView(this).apply {
@@ -2362,33 +2297,8 @@ class XoraLibretroActivity : ComponentActivity() {
             onButtonsChanged = { buttons ->
                 netplayTouchButtons.set(buttons)
                 padMixer.setDigital(NetplayTouchPadView.DEVICE_ID, buttons)
-                val live = buttons != 0
-                if (live != netplayPadLive) {
-                    netplayPadLive = live
-                    refreshNetplayBanner()
-                }
             }
         }
-    }
-
-    private fun refreshNetplayBanner() {
-        val hasController = LibretroPad.connectedControllers().isNotEmpty()
-        setNetplayHud(
-            netplayBannerText(
-                netplayUi,
-                netplayPadLive,
-                gameTitle,
-                hasController,
-                lastPadKeyLabel,
-                sharedConsole = netplaySession?.sessionModeNow == NetplaySessionMode.SharedConsole,
-                gbaGpspLink = false,
-                gbaGpspLinkLive = false,
-                gbaLockstep = usesGbaLockstep(platformId),
-                gbaLockstepLive = usesGbaLockstep(platformId) &&
-                    LibretroNative.nativeGbaLinkActive(),
-                platformId = platformId,
-            ),
-        )
     }
 
     private fun syncTouchPad() {
@@ -2404,16 +2314,6 @@ class XoraLibretroActivity : ComponentActivity() {
                 netplayTouchButtons.set(0)
                 padMixer.forget(NetplayTouchPadView.DEVICE_ID)
             }
-        }
-        refreshNetplayBanner()
-    }
-
-    private fun setNetplayHud(text: String) {
-        if (text == lastNetplayHud) return
-        lastNetplayHud = text
-        runOnUiThread {
-            netplayHud?.text = text
-            netplayHud?.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
         }
     }
 
@@ -2687,7 +2587,6 @@ class XoraLibretroActivity : ComponentActivity() {
         )
         if (ok) {
             LibretroNative.nativeGbaSioSetEnabled(false)
-            refreshNetplayBanner()
             lifecycleScope.launch(Dispatchers.Main.immediate) {
                 restartAudio()
             }
@@ -2725,7 +2624,6 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             if (session.hosting) syncGbaNetpacketPeers(session)
             LibretroNative.nativeReset()
-            refreshNetplayBanner()
         }
         if (gbaNetpacketStarted.get()) syncGbaNetpacketPeers(session)
         session.takeNetpackets().forEach { packet ->
@@ -2738,7 +2636,6 @@ class XoraLibretroActivity : ComponentActivity() {
         withContext(emuDispatcher) {
             val session = netplaySession ?: return@withContext
             startGbaLockstepIfNeeded(session)
-            refreshNetplayBanner()
         }
     }
 
@@ -2844,13 +2741,6 @@ class XoraLibretroActivity : ComponentActivity() {
                             sent,
                             replayRemoteInOrder = usesGbaLockstep(platformId),
                         )
-                        val live = sent.buttons != 0 ||
-                            sent.lx.toInt() != 0 ||
-                            sent.ly.toInt() != 0
-                        if (live != netplayPadLive) {
-                            netplayPadLive = live
-                            refreshNetplayBanner()
-                        }
                         val handheld = session.sessionModeNow == NetplaySessionMode.HandheldLink
                         val lockstepWanted = usesGbaLockstep(platformId)
                         if (lockstepWanted) startGbaLockstepIfNeeded(session)
