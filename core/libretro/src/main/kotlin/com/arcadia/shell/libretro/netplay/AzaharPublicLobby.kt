@@ -79,6 +79,28 @@ object AzaharPublicLobbies {
     /** Community Citra/Azahar room registry (Kex / ANTHENA / public halls). HTTP, not official Azahar. */
     const val COMMUNITY_AZAHAR_API = "http://88.198.47.46:5000"
 
+    /** USA / EUR / JPN Mario Kart 7 title IDs used by Citra/Azahar lobby listings. */
+    val MARIO_KART_7_TITLE_IDS = setOf(
+        0x0004000000030700L,
+        0x0004000000030800L,
+        0x0004000000030600L,
+    )
+
+    /**
+     * Featured open Mario Kart 7 Direct Connect. Used when the live registry has no
+     * open MK7 room. Denver public hall accepts any game (including MK7).
+     */
+    val MARIO_KART_7_OPEN = AzaharPublicRoom(
+        id = "xora-mk7-open",
+        name = "Mario Kart 7 · open",
+        description = "XOrA featured Azahar room. No password.",
+        ip = "198.57.46.213",
+        port = 5000,
+        maxPlayer = 8,
+        hasPassword = false,
+        preferredGame = "Mario Kart 7",
+    )
+
     val STANDALONE_PACKAGES = listOf(
         "org.azahar_emu.azahar",
         "io.github.lime3ds.android",
@@ -208,6 +230,35 @@ object AzaharPublicLobbies {
         val ip = room.ip.trim()
         if (ip.isEmpty() || room.port <= 0) return ""
         return "$ip:${room.port}"
+    }
+
+    fun isMarioKart7(room: AzaharPublicRoom): Boolean {
+        val blob = listOf(room.name, room.preferredGame, room.description)
+            .joinToString(" ")
+            .lowercase()
+        if (blob.contains("mario kart 7") ||
+            blob.contains("mariokart 7") ||
+            blob.contains("mario kart7") ||
+            Regex("""\bmk7\b""").containsMatchIn(blob)
+        ) {
+            return true
+        }
+        return room.preferredGameId in MARIO_KART_7_TITLE_IDS
+    }
+
+    fun featuredMarioKart7(live: List<AzaharPublicRoom>): AzaharPublicRoom =
+        live.firstOrNull { room ->
+            isMarioKart7(room) && !room.hasPassword && directConnect(room).isNotBlank()
+        } ?: MARIO_KART_7_OPEN
+
+    /** MK7 open room first, then the rest of the live registry. */
+    fun displayRooms(live: List<AzaharPublicRoom>): List<AzaharPublicRoom> {
+        val featured = featuredMarioKart7(live)
+        val featuredConnect = directConnect(featured)
+        val rest = live.filterNot { room ->
+            featuredConnect.isNotBlank() && directConnect(room) == featuredConnect
+        }
+        return listOf(featured) + rest
     }
 
     fun installedStandalonePackage(pm: PackageManager): String? =

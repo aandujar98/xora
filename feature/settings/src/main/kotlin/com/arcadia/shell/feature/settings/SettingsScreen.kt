@@ -1650,11 +1650,11 @@ fun SettingsScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "Two 3DS lobby kinds: XOrA Online (6-character codes on " +
-                        "api.xoranetwork.com — XOrA-to-XOrA only) and Azahar/Citra rooms " +
-                        "(ENet Direct Connect IPs from the community registry). Blank uses " +
-                        "${AzaharPublicLobbies.COMMUNITY_AZAHAR_API}. Sitting in an Azahar " +
-                        "room still needs standalone Azahar.",
+                    text = "Azahar/Citra rooms are ENet Direct Connect IPs from the community " +
+                        "registry. Blank uses ${AzaharPublicLobbies.COMMUNITY_AZAHAR_API}. " +
+                        "XOrA Host/Join is on Netplay — it is not an Azahar room. Sitting in " +
+                        "a listed room still needs standalone Azahar. Mario Kart 7 open is " +
+                        "pinned at the top of Public lobbies.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

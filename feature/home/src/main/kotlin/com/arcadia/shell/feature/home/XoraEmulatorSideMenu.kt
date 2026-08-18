@@ -777,7 +777,7 @@ private fun paneTitle(
     EmulatorMenuPane.Audio -> "Audio"
     EmulatorMenuPane.PublicLobbies -> when (publicLobbyKind(platformId)) {
         PublicLobbyKind.NdsWfc -> "Nintendo WFC"
-        else -> "3DS public lobbies"
+        else -> "Azahar rooms"
     }
     EmulatorMenuPane.Pretendo -> "Pretendo"
     EmulatorMenuPane.None -> ""
@@ -1330,9 +1330,6 @@ private fun paneRows(
         platformId = platformId,
         settings = settings,
         publicLobbies = publicLobbies,
-        netplay = netplay,
-        joinCode = joinCode,
-        network = network,
     )
     EmulatorMenuPane.Pretendo -> pretendoPaneRows(pretendo)
 }
@@ -1363,13 +1360,13 @@ private fun publicLobbyNetplayRows(
     PublicLobbyKind.AzaharRooms -> listOf(
         MenuRow(
             id = "np-lobbies",
-            title = "XOrA 3DS lobbies",
+            title = "Azahar rooms",
             subtitle = when {
                 publicLobbies.loading -> "Refreshing Azahar rooms…"
                 publicLobbies.rooms.isNotEmpty() ->
-                    "${publicLobbies.rooms.size} Azahar rooms with IPs · plus XOrA Online codes"
+                    "${publicLobbies.rooms.size} rooms · Mario Kart 7 open on top"
                 publicLobbies.status.isNotBlank() -> publicLobbies.status
-                else -> "XOrA Online codes · Azahar rooms from the community registry"
+                else -> "Mario Kart 7 open room · community Azahar Direct Connect"
             },
             icon = XmbIcon.Friends,
             pane = EmulatorMenuPane.PublicLobbies,
@@ -1389,9 +1386,6 @@ private fun publicLobbyPaneRows(
     platformId: String,
     settings: XoraEmulatorSettings,
     publicLobbies: AzaharLobbyUi,
-    netplay: XoraNetplayUiState = XoraNetplayUiState(),
-    joinCode: String = "",
-    network: XoraNetworkState = XoraNetworkState(),
 ): List<MenuRow> = when (publicLobbyKind(platformId)) {
     PublicLobbyKind.NdsWfc -> listOf(
         MenuRow(
@@ -1423,46 +1417,6 @@ private fun publicLobbyPaneRows(
     PublicLobbyKind.AzaharRooms -> buildList {
         add(
             MenuRow(
-                id = "xora-3ds-how",
-                title = "XOrA 3DS public lobby",
-                subtitle = "XOrA-to-XOrA via api.xoranetwork.com. Share a 6-character " +
-                    "Online code. This is not a Citra IP and Azahar cannot join it.",
-                icon = XmbIcon.Network,
-            ),
-        )
-        add(
-            MenuRow(
-                id = "xora-3ds-host",
-                title = when {
-                    netplay.online && netplay.sessionCode.isNotBlank() &&
-                        netplay.role == XoraNetplayRole.Host ->
-                        "XOrA lobby code ${netplay.sessionCode}"
-                    else -> "Host XOrA 3DS lobby"
-                },
-                subtitle = if (network.signedIn) {
-                    "A starts Online Host. Friends join with the code on Netplay."
-                } else {
-                    "Sign in to XOrA Network first"
-                },
-                icon = XmbIcon.Play,
-                action = EmulatorMenuAction.HostOnlineNetplay,
-            ),
-        )
-        add(
-            MenuRow(
-                id = "xora-3ds-join",
-                title = "Join XOrA 3DS lobby",
-                subtitle = when {
-                    !network.signedIn -> "Sign in to XOrA Network first"
-                    joinCode.isBlank() -> "Type the 6-character code on Netplay, then A"
-                    else -> "Join code $joinCode"
-                },
-                icon = XmbIcon.Friends,
-                action = EmulatorMenuAction.JoinOnlineNetplay,
-            ),
-        )
-        add(
-            MenuRow(
                 id = "az-refresh",
                 title = if (publicLobbies.loading) "Refreshing rooms…" else "Refresh rooms",
                 subtitle = publicLobbies.status.ifBlank {
@@ -1480,8 +1434,8 @@ private fun publicLobbyPaneRows(
             MenuRow(
                 id = "az-how",
                 title = "XOrA cannot sit in Azahar rooms",
-                subtitle = "Azahar rooms below are ENet Direct Connect (ip:port). A copies " +
-                    "the IP and opens standalone Azahar. XOrA Online codes above cannot join them.",
+                subtitle = "A copies ip:port and opens standalone Azahar. Use Netplay → " +
+                    "Host/Join for a normal XOrA Online session.",
                 icon = XmbIcon.Notifications,
             ),
         )
@@ -1520,19 +1474,7 @@ private fun publicLobbyPaneRows(
                 pane = EmulatorMenuPane.Pretendo,
             ),
         )
-        if (publicLobbies.rooms.isEmpty() && !publicLobbies.loading) {
-            add(
-                MenuRow(
-                    id = "az-empty",
-                    title = "No rooms listed",
-                    subtitle = publicLobbies.status.ifBlank {
-                        "Azahar has no official lobby. Set a community GET {url}/lobby in Settings."
-                    },
-                    icon = XmbIcon.Notifications,
-                ),
-            )
-        }
-        publicLobbies.rooms.forEachIndexed { index, room ->
+        AzaharPublicLobbies.displayRooms(publicLobbies.rooms).forEachIndexed { index, room ->
             add(
                 MenuRow(
                     id = "az-room-$index",

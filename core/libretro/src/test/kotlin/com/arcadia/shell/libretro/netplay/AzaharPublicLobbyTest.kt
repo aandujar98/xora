@@ -160,4 +160,73 @@ class AzaharPublicLobbyTest {
         assertEquals("Alive", rooms[0].name)
         assertEquals("0/0 · No game set · Open", AzaharPublicLobbies.roomSubtitle(rooms[0]))
     }
+
+    @Test
+    fun marioKart7OpenRoomIsPinnedWhenRegistryHasNoMk7() {
+        val live = listOf(
+            AzaharPublicRoom(
+                name = "MH hall",
+                ip = "1.1.1.1",
+                port = 24872,
+                preferredGame = "Monster Hunter 4 Ultimate",
+            ),
+        )
+        val shown = AzaharPublicLobbies.displayRooms(live)
+        assertEquals("Mario Kart 7 · open", shown[0].name)
+        assertEquals("Mario Kart 7", shown[0].preferredGame)
+        assertFalse(shown[0].hasPassword)
+        assertEquals("198.57.46.213:5000", AzaharPublicLobbies.directConnect(shown[0]))
+        assertEquals("MH hall", shown[1].name)
+    }
+
+    @Test
+    fun emptyRegistryStillShowsMarioKart7Open() {
+        val shown = AzaharPublicLobbies.displayRooms(emptyList())
+        assertEquals(1, shown.size)
+        assertEquals(AzaharPublicLobbies.MARIO_KART_7_OPEN, shown[0])
+    }
+
+    @Test
+    fun passwordedMarioKart7DoesNotReplaceOpenFallback() {
+        val live = AzaharPublicRoom(
+            name = "Mario Kart 7 private",
+            ip = "8.8.8.8",
+            port = 24872,
+            hasPassword = true,
+            preferredGame = "Mario Kart 7",
+        )
+        val shown = AzaharPublicLobbies.displayRooms(listOf(live))
+        assertEquals("198.57.46.213:5000", AzaharPublicLobbies.directConnect(shown[0]))
+        assertEquals("Mario Kart 7 private", shown[1].name)
+    }
+
+    @Test
+    fun titleIdAloneCountsAsMarioKart7() {
+        assertTrue(
+            AzaharPublicLobbies.isMarioKart7(
+                AzaharPublicRoom(name = "Public hall", preferredGameId = 0x0004000000030600L),
+            ),
+        )
+    }
+
+    @Test
+    fun liveOpenMarioKart7RoomWinsOverFeaturedFallback() {
+        val live = AzaharPublicRoom(
+            name = "MK7 Night",
+            ip = "9.9.9.9",
+            port = 24872,
+            hasPassword = false,
+            preferredGame = "Mario Kart 7",
+            preferredGameId = 0x0004000000030700L,
+        )
+        val shown = AzaharPublicLobbies.displayRooms(listOf(live))
+        assertEquals(1, shown.size)
+        assertEquals("9.9.9.9:24872", AzaharPublicLobbies.directConnect(shown[0]))
+        assertTrue(AzaharPublicLobbies.isMarioKart7(live))
+        assertFalse(
+            AzaharPublicLobbies.isMarioKart7(
+                AzaharPublicRoom(name = "MH4U", preferredGame = "Monster Hunter"),
+            ),
+        )
+    }
 }
