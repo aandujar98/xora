@@ -77,6 +77,7 @@ import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.model.RootKind
 import com.arcadia.shell.model.ScreenRole
+import com.arcadia.shell.libretro.netplay.AzaharPublicLobbies
 import kotlin.math.roundToInt
 
 /**
@@ -1641,12 +1642,11 @@ fun SettingsScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "XOrA Host/Join is pad/link netplay. Citra and Azahar public " +
-                        "rooms are a different ENet protocol (usually port 24872) that " +
-                        "tunnels 3DS local wireless. The overlay can list rooms from a " +
-                        "community GET {url}/lobby and copy Direct Connect (ip:port). " +
-                        "Sitting in a room still needs standalone Azahar — libretro " +
-                        "Azahar never calls RoomMember::Join.",
+                    text = "Two 3DS lobby kinds: XOrA Online (6-character codes on " +
+                        "api.xoranetwork.com — XOrA-to-XOrA only) and Azahar/Citra rooms " +
+                        "(ENet Direct Connect IPs from the community registry). Blank uses " +
+                        "${AzaharPublicLobbies.COMMUNITY_AZAHAR_API}. Sitting in an Azahar " +
+                        "room still needs standalone Azahar.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1658,7 +1658,7 @@ fun SettingsScreen(
                     value = lobbyDraft,
                     onValueChange = { lobbyDraft = it.take(256) },
                     singleLine = true,
-                    placeholder = { Text("https://api.citra-emu.org") },
+                    placeholder = { Text(AzaharPublicLobbies.COMMUNITY_AZAHAR_API) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .onFocusChanged { focus ->
@@ -1668,8 +1668,8 @@ fun SettingsScreen(
                         },
                 )
                 Text(
-                    text = "Blank tries the historical Citra lobby. GET {url}/lobby must " +
-                        "return a Citra-style rooms list.",
+                    text = "GET {url}/lobby. Community registry is " +
+                        "${AzaharPublicLobbies.COMMUNITY_AZAHAR_API}. Room rows show ip:port.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

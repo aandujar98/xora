@@ -6,6 +6,17 @@ import android.content.pm.PackageManager
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -14,7 +25,7 @@ enum class PublicLobbyKind {
     None,
     /** melonDS Nintendo WFC (Kaeru / Wiimmfi / AltWFC) — matchmaking is in-game. */
     NdsWfc,
-    /** Citra/Azahar-style `GET {api}/lobby` rooms. XOrA can list them; joining is Direct Connect in standalone Azahar. */
+    /** Citra/Azahar-style `GET {api}/lobby` rooms. XOrA can list them; Azahar Direct Connect uses the room IP. */
     AzaharRooms,
 }
 
@@ -49,11 +60,6 @@ data class AzaharPublicMember(
     @SerialName("game_id") val gameId: Long = 0,
 )
 
-@Serializable
-private data class AzaharLobbyFile(
-    val rooms: List<AzaharPublicRoom> = emptyList(),
-)
-
 data class AzaharLobbyUi(
     val rooms: List<AzaharPublicRoom> = emptyList(),
     val status: String = "",
@@ -70,6 +76,8 @@ data class AzaharLobbyFetchResult(
 
 object AzaharPublicLobbies {
     const val HISTORICAL_CITRA_API = "https://api.citra-emu.org"
+    /** Community Citra/Azahar room registry (Kex / ANTHENA / public halls). HTTP, not official Azahar. */
+    const val COMMUNITY_AZAHAR_API = "http://88.198.47.46:5000"
 
     val STANDALONE_PACKAGES = listOf(
         "org.azahar_emu.azahar",
@@ -91,13 +99,94 @@ object AzaharPublicLobbies {
     fun candidateApiBases(configured: String): List<String> {
         val out = LinkedHashSet<String>()
         configured.trim().takeIf { it.isNotBlank() }?.let { out += it.trimEnd('/') }
+        out += COMMUNITY_AZAHAR_API
         out += HISTORICAL_CITRA_API
         return out.toList()
     }
 
     fun parseLobbyJson(raw: String): List<AzaharPublicRoom> {
-        val file = json.decodeFromString(AzaharLobbyFile.serializer(), raw)
-        return file.rooms.filter { it.name.isNotBlank() || it.id.isNotBlank() }
+        val root = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull()
+            ?: return emptyList()
+        val rooms = root["rooms"] as? JsonArray ?: return emptyList()
+        return rooms.mapNotNull { element -> parseRoom(element) }
+    }
+
+    private fun parseRoom(element: JsonElement): AzaharPublicRoom? {
+        val obj = element as? JsonObject ?: return null
+        val name = string(obj, "name")
+        val id = string(obj, "id")
+        if (name.isBlank() && id.isBlank()) return null
+        return AzaharPublicRoom(
+            id = id,
+            name = name,
+            description = string(obj, "description"),
+            owner = string(obj, "owner"),
+            ip = string(obj, "ip", "address"),
+            port = int(obj, "port"),
+            maxPlayer = int(obj, "max_player", "maxPlayers"),
+            netVersion = int(obj, "net_version", "netVersion"),
+            hasPassword = boolean(obj, "has_password", "hasPassword"),
+            preferredGame = string(obj, "preferred_game", "preferredGameName", "preferredGame"),
+            preferredGameId = long(obj, "preferred_game_id", "preferredGameId"),
+            members = parseMembers(obj["members"] ?: obj["players"]),
+        )
+    }
+
+    private fun parseMembers(element: JsonElement?): List<AzaharPublicMember> {
+        val array = element as? JsonArray ?: return emptyList()
+        return array.mapNotNull { item ->
+            val obj = item as? JsonObject ?: return@mapNotNull null
+            AzaharPublicMember(
+                username = string(obj, "username"),
+                nickname = string(obj, "nickname"),
+                avatarUrl = string(obj, "avatar_url", "avatarUrl"),
+                gameName = string(obj, "game_name", "gameName"),
+                gameId = long(obj, "game_id", "gameId"),
+            )
+        }
+    }
+
+    private fun string(obj: JsonObject, vararg keys: String): String {
+        for (key in keys) {
+            val value = (obj[key] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+            if (value.isNotEmpty()) return value
+        }
+        return ""
+    }
+
+    private fun int(obj: JsonObject, vararg keys: String): Int {
+        for (key in keys) {
+            val primitive = obj[key] as? JsonPrimitive ?: continue
+            primitive.intOrNull?.let { return it }
+            primitive.contentOrNull?.toIntOrNull()?.let { return it }
+        }
+        return 0
+    }
+
+    private fun long(obj: JsonObject, vararg keys: String): Long {
+        for (key in keys) {
+            val primitive = obj[key] as? JsonPrimitive ?: continue
+            primitive.longOrNull?.let { return it }
+            primitive.contentOrNull?.toLongOrNull()?.let { return it }
+        }
+        return 0L
+    }
+
+    private fun boolean(obj: JsonObject, vararg keys: String): Boolean {
+        for (key in keys) {
+            val primitive = obj[key] as? JsonPrimitive ?: continue
+            primitive.booleanOrNull?.let { return it }
+            val raw = primitive.contentOrNull?.trim()?.lowercase().orEmpty()
+            if (raw == "true" || raw == "1") return true
+            if (raw == "false" || raw == "0") return false
+        }
+        return false
+    }
+
+    fun roomTitle(room: AzaharPublicRoom, fallbackIndex: Int = 1): String {
+        val name = room.name.ifBlank { "Room $fallbackIndex" }
+        val connect = directConnect(room)
+        return if (connect.isBlank()) name else "$connect · $name"
     }
 
     fun roomSubtitle(room: AzaharPublicRoom): String {
@@ -161,8 +250,8 @@ object AzaharPublicLobbies {
             errors += "${hostLabel(base)}: ${result.exceptionOrNull()?.message ?: "failed"}"
         }
         return AzaharLobbyFetchResult(
-            error = "No public lobby answered. Azahar does not host official rooms. " +
-                "Set a community lobby URL in Settings, or open standalone Azahar. " +
+            error = "No public lobby answered. Tried ${COMMUNITY_AZAHAR_API} then the " +
+                "historical Citra API. Set a community GET {url}/lobby in Settings. " +
                 errors.joinToString(" · "),
         )
     }

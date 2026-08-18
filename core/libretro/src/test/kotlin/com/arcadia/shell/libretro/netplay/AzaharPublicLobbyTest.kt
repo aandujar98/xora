@@ -31,13 +31,53 @@ class AzaharPublicLobbyTest {
     }
 
     @Test
-    fun configuredApiIsTriedBeforeHistoricalCitra() {
+    fun configuredApiIsTriedBeforeCommunityThenHistoricalCitra() {
         val bases = AzaharPublicLobbies.candidateApiBases("https://lobby.community/")
         assertEquals("https://lobby.community", bases.first())
+        assertTrue(bases.contains(AzaharPublicLobbies.COMMUNITY_AZAHAR_API))
         assertTrue(bases.contains(AzaharPublicLobbies.HISTORICAL_CITRA_API))
         assertEquals(
-            listOf(AzaharPublicLobbies.HISTORICAL_CITRA_API),
+            listOf(
+                AzaharPublicLobbies.COMMUNITY_AZAHAR_API,
+                AzaharPublicLobbies.HISTORICAL_CITRA_API,
+            ),
             AzaharPublicLobbies.candidateApiBases(""),
+        )
+    }
+
+    @Test
+    fun parseLobbyJsonReadsCommunityCamelCaseAddressRooms() {
+        val rooms = AzaharPublicLobbies.parseLobbyJson(
+            """
+            {
+              "rooms": [
+                {
+                  "name": "Kex's Public Monster Hunter Room (EU) #1",
+                  "address": "88.198.47.46",
+                  "port": 5001,
+                  "maxPlayers": 8,
+                  "hasPassword": false,
+                  "preferredGameName": "Monster Hunter XX",
+                  "players": [
+                    { "nickname": "Leon", "gameName": "MONSTER HUNTER 4 ULTIMATE" }
+                  ]
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        assertEquals(1, rooms.size)
+        assertEquals("88.198.47.46", rooms[0].ip)
+        assertEquals(5001, rooms[0].port)
+        assertEquals("88.198.47.46:5001", AzaharPublicLobbies.directConnect(rooms[0]))
+        assertEquals(
+            "88.198.47.46:5001 · Kex's Public Monster Hunter Room (EU) #1",
+            AzaharPublicLobbies.roomTitle(rooms[0]),
+        )
+        assertEquals("Monster Hunter XX", rooms[0].preferredGame)
+        assertEquals("Leon", rooms[0].members[0].nickname)
+        assertTrue(
+            AzaharPublicLobbies.roomSubtitle(rooms[0]).contains("88.198.47.46:5001"),
         )
     }
 
@@ -86,6 +126,8 @@ class AzaharPublicLobbyTest {
         )
         assertEquals(2, rooms.size)
         assertEquals("MK7 Night", rooms[0].name)
+        assertEquals("1.2.3.4:24872 · MK7 Night", AzaharPublicLobbies.roomTitle(rooms[0]))
+        assertEquals("Locked room", AzaharPublicLobbies.roomTitle(rooms[1]))
         assertEquals(2, rooms[0].members.size)
         assertEquals("2/8 · Mario Kart 7 · Open · 1.2.3.4:24872", AzaharPublicLobbies.roomSubtitle(rooms[0]))
         assertEquals("0/4 · Smash · Password", AzaharPublicLobbies.roomSubtitle(rooms[1]))
