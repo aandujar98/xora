@@ -118,8 +118,8 @@ fun handheldOnlineHint(platformId: String): String = when (platformId.trim().low
         "PPSSPP AdHoc is on. Open the game's wireless / infrastructure menu. " +
             "The host is the AdHoc server."
     "3ds" ->
-        "Public 3DS rooms and chat need standalone Azahar. In XOrA, use in-game online " +
-            "if the title supports it."
+        "Public 3DS rooms need standalone Azahar. Pretendo is Nimbus on a dumped NAND — " +
+            "set that up in standalone Azahar, not as a DNS switch."
     else ->
         "Stay on this waiting screen on both devices. XOrA is the Game Link cable."
 }

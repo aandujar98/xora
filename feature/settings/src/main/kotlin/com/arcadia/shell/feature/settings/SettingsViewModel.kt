@@ -536,6 +536,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setXoraAzaharLobbyApiUrl(url) }
     }
 
+    fun setXoraThreeDsPretendoPrep(enabled: Boolean) {
+        viewModelScope.launch { preferences.setXoraThreeDsPretendoPrep(enabled) }
+    }
+
     fun setXoraPspAdhocEnabled(enabled: Boolean) {
         viewModelScope.launch { preferences.setXoraPspAdhocEnabled(enabled) }
     }

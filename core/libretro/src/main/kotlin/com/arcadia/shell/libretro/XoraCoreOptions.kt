@@ -9,6 +9,7 @@ import com.arcadia.shell.datastore.toCitraFactor
 import com.arcadia.shell.datastore.toCitraValue
 import com.arcadia.shell.datastore.toMelonDsDsValue
 import com.arcadia.shell.datastore.toMelonDsValue
+import com.arcadia.shell.libretro.netplay.AzaharPretendo
 import java.security.MessageDigest
 
 /**
@@ -372,6 +373,9 @@ object XoraCoreOptions {
         // "Failed to set HW renderer" and aborts load. Force the GLES3 path.
         out["citra_graphics_api"] = "OpenGL"
         out["azahar_graphics_api"] = "OpenGL"
+        if (settings.threeDsPretendoPrep) {
+            out.putAll(AzaharPretendo.coreOptions())
+        }
         if (coreName.contains("panda", ignoreCase = true)) {
             out["panda3ds_layout"] = when (layout) {
                 ThreeDsScreenLayout.SideBySide -> "side_by_side"

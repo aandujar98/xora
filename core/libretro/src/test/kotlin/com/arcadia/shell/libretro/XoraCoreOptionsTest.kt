@@ -219,6 +219,31 @@ class XoraCoreOptionsTest {
     }
 
     @Test
+    fun pretendoPrepPinsNew3dsVirtualSdAndDoesNotDropOpenGl() {
+        val vars = XoraCoreOptions.variablesFor(
+            "3ds",
+            "azahar",
+            settings.copy(threeDsPretendoPrep = true),
+        )
+        assertEquals("OpenGL", vars["azahar_graphics_api"])
+        assertEquals("OpenGL", vars["citra_graphics_api"])
+        assertEquals("New 3DS", vars["azahar_is_new_3ds"])
+        assertEquals("enabled", vars["azahar_use_virtual_sd"])
+        assertEquals("LibRetro Default", vars["azahar_use_libretro_save_path"])
+        assertEquals("New 3DS", vars["citra_is_new_3ds"])
+        assertEquals("enabled", vars["citra_use_virtual_sd"])
+        assertEquals("LibRetro Default", vars["citra_use_libretro_save_path"])
+    }
+
+    @Test
+    fun pretendoPrepOffDoesNotPinLibretroSavePath() {
+        val vars = XoraCoreOptions.variablesFor("3ds", "azahar", settings)
+        assertTrue(vars["azahar_use_libretro_save_path"].isNullOrEmpty())
+        assertTrue(vars["azahar_is_new_3ds"].isNullOrEmpty())
+        assertEquals("OpenGL", vars["azahar_graphics_api"])
+    }
+
+    @Test
     fun expandForcesStackedNdsLayoutAndAbsoluteTouch() {
         val vars = XoraCoreOptions.variablesFor(
             "nds",

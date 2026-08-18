@@ -1645,8 +1645,7 @@ fun SettingsScreen(
                         "private rooms, and chat lobbies are standalone Azahar only — " +
                         "the Libretro core cannot host Citra/Azahar rooms. The in-game " +
                         "overlay can list rooms from a community lobby URL; joining still " +
-                        "needs standalone Azahar. Pretendo DNS is set in 3DS System " +
-                        "Settings after boot, not here.",
+                        "needs standalone Azahar.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1673,6 +1672,42 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    text = "3DS · Pretendo",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Pretendo is not a DNS switch like DS Kaeru/Wiimmfi. Official " +
+                        "online uses Nimbus (Home Menu CIA) plus a dumped NAND. Libretro " +
+                        "Azahar cannot dump system files, install CIAs, or boot the Home " +
+                        "Menu — do that in standalone Azahar, then play Pretendo titles " +
+                        "there. Prep keeps New 3DS mode and the Azahar sdmc/nand folder ready.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Pretendo prep",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = "New 3DS + virtual SD for the Azahar user folder.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = xora.threeDsPretendoPrep,
+                        onCheckedChange = viewModel::setXoraThreeDsPretendoPrep,
+                    )
+                }
             }
         }
 

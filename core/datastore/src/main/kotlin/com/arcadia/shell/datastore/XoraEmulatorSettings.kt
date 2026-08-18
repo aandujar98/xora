@@ -59,6 +59,11 @@ data class XoraEmulatorSettings(
      */
     val azaharLobbyApiUrl: String = "",
     /**
+     * 3DS Pretendo prep. Not a DNS switch — Nimbus + dumped NAND live in standalone
+     * Azahar. When on, XOrA keeps New 3DS + virtual SD and the Azahar user folder ready.
+     */
+    val threeDsPretendoPrep: Boolean = false,
+    /**
      * PPSSPP WLAN / Pro AdHoc. Games use their own infrastructure menu; XOrA Host/Join
      * points joiners at the host IP and runs the built-in AdHoc server on the host.
      */

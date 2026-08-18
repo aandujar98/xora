@@ -54,6 +54,7 @@ import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
 import com.arcadia.shell.launcher.notifications.toCopy
 import com.arcadia.shell.libretro.netplay.AzaharLobbyUi
+import com.arcadia.shell.libretro.netplay.AzaharPretendoUi
 import com.arcadia.shell.libretro.netplay.AzaharPublicLobbies
 import com.arcadia.shell.libretro.netplay.PublicLobbyKind
 import com.arcadia.shell.libretro.netplay.XoraNetplayRole
@@ -81,6 +82,7 @@ enum class EmulatorMenuPane {
     Graphics,
     Audio,
     PublicLobbies,
+    Pretendo,
 }
 
 data class EmulatorSaveSlotUi(
@@ -136,6 +138,8 @@ sealed class EmulatorMenuAction {
     /** Launch installed standalone Azahar (libretro cannot join those rooms). */
     data object OpenStandaloneAzahar : EmulatorMenuAction()
     data class SelectAzaharRoom(val name: String, val game: String) : EmulatorMenuAction()
+    data object TogglePretendoPrep : EmulatorMenuAction()
+    data object RefreshPretendoStatus : EmulatorMenuAction()
 }
 
 private data class MenuRow(
@@ -174,6 +178,7 @@ fun XoraEmulatorSideMenu(
     notificationUnread: Int = 0,
     platformId: String = "",
     publicLobbies: AzaharLobbyUi = AzaharLobbyUi(),
+    pretendo: AzaharPretendoUi = AzaharPretendoUi(),
 ) {
     var rootIndex by remember { mutableIntStateOf(0) }
     var pane by remember { mutableStateOf(EmulatorMenuPane.None) }
@@ -188,6 +193,9 @@ fun XoraEmulatorSideMenu(
             publicLobbyKind(platformId) == PublicLobbyKind.AzaharRooms
         ) {
             onAction(EmulatorMenuAction.RefreshAzaharLobbies)
+        }
+        if (pane == EmulatorMenuPane.Pretendo) {
+            onAction(EmulatorMenuAction.RefreshPretendoStatus)
         }
     }
 
@@ -321,6 +329,7 @@ fun XoraEmulatorSideMenu(
         notifications = notifications,
         platformId = platformId,
         publicLobbies = publicLobbies,
+        pretendo = pretendo,
     )
     val paneFocus = paneIndex.coerceIn(0, (paneRows.size - 1).coerceAtLeast(0))
     val rootFocus = rootIndex.coerceIn(0, rootRows.lastIndex)
@@ -442,6 +451,10 @@ fun XoraEmulatorSideMenu(
                 paneIndex = 0
             }
             EmulatorMenuPane.PublicLobbies -> {
+                pane = EmulatorMenuPane.Netplay
+                paneIndex = 0
+            }
+            EmulatorMenuPane.Pretendo -> {
                 pane = EmulatorMenuPane.Netplay
                 paneIndex = 0
             }
@@ -758,6 +771,7 @@ private fun paneTitle(
         PublicLobbyKind.NdsWfc -> "Nintendo WFC"
         else -> "Public rooms"
     }
+    EmulatorMenuPane.Pretendo -> "Pretendo"
     EmulatorMenuPane.None -> ""
 }
 
@@ -784,6 +798,7 @@ private fun paneRows(
     notifications: List<ShellNotificationHistoryItem> = emptyList(),
     platformId: String = "",
     publicLobbies: AzaharLobbyUi = AzaharLobbyUi(),
+    pretendo: AzaharPretendoUi = AzaharPretendoUi(),
 ): List<MenuRow> = when (pane) {
     EmulatorMenuPane.None -> emptyList()
     EmulatorMenuPane.Save -> saveSlots.map { slot ->
@@ -939,7 +954,7 @@ private fun paneRows(
                 icon = XmbIcon.Network,
                 action = EmulatorMenuAction.ToggleNetplayOnline,
             ),
-        ) + modeRows + publicLobbyNetplayRows(platformId, settings, publicLobbies) + buildList {
+        ) + modeRows + publicLobbyNetplayRows(platformId, settings, publicLobbies, pretendo) + buildList {
             add(
                 MenuRow(
                     id = "np-spec",
@@ -1290,12 +1305,14 @@ private fun paneRows(
         ),
     )
     EmulatorMenuPane.PublicLobbies -> publicLobbyPaneRows(platformId, settings, publicLobbies)
+    EmulatorMenuPane.Pretendo -> pretendoPaneRows(settings, pretendo)
 }
 
 private fun publicLobbyNetplayRows(
     platformId: String,
     settings: XoraEmulatorSettings,
     publicLobbies: AzaharLobbyUi,
+    pretendo: AzaharPretendoUi = AzaharPretendoUi(),
 ): List<MenuRow> = when (publicLobbyKind(platformId)) {
     PublicLobbyKind.NdsWfc -> listOf(
         MenuRow(
@@ -1327,6 +1344,13 @@ private fun publicLobbyNetplayRows(
             },
             icon = XmbIcon.Friends,
             pane = EmulatorMenuPane.PublicLobbies,
+        ),
+        MenuRow(
+            id = "np-pretendo",
+            title = if (settings.threeDsPretendoPrep) "Pretendo prep on" else "Pretendo",
+            subtitle = pretendo.overlaySubtitle(),
+            icon = XmbIcon.Network,
+            pane = EmulatorMenuPane.Pretendo,
         ),
     )
     PublicLobbyKind.None -> emptyList()
@@ -1400,9 +1424,10 @@ private fun publicLobbyPaneRows(
         add(
             MenuRow(
                 id = "az-pretendo",
-                title = "Official-online replacement",
-                subtitle = "Pretendo is set in 3DS System Settings after boot, not here.",
-                icon = XmbIcon.Settings,
+                title = "Pretendo",
+                subtitle = "Official-online replacement · Nimbus in standalone Azahar, not a DNS switch",
+                icon = XmbIcon.Network,
+                pane = EmulatorMenuPane.Pretendo,
             ),
         )
         if (publicLobbies.rooms.isEmpty() && !publicLobbies.loading) {
@@ -1441,6 +1466,59 @@ private fun publicLobbyPaneRows(
         ),
     )
 }
+
+private fun pretendoPaneRows(
+    settings: XoraEmulatorSettings,
+    pretendo: AzaharPretendoUi,
+): List<MenuRow> = listOf(
+    MenuRow(
+        id = "pt-toggle",
+        title = if (settings.threeDsPretendoPrep) "Pretendo prep on" else "Pretendo prep off",
+        subtitle = "Keeps New 3DS + virtual SD. Pretendo itself is Nimbus, not a DNS switch.",
+        icon = XmbIcon.Network,
+        action = EmulatorMenuAction.TogglePretendoPrep,
+    ),
+    MenuRow(
+        id = "pt-status",
+        title = when {
+            pretendo.nandPresent && pretendo.nimbusPatches -> "NAND and Nimbus patches found"
+            pretendo.nandPresent -> "NAND found · Nimbus patches missing"
+            pretendo.nimbusPatches -> "Nimbus patches found · NAND missing"
+            else -> "No Pretendo files yet"
+        },
+        subtitle = pretendo.userDir.ifBlank { "Azahar folder is created under 3DS saves" },
+        icon = XmbIcon.Folder,
+        action = EmulatorMenuAction.RefreshPretendoStatus,
+    ),
+    MenuRow(
+        id = "pt-dump",
+        title = "1. Dump system files",
+        subtitle = "In standalone Azahar: Set Up System Files with the Arctic Setup Tool " +
+            "on a homebrewed 3DS. Libretro cannot dump NAND.",
+        icon = XmbIcon.Settings,
+    ),
+    MenuRow(
+        id = "pt-nimbus",
+        title = "2. Install Nimbus",
+        subtitle = "Install nimbus.cia in standalone Azahar, copy the luma folder into sdmc, " +
+            "boot Home Menu, open Nimbus, tap Pretendo.",
+        icon = XmbIcon.Play,
+    ),
+    MenuRow(
+        id = "pt-play",
+        title = "3. Play on Pretendo",
+        subtitle = "Friends, Miiverse replacement, and official-online games run in standalone " +
+            "Azahar after Nimbus. XOrA cannot boot the Home Menu or install CIAs.",
+        icon = XmbIcon.Friends,
+    ),
+    MenuRow(
+        id = "pt-standalone",
+        title = "Open standalone Azahar",
+        subtitle = "That app is the Pretendo setup UI (NAND dump, CIA, Home Menu, Nimbus).",
+        icon = XmbIcon.Emulator,
+        action = EmulatorMenuAction.OpenStandaloneAzahar,
+    ),
+)
 
 @Composable
 private fun JoinTargetField(

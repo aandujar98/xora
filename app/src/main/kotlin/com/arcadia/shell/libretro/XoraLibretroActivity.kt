@@ -87,6 +87,8 @@ import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
 import com.arcadia.shell.libretro.netplay.AzaharLobbyUi
+import com.arcadia.shell.libretro.netplay.AzaharPretendo
+import com.arcadia.shell.libretro.netplay.AzaharPretendoUi
 import com.arcadia.shell.libretro.netplay.AzaharPublicLobbies
 import com.arcadia.shell.libretro.netplay.NetplaySessionMode
 import com.arcadia.shell.libretro.netplay.XoraNetplayExchange
@@ -222,6 +224,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var joinCode by mutableStateOf("")
     private var netplayUi by mutableStateOf(XoraNetplayUiState())
     private var azaharLobbyUi by mutableStateOf(AzaharLobbyUi())
+    private var pretendoUi by mutableStateOf(AzaharPretendoUi())
     private var netplaySession: XoraNetplaySession? = null
     private var pendingNetplayHost = false
     private var pendingNetplayJoin = false
@@ -584,6 +587,9 @@ class XoraLibretroActivity : ComponentActivity() {
                     standaloneInstalled =
                         AzaharPublicLobbies.installedStandalonePackage(packageManager) != null,
                 )
+                if (platformId.equals("3ds", ignoreCase = true)) {
+                    refreshPretendoStatus(xora.threeDsPretendoPrep)
+                }
                 refreshExpandTopology()
                 applyStageSettings(xora)
                 applyAudioVolume(xora.audioVolume)
@@ -738,6 +744,7 @@ class XoraLibretroActivity : ComponentActivity() {
                         notificationUnread = notificationUnread,
                         platformId = platformId,
                         publicLobbies = azaharLobbyUi,
+                        pretendo = pretendoUi,
                     )
                 }
             }
@@ -765,6 +772,9 @@ class XoraLibretroActivity : ComponentActivity() {
             // Core init + first frames must share one OS thread (Mupen/libco).
             val ok = withContext(emuDispatcher) {
                 val xora = preferences.xoraEmulatorSettings.first()
+                if (platformId.equals("3ds", ignoreCase = true) && xora.threeDsPretendoPrep) {
+                    AzaharPretendo.ensureDirs(coreStore.saveDirFor("3ds"))
+                }
                 val expand = xora.expandDualDisplay &&
                     platformId in DUAL_SCREEN_PLATFORMS &&
                     DisplayTopologyMonitor(this@XoraLibretroActivity).current().secondary != null
@@ -1409,6 +1419,8 @@ class XoraLibretroActivity : ComponentActivity() {
                         "open standalone Azahar.",
                 )
             }
+            EmulatorMenuAction.TogglePretendoPrep -> togglePretendoPrepFromMenu()
+            EmulatorMenuAction.RefreshPretendoStatus -> refreshPretendoStatus()
         }
     }
 
@@ -1451,13 +1463,39 @@ class XoraLibretroActivity : ComponentActivity() {
         }
     }
 
+    private fun togglePretendoPrepFromMenu() {
+        lifecycleScope.launch {
+            val next = !xoraSettings.threeDsPretendoPrep
+            preferences.setXoraThreeDsPretendoPrep(next)
+            xoraSettings = xoraSettings.copy(threeDsPretendoPrep = next)
+            if (next) {
+                withContext(Dispatchers.IO) {
+                    AzaharPretendo.ensureDirs(coreStore.saveDirFor("3ds"))
+                }
+            }
+            refreshPretendoStatus(next)
+            withContext(emuDispatcher) { applyCoreControllerOptions() }
+            showMenuMessage(
+                if (next) {
+                    "Pretendo prep on. Dump NAND and run Nimbus in standalone Azahar."
+                } else {
+                    "Pretendo prep off"
+                },
+            )
+        }
+    }
+
+    private fun refreshPretendoStatus(prepEnabled: Boolean = xoraSettings.threeDsPretendoPrep) {
+        pretendoUi = AzaharPretendo.scan(coreStore.saveDirFor("3ds"), prepEnabled)
+    }
+
     private fun openStandaloneAzaharFromMenu() {
         if (AzaharPublicLobbies.launchStandalone(this)) {
             showMenuMessage("Opened standalone Azahar")
         } else {
             showMenuMessage(
                 "Standalone Azahar is not installed. Install Azahar (Vanilla or Play) " +
-                    "to join public rooms.",
+                    "to join public rooms or set up Pretendo (Nimbus + NAND).",
             )
         }
     }

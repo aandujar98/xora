@@ -238,6 +238,9 @@ class XoraNetplayBannerTest {
             platformId = "3ds",
         )
         assertTrue(text.contains("standalone Azahar"))
+        assertTrue(text.contains("Pretendo"))
+        assertTrue(text.contains("Nimbus"))
+        assertTrue(text.contains("DNS"))
         assertTrue(!text.contains("your Game Boy"))
     }
 }
