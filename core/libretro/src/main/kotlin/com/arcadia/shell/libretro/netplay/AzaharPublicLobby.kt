@@ -14,7 +14,7 @@ enum class PublicLobbyKind {
     None,
     /** melonDS Nintendo WFC (Kaeru / Wiimmfi / AltWFC) — matchmaking is in-game. */
     NdsWfc,
-    /** Citra/Azahar-style `GET {api}/lobby` rooms — join is standalone Azahar only. */
+    /** Citra/Azahar-style `GET {api}/lobby` rooms. XOrA can list them; joining is Direct Connect in standalone Azahar. */
     AzaharRooms,
 }
 
@@ -106,7 +106,19 @@ object AzaharPublicLobbies {
             room.members.firstOrNull { it.gameName.isNotBlank() }?.gameName.orEmpty()
         }.ifBlank { "No game set" }
         val lock = if (room.hasPassword) "Password" else "Open"
-        return "$players · $game · $lock"
+        val connect = directConnect(room)
+        return if (connect.isBlank()) {
+            "$players · $game · $lock"
+        } else {
+            "$players · $game · $lock · $connect"
+        }
+    }
+
+    /** Citra Direct Connect target (`ip:port`). Blank if the listing omitted an address. */
+    fun directConnect(room: AzaharPublicRoom): String {
+        val ip = room.ip.trim()
+        if (ip.isEmpty() || room.port <= 0) return ""
+        return "$ip:${room.port}"
     }
 
     fun installedStandalonePackage(pm: PackageManager): String? =

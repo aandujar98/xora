@@ -1641,11 +1641,12 @@ fun SettingsScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "XOrA's 3DS core is Azahar (Libretro). Public room browsing, " +
-                        "private rooms, and chat lobbies are standalone Azahar only — " +
-                        "the Libretro core cannot host Citra/Azahar rooms. The in-game " +
-                        "overlay can list rooms from a community lobby URL; joining still " +
-                        "needs standalone Azahar.",
+                    text = "XOrA Host/Join is pad/link netplay. Citra and Azahar public " +
+                        "rooms are a different ENet protocol (usually port 24872) that " +
+                        "tunnels 3DS local wireless. The overlay can list rooms from a " +
+                        "community GET {url}/lobby and copy Direct Connect (ip:port). " +
+                        "Sitting in a room still needs standalone Azahar — libretro " +
+                        "Azahar never calls RoomMember::Join.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

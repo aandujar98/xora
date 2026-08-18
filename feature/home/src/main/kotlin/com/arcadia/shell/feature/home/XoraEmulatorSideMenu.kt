@@ -137,7 +137,13 @@ sealed class EmulatorMenuAction {
     data object RefreshAzaharLobbies : EmulatorMenuAction()
     /** Launch installed standalone Azahar (libretro cannot join those rooms). */
     data object OpenStandaloneAzahar : EmulatorMenuAction()
-    data class SelectAzaharRoom(val name: String, val game: String) : EmulatorMenuAction()
+    data class SelectAzaharRoom(
+        val name: String,
+        val game: String,
+        val ip: String = "",
+        val port: Int = 0,
+        val hasPassword: Boolean = false,
+    ) : EmulatorMenuAction()
     data object TogglePretendoPrep : EmulatorMenuAction()
     data object RefreshPretendoStatus : EmulatorMenuAction()
 }
@@ -1340,7 +1346,7 @@ private fun publicLobbyNetplayRows(
                 publicLobbies.rooms.isNotEmpty() ->
                     "${publicLobbies.rooms.size} rooms · libretro cannot join them"
                 publicLobbies.status.isNotBlank() -> publicLobbies.status
-                else -> "Browse Citra/Azahar rooms · join in standalone Azahar"
+                else -> "Browse Citra/Azahar rooms · A copies Direct Connect for standalone Azahar"
             },
             icon = XmbIcon.Friends,
             pane = EmulatorMenuPane.PublicLobbies,
@@ -1406,6 +1412,16 @@ private fun publicLobbyPaneRows(
         )
         add(
             MenuRow(
+                id = "az-how",
+                title = "XOrA cannot join these rooms",
+                subtitle = "Citra/Azahar rooms are ENet local-wireless (port 24872). " +
+                    "XOrA Host/Join is a different protocol. A on a room copies ip:port " +
+                    "and opens standalone Azahar for Direct Connect.",
+                icon = XmbIcon.Notifications,
+            ),
+        )
+        add(
+            MenuRow(
                 id = "az-standalone",
                 title = if (publicLobbies.standaloneInstalled) {
                     "Open standalone Azahar"
@@ -1413,9 +1429,9 @@ private fun publicLobbyPaneRows(
                     "Standalone Azahar not installed"
                 },
                 subtitle = if (publicLobbies.standaloneInstalled) {
-                    "Libretro Azahar cannot join Citra rooms. A opens the installed app."
+                    "XOrA cannot sit in Citra rooms. A opens Azahar for Direct Connect."
                 } else {
-                    "Install Azahar (Vanilla or Play) to join public or private rooms."
+                    "Install Azahar (Vanilla or Play) to Direct Connect to listed rooms."
                 },
                 icon = XmbIcon.Emulator,
                 action = EmulatorMenuAction.OpenStandaloneAzahar,
@@ -1436,7 +1452,7 @@ private fun publicLobbyPaneRows(
                     id = "az-empty",
                     title = "No rooms listed",
                     subtitle = publicLobbies.status.ifBlank {
-                        "Set a community lobby URL in Settings, or open standalone Azahar."
+                        "Azahar has no official lobby. Set a community GET {url}/lobby in Settings."
                     },
                     icon = XmbIcon.Notifications,
                 ),
@@ -1452,6 +1468,9 @@ private fun publicLobbyPaneRows(
                     action = EmulatorMenuAction.SelectAzaharRoom(
                         name = room.name.ifBlank { "Room ${index + 1}" },
                         game = room.preferredGame,
+                        ip = room.ip,
+                        port = room.port,
+                        hasPassword = room.hasPassword,
                     ),
                 ),
             )

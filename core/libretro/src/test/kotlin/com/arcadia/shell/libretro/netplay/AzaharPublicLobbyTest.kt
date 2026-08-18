@@ -87,10 +87,24 @@ class AzaharPublicLobbyTest {
         assertEquals(2, rooms.size)
         assertEquals("MK7 Night", rooms[0].name)
         assertEquals(2, rooms[0].members.size)
-        assertEquals("2/8 · Mario Kart 7 · Open", AzaharPublicLobbies.roomSubtitle(rooms[0]))
+        assertEquals("2/8 · Mario Kart 7 · Open · 1.2.3.4:24872", AzaharPublicLobbies.roomSubtitle(rooms[0]))
         assertEquals("0/4 · Smash · Password", AzaharPublicLobbies.roomSubtitle(rooms[1]))
+        assertEquals("1.2.3.4:24872", AzaharPublicLobbies.directConnect(rooms[0]))
+        assertEquals("", AzaharPublicLobbies.directConnect(rooms[1]))
         assertFalse(rooms[0].hasPassword)
         assertTrue(rooms[1].hasPassword)
+    }
+
+    @Test
+    fun directConnectRequiresIpAndPort() {
+        assertEquals(
+            "10.0.0.8:24872",
+            AzaharPublicLobbies.directConnect(
+                AzaharPublicRoom(ip = " 10.0.0.8 ", port = 24872),
+            ),
+        )
+        assertEquals("", AzaharPublicLobbies.directConnect(AzaharPublicRoom(ip = "10.0.0.8", port = 0)))
+        assertEquals("", AzaharPublicLobbies.directConnect(AzaharPublicRoom(port = 24872)))
     }
 
     @Test

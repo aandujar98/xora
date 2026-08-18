@@ -1,6 +1,8 @@
 package com.arcadia.shell.libretro
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
@@ -90,6 +92,7 @@ import com.arcadia.shell.libretro.netplay.AzaharLobbyUi
 import com.arcadia.shell.libretro.netplay.AzaharPretendo
 import com.arcadia.shell.libretro.netplay.AzaharPretendoUi
 import com.arcadia.shell.libretro.netplay.AzaharPublicLobbies
+import com.arcadia.shell.libretro.netplay.AzaharPublicRoom
 import com.arcadia.shell.libretro.netplay.NetplaySessionMode
 import com.arcadia.shell.libretro.netplay.XoraNetplayExchange
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
@@ -1412,13 +1415,7 @@ class XoraLibretroActivity : ComponentActivity() {
             EmulatorMenuAction.CycleNdsWfc -> cycleNdsWfcFromMenu()
             EmulatorMenuAction.RefreshAzaharLobbies -> refreshAzaharLobbiesFromMenu()
             EmulatorMenuAction.OpenStandaloneAzahar -> openStandaloneAzaharFromMenu()
-            is EmulatorMenuAction.SelectAzaharRoom -> {
-                val game = action.game.ifBlank { "no game set" }
-                showMenuMessage(
-                    "${action.name} · $game. Libretro Azahar cannot join Citra rooms — " +
-                        "open standalone Azahar.",
-                )
-            }
+            is EmulatorMenuAction.SelectAzaharRoom -> joinAzaharRoomFromMenu(action)
             EmulatorMenuAction.TogglePretendoPrep -> togglePretendoPrepFromMenu()
             EmulatorMenuAction.RefreshPretendoStatus -> refreshPretendoStatus()
         }
@@ -1453,7 +1450,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 rooms = result.rooms,
                 status = result.error ?: when {
                     result.rooms.isEmpty() -> "No public rooms on this lobby right now."
-                    else -> "${result.rooms.size} rooms · join in standalone Azahar"
+                    else -> "${result.rooms.size} rooms · A copies Direct Connect for Azahar"
                 },
                 loading = false,
                 sourceUrl = result.sourceUrl,
@@ -1487,6 +1484,37 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun refreshPretendoStatus(prepEnabled: Boolean = xoraSettings.threeDsPretendoPrep) {
         pretendoUi = AzaharPretendo.scan(coreStore.saveDirFor("3ds"), prepEnabled)
+    }
+
+    private fun joinAzaharRoomFromMenu(action: EmulatorMenuAction.SelectAzaharRoom) {
+        val room = AzaharPublicRoom(
+            name = action.name,
+            preferredGame = action.game,
+            ip = action.ip,
+            port = action.port,
+            hasPassword = action.hasPassword,
+        )
+        val connect = AzaharPublicLobbies.directConnect(room)
+        if (connect.isNotBlank()) {
+            val clipboard = getSystemService(ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(ClipData.newPlainText("Citra Direct Connect", connect))
+        }
+        val opened = AzaharPublicLobbies.launchStandalone(this)
+        val game = action.game.ifBlank { "no game set" }
+        val password = if (action.hasPassword) " Password room." else ""
+        showMenuMessage(
+            when {
+                connect.isNotBlank() && opened ->
+                    "Copied $connect.$password Direct Connect in Azahar. " +
+                        "XOrA cannot sit in Citra rooms."
+                connect.isNotBlank() ->
+                    "Copied $connect.$password Install standalone Azahar to Direct Connect. " +
+                        "XOrA cannot sit in Citra rooms."
+                else ->
+                    "${action.name} · $game. This listing has no ip:port. " +
+                        "XOrA cannot sit in Citra rooms."
+            },
+        )
     }
 
     private fun openStandaloneAzaharFromMenu() {
