@@ -30,4 +30,19 @@ class ShellNotificationCopyTest {
         assertEquals("angel invited you to play Mario Kart Super Circuit", copy.body)
         assertEquals("XOrA Network", copy.subtitle)
     }
+
+    @Test
+    fun netplayInviteDismissalKeysSurviveAppUpdates() {
+        val keys = ShellNotification.XoraNetplayInvite(
+            id = "xora-netplay:pal|ABC123|9",
+            displayName = "pal",
+            gameTitle = "Kirby",
+            sessionCode = "ABC123",
+            fromUsername = "pal",
+        ).dismissalKeys()
+        assertEquals(
+            setOf("xora-netplay:pal|ABC123|9", "xora-netplay-session:pal|ABC123"),
+            keys,
+        )
+    }
 }

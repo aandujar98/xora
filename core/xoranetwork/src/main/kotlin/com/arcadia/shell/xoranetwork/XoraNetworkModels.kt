@@ -132,6 +132,12 @@ data class XoraNetworkState(
     val dm: XoraDmUiState = XoraDmUiState(),
     /** Fresh netplay session invites addressed to this account (Nakama outbox poll). */
     val netplayInvites: List<XoraNetplayInviteRecord> = emptyList(),
+    /**
+     * True after the first notifications + netplay-invite fetch for this session.
+     * Banner code must wait for this so a restore with an empty inbox does not replay
+     * the later fetch as brand-new toasts.
+     */
+    val socialInboxReady: Boolean = false,
 ) {
     val acceptedFriends: List<XoraFriend>
         get() = friends.filter { it.state == XoraFriendState.Friend }

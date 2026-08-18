@@ -9,11 +9,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.arcadia.shell.datastore.ShellPreferences
 
 /**
  * One history entry for the RT notification center (newest first).
@@ -39,6 +41,7 @@ data class ShellNotificationHistoryItem(
 class ShellNotificationCenter @Inject constructor(
     private val foregroundTracker: AppForegroundTracker,
     private val systemNotifier: ShellSystemNotifier,
+    private val preferences: ShellPreferences,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -57,6 +60,9 @@ class ShellNotificationCenter @Inject constructor(
     val recent: StateFlow<List<ShellNotification>> = _recent.asStateFlow()
 
     private val recentIds = ConcurrentHashMap.newKeySet<String>()
+    private val dismissed = DismissedNotificationTracker { ids ->
+        scope.launch(Dispatchers.IO) { preferences.addDismissedShellNotificationIds(ids) }
+    }
     private var holdJob: Job? = null
 
     /**
@@ -78,6 +84,9 @@ class ShellNotificationCenter @Inject constructor(
         }
 
     init {
+        scope.launch(Dispatchers.IO) {
+            dismissed.seed(preferences.dismissedShellNotificationIds.first())
+        }
         scope.launch {
             for (notification in inbound) {
                 _active.value = notification
@@ -93,6 +102,7 @@ class ShellNotificationCenter @Inject constructor(
 
     fun emit(notification: ShellNotification, force: Boolean = false) {
         if (!notificationsEnabled && !force) return
+        if (isSuppressed(notification)) return
         if (!recentIds.add(notification.id)) return
         if (recentIds.size > MAX_RECENT_IDS) {
             recentIds.clear()
@@ -131,20 +141,49 @@ class ShellNotificationCenter @Inject constructor(
         _unreadCount.value = 0
     }
 
-    fun removeFromHistory(id: String) {
-        if (id.isBlank()) return
-        _history.update { list -> list.filterNot { it.notification.id == id } }
-        _recent.update { list -> list.filterNot { it.id == id } }
+    fun isSuppressed(notification: ShellNotification): Boolean =
+        dismissed.isDismissed(notification.dismissalKeys())
+
+    fun isSuppressed(keys: Collection<String>): Boolean = dismissed.isDismissed(keys)
+
+    fun suppress(notification: ShellNotification) {
+        suppressKeys(notification.dismissalKeys())
+    }
+
+    fun suppressKeys(keys: Collection<String>) {
+        val trimmed = keys.map { it.trim() }.filter { it.isNotEmpty() }
+        if (trimmed.isEmpty()) return
+        dismissed.dismiss(trimmed)
+        val banned = trimmed.toSet()
+        _history.update { list ->
+            list.filterNot { item -> item.notification.dismissalKeys().any { it in banned } }
+        }
+        _recent.update { list ->
+            list.filterNot { item -> item.dismissalKeys().any { it in banned } }
+        }
         _unreadCount.value = _history.value.count { !it.read }
-        recentIds.remove(id)
-        if (_active.value?.id == id) {
+        trimmed.forEach { recentIds.remove(it) }
+        val active = _active.value
+        if (active != null && active.dismissalKeys().any { it in banned }) {
             holdJob?.cancel()
             holdJob = null
             _active.value = null
         }
     }
 
+    fun removeFromHistory(id: String) {
+        if (id.isBlank()) return
+        val item = _history.value.firstOrNull { it.notification.id == id }
+        if (item != null) {
+            suppress(item.notification)
+            return
+        }
+        suppressKeys(listOf(id))
+    }
+
     fun clearHistory() {
+        val keys = _history.value.flatMap { it.notification.dismissalKeys() }
+        if (keys.isNotEmpty()) dismissed.dismiss(keys)
         _history.value = emptyList()
         _unreadCount.value = 0
         _recent.value = emptyList()

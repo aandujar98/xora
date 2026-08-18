@@ -37,6 +37,8 @@ class XoraNetworkRepository @Inject constructor(
     @Volatile private var presenceMode = XoraPresenceMode.Online
     @Volatile private var playingLine: String = ""
     @Volatile private var socketAppearsOnline = true
+    @Volatile private var notificationsFetched = false
+    @Volatile private var netplayInvitesFetched = false
     private val presenceOnline = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val presenceStatus = java.util.concurrent.ConcurrentHashMap<String, String>()
 
@@ -80,9 +82,10 @@ class XoraNetworkRepository @Inject constructor(
         }
         mutableState.update { it.copy(signedIn = true) }
         refreshAccount()
-        mutableState.update { it.copy(restoring = false) }
         refreshFriends()
         refreshNotifications()
+        refreshNetplayInvites()
+        mutableState.update { it.copy(restoring = false) }
         if (realtimeEnabled) connectRealtime()
     }
 
@@ -157,6 +160,7 @@ class XoraNetworkRepository @Inject constructor(
         presenceStatus.clear()
         realtime.disconnect()
         client.clearCsrf()
+        resetSocialInbox()
         mutableState.update {
             XoraNetworkState(configured = it.configured, restoring = false)
         }
@@ -310,7 +314,7 @@ class XoraNetworkRepository @Inject constructor(
             }
             .sortedByDescending { it.createdAt }
         mutableState.update { it.copy(notifications = items) }
-    }
+    }.also { markSocialFetch(notifications = true) }
 
     /**
      * Writes a netplay invite the recipient can poll from this account's public-read storage.
@@ -395,7 +399,7 @@ class XoraNetworkRepository @Inject constructor(
             .distinctBy { it.dedupeKey() }
             .sortedByDescending { it.createdAtMs }
         mutableState.update { it.copy(netplayInvites = invites) }
-    }
+    }.also { markSocialFetch(netplay = true) }
 
     private suspend fun fillMissingFriendUserIds(
         token: String,
@@ -444,6 +448,7 @@ class XoraNetworkRepository @Inject constructor(
         refreshAccount()
         refreshFriends()
         refreshNotifications()
+        refreshNetplayInvites()
         if (realtimeEnabled) connectRealtime()
     }
 
@@ -564,9 +569,23 @@ class XoraNetworkRepository @Inject constructor(
         presenceStatus.clear()
         realtime.disconnect()
         client.clearCsrf()
+        resetSocialInbox()
         mutableState.update {
             XoraNetworkState(configured = it.configured, restoring = false)
         }
+    }
+
+    private fun markSocialFetch(notifications: Boolean = false, netplay: Boolean = false) {
+        if (notifications) notificationsFetched = true
+        if (netplay) netplayInvitesFetched = true
+        if (!notificationsFetched || !netplayInvitesFetched) return
+        if (mutableState.value.socialInboxReady) return
+        mutableState.update { it.copy(socialInboxReady = true) }
+    }
+
+    private fun resetSocialInbox() {
+        notificationsFetched = false
+        netplayInvitesFetched = false
     }
 
     /** Rewraps unexpected failures with friendly copy; [override] can specialise by HTTP status. */

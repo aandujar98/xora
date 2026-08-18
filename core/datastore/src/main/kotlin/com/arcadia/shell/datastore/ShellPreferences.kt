@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.HomeShortcutKind
@@ -339,6 +340,7 @@ data class DiscordSocialSettings(
 
 /** Public Application ID for SORA (safe to ship; never put a client secret in the app). */
 const val DEFAULT_DISCORD_APPLICATION_ID = "1531690290526683176"
+private const val MAX_DISMISSED_SHELL_NOTIFICATION_IDS = 400
 
 @Singleton
 class ShellPreferences @Inject constructor(
@@ -833,6 +835,22 @@ class ShellPreferences @Inject constructor(
         it.remove(Keys.PENDING_NETPLAY_AT)
     }
 
+    /** Notification ids the user already cleared. Survives process death and app updates. */
+    val dismissedShellNotificationIds: Flow<Set<String>> = dataStore.data.map { prefs ->
+        prefs[Keys.DISMISSED_SHELL_NOTIFICATION_IDS].orEmpty()
+    }
+
+    suspend fun addDismissedShellNotificationIds(ids: Collection<String>) = edit { prefs ->
+        val incoming = ids.map { it.trim() }.filter { it.isNotEmpty() }
+        if (incoming.isEmpty()) return@edit
+        val merged = (prefs[Keys.DISMISSED_SHELL_NOTIFICATION_IDS].orEmpty() + incoming)
+            .toMutableSet()
+        while (merged.size > MAX_DISMISSED_SHELL_NOTIFICATION_IDS) {
+            merged.remove(merged.first())
+        }
+        prefs[Keys.DISMISSED_SHELL_NOTIFICATION_IDS] = merged
+    }
+
     suspend fun setXoraPreferredControllerName(name: String) = edit {
         it[Keys.XORA_CONTROLLER_NAME] = name.trim().take(128)
     }
@@ -1227,6 +1245,8 @@ class ShellPreferences @Inject constructor(
         val PENDING_NETPLAY_FROM = stringPreferencesKey("pending_netplay_join_from")
         val PENDING_NETPLAY_CORE = stringPreferencesKey("pending_netplay_join_core")
         val PENDING_NETPLAY_AT = longPreferencesKey("pending_netplay_join_at")
+        val DISMISSED_SHELL_NOTIFICATION_IDS =
+            stringSetPreferencesKey("dismissed_shell_notification_ids")
         val XORA_CONTROLLER_NAME = stringPreferencesKey("xora_preferred_controller")
         val XORA_BUTTON_MAPPINGS = stringPreferencesKey("xora_button_mappings")
         val RA_ENABLED = booleanPreferencesKey("ra_enabled")

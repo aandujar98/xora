@@ -106,6 +106,36 @@ sealed interface ShellNotification {
     ) : ShellNotification
 }
 
+/**
+ * Keys recorded when the user clears a banner. Exact [ShellNotification.id] plus a stable
+ * XOrA Network alias so the same inbox/invite item cannot toast again after an app update.
+ */
+fun ShellNotification.dismissalKeys(): Set<String> = buildSet {
+    val self = this@dismissalKeys
+    if (self.id.isNotBlank()) add(self.id.trim())
+    when (self) {
+        is ShellNotification.XoraNetplayInvite -> {
+            netplaySessionDismissalKey(self.fromUsername.ifBlank { self.displayName }, self.sessionCode)
+                ?.let { add(it) }
+        }
+        is ShellNotification.XoraFriendRequest -> {
+            val name = self.displayName.trim().lowercase()
+            if (name.isNotBlank()) add("xora-request:$name")
+        }
+        is ShellNotification.XoraMessage -> {
+            if (self.id.isNotBlank()) add(self.id.trim())
+        }
+        else -> Unit
+    }
+}
+
+fun netplaySessionDismissalKey(fromUsername: String, sessionCode: String): String? {
+    val from = fromUsername.trim().lowercase()
+    val code = sessionCode.trim()
+    if (from.isBlank() || code.isBlank()) return null
+    return "xora-netplay-session:$from|$code"
+}
+
 enum class FriendNetwork {
     Discord,
     Steam,

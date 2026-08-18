@@ -88,6 +88,7 @@ import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
+import com.arcadia.shell.launcher.notifications.netplaySessionDismissalKey
 import com.arcadia.shell.libretro.netplay.AzaharLobbyUi
 import com.arcadia.shell.libretro.netplay.AzaharPretendo
 import com.arcadia.shell.libretro.netplay.AzaharPretendoUi
@@ -1876,18 +1877,18 @@ class XoraLibretroActivity : ComponentActivity() {
             coreName = invite.coreName,
             fromUsername = invite.fromUsername.ifBlank { invite.fromDisplayName },
         )
-        pendingInvitePrompt = prompt
-        shellNotifications.emit(
-            ShellNotification.XoraNetplayInvite(
-                id = "xora-netplay:${invite.dedupeKey()}",
-                displayName = prompt.hostName,
-                gameTitle = invite.gameTitle,
-                sessionCode = invite.code,
-                platformId = invite.platformId,
-                coreName = invite.coreName,
-                fromUsername = invite.fromUsername,
-            ),
+        val banner = ShellNotification.XoraNetplayInvite(
+            id = "xora-netplay:${invite.dedupeKey()}",
+            displayName = prompt.hostName,
+            gameTitle = invite.gameTitle,
+            sessionCode = invite.code,
+            platformId = invite.platformId,
+            coreName = invite.coreName,
+            fromUsername = invite.fromUsername,
         )
+        if (shellNotifications.isSuppressed(banner)) return
+        pendingInvitePrompt = prompt
+        shellNotifications.emit(banner)
     }
 
     private fun confirmInvitePrompt() {
@@ -1920,6 +1921,10 @@ class XoraLibretroActivity : ComponentActivity() {
             consumedNetplayInviteKeys.add(
                 inviteConsumeKey(prompt.fromUsername.ifBlank { prompt.hostName }, prompt.sessionCode),
             )
+            netplaySessionDismissalKey(
+                prompt.fromUsername.ifBlank { prompt.hostName },
+                prompt.sessionCode,
+            )?.let { shellNotifications.suppressKeys(listOf(it)) }
         }
         invitePromptOpen = false
         pendingInvitePrompt = null

@@ -84,6 +84,7 @@ import com.arcadia.shell.launcher.notifications.FriendNetwork
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
+import com.arcadia.shell.launcher.notifications.netplaySessionDismissalKey
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.GamePlatform
 import com.arcadia.shell.model.RomSoundBiteLocator
@@ -106,6 +107,7 @@ import com.arcadia.shell.retroachievements.RetroAchievementsClient
 import com.arcadia.shell.retroachievements.RetroAchievementsRepository
 import com.arcadia.shell.scanner.LibraryRootManager
 import com.arcadia.shell.xoranetwork.XoraFriendState
+import com.arcadia.shell.xoranetwork.XoraNetworkBannerGate
 import com.arcadia.shell.xoranetwork.XoraNetworkClient
 import com.arcadia.shell.xoranetwork.XoraNetworkRepository
 import com.arcadia.shell.xoranetwork.XoraNetplayInviteRecord
@@ -1352,12 +1354,15 @@ class HomeViewModel @Inject constructor(
      * an incoming friend request, a new inbox message, and a Netplay session invite.
      */
     private fun emitXoraNetworkBanners(network: com.arcadia.shell.xoranetwork.XoraNetworkState) {
-        if (!network.signedIn) {
+        if (XoraNetworkBannerGate.shouldResetSession(network)) {
             xoraSocialSeeded = false
             knownOnlineXoraUsernames.clear()
             knownXoraInviteUsernames.clear()
             knownXoraNotificationIds.clear()
             knownNetplayInviteKeys.clear()
+            return
+        }
+        if (XoraNetworkBannerGate.shouldWaitForInbox(network)) {
             return
         }
         val onlineNow = network.acceptedFriends.filter { it.online }
@@ -1374,24 +1379,6 @@ class HomeViewModel @Inject constructor(
             knownXoraNotificationIds.addAll(notificationIds)
             knownNetplayInviteKeys.addAll(netplayInviteKeys)
             xoraSocialSeeded = true
-            network.netplayInvites.maxByOrNull { it.createdAtMs }?.let { invite ->
-                rememberNetplayInvitePrompt(invite)
-                if (XoraNetplayInvites.hasJoinableCode(invite)) {
-                    val sender = invite.fromDisplayName.ifBlank { invite.fromUsername }
-                    shellNotifications.emit(
-                        ShellNotification.XoraNetplayInvite(
-                            id = "xora-netplay:${invite.dedupeKey()}",
-                            displayName = sender,
-                            gameTitle = invite.gameTitle,
-                            avatarUrl = XoraNetworkClient.avatarUrlFor(invite.fromUsername),
-                            sessionCode = invite.code,
-                            platformId = invite.platformId,
-                            coreName = invite.coreName,
-                            fromUsername = invite.fromUsername,
-                        ),
-                    )
-                }
-            }
             return
         }
 
@@ -1494,19 +1481,19 @@ class HomeViewModel @Inject constructor(
             if (key in knownNetplayInviteKeys) continue
             knownNetplayInviteKeys.add(key)
             val sender = invite.fromDisplayName.ifBlank { invite.fromUsername }
-            rememberNetplayInvitePrompt(invite)
-            shellNotifications.emit(
-                ShellNotification.XoraNetplayInvite(
-                    id = "xora-netplay:$key",
-                    displayName = sender,
-                    gameTitle = invite.gameTitle,
-                    avatarUrl = XoraNetworkClient.avatarUrlFor(invite.fromUsername),
-                    sessionCode = invite.code,
-                    platformId = invite.platformId,
-                    coreName = invite.coreName,
-                    fromUsername = invite.fromUsername,
-                ),
+            val banner = ShellNotification.XoraNetplayInvite(
+                id = "xora-netplay:$key",
+                displayName = sender,
+                gameTitle = invite.gameTitle,
+                avatarUrl = XoraNetworkClient.avatarUrlFor(invite.fromUsername),
+                sessionCode = invite.code,
+                platformId = invite.platformId,
+                coreName = invite.coreName,
+                fromUsername = invite.fromUsername,
             )
+            if (shellNotifications.isSuppressed(banner)) continue
+            rememberNetplayInvitePrompt(invite)
+            shellNotifications.emit(banner)
         }
         knownNetplayInviteKeys.retainAll(netplayInviteKeys)
     }
@@ -1620,6 +1607,13 @@ class HomeViewModel @Inject constructor(
 
     fun dismissNetplayInvitePrompt() {
         noteUserActivity()
+        pendingNetplayInvite.value?.let { prompt ->
+            val keys = buildList {
+                netplaySessionDismissalKey(prompt.fromUsername.ifBlank { prompt.hostName }, prompt.sessionCode)
+                    ?.let { add(it) }
+            }
+            if (keys.isNotEmpty()) shellNotifications.suppressKeys(keys)
+        }
         netplayInvitePromptOpen.value = false
         pendingNetplayInvite.value = null
         viewModelScope.launch { preferences.clearPendingNetplayJoin() }
