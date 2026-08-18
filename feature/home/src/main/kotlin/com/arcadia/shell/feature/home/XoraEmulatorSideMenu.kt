@@ -60,6 +60,8 @@ import com.arcadia.shell.libretro.netplay.PublicLobbyKind
 import com.arcadia.shell.libretro.netplay.XoraNetplayRole
 import com.arcadia.shell.libretro.netplay.XoraNetplayProtocol
 import com.arcadia.shell.libretro.netplay.XoraNetplayUiState
+import com.arcadia.shell.libretro.netplay.isSharedConsole
+import com.arcadia.shell.libretro.netplay.netplaySessionMode
 import com.arcadia.shell.libretro.netplay.publicLobbyKind
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.xoranetwork.XoraFriendState
@@ -961,6 +963,20 @@ private fun paneRows(
                 action = EmulatorMenuAction.ToggleNetplayOnline,
             ),
         ) + modeRows + publicLobbyNetplayRows(platformId, settings, publicLobbies, pretendo) + buildList {
+            if (netplaySessionMode(platformId).isSharedConsole()) {
+                add(
+                    MenuRow(
+                        id = "np-video",
+                        title = "Players 2–4 watch the host",
+                        subtitle = if (online) {
+                            "Compressed for slow Wi‑Fi · about 2 Mbps playable, 5 Mbps looks better"
+                        } else {
+                            "Same Wi‑Fi is sharper and has less delay than Online"
+                        },
+                        icon = XmbIcon.Display,
+                    ),
+                )
+            }
             add(
                 MenuRow(
                     id = "np-spec",

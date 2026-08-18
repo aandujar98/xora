@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.graphics.Outline
 import android.graphics.PixelFormat
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
 import android.content.pm.PackageManager
 import android.hardware.input.InputManager
@@ -3064,7 +3065,10 @@ class XoraLibretroActivity : ComponentActivity() {
                 val old = lastRemoteBitmap
                 lastRemoteBitmap = decoded
                 gameBitmap = decoded
-                primaryGameView?.setImageBitmap(decoded)
+                primaryGameView?.let { view ->
+                    view.setImageBitmap(decoded)
+                    (view.drawable as? BitmapDrawable)?.isFilterBitmap = false
+                }
                 stage?.let { stageView ->
                     if (stageView.contentWidthPx != decoded.width ||
                         stageView.contentHeightPx != decoded.height
