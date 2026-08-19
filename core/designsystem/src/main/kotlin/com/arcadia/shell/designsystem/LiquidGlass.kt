@@ -1,12 +1,6 @@
 package com.arcadia.shell.designsystem
 
 import android.os.Build
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -17,7 +11,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -80,7 +73,7 @@ object ArcadiaGlass {
         get() = LocalArcadiaGlass.current
 
     /** Nominal frost radius passed to Haze when a backdrop source is available. */
-    val DefaultBlur: Dp = 18.dp
+    val DefaultBlur: Dp = 8.dp
 
     val PillShape: Shape = RoundedCornerShape(percent = 50)
     val PanelShape: Shape = RoundedCornerShape(18.dp)
@@ -229,24 +222,9 @@ fun Modifier.liquidGlass(
         )
     }
 
-    // Several of these plates sit on chrome that is always on screen, so the sheen has to stop
-    // with the rest of the shell rather than redrawing the blur forever.
-    val ambientActive = rememberAmbientMotionActive()
-    val highlightAlpha = if (shimmer && ambientActive) {
-        val transition = rememberInfiniteTransition(label = "glassSheen")
-        val pulse by transition.animateFloat(
-            initialValue = 0.55f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 3_600, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "glassSheenPulse",
-        )
-        pulse
-    } else {
-        1f
-    }
+    // Sheen used to pulse on a vsync infinite transition. Dual 1080p AMOLED (AYN Thor)
+    // redrew every glass plate forever for a highlight nobody clocks. Static looks the same.
+    val highlightAlpha = 1f
 
     var chain = this.clip(shape)
     if (hazeState != null) {

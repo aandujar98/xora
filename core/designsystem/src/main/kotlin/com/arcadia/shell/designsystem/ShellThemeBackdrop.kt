@@ -1,15 +1,8 @@
 package com.arcadia.shell.designsystem
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -154,22 +147,9 @@ private fun MidnightBackdrop(modifier: Modifier = Modifier) {
 
 @Composable
 private fun ClassicXmbBackdrop(modifier: Modifier = Modifier) {
-    val animate = rememberAmbientMotionActive()
-    val drift = if (animate) {
-        val phase by rememberInfiniteTransition(label = "classicXmbWave").animateFloat(
-            initialValue = 0f,
-            targetValue = (Math.PI * 2.0).toFloat(),
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 16_000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "classicXmbWavePhase",
-        )
-        phase
-    } else {
-        0f
-    }
+    val unit = rememberThrottledAmbientUnit(cycleMs = 16_000)
     Canvas(modifier = modifier.fillMaxSize()) {
+        val drift = unit.floatValue * (Math.PI * 2.0).toFloat()
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
@@ -191,7 +171,7 @@ private fun ClassicXmbBackdrop(modifier: Modifier = Modifier) {
                 val y = baseY + sin((x / size.width) * Math.PI * 2.0 + band + drift).toFloat() *
                     (18f + band * 4f)
                 path.lineTo(x + xShift, y)
-                x += 8f
+                x += 16f
             }
             drawPath(
                 path = path,

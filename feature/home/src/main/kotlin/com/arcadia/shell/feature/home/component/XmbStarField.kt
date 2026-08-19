@@ -1,13 +1,7 @@
 package com.arcadia.shell.feature.home.component
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -15,7 +9,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
-import com.arcadia.shell.designsystem.rememberAmbientMotionActive
+import com.arcadia.shell.designsystem.rememberThrottledAmbientUnit
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.random.Random
@@ -25,30 +19,18 @@ import kotlin.random.Random
  * sideways wobble and twinkle, plus a few brighter 4-point sparkles with a soft glow.
  *
  * One linear phase drives everything; per-star loop counts are integers so the cycle wraps
- * seamlessly. When ambient motion is off (reduce motion / shell paused) the field renders as a
- * static scatter instead of animating.
+ * seamlessly. The clock is ~12 fps (not vsync) so dual 1080p AMOLED handhelds are not filling
+ * both panels at 120 Hz for a 90s drift. When ambient motion is off the field is a static scatter.
  */
 @Composable
 fun XmbStarFieldLayer(
     modifier: Modifier = Modifier,
 ) {
     val stars = remember { buildXmbStars() }
-    val phase = if (rememberAmbientMotionActive()) {
-        val transition = rememberInfiniteTransition(label = "xmbStarField")
-        val animated by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(STAR_CYCLE_MS, easing = LinearEasing),
-            ),
-            label = "xmbStarPhase",
-        )
-        animated
-    } else {
-        0.35f
-    }
+    val phaseState = rememberThrottledAmbientUnit(cycleMs = STAR_CYCLE_MS, still = 0.35f)
 
     Canvas(modifier = modifier) {
+        val phase = phaseState.floatValue
         val twoPi = (2.0 * PI).toFloat()
         for (star in stars) {
             val yFrac = (star.y - phase * star.riseLoops).mod(1f)

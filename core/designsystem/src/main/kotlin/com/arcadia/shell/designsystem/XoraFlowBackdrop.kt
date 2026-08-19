@@ -2,12 +2,9 @@ package com.arcadia.shell.designsystem
 
 import android.graphics.BlendMode as AndroidBlendMode
 import android.graphics.Paint as AndroidPaint
-import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -50,9 +47,10 @@ private const val WAVE_ANGLE_DEG = 16f
 
 /**
  * Long, soft wavelengths only need a sparse mesh — denser grids just burn work for no visible gain.
+ * Dual 1080p AMOLED (AYN Thor) draws this twice; keep the lattice coarse.
  */
-private const val MESH_COLUMNS = 24
-private const val MESH_ROWS = 14
+private const val MESH_COLUMNS = 16
+private const val MESH_ROWS = 9
 
 /**
  * Troughs are flattened to this fraction of the crest. Real waves are shaped that way — peaked
@@ -139,33 +137,15 @@ private val FrontBand = WaveBand(
  * muddies and crossing edges pick up a sheen.
  *
  * Baked art would normally be stuck moving as a rigid slab, so each band is drawn through a warped
- * vertex mesh instead: the artwork keeps its exact pixels while its surface deforms. Per frame this
- * is a few hundred vertices and one textured draw, which leaves headroom at 120Hz; the vertex
- * buffers are allocated once and rewritten in place rather than per frame.
+ * vertex mesh instead: the artwork keeps its exact pixels while its surface deforms. The clock is
+ * ~12 fps rather than vsync — 120 Hz on two Thor panels was filling both AMOLEDs for a 14–40s wave.
+ * Vertex buffers are allocated once and rewritten in place.
  */
 @Composable
 fun XoraFlowBackdrop(modifier: Modifier = Modifier) {
     val back = rememberWaveBitmap(R.drawable.xora_wave_back)
     val front = rememberWaveBitmap(R.drawable.xora_wave_front)
-    val animate = rememberAmbientMotionActive()
-
-    // Written from the frame clock and read only while drawing, so a new frame invalidates the
-    // draw without dragging composition or layout along with it.
-    val clock = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(animate) {
-        if (!animate) {
-            clock.floatValue = 0f
-            return@LaunchedEffect
-        }
-        var origin = 0L
-        while (true) {
-            withInfiniteAnimationFrameNanos { nanos ->
-                if (origin == 0L) origin = nanos
-                val elapsed = (nanos - origin) / 1_000_000_000.0
-                clock.floatValue = (elapsed % LOOP_SECONDS).toFloat()
-            }
-        }
-    }
+    val clock = rememberThrottledAmbientSeconds(loopSeconds = LOOP_SECONDS.toFloat())
 
     val paint = remember {
         AndroidPaint().apply {
@@ -243,8 +223,8 @@ private fun DrawScope.drawWaveBand(
 }
 
 /**
- * Destination vertices for one band. Allocated once; [update] rewrites it in place so a frame at
- * 120Hz costs arithmetic rather than garbage.
+ * Destination vertices for one band. Allocated once; [update] rewrites it in place so a tick
+ * costs arithmetic rather than garbage.
  */
 private class WaveMesh {
     val vertices = FloatArray((MESH_COLUMNS + 1) * (MESH_ROWS + 1) * 2)

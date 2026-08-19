@@ -80,6 +80,7 @@ fun ArcadiaTheme(
     val shellTheme = remember(shellThemeId) { ShellThemeCatalog.resolve(shellThemeId) }
     val glass = if (darkTheme) darkGlassTokens() else lightGlassTokens()
     val hazeState = rememberHazeState()
+    val savePower = rememberPowerSaveMode()
     val colorScheme = remember(darkTheme, shellTheme.id) {
         if (darkTheme) {
             shellTheme.toDarkColorScheme()
@@ -98,7 +99,7 @@ fun ArcadiaTheme(
     }
     CompositionLocalProvider(
         LocalArcadiaGlass provides glass,
-        LocalArcadiaHaze provides hazeState,
+        LocalArcadiaHaze provides if (savePower) null else hazeState,
         LocalShellTheme provides shellTheme,
         LocalXoraTextScale provides uiTextScale.coerceIn(0.75f, 1.3f),
         LocalDensity provides fittedDensity,

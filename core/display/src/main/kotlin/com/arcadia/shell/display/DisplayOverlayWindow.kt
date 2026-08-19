@@ -126,6 +126,7 @@ class DisplayOverlayWindow(
         PixelFormat.TRANSLUCENT,
     ).apply {
         gravity = Gravity.TOP or Gravity.START
+        DisplayRefresh.applyToLayoutParams(this)
     }
 
     private companion object {

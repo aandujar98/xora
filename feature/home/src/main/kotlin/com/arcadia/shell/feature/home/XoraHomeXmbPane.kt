@@ -12,11 +12,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -74,7 +70,6 @@ import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.motionMillis
-import com.arcadia.shell.designsystem.rememberAmbientMotionActive
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
@@ -88,12 +83,9 @@ import com.arcadia.shell.feature.home.component.XmbStarFieldLayer
 import com.arcadia.shell.libretro.XoraAspectLetterbox
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
-import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sign
-import kotlin.math.sin
 
 /**
  * PSP / PS3-style Cross Media Bar.
@@ -885,30 +877,12 @@ private fun rememberXmbBackdropMotion(
         ),
         label = "xmbParallaxX",
     )
-    // The drift moves the wallpaper, hero art and trailer layers, so leaving it running while the
-    // shell is not being looked at redraws the largest surfaces in the app for nothing.
-    val phase = if (rememberAmbientMotionActive()) {
-        val ambientPhase by rememberInfiniteTransition(label = "xmbAmbient").animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 18_000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "xmbAmbientPhase",
-        )
-        ambientPhase
-    } else {
-        0f
-    }
-    val ambX = sin(phase * PI * 2.0).toFloat() * 12f
-    val ambY = cos(phase * PI * 2.0).toFloat() * 8f
     return Modifier.graphicsLayer {
         val base = 1.045f * launchScale
         scaleX = base
         scaleY = base
-        translationX = -parallaxX + ambX
-        translationY = ambY
+        translationX = -parallaxX
+        translationY = 0f
     }
 }
 

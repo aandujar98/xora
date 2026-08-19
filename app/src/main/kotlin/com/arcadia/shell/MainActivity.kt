@@ -26,6 +26,7 @@ import com.arcadia.shell.audio.OnboardingMusicController
 import com.arcadia.shell.audio.UiSoundController
 import com.arcadia.shell.datastore.resolveDarkTheme
 import com.arcadia.shell.designsystem.ArcadiaTheme
+import com.arcadia.shell.display.DisplayRefresh
 import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.feature.home.HomeViewModel
 import com.arcadia.shell.home.ShellViewModel
@@ -61,6 +62,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         ImmersiveMode.apply(window)
+        DisplayRefresh.preferSixtyHertz(window)
         discordRichPresence.attachHostActivity(this)
         handleExternalAuthIntent(intent)
 
@@ -146,6 +148,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ImmersiveMode.apply(window)
+        DisplayRefresh.preferSixtyHertz(window)
         shellViewModel.refresh()
         homeViewModel.onResumed()
         backgroundMusic.onForeground()

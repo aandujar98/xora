@@ -18,7 +18,6 @@ import android.media.AudioTrack
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
-import android.view.Choreographer
 import android.view.Gravity
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -73,6 +72,7 @@ import com.arcadia.shell.datastore.next
 import com.arcadia.shell.datastore.nextPublic
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.LocalArcadiaHaze
+import com.arcadia.shell.display.DisplayRefresh
 import com.arcadia.shell.display.DisplayTopologyMonitor
 import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.SecondaryDisplayPane
@@ -129,7 +129,6 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -139,7 +138,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.yield
 import okhttp3.OkHttpClient
 import java.io.File
 import java.text.DateFormat
@@ -258,21 +256,6 @@ class XoraLibretroActivity : ComponentActivity() {
     private val bitmapLock = Any()
     /** Keeps pinning the window opaque while this activity is in the foreground. */
     private var washGuardJob: Job? = null
-    private var washFramePosted = false
-    private val washFrameCallback = object : Choreographer.FrameCallback {
-        override fun doFrame(frameTimeNanos: Long) {
-            washFramePosted = false
-            if (isFinishing || activityInBackground) return
-            pinOpaqueWindow()
-            if (!menuOpen) pinGameplaySurface()
-            if (seatPickerOpen || invitePromptOpen) {
-                dialogOverlay?.bringToFront()
-            } else {
-                keepProfileChipOnTop()
-            }
-            postWashFrame()
-        }
-    }
 
     /**
      * Dedicated emu thread for every Libretro JNI call (load / run / serialize / unload).
@@ -328,6 +311,7 @@ class XoraLibretroActivity : ComponentActivity() {
         // and is what painted a white wash over the game after the pause menu closed.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         applyOpaqueWindow()
+        DisplayRefresh.preferSixtyHertz(window)
 
         val romPath = intent.getStringExtra(XoraLibretroPlayers.EXTRA_ROM_PATH)
         romFilePath = romPath
@@ -871,6 +855,7 @@ class XoraLibretroActivity : ComponentActivity() {
         super.onResume()
         activityInBackground = false
         applyOpaqueWindow()
+        DisplayRefresh.preferSixtyHertz(window)
         startWashGuard()
         uiSounds.onForeground()
         xoraNetwork.setRealtimeEnabled(true)
@@ -1265,7 +1250,6 @@ class XoraLibretroActivity : ComponentActivity() {
         applyOpaqueWindow()
         pinGameplaySurface()
         keepProfileChipOnTop()
-        postWashFrame()
     }
 
     private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
@@ -2338,35 +2322,35 @@ class XoraLibretroActivity : ComponentActivity() {
 
     /**
      * Runs while the activity is RESUMED — overlay open **and** closed / playing.
-     * Vsync is used so the pin is not starved by the frame present queue.
+     * A 250 ms ticker is enough to catch OEM white-wash; vsync pinning was waking
+     * both AMOLED panels every frame for work that does not need to be that hot.
      */
     private fun startWashGuard() {
         washGuardJob?.cancel()
         washGuardJob = lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                postWashFrame()
-                try {
-                    awaitCancellation()
-                } finally {
-                    Choreographer.getInstance().removeFrameCallback(washFrameCallback)
-                    washFramePosted = false
+                while (true) {
+                    runWashGuardTick()
+                    delay(WASH_GUARD_MS)
                 }
             }
         }
-        postWashFrame()
     }
 
     private fun stopWashGuard() {
         washGuardJob?.cancel()
         washGuardJob = null
-        Choreographer.getInstance().removeFrameCallback(washFrameCallback)
-        washFramePosted = false
     }
 
-    private fun postWashFrame() {
-        if (washFramePosted || isFinishing || activityInBackground) return
-        washFramePosted = true
-        Choreographer.getInstance().postFrameCallback(washFrameCallback)
+    private fun runWashGuardTick() {
+        if (isFinishing || activityInBackground) return
+        pinOpaqueWindow()
+        if (!menuOpen) pinGameplaySurface()
+        if (seatPickerOpen || invitePromptOpen) {
+            dialogOverlay?.bringToFront()
+        } else {
+            keepProfileChipOnTop()
+        }
     }
 
     private fun restartAudio() {
@@ -2858,8 +2842,9 @@ class XoraLibretroActivity : ComponentActivity() {
                     }
                     val elapsed = System.nanoTime() - start
                     val sleepMs = ((frameNs - elapsed) / 1_000_000L).coerceAtLeast(0L)
-                    // delay/yield (not Thread.sleep) so serialize / unload can run here too.
-                    if (sleepMs > 0) delay(sleepMs) else yield()
+                    // delay (not Thread.sleep / yield) so serialize / unload can run here too.
+                    // yield() busy-spins when the frame is late and burns battery on handhelds.
+                    if (sleepMs > 0) delay(sleepMs) else delay(1)
                     }
                     else -> {
                     // Nothing is being emulated or drawn, so frame pacing would just wake the CPU
@@ -2932,7 +2917,6 @@ class XoraLibretroActivity : ComponentActivity() {
             primaryGameView?.invalidate()
             secondaryGameView?.invalidate()
             frameTick++
-            if (!menuOpen) pinGameplaySurface()
         }
     }
 
@@ -2966,7 +2950,6 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             primaryGameView?.invalidate()
             frameTick++
-            if (!menuOpen) pinGameplaySurface()
         }
     }
 
@@ -3045,6 +3028,8 @@ class XoraLibretroActivity : ComponentActivity() {
     companion object {
         /** Loop tick while paused / backgrounded, where no frames are produced. */
         private const val IDLE_TICK_MS = 200L
+        /** OEM white-wash pin. Does not need vsync; 4 Hz is enough to catch a leftover scrim. */
+        private const val WASH_GUARD_MS = 250L
         private const val MENU_MESSAGE_MS = 2_600L
         private val chordKeys = setOf(
             KeyEvent.KEYCODE_BUTTON_SELECT,
