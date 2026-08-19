@@ -469,8 +469,9 @@ std::string DiscordBridge::BuildFriendsPayloadUnlocked() {
                     name = user->DisplayName();
                     if (name.empty()) name = user->Username();
                     try {
+                        // Prefer GIF so animated Discord pfps play in the LT social pill.
                         avatarUrl = user->AvatarUrl(
-                            discordpp::UserHandle::AvatarType::Png,
+                            discordpp::UserHandle::AvatarType::Gif,
                             discordpp::UserHandle::AvatarType::Png);
                     } catch (...) {
                         avatarUrl.clear();
@@ -482,7 +483,8 @@ std::string DiscordBridge::BuildFriendsPayloadUnlocked() {
                             avatarUrl += std::to_string(user->Id());
                             avatarUrl += '/';
                             avatarUrl += *hashOpt;
-                            avatarUrl += ".png";
+                            avatarUrl +=
+                                hashOpt->rfind("a_", 0) == 0 ? ".gif" : ".png";
                         }
                     }
                 }

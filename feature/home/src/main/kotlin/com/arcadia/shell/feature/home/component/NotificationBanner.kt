@@ -54,6 +54,7 @@ import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.R
+import com.arcadia.shell.launcher.discord.preferAnimatedDiscordAvatarUrl
 import com.arcadia.shell.launcher.notifications.FriendNetwork
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
@@ -243,8 +244,8 @@ private fun BannerAvatar(
         if (!url.isNullOrBlank()) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(url)
-                    .crossfade(true)
+                    .data(preferAnimatedDiscordAvatarUrl(url) ?: url)
+                    .crossfade(false)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,

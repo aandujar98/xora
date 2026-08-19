@@ -28,6 +28,7 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.arcadia.shell.launcher.discord.preferAnimatedDiscordAvatarUrl
 
 @Composable
 fun ProfileAvatar(
@@ -44,6 +45,7 @@ fun ProfileAvatar(
     val initial = displayName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
     val platformContext = LocalPlatformContext.current
     var imageFailed by remember(imageModel) { mutableStateOf(false) }
+    val avatarModel = preferAnimatedDiscordAvatarUrl(imageModel) ?: imageModel
 
     Box(
         modifier = modifier
@@ -56,11 +58,12 @@ fun ProfileAvatar(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        if (!imageModel.isNullOrBlank() && !imageFailed) {
+        if (!avatarModel.isNullOrBlank() && !imageFailed) {
             AsyncImage(
                 model = ImageRequest.Builder(platformContext)
-                    .data(imageModel)
-                    .crossfade(160)
+                    .data(avatarModel)
+                    // Crossfade freezes GIF / animated WebP on the first frame.
+                    .crossfade(false)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,

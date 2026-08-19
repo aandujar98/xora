@@ -315,7 +315,18 @@ val SocialMenuHints: List<Pair<String, String>> = listOf(
     "L/R" to "Tab",
     "U/D" to "Move",
     "A" to "Select",
-    "B" to "Back",
+    "B" to "Pin friends",
+    "Select" to "Pin friends",
+    "LT" to "Close",
+)
+
+val SocialMenuManagingHints: List<Pair<String, String>> = listOf(
+    "LB/RB" to "Tab",
+    "L/R" to "Tab",
+    "U/D" to "Move",
+    "A" to "Pin / Unpin",
+    "B" to "Done",
+    "Select" to "Done",
     "LT" to "Close",
 )
 
@@ -337,7 +348,8 @@ val StartSettingsHints: List<Pair<String, String>> = listOf(
 
 fun hintsForGuide(): List<Pair<String, String>> = GuideHints
 
-fun hintsForSocialMenu(): List<Pair<String, String>> = SocialMenuHints
+fun hintsForSocialMenu(managingPins: Boolean = false): List<Pair<String, String>> =
+    if (managingPins) SocialMenuManagingHints else SocialMenuHints
 
 fun hintsForSystemMenu(): List<Pair<String, String>> = SystemMenuHints
 

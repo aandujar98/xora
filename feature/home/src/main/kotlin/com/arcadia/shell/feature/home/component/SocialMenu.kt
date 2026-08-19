@@ -216,8 +216,8 @@ fun SocialMenuPanel(
                 social.isXoraDmOpen -> "A send · B back · type to message"
                 social.isDiscordDmOpen -> "A send · B back · type to message"
                 social.isReplying -> "A send · B cancel reply · type on keyboard"
-                social.managingCircle -> "A pin/unpin · Done to finish · L/R tabs"
-                else -> "LT close · LB/RB tabs · U/D · A chat"
+                social.managingCircle -> "A pin/unpin · B/Select done · L/R tabs"
+                else -> "B/Select pin friends · LT close · LB/RB tabs · U/D · A chat"
             },
             style = MaterialTheme.typography.labelSmall,
             color = glass.contentMuted.copy(alpha = 0.7f),
@@ -252,7 +252,7 @@ private fun PinnedFriendsSection(
 
         if (social.managingCircle) {
             Text(
-                text = "A on a friend below to pin or unpin · Discord & Steam mix OK",
+                text = "A on a friend below to pin or unpin · XOrA Network, Discord, and Steam mix OK",
                 style = MaterialTheme.typography.labelSmall,
                 color = glassMuted,
             )
@@ -302,22 +302,30 @@ private fun PinnedFriendsHeader(
             }
         }
 
-        val manageIndex = accountRows.indexOfFirst { it is AccountPanelRow.ManageCircle }
-        val notificationsIndex = accountRows.indexOfFirst { it is AccountPanelRow.OpenNotifications }
-        val badgeCount = social.messagesBadgeCount + social.recentNotifications.size
-        NotificationsPill(
-            label = if (social.managingCircle) "Done" else "Notifications",
-            badgeCount = if (social.managingCircle) 0 else badgeCount,
-            selected = if (social.managingCircle) {
-                manageIndex >= 0 && manageIndex == selectedRowIndex
-            } else {
-                notificationsIndex >= 0 && notificationsIndex == selectedRowIndex
-            },
-            onClick = {
-                val index = if (social.managingCircle) manageIndex else notificationsIndex
-                if (index >= 0) onActivateRow(index)
-            },
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val manageIndex = accountRows.indexOfFirst { it is AccountPanelRow.ManageCircle }
+            val notificationsIndex = accountRows.indexOfFirst { it is AccountPanelRow.OpenNotifications }
+            val badgeCount = social.messagesBadgeCount + social.recentNotifications.size
+            NotificationsPill(
+                label = "Notifications",
+                badgeCount = badgeCount,
+                selected = notificationsIndex >= 0 && notificationsIndex == selectedRowIndex,
+                onClick = {
+                    if (notificationsIndex >= 0) onActivateRow(notificationsIndex)
+                },
+            )
+            NotificationsPill(
+                label = if (social.managingCircle) "Done" else "Manage",
+                badgeCount = 0,
+                selected = manageIndex >= 0 && manageIndex == selectedRowIndex,
+                onClick = {
+                    if (manageIndex >= 0) onActivateRow(manageIndex)
+                },
+            )
+        }
     }
 }
 

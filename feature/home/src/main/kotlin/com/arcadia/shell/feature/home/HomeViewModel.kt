@@ -275,7 +275,7 @@ class HomeViewModel @Inject constructor(
     private val isLaunching = MutableStateFlow(false)
     private val accountPanelExpanded = MutableStateFlow(false)
     private val accountPanelSelectedIndex = MutableStateFlow(0)
-    private val socialMenuTab = MutableStateFlow(SocialMenuTab.Discord)
+    private val socialMenuTab = MutableStateFlow(SocialMenuTab.XoraNetwork)
     private val steamFriendsUi = MutableStateFlow(SteamFriendsUiState())
     private val discordSocialUi = MutableStateFlow(DiscordSocialUiState())
     private val conversationsUi = MutableStateFlow(ConversationsUiState())
@@ -5111,13 +5111,36 @@ class HomeViewModel @Inject constructor(
                         notificationsOpen.value = false
                         accountPanelSelectedIndex.value = 0
                     }
-                    else -> collapseHeroPanels()
+                    else -> toggleManagingCircle()
+                }
+            }
+            NavAction.ScrapeMenu -> {
+                when {
+                    conversationReply.value.conversationKey != null -> Unit
+                    discordRichPresence.dmThread.value.peerUserId != null -> Unit
+                    notificationsOpen.value -> Unit
+                    else -> toggleManagingCircle()
                 }
             }
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             NavAction.ToggleSystemPanel -> toggleSystemPanel()
             else -> Unit
         }
+    }
+
+    private fun toggleManagingCircle() {
+        noteUserActivity()
+        val entering = !managingCircle.value
+        if (entering) {
+            notificationsOpen.value = false
+            val manageIndex = uiState.value.accountPanelRows.indexOfFirst {
+                it is AccountPanelRow.ManageCircle
+            }
+            if (manageIndex >= 0) {
+                accountPanelSelectedIndex.value = manageIndex
+            }
+        }
+        managingCircle.update { !it }
     }
 
     private fun onSystemPanelNavAction(action: NavAction) {
@@ -5538,10 +5561,7 @@ class HomeViewModel @Inject constructor(
                 notificationsOpen.update { !it }
                 accountPanelSelectedIndex.value = 0
             }
-            AccountPanelRow.ManageCircle -> {
-                managingCircle.update { !it }
-                accountPanelSelectedIndex.value = 0
-            }
+            AccountPanelRow.ManageCircle -> toggleManagingCircle()
             is AccountPanelRow.CircleEmptySlot -> {
                 managingCircle.value = true
                 emit(HomeEvent.ShowMessage("Pick a friend to pin."))
@@ -6666,7 +6686,7 @@ class HomeViewModel @Inject constructor(
         if (opening) {
             systemPanelExpanded.value = false
             achievementsPanelExpanded.value = false
-            socialMenuTab.value = SocialMenuTab.Discord
+            socialMenuTab.value = SocialMenuTab.XoraNetwork
             managingCircle.value = false
             notificationsOpen.value = false
             friendSearchQuery.value = ""

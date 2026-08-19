@@ -510,7 +510,8 @@ fun HomeScreen(
                             hints = when {
                                 state.guideOpen -> hintsForGuide()
                                 state.startSettingsOpen -> hintsForStartSettings()
-                                state.accountPanelExpanded -> hintsForSocialMenu()
+                                state.accountPanelExpanded ->
+                                    hintsForSocialMenu(state.socialMenu.managingCircle)
                                 state.systemPanelExpanded -> hintsForSystemMenu()
                                 else -> hintsForPage(
                                     page = state.homePage,

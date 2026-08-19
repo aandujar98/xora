@@ -13,13 +13,13 @@ import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 
 /**
  * Pages inside the LT social overlay.
- * Pinned Friends stay above the tab bar; LB/RB (and L/R) cycle Discord / Steam / XOrA Network.
+ * Pinned Friends stay above the tab bar; LB/RB (and L/R) cycle XOrA Network / Discord / Steam.
  */
 enum class SocialMenuTab {
-    Discord,
-    Steam,
     /** XOrA Network — friends, presence, and website DMs. */
     XoraNetwork,
+    Discord,
+    Steam,
 }
 
 enum class SocialPresence {
@@ -118,7 +118,7 @@ data class ConversationReplyUiState(
 )
 
 data class SocialMenuUiState(
-    val tab: SocialMenuTab = SocialMenuTab.Discord,
+    val tab: SocialMenuTab = SocialMenuTab.XoraNetwork,
     val steam: SteamFriendsUiState = SteamFriendsUiState(),
     val discord: DiscordSocialUiState = DiscordSocialUiState(),
     val conversations: ConversationsUiState = ConversationsUiState(),

@@ -392,7 +392,9 @@ internal class DiscordSocialSdkBridge {
         val id = parts.getOrNull(0)?.trim().orEmpty()
         if (id.isEmpty()) return
         currentUserId = id
-        currentUserAvatarUrl = parts.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+        currentUserAvatarUrl = preferAnimatedDiscordAvatarUrl(
+            parts.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() },
+        )
         Log.i(TAG, "currentUserId=$id avatar=${currentUserAvatarUrl ?: "(none)"}")
         hopMain { currentUserListener?.invoke(id) }
     }
@@ -470,7 +472,9 @@ internal class DiscordSocialSdkBridge {
                     val parts = line.split('\t')
                     if (parts.size < 3) return@mapNotNull null
                     val userId = parts[0]
-                    val avatarFromSdk = parts.getOrNull(3)?.takeIf { it.isNotBlank() }
+                    val avatarFromSdk = preferAnimatedDiscordAvatarUrl(
+                        parts.getOrNull(3)?.takeIf { it.isNotBlank() },
+                    )
                     DiscordFriendEntry(
                         userId = userId,
                         displayName = parts[1].ifBlank { userId },
