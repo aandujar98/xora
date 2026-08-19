@@ -969,7 +969,7 @@ private fun paneRows(
                         id = "np-video",
                         title = "Players 2–4 watch the host",
                         subtitle = if (online) {
-                            "Compressed for slow Wi‑Fi · about 2 Mbps playable, 5 Mbps looks better"
+                            "About 3 Mbps for a sharp picture · 8+ Mbps looks best"
                         } else {
                             "Same Wi‑Fi is sharper and has less delay than Online"
                         },

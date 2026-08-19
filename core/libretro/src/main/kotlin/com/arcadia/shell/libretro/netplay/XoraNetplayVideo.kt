@@ -8,18 +8,21 @@ import java.io.ByteArrayOutputStream
 /**
  * Host framebuffer for SharedConsole netplay (NES, SNES, GC, …).
  *
- * Players 2–4 do not run a second core — they watch this picture. Encode with nearest-neighbor
- * scaling so 8/16-bit pixel art stays sharp at the small online size, and prefer WebP so the
- * same Wi‑Fi budget looks less mushy than JPEG-16.
+ * Players 2–4 do not run a second core — they watch this picture. 8/16-bit cores keep
+ * native width. Hi-res home consoles downscale with bilinear filtering. Online uses a
+ * Nakama-safe byte budget that still looks decent on typical home Wi‑Fi (~3 Mbps).
  */
 object XoraNetplayVideo {
     const val MAX_WIDTH = 400
-    /** Native NES/SNES width — do not downscale 8/16-bit cores below this online. */
-    const val ONLINE_MAX_WIDTH = 256
+    /** Online matches LAN width so GameCube / N64 are not crushed to 256px. NES/SNES stay native. */
+    const val ONLINE_MAX_WIDTH = 400
     const val MAX_BYTES = 24_000
-    /** Fits in a handful of Nakama chunks (900 B each, max 16). */
-    const val ONLINE_MAX_BYTES = 8_000
-    const val MIN_QUALITY = 36
+    /**
+     * Fits in Nakama chunks (900 B × 28). ~20 KB at 15 fps is about 2.4 Mbps —
+     * playable on decent Wi‑Fi, sharp on a good connection.
+     */
+    const val ONLINE_MAX_BYTES = 20_000
+    const val MIN_QUALITY = 48
 
     fun targetSize(srcW: Int, srcH: Int, maxWidth: Int): Pair<Int, Int> {
         if (srcW <= 0 || srcH <= 0 || maxWidth <= 0) return 0 to 0
@@ -31,7 +34,7 @@ object XoraNetplayVideo {
     fun widthSteps(maxWidth: Int): IntArray {
         val steps = LinkedHashSet<Int>()
         steps += maxWidth.coerceAtLeast(1)
-        for (width in intArrayOf(256, 224, 192, 160, 128)) {
+        for (width in intArrayOf(320, 256, 224, 192, 160, 128)) {
             if (width < maxWidth) steps += width
         }
         return steps.toIntArray()
@@ -49,19 +52,20 @@ object XoraNetplayVideo {
         val src = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         src.setPixels(packed, 2, w, 0, 0, w, h)
         var current: Bitmap = src
+        val filterHiRes = w > 320
         return try {
             for (stepWidth in widthSteps(maxWidth)) {
                 val (tw, th) = targetSize(current.width, current.height, stepWidth)
                 if (tw <= 0 || th <= 0) continue
                 if (tw != current.width || th != current.height) {
-                    val scaled = Bitmap.createScaledBitmap(current, tw, th, false)
+                    val scaled = Bitmap.createScaledBitmap(current, tw, th, filterHiRes)
                     if (scaled !== current && !current.isRecycled) current.recycle()
                     current = scaled
                 }
                 val qualities = if (stepWidth >= maxWidth) {
-                    intArrayOf(58, 48, MIN_QUALITY)
+                    intArrayOf(76, 68, 60, MIN_QUALITY)
                 } else {
-                    intArrayOf(44, MIN_QUALITY)
+                    intArrayOf(64, 56, MIN_QUALITY)
                 }
                 compressToBudget(current, qualities, maxBytes)?.let { return it }
             }

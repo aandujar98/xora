@@ -20,7 +20,7 @@ object XoraNetplayProtocol {
     /** Nakama match data is small; savestates and host video go out as [TYPE_CHUNK] pieces. */
     const val RELAY_CHUNK_BYTES: Int = 900
     /** Drop a relay payload rather than flooding the match with dozens of chunks. */
-    const val RELAY_MAX_CHUNKS: Int = 16
+    const val RELAY_MAX_CHUNKS: Int = 28
 
     const val TYPE_HELLO: Int = 1
     const val TYPE_STATE: Int = 2

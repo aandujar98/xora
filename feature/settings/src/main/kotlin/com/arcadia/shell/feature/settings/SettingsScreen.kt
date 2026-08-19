@@ -1465,10 +1465,10 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "Online picture for players 2–4 is sized for slow Wi‑Fi. " +
-                        "Recommended: host 5 Mbps upload, joiners 5 Mbps download. " +
-                        "Playable around 2 Mbps each. Same-Wi‑Fi Local Wireless is sharper " +
-                        "and has less delay.",
+                    text = "Online picture for players 2–4 is a compressed stream of the " +
+                        "host screen. Decent home Wi‑Fi is enough: about 3 Mbps host upload " +
+                        "and joiner download. 8+ Mbps looks best. Same-Wi‑Fi Local Wireless " +
+                        "is still sharper and has less delay.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
