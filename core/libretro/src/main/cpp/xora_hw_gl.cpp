@@ -59,6 +59,8 @@ GLuint g_depth = 0;
 unsigned g_fbo_w = 0;
 unsigned g_fbo_h = 0;
 
+void destroy_fbo_unlocked();
+
 bool make_current() {
     if (g_display == EGL_NO_DISPLAY || g_context == EGL_NO_CONTEXT) {
         return false;
@@ -68,6 +70,21 @@ bool make_current() {
         return false;
     }
     return true;
+}
+
+void destroy_egl_objects_unlocked() {
+    destroy_fbo_unlocked();
+    if (g_display != EGL_NO_DISPLAY) {
+        eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (g_surface != EGL_NO_SURFACE) eglDestroySurface(g_display, g_surface);
+        if (g_context != EGL_NO_CONTEXT) eglDestroyContext(g_display, g_context);
+        eglTerminate(g_display);
+    }
+    g_display = EGL_NO_DISPLAY;
+    g_context = EGL_NO_CONTEXT;
+    g_surface = EGL_NO_SURFACE;
+    g_config = nullptr;
+    g_reset_done = false;
 }
 
 void destroy_fbo_unlocked() {
@@ -301,20 +318,9 @@ bool create_egl_unlocked(int gles_major) {
 }
 
 void destroy_egl_unlocked() {
-    destroy_fbo_unlocked();
-    if (g_display != EGL_NO_DISPLAY) {
-        eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-        if (g_surface != EGL_NO_SURFACE) eglDestroySurface(g_display, g_surface);
-        if (g_context != EGL_NO_CONTEXT) eglDestroyContext(g_display, g_context);
-        eglTerminate(g_display);
-    }
-    g_display = EGL_NO_DISPLAY;
-    g_context = EGL_NO_CONTEXT;
-    g_surface = EGL_NO_SURFACE;
-    g_config = nullptr;
+    destroy_egl_objects_unlocked();
     g_cb = {};
     g_cb_set = false;
-    g_reset_done = false;
     g_gles_major = 2;
 }
 
@@ -385,6 +391,11 @@ bool ensure_context(unsigned width, unsigned height) {
     {
         std::lock_guard<std::mutex> lock(g_hw_mutex);
         if (!g_cb_set) return false;
+        if (g_display != EGL_NO_DISPLAY && g_context != EGL_NO_CONTEXT && !make_current()) {
+            // Sleep / lid-close often drops the GPU context. Recreate GL; CPU state stays.
+            ALOGW("EGL context lost — recreating");
+            destroy_egl_objects_unlocked();
+        }
         if (!create_egl_unlocked(gles_major_for(g_cb.context_type))) return false;
         if (width == 0 || height == 0) {
             if (!g_fbo && !create_fbo_unlocked(640, 480)) return false;

@@ -535,8 +535,8 @@ fun buildStartSettingsRows(
         ),
         StartSettingsRow.Action(
             id = "all_settings",
-            title = "All Settings",
-            subtitle = "Full Setup screen",
+            title = "Advanced Settings",
+            subtitle = "XOrA Setup, cores & library",
             action = StartSettingsAction.OpenAllSettings,
         ),
         StartSettingsRow.Action(

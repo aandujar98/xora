@@ -138,7 +138,7 @@ private val FrontBand = WaveBand(
  *
  * Baked art would normally be stuck moving as a rigid slab, so each band is drawn through a warped
  * vertex mesh instead: the artwork keeps its exact pixels while its surface deforms. The clock is
- * ~12 fps rather than vsync — 120 Hz on two Thor panels was filling both AMOLEDs for a 14–40s wave.
+ * 30 fps rather than vsync — 120 Hz on two Thor panels was filling both AMOLEDs for a 14–40s wave.
  * Vertex buffers are allocated once and rewritten in place.
  */
 @Composable

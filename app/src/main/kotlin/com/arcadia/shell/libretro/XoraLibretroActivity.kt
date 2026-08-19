@@ -3,6 +3,7 @@ package com.arcadia.shell.libretro
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
@@ -182,6 +183,8 @@ class XoraLibretroActivity : ComponentActivity() {
     /** True while the activity is backgrounded (home/recents) — pauses the frame loop. */
     @Volatile private var activityInBackground = false
     private var gameLoaded = false
+    /** True only for an explicit Quit to XOrA — unexpected finish must keep the autosave. */
+    private var quitDiscardsAutosave = false
     private var raSession: LibretroRaSession? = null
 
     private var runJob: Job? = null
@@ -857,10 +860,21 @@ class XoraLibretroActivity : ComponentActivity() {
         applyOpaqueWindow()
         DisplayRefresh.preferSixtyHertz(window)
         startWashGuard()
+        if (gameLoaded) restartAudio()
         uiSounds.onForeground()
         xoraNetwork.setRealtimeEnabled(true)
         xoraNetwork.setPlayingLine("playing $gameTitle")
         if (!menuOpen) window.decorView.requestFocus()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Lid close / fold / density shifts must not reload the core. Re-pin the window only.
+        applyOpaqueWindow()
+        DisplayRefresh.preferSixtyHertz(window)
+        ImmersiveMode.apply(window)
+        refreshExpandTopology()
+        applyStageSettings(xoraSettings)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -871,11 +885,10 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     override fun onPause() {
-        // Persist progress before Android may kill the process after a home / recents swipe.
-        if (!isChangingConfigurations) {
-            activityInBackground = true
-            persistSessionForBackground()
-        }
+        // Always snapshot before Android may kill us. Skipping this on configuration
+        // changes used to reboot every core after a clamshell close / fold.
+        activityInBackground = true
+        persistSessionForBackground()
         stopWashGuard()
         uiSounds.onBackground()
         xoraNetwork.setRealtimeEnabled(false)
@@ -883,10 +896,8 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        if (!isChangingConfigurations) {
-            activityInBackground = true
-            persistSessionForBackground()
-        }
+        activityInBackground = true
+        persistSessionForBackground()
         super.onStop()
     }
 
@@ -1113,7 +1124,7 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun persistSessionForBackground() {
-        if (!gameLoaded) return
+        if (!gameLoaded || quitDiscardsAutosave) return
         val hardcore = raSettings.hardcore && raSettings.enabled
         if (hardcore) return
         // Must run on the emu thread — Mupen serialize uses libco co_switch.
@@ -1125,7 +1136,13 @@ class XoraLibretroActivity : ComponentActivity() {
     /** Caller must already be on [emuDispatcher]. */
     private fun saveAutosave() {
         val data = LibretroNative.nativeSerialize() ?: return
-        coreStore.autosaveFile(platformId, gameId).writeBytes(data)
+        val file = coreStore.autosaveFile(platformId, gameId)
+        val tmp = File(file.parentFile, "${file.name}.tmp")
+        tmp.writeBytes(data)
+        if (!tmp.renameTo(file)) {
+            file.writeBytes(data)
+            tmp.delete()
+        }
     }
 
     /** Caller must already be on [emuDispatcher]. */
@@ -1133,12 +1150,10 @@ class XoraLibretroActivity : ComponentActivity() {
         val file = coreStore.autosaveFile(platformId, gameId)
         if (!file.isFile || file.length() == 0L) return false
         val bytes = file.readBytes()
-        val ok = LibretroNative.nativeUnserialize(bytes)
-        if (!ok) {
-            // Stale / cross-thread autosaves from older builds can poison every launch.
-            runCatching { file.delete() }
-        }
-        return ok
+        if (LibretroNative.nativeUnserialize(bytes)) return true
+        // Some cores reject unserialize on the first boot frame after retro_load_game.
+        repeat(3) { LibretroNative.nativeRunFrame() }
+        return LibretroNative.nativeUnserialize(bytes)
     }
 
     private fun handleInGameXmbKey(keyCode: Int): Boolean {
@@ -1360,6 +1375,7 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             EmulatorMenuAction.ReturnHome -> {
                 closeMenu()
+                quitDiscardsAutosave = true
                 finish()
             }
             is EmulatorMenuAction.InviteFriendToSession -> inviteFriendToSession(action.username)
@@ -2954,8 +2970,11 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     override fun finish() {
-        // Explicit quit — drop the autosave so the next launch is a fresh boot.
-        runCatching { coreStore.autosaveFile(platformId, gameId).delete() }
+        if (quitDiscardsAutosave) {
+            runCatching { coreStore.autosaveFile(platformId, gameId).delete() }
+        } else {
+            persistSessionForBackground()
+        }
         gameLoaded = false
         xoraNetwork.setPlayingLine(null)
         xoraNetwork.setRealtimeEnabled(false)
@@ -3017,6 +3036,7 @@ class XoraLibretroActivity : ComponentActivity() {
             bottomBitmap?.recycle()
             bottomBitmap = null
         }
+        persistSessionForBackground()
         runCatching {
             runBlocking(emuDispatcher) { LibretroNative.nativeUnload() }
         }

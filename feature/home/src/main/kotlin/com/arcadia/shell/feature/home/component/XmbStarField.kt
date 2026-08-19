@@ -19,7 +19,7 @@ import kotlin.random.Random
  * sideways wobble and twinkle, plus a few brighter 4-point sparkles with a soft glow.
  *
  * One linear phase drives everything; per-star loop counts are integers so the cycle wraps
- * seamlessly. The clock is ~12 fps (not vsync) so dual 1080p AMOLED handhelds are not filling
+ * seamlessly. The clock is 30 fps (not vsync) so dual 1080p AMOLED handhelds are not filling
  * both panels at 120 Hz for a 90s drift. When ambient motion is off the field is a static scatter.
  */
 @Composable

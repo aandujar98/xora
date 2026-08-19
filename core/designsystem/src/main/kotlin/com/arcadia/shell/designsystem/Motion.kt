@@ -46,8 +46,9 @@ object ArcadiaMotion {
 /**
  * Wallpaper / dust / wave loops. Compose infinite transitions still tick every vsync;
  * dual 1080p AMOLED handhelds (AYN Thor) cannot afford that on both panels.
+ * 30 fps is the floor that still reads as water; vsync (90–120) is what drained the battery.
  */
-const val AMBIENT_DRAW_FPS = 12
+const val AMBIENT_DRAW_FPS = 30
 
 /** True when system animator duration scale is zero (common reduce-motion signal). */
 @Composable
@@ -133,7 +134,7 @@ fun rememberThrottledAmbientSeconds(
             return@LaunchedEffect
         }
         val start = SystemClock.elapsedRealtime()
-        val frameMs = (1000L / fps.coerceIn(4, 24))
+        val frameMs = (1000L / fps.coerceIn(4, 60))
         val loopMs = (loopSeconds.coerceAtLeast(0.001f) * 1000.0)
         while (true) {
             val elapsed = (SystemClock.elapsedRealtime() - start).toDouble()
@@ -161,7 +162,7 @@ fun rememberThrottledAmbientUnit(
             return@LaunchedEffect
         }
         val start = SystemClock.elapsedRealtime()
-        val frameMs = (1000L / fps.coerceIn(4, 24))
+        val frameMs = (1000L / fps.coerceIn(4, 60))
         val period = cycleMs.coerceAtLeast(1).toDouble()
         while (true) {
             val elapsed = (SystemClock.elapsedRealtime() - start).toDouble()
