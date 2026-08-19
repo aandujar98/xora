@@ -2032,9 +2032,9 @@ class HomeViewModel @Inject constructor(
         val q = friendSearchQuery.trim()
 
         return buildList {
-            // Header chrome: Notifications + Manage + Circle slots are always focusable.
+            // Header chrome: Notifications + Circle slots are always focusable.
+            // Pin edit is Back/Select (no Manage pill).
             add(AccountPanelRow.OpenNotifications)
-            add(AccountPanelRow.ManageCircle)
             repeat(CIRCLE_FRIEND_LIMIT) { slot ->
                 val pin = circlePins.getOrNull(slot)
                 if (pin != null) {
@@ -5133,12 +5133,6 @@ class HomeViewModel @Inject constructor(
         val entering = !managingCircle.value
         if (entering) {
             notificationsOpen.value = false
-            val manageIndex = uiState.value.accountPanelRows.indexOfFirst {
-                it is AccountPanelRow.ManageCircle
-            }
-            if (manageIndex >= 0) {
-                accountPanelSelectedIndex.value = manageIndex
-            }
         }
         managingCircle.update { !it }
     }
