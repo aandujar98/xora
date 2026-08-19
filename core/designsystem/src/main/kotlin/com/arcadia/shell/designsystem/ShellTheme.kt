@@ -14,6 +14,9 @@ enum class ShellThemeId(val id: String, val displayName: String) {
     Midnight("midnight", "Midnight"),
     ClassicXmb("classic_xmb", "Classic XMB"),
     WarmArcade("warm_arcade", "Warm Arcade"),
+    UsagiShadePink("usagishade_pink", "UsagiShade (Pink)"),
+    UsagiShadeDark("usagishade_dark", "UsagiShade (Dark)"),
+    DreamOs("dreamos", "DreamOS"),
     ;
 
     companion object {
@@ -36,6 +39,12 @@ enum class ShellWallpaperStyle {
     ClassicXmbWave,
     /** Warm amber arcade glow. */
     WarmArcadeGlow,
+    /** Glossy rose / sakura field (UsagiShade Pink fallback). */
+    UsagiPinkGlow,
+    /** Midnight navy with magenta rim light (UsagiShade Dark fallback). */
+    UsagiDarkVeil,
+    /** Frutiger Aero cyan sky into lime grass (DreamOS fallback). */
+    DreamOsSky,
 }
 
 /**
@@ -197,12 +206,93 @@ object ShellThemeCatalog {
         description = "Cabinet amber glow",
     )
 
+    val UsagiShadePink: ShellTheme = ShellTheme(
+        id = ShellThemeId.UsagiShadePink,
+        colors = ShellThemeColors(
+            primary = Color(0xFFFF7EB6),
+            secondary = Color(0xFFFFC1DE),
+            background = Color(0xFF1A0C14),
+            surface = Color(0xFF2A1420),
+            accent = Color(0xFFFF9AC8),
+            onAccent = Color(0xFF1A0A12),
+            text = Color(0xFFFFF4F8),
+            textMuted = Color(0xFFE0B0C8),
+            focusStart = Color(0xFFFF6AA8),
+            focusEnd = Color(0xFFE8B0FF),
+            shardFill = Color(0xE81C0E16),
+            shardAccentFocused = Color(0xFFFF8AB8),
+            shardAccentIdle = Color(0xFF7A4060),
+        ),
+        wallpaperStyle = ShellWallpaperStyle.UsagiPinkGlow,
+        wallpaperAssetPath = USAGISHADE_PINK_WALLPAPER_ASSET,
+        bgm = ShellThemeBgm(
+            assetPath = USAGISHADE_BGM_ASSET,
+            displayHint = "System menu theme",
+        ),
+        description = "Pink motion field, glossy rose chrome",
+    )
+
+    val UsagiShadeDark: ShellTheme = ShellTheme(
+        id = ShellThemeId.UsagiShadeDark,
+        colors = ShellThemeColors(
+            primary = Color(0xFFE85A9A),
+            secondary = Color(0xFFB080C8),
+            background = Color(0xFF07070C),
+            surface = Color(0xFF121018),
+            accent = Color(0xFFFF7EB6),
+            onAccent = Color(0xFF10080C),
+            text = Color(0xFFF4EEF4),
+            textMuted = Color(0xFFA898A8),
+            focusStart = Color(0xFF6A3060),
+            focusEnd = Color(0xFFE85A9A),
+            shardFill = Color(0xE80A0A12),
+            shardAccentFocused = Color(0xFFFF8AB8),
+            shardAccentIdle = Color(0xFF4A3048),
+        ),
+        wallpaperStyle = ShellWallpaperStyle.UsagiDarkVeil,
+        wallpaperAssetPath = USAGISHADE_DARK_WALLPAPER_ASSET,
+        bgm = ShellThemeBgm(
+            assetPath = USAGISHADE_BGM_ASSET,
+            displayHint = "System menu theme",
+        ),
+        description = "Dark motion field, magenta rim light",
+    )
+
+    val DreamOs: ShellTheme = ShellTheme(
+        id = ShellThemeId.DreamOs,
+        colors = ShellThemeColors(
+            primary = Color(0xFF3DB8E8),
+            secondary = Color(0xFF7AE08A),
+            background = Color(0xFF0A3048),
+            surface = Color(0xFF124058),
+            accent = Color(0xFF7AE0C8),
+            onAccent = Color(0xFF062030),
+            text = Color(0xFFF4FCFF),
+            textMuted = Color(0xFFB0D0E0),
+            focusStart = Color(0xFF2A90C8),
+            focusEnd = Color(0xFF80E0A0),
+            shardFill = Color(0xE8103044),
+            shardAccentFocused = Color(0xFF6ED8F0),
+            shardAccentIdle = Color(0xFF2A6078),
+        ),
+        wallpaperStyle = ShellWallpaperStyle.DreamOsSky,
+        wallpaperAssetPath = DREAMOS_WALLPAPER_ASSET,
+        bgm = ShellThemeBgm(
+            assetPath = DREAMOS_BGM_ASSET,
+            displayHint = "Distant ocean",
+        ),
+        description = "Frutiger Aero sky, grass, and glass dew",
+    )
+
     val all: List<ShellTheme> = listOf(
         Default,
         Persona3Reload,
         Midnight,
         ClassicXmb,
         WarmArcade,
+        UsagiShadePink,
+        UsagiShadeDark,
+        DreamOs,
     )
 
     fun require(id: ShellThemeId): ShellTheme = when (id) {
@@ -211,6 +301,9 @@ object ShellThemeCatalog {
         ShellThemeId.Midnight -> Midnight
         ShellThemeId.ClassicXmb -> ClassicXmb
         ShellThemeId.WarmArcade -> WarmArcade
+        ShellThemeId.UsagiShadePink -> UsagiShadePink
+        ShellThemeId.UsagiShadeDark -> UsagiShadeDark
+        ShellThemeId.DreamOs -> DreamOs
     }
 
     fun resolve(rawId: String?): ShellTheme = require(ShellThemeId.fromId(rawId))
@@ -221,6 +314,12 @@ const val PERSONA3_BGM_ASSET = "themes/persona3_reload/bgm.mp3"
 
 /** Asset path for Persona 3 Reload full-bleed wallpaper (looping video). */
 const val PERSONA3_WALLPAPER_ASSET = "themes/persona3_reload/wallpaper.mp4"
+
+const val USAGISHADE_BGM_ASSET = "themes/usagishade/bgm.mp3"
+const val USAGISHADE_PINK_WALLPAPER_ASSET = "themes/usagishade_pink/wallpaper.mp4"
+const val USAGISHADE_DARK_WALLPAPER_ASSET = "themes/usagishade_dark/wallpaper.mp4"
+const val DREAMOS_BGM_ASSET = "themes/dreamos/bgm.mp3"
+const val DREAMOS_WALLPAPER_ASSET = "themes/dreamos/wallpaper.jpg"
 
 /** Crossfade duration when switching launcher theme backdrops / BGM. */
 const val THEME_CROSSFADE_MS = 600

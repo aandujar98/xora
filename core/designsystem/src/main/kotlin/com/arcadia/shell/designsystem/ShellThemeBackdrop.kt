@@ -27,6 +27,9 @@ fun ShellThemeBackdrop(
         ShellWallpaperStyle.MidnightGradient -> MidnightBackdrop(modifier)
         ShellWallpaperStyle.ClassicXmbWave -> ClassicXmbBackdrop(modifier)
         ShellWallpaperStyle.WarmArcadeGlow -> WarmArcadeBackdrop(modifier)
+        ShellWallpaperStyle.UsagiPinkGlow -> UsagiPinkBackdrop(modifier)
+        ShellWallpaperStyle.UsagiDarkVeil -> UsagiDarkBackdrop(modifier)
+        ShellWallpaperStyle.DreamOsSky -> DreamOsBackdrop(modifier)
     }
 }
 
@@ -227,5 +230,91 @@ private fun WarmArcadeBackdrop(modifier: Modifier = Modifier) {
             )
             y += step
         }
+    }
+}
+
+@Composable
+private fun UsagiPinkBackdrop(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.fillMaxSize()) {
+        drawRect(Color(0xFF2A1020))
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFFFF9AC8).copy(alpha = 0.72f),
+                    Color(0xFFE070B0).copy(alpha = 0.38f),
+                    Color(0xFF1A0C14).copy(alpha = 0.96f),
+                ),
+                center = Offset(size.width * 0.42f, size.height * 0.38f),
+                radius = size.maxDimension * 0.72f,
+            ),
+        )
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFFFFD0EA).copy(alpha = 0.35f),
+                    Color.Transparent,
+                ),
+                center = Offset(size.width * 0.78f, size.height * 0.72f),
+                radius = size.maxDimension * 0.45f,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun UsagiDarkBackdrop(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.fillMaxSize()) {
+        drawRect(Color(0xFF07070C))
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFF6A2048).copy(alpha = 0.55f),
+                    Color(0xFF1A1020).copy(alpha = 0.4f),
+                    Color(0xFF050508).copy(alpha = 0.96f),
+                ),
+                center = Offset(size.width * 0.55f, size.height * 0.42f),
+                radius = size.maxDimension * 0.7f,
+            ),
+        )
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    Color(0xFFFF7EB6).copy(alpha = 0.08f),
+                    Color.Transparent,
+                    Color(0xFFB080C8).copy(alpha = 0.12f),
+                ),
+            ),
+        )
+    }
+}
+
+@Composable
+private fun DreamOsBackdrop(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.fillMaxSize()) {
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color(0xFF3AA0E0),
+                    Color(0xFF7EC8F0),
+                    Color(0xFFB8E8A0),
+                    Color(0xFF5CB060),
+                ),
+            ),
+        )
+        drawCircle(
+            color = Color.White.copy(alpha = 0.55f),
+            radius = size.minDimension * 0.12f,
+            center = Offset(size.width * 0.52f, size.height * 0.28f),
+        )
+        drawCircle(
+            color = Color.White.copy(alpha = 0.22f),
+            radius = size.minDimension * 0.08f,
+            center = Offset(size.width * 0.22f, size.height * 0.72f),
+        )
+        drawCircle(
+            color = Color.White.copy(alpha = 0.16f),
+            radius = size.minDimension * 0.05f,
+            center = Offset(size.width * 0.74f, size.height * 0.64f),
+        )
     }
 }
