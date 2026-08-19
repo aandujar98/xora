@@ -2800,19 +2800,10 @@ class XoraLibretroActivity : ComponentActivity() {
                                 applyGbaLinkCable(session)
                             }
                             if (!handheld && session.hosting && packed != null) {
-                                val online = session.onlineNow
                                 val jpeg = XoraNetplayVideo.jpegFromPackedRgba(
                                     packed,
-                                    maxWidth = if (online) {
-                                        XoraNetplayVideo.ONLINE_MAX_WIDTH
-                                    } else {
-                                        XoraNetplayVideo.MAX_WIDTH
-                                    },
-                                    maxBytes = if (online) {
-                                        XoraNetplayVideo.ONLINE_MAX_BYTES
-                                    } else {
-                                        XoraNetplayVideo.MAX_BYTES
-                                    },
+                                    maxWidth = XoraNetplayVideo.MAX_WIDTH,
+                                    maxBytes = XoraNetplayVideo.MAX_BYTES,
                                 )
                                 jpeg?.let { session.sendVideo(it, pcm ?: ShortArray(0)) }
                             }

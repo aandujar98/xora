@@ -1484,7 +1484,7 @@ class XoraNetplaySession(
         private const val STATE_DOWNLOAD_TIMEOUT_MS = 90_000L
         private const val REMOTE_PRUNE_THRESHOLD = 1024
         private const val REMOTE_HARD_CAP = 4096
-        internal const val ONLINE_VIDEO_MIN_INTERVAL_MS = 66L
+        internal const val ONLINE_VIDEO_MIN_INTERVAL_MS = 50L
         internal const val LAN_VIDEO_MIN_INTERVAL_MS = 50L
         internal const val ONLINE_VIDEO_WARMUP_MS = 700L
         internal const val LAN_VIDEO_WARMUP_MS = 200L

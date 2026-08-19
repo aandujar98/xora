@@ -17,10 +17,10 @@ object XoraNetplayProtocol {
     const val VERSION: Int = 4
     const val MAX_PLAYERS: Int = 4
     const val MAX_PAYLOAD: Int = 32 * 1024 * 1024
-    /** Nakama match data is small; savestates and host video go out as [TYPE_CHUNK] pieces. */
-    const val RELAY_CHUNK_BYTES: Int = 900
+    /** Nakama match_data is JSON+Base64; ~2 KB stays under the 4 KB envelope. */
+    const val RELAY_CHUNK_BYTES: Int = 2048
     /** Drop a relay payload rather than flooding the match with dozens of chunks. */
-    const val RELAY_MAX_CHUNKS: Int = 28
+    const val RELAY_MAX_CHUNKS: Int = 16
 
     const val TYPE_HELLO: Int = 1
     const val TYPE_STATE: Int = 2

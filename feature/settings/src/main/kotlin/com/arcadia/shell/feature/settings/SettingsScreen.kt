@@ -1465,10 +1465,9 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "Online picture for players 2–4 is a compressed stream of the " +
-                        "host screen. Decent home Wi‑Fi is enough: about 3 Mbps host upload " +
-                        "and joiner download. 8+ Mbps looks best. Same-Wi‑Fi Local Wireless " +
-                        "is still sharper and has less delay.",
+                    text = "Online home consoles and handhelds are fine on decent home Wi‑Fi. " +
+                        "About 3 Mbps host upload and joiner download is enough. 8+ Mbps " +
+                        "matches Local Wireless. Same-Wi‑Fi Local Wireless still has less delay.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

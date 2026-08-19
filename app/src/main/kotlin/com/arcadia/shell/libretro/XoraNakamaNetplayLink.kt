@@ -22,8 +22,9 @@ import java.util.zip.GZIPOutputStream
  * Pad frames are unreliable: only the latest pad matters, and a reliable queue of stale
  * frames used to delay (or starve) the seat the joiner is actually playing.
  *
- * VIDEO is also queued, then sent as Nakama-sized [TYPE_CHUNK] pieces. A single JPEG used to
- * exceed match_data limits and Nakama would drop the joiner the moment they linked.
+ * VIDEO is queued on its own thread as Nakama [TYPE_CHUNK] pieces. Pads and Game Link
+ * must not wait on a JPEG. A single unchunked JPEG used to exceed match_data limits
+ * and Nakama would drop the joiner the moment they linked.
  */
 internal class XoraNakamaNetplayLink(
     private val network: XoraNetworkRepository,
@@ -34,24 +35,28 @@ internal class XoraNakamaNetplayLink(
     // means every other player holds/zeroes that slot for its lockstep window.
     private val inputQueue = ArrayBlockingQueue<ByteArray>(256)
     private val videoQueue = ArrayBlockingQueue<ByteArray>(1)
-    private         val serialQueue = ArrayBlockingQueue<ByteArray>(1)
-        val netpacketQueue = ArrayBlockingQueue<ByteArray>(256)
-        private val inputSender = Executors.newSingleThreadExecutor { runnable ->
+    private val serialQueue = ArrayBlockingQueue<ByteArray>(1)
+    private val netpacketQueue = ArrayBlockingQueue<ByteArray>(256)
+    private val inputSender = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "xora-np-input").apply { isDaemon = true }
+    }
+    private val videoSender = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "xora-np-video").apply { isDaemon = true }
     }
 
     init {
         inputSender.execute {
             while (!closed.get()) {
-                val video = videoQueue.poll()
-                if (video != null && !closed.get()) {
+                var sent = false
+                val input = inputQueue.poll()
+                if (input != null && !closed.get()) {
                     sendRelayed(
-                        XoraNetplayProtocol.TYPE_VIDEO,
-                        video,
-                        reliable = true,
+                        XoraNetplayProtocol.TYPE_INPUT,
+                        input,
+                        reliable = false,
                         swallowErrors = true,
-                        maxChunks = XoraNetplayProtocol.RELAY_MAX_CHUNKS,
                     )
+                    sent = true
                 }
                 val serial = serialQueue.poll()
                 if (serial != null && !closed.get()) {
@@ -61,6 +66,7 @@ internal class XoraNakamaNetplayLink(
                         reliable = false,
                         swallowErrors = true,
                     )
+                    sent = true
                 }
                 val netpacket = netpacketQueue.poll()
                 if (netpacket != null && !closed.get()) {
@@ -70,17 +76,9 @@ internal class XoraNakamaNetplayLink(
                         reliable = true,
                         swallowErrors = true,
                     )
-                    val input = inputQueue.poll()
-                    if (input != null && !closed.get()) {
-                        sendRelayed(
-                            XoraNetplayProtocol.TYPE_INPUT,
-                            input,
-                            reliable = false,
-                            swallowErrors = true,
-                        )
-                    }
-                    continue
+                    sent = true
                 }
+                if (sent) continue
                 val payload = try {
                     inputQueue.poll(50, TimeUnit.MILLISECONDS)
                 } catch (_: InterruptedException) {
@@ -92,6 +90,23 @@ internal class XoraNakamaNetplayLink(
                     payload,
                     reliable = false,
                     swallowErrors = true,
+                )
+            }
+        }
+        videoSender.execute {
+            while (!closed.get()) {
+                val video = try {
+                    videoQueue.poll(50, TimeUnit.MILLISECONDS)
+                } catch (_: InterruptedException) {
+                    break
+                } ?: continue
+                if (closed.get()) break
+                sendRelayed(
+                    XoraNetplayProtocol.TYPE_VIDEO,
+                    video,
+                    reliable = false,
+                    swallowErrors = true,
+                    maxChunks = XoraNetplayProtocol.RELAY_MAX_CHUNKS,
                 )
             }
         }
@@ -201,6 +216,7 @@ internal class XoraNakamaNetplayLink(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         inputSender.shutdownNow()
+        videoSender.shutdownNow()
         network.leaveMatch(matchId)
     }
 

@@ -9,20 +9,16 @@ import java.io.ByteArrayOutputStream
  * Host framebuffer for SharedConsole netplay (NES, SNES, GC, …).
  *
  * Players 2–4 do not run a second core — they watch this picture. 8/16-bit cores keep
- * native width. Hi-res home consoles downscale with bilinear filtering. Online uses a
- * Nakama-safe byte budget that still looks decent on typical home Wi‑Fi (~3 Mbps).
+ * native width. Hi-res home consoles downscale with bilinear filtering. Online uses the
+ * same picture budget as Local Wireless so 3 Mbps home Wi‑Fi is enough.
  */
 object XoraNetplayVideo {
     const val MAX_WIDTH = 400
-    /** Online matches LAN width so GameCube / N64 are not crushed to 256px. NES/SNES stay native. */
-    const val ONLINE_MAX_WIDTH = 400
+    const val ONLINE_MAX_WIDTH = MAX_WIDTH
     const val MAX_BYTES = 24_000
-    /**
-     * Fits in Nakama chunks (900 B × 28). ~20 KB at 15 fps is about 2.4 Mbps —
-     * playable on decent Wi‑Fi, sharp on a good connection.
-     */
-    const val ONLINE_MAX_BYTES = 20_000
-    const val MIN_QUALITY = 48
+    /** Same as LAN. 24 KB at 20 fps is about 3.8 Mbps — fine on decent home Wi‑Fi. */
+    const val ONLINE_MAX_BYTES = MAX_BYTES
+    const val MIN_QUALITY = 52
 
     fun targetSize(srcW: Int, srcH: Int, maxWidth: Int): Pair<Int, Int> {
         if (srcW <= 0 || srcH <= 0 || maxWidth <= 0) return 0 to 0
@@ -63,9 +59,9 @@ object XoraNetplayVideo {
                     current = scaled
                 }
                 val qualities = if (stepWidth >= maxWidth) {
-                    intArrayOf(76, 68, 60, MIN_QUALITY)
+                    intArrayOf(80, 72, 64, MIN_QUALITY)
                 } else {
-                    intArrayOf(64, 56, MIN_QUALITY)
+                    intArrayOf(68, 60, MIN_QUALITY)
                 }
                 compressToBudget(current, qualities, maxBytes)?.let { return it }
             }
