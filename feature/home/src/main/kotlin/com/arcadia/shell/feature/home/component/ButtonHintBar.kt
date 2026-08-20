@@ -315,7 +315,7 @@ val SocialMenuHints: List<Pair<String, String>> = listOf(
     "L/R" to "Tab",
     "U/D" to "Move",
     "A" to "Select",
-    "B" to "Pin friends",
+    "B" to "Close",
     "Select" to "Pin friends",
     "LT" to "Close",
 )
@@ -325,7 +325,7 @@ val SocialMenuManagingHints: List<Pair<String, String>> = listOf(
     "L/R" to "Tab",
     "U/D" to "Move",
     "A" to "Pin / Unpin",
-    "B" to "Done",
+    "B" to "Close",
     "Select" to "Done",
     "LT" to "Close",
 )

@@ -2502,7 +2502,7 @@ class HomeViewModel @Inject constructor(
             return
         }
 
-        // Expanded account panel captures U/D/A/B (LT still toggles via ToggleAccountPanel).
+        // Expanded account panel captures U/D/A; B and LT both close it.
         if (state.accountPanelExpanded) {
             onAccountPanelNavAction(action)
             return
@@ -5111,7 +5111,7 @@ class HomeViewModel @Inject constructor(
                         notificationsOpen.value = false
                         accountPanelSelectedIndex.value = 0
                     }
-                    else -> toggleManagingCircle()
+                    else -> toggleAccountPanel()
                 }
             }
             NavAction.ScrapeMenu -> {
