@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +50,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.DEFAULT_WALLPAPER_ASSET
+import com.arcadia.shell.designsystem.DEFAULT_WALLPAPER_SPEED
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.rememberAmbientMotionActive
@@ -143,12 +146,24 @@ fun VitaShortcutTray(
         modifier = modifier,
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            WaveSky(
-                topColor = VitaSkyTop,
-                bottomColor = VitaSkyBottom,
-                field = VitaWaveField,
-                modifier = Modifier.fillMaxSize(),
-            )
+            // Same loop as the default theme wallpaper; the authored wave sky is the fallback
+            // when the video asset is absent from the build.
+            val context = LocalContext.current
+            val hasLoop = remember { assetExists(context, DEFAULT_WALLPAPER_ASSET) }
+            if (hasLoop) {
+                LoopingWallpaperVideo(
+                    uri = "asset:///$DEFAULT_WALLPAPER_ASSET",
+                    speed = DEFAULT_WALLPAPER_SPEED,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                WaveSky(
+                    topColor = VitaSkyTop,
+                    bottomColor = VitaSkyBottom,
+                    field = VitaWaveField,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
 
             val unit = min(
                 maxWidth.value / XORA_DESIGN_WIDTH,

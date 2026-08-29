@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -57,6 +58,7 @@ fun HomeWallpaper(
             themeId = shellTheme.id.id,
             assetPath = shellTheme.wallpaperAssetPath,
             style = shellTheme.wallpaperStyle,
+            assetSpeed = shellTheme.wallpaperPlaybackSpeed,
         )
     }
     val fade = arcadiaTween<Float>(ArcadiaMotion.ThemeCrossfade)
@@ -134,6 +136,7 @@ private fun WallpaperLayerContent(
                 assetExists(androidContext, layer.assetPath) -> {
                 LoopingWallpaperVideo(
                     uri = "asset:///${layer.assetPath}",
+                    speed = layer.assetSpeed,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -166,9 +169,10 @@ private fun WallpaperLayerContent(
 
 /** [uri] is already fully qualified (`file://…` for picked media, `asset:///…` for theme packs). */
 @Composable
-private fun LoopingWallpaperVideo(
+internal fun LoopingWallpaperVideo(
     uri: String,
     modifier: Modifier = Modifier,
+    speed: Float = 1f,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -180,6 +184,11 @@ private fun LoopingWallpaperVideo(
             prepare()
             playWhenReady = true
         }
+    }
+
+    // Speed is applied outside the player factory so a rate change never restarts the loop.
+    LaunchedEffect(player, speed) {
+        player.setPlaybackSpeed(speed.coerceIn(0.25f, 2f))
     }
 
     DisposableEffect(player, lifecycleOwner) {
@@ -257,6 +266,7 @@ private data class WallpaperLayer(
     val themeId: String,
     val assetPath: String?,
     val style: ShellWallpaperStyle,
+    val assetSpeed: Float,
 )
 
 private fun File.isVideoWallpaper(): Boolean =
@@ -265,7 +275,7 @@ private fun File.isVideoWallpaper(): Boolean =
 private fun String.isVideoWallpaperPath(): Boolean =
     substringAfterLast('.', "").lowercase() in VIDEO_WALLPAPER_EXTS
 
-private fun assetExists(context: android.content.Context, path: String): Boolean =
+internal fun assetExists(context: android.content.Context, path: String): Boolean =
     runCatching {
         context.assets.open(path).use { true }
     }.getOrDefault(false)
