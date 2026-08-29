@@ -52,7 +52,13 @@ fun HomeWallpaper(
     dim: Boolean = false,
 ) {
     val shellTheme = LocalShellTheme.current
-    val layer = remember(customPath, shellTheme.id, shellTheme.wallpaperAssetPath, shellTheme.wallpaperStyle) {
+    val layer = remember(
+        customPath,
+        shellTheme.id,
+        shellTheme.wallpaperAssetPath,
+        shellTheme.wallpaperStyle,
+        shellTheme.wallpaperPlaybackSpeed,
+    ) {
         WallpaperLayer(
             customPath = customPath,
             themeId = shellTheme.id.id,
@@ -181,6 +187,7 @@ internal fun LoopingWallpaperVideo(
             setMediaItem(MediaItem.fromUri(uri))
             repeatMode = Player.REPEAT_MODE_ONE
             volume = 0f
+            setPlaybackSpeed(speed.coerceIn(0.25f, 2f))
             prepare()
             playWhenReady = true
         }
