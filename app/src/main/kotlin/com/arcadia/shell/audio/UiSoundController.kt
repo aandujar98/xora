@@ -13,6 +13,8 @@ import com.arcadia.shell.datastore.DEFAULT_UI_SFX_VOLUME
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.input.GamepadDispatcher
 import com.arcadia.shell.input.NavAction
+import com.arcadia.shell.input.UiOneShot
+import com.arcadia.shell.input.UiOneShotPlayer
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,8 +28,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Short UI navigation one-shots (cursor / confirm / cancel). Kept separate from
- * [BackgroundMusicController] so BGM mute does not silence menu clicks.
+ * Short UI navigation one-shots (cursor / confirm / cancel / LT-RT chrome). Kept
+ * separate from [BackgroundMusicController] so BGM mute does not silence menu clicks.
  *
  * Hooks [GamepadDispatcher.actions] once so every screen that consumes NavActions gets the same
  * feedback without each ViewModel knowing about audio. D-pad keys, hat switches, and the left
@@ -53,6 +55,9 @@ class UiSoundController @Inject constructor(
     private var ngId: Int = 0
     /** Friend online / download complete / RA unlock banner chime (`notif_banner.wav`). */
     private var notificationId: Int = 0
+    private var friendsTabId: Int = 0
+    private var profileTabId: Int = 0
+    private var navCloseId: Int = 0
 
     private var volume: Float = DEFAULT_UI_SFX_VOLUME
     private var notificationSoundEnabled: Boolean = true
@@ -113,6 +118,15 @@ class UiSoundController @Inject constructor(
                 if (foreground) playFor(action)
             }
         }
+        gamepadDispatcher.uiOneShotPlayer = UiOneShotPlayer { shot ->
+            if (foreground) {
+                when (shot) {
+                    UiOneShot.FriendsTab -> play(friendsTabId)
+                    UiOneShot.ProfileTab -> play(profileTabId)
+                    UiOneShot.NavClose -> play(navCloseId)
+                }
+            }
+        }
     }
 
     fun onForeground() {
@@ -133,6 +147,9 @@ class UiSoundController @Inject constructor(
         okId = 0
         ngId = 0
         notificationId = 0
+        friendsTabId = 0
+        profileTabId = 0
+        navCloseId = 0
     }
 
     /** Banner appear chime — friend online, download complete, RetroAchievement unlock. */
@@ -157,14 +174,16 @@ class UiSoundController @Inject constructor(
             NavAction.Down,
             NavAction.PreviousPlatform,
             NavAction.NextPlatform,
-            NavAction.ToggleAccountPanel,
-            NavAction.ToggleSystemPanel,
             NavAction.ToggleAchievementsPanel,
             -> {
                 if (shouldSuppressDuplicateCursor(action)) return
                 vibrateCursor()
                 cursorId
             }
+
+            NavAction.ToggleAccountPanel,
+            NavAction.ToggleSystemPanel,
+            -> return
 
             NavAction.Confirm -> okId
 
@@ -175,7 +194,9 @@ class UiSoundController @Inject constructor(
             NavAction.ToggleGuide ->
                 // Flag is still the pre-toggle state when this action is observed.
                 if (gamepadDispatcher.guideOpen) ngId else okId
-            NavAction.Cancel -> ngId
+            NavAction.Cancel ->
+                // LT/RT window dismiss is [UiOneShot.NavClose] from Home; skip the generic click.
+                if (gamepadDispatcher.heroPanelClosesOnCancel) return else ngId
 
             NavAction.Options,
             NavAction.ScrapeMenu,
@@ -232,6 +253,9 @@ class UiSoundController @Inject constructor(
                     okId = created.loadQuietly(R.raw.select)
                     ngId = created.loadQuietly(R.raw.nav_back)
                     notificationId = created.loadQuietly(R.raw.notif_banner)
+                    friendsTabId = created.loadQuietly(R.raw.friends_tab)
+                    profileTabId = created.loadQuietly(R.raw.profile_tab)
+                    navCloseId = created.loadQuietly(R.raw.nav_close)
                 }
         }.getOrNull()
         soundPool = pool
