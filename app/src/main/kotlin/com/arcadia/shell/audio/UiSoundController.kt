@@ -140,10 +140,10 @@ class UiSoundController @Inject constructor(
         play(if (notificationId != 0) notificationId else okId)
     }
 
-    /** Select / confirm one-shot — launcher Confirm and XOrA Emulator overlay activate. */
+    /** Select / confirm one-shot (`select.wav`) — launcher Confirm and XOrA Emulator overlay. */
     fun playConfirm() = play(okId)
 
-    /** Cancel / back one-shot. */
+    /** Cancel / back one-shot (`nav_back.wav`). */
     fun playCancel() = play(ngId)
 
     /** Cursor / focus-move one-shot. */
@@ -229,8 +229,8 @@ class UiSoundController @Inject constructor(
                 .build()
                 .also { created ->
                     cursorId = created.loadQuietly(R.raw.snd_cursor)
-                    okId = created.loadQuietly(R.raw.snd_system_ok)
-                    ngId = created.loadQuietly(R.raw.snd_system_ng)
+                    okId = created.loadQuietly(R.raw.select)
+                    ngId = created.loadQuietly(R.raw.nav_back)
                     notificationId = created.loadQuietly(R.raw.notif_banner)
                 }
         }.getOrNull()
