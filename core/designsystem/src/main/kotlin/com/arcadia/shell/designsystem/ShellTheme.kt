@@ -320,7 +320,7 @@ object ShellThemeCatalog {
 const val DEFAULT_WALLPAPER_ASSET = "themes/default/wallpaper.mp4"
 
 /** The authored loop reads better a touch under real time. */
-const val DEFAULT_WALLPAPER_SPEED = 0.5f
+const val DEFAULT_WALLPAPER_SPEED = 0.3f
 
 /** Asset path for Persona 3 Reload theme BGM. */
 const val PERSONA3_BGM_ASSET = "themes/persona3_reload/bgm.mp3"

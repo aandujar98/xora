@@ -185,7 +185,7 @@ fun XoraHomeXmbPane(
         label = "xmbTrayRecede",
     )
     val recedeScale = 1f - (trayRecede * 0.12f)
-    val recedeAlpha = 1f - (trayRecede * 0.7f)
+    val recedeAlpha = 1f - trayRecede
     val artworkScale = 1f + (holdProgress * 0.06f)
     val backdropMotion = rememberXmbBackdropMotion(
         categoryIndex = xmb.categoryIndex,
@@ -312,6 +312,12 @@ fun XoraHomeXmbPane(
                 )
             }
         }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = trayRecede * 0.36f)),
+        )
 
         overlayContent()
 

@@ -6,6 +6,9 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.view.Surface
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -19,7 +22,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -286,6 +292,70 @@ fun rememberVitaBubbleMotion(
         }
     }
     return motion
+}
+
+/**
+ * Per-bubble drop-in. Each bubble starts above its slot and springs into place with its own
+ * delay and slightly detuned bounce, so they land close together instead of in lockstep.
+ */
+@Stable
+class VitaBubbleLanding(val count: Int, initialY: Float) {
+    private val ys = List(count) { Animatable(initialY) }
+
+    fun offsetY(index: Int): Float =
+        if (index in 0 until count) ys[index].value else 0f
+
+    suspend fun animateToRest(index: Int, stiffnessScale: Float, damping: Float) {
+        if (index !in 0 until count) return
+        ys[index].animateTo(
+            targetValue = 0f,
+            animationSpec = spring(
+                dampingRatio = damping,
+                stiffness = Spring.StiffnessMediumLow * stiffnessScale,
+            ),
+        )
+    }
+}
+
+@Composable
+fun rememberVitaBubbleLanding(
+    count: Int,
+    dropPx: Float,
+): VitaBubbleLanding {
+    val landing = remember(count, dropPx) { VitaBubbleLanding(count, -dropPx) }
+    LaunchedEffect(landing) {
+        if (count == 0 || dropPx <= 0f) return@LaunchedEffect
+        coroutineScope {
+            for (i in 0 until count) {
+                launch {
+                    delay(bubbleLandDelayMs(i))
+                    landing.animateToRest(
+                        index = i,
+                        stiffnessScale = bubbleDetune(i),
+                        damping = 0.58f + ((bubbleDetune(i) - 1f) * 0.12f),
+                    )
+                }
+            }
+        }
+    }
+    return landing
+}
+
+/** Top row first, then a light left-to-right cascade, with a few milliseconds of jitter. */
+private fun bubbleLandDelayMs(index: Int): Long {
+    val local = index % VITA_TRAY_PAGE_SIZE
+    val row = when {
+        local < 3 -> 0
+        local < 7 -> 1
+        else -> 2
+    }
+    val col = when {
+        local < 3 -> local
+        local < 7 -> local - 3
+        else -> local - 7
+    }
+    val jitter = (local * 13 + 5) % 11
+    return row * 18L + col * 8L + jitter
 }
 
 /** Golden-ratio walk: a stable, well-spread spread of values in `0.75..1.25` without a PRNG. */

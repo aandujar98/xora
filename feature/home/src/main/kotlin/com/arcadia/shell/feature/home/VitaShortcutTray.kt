@@ -7,8 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -102,8 +100,8 @@ internal const val VITA_TRAY_PAGE_SIZE = 10
 /**
  * PS Vita LiveArea-style shortcut field: staggered bubbles over the live wallpaper (no tray
  * backdrop), the focused bubble ringed and named, page dots down the left edge. Opens with a
- * slide-down plus a small bounce; closes by sliding up. Pages move vertically. Bubbles sway
- * with the device's gyroscope.
+ * slide-down; each bubble then lands on its own slightly staggered bounce. Closes by sliding
+ * up. Pages move vertically. Bubbles sway with the device's gyroscope.
  */
 @Composable
 fun VitaShortcutTray(
@@ -117,12 +115,9 @@ fun VitaShortcutTray(
     modifier: Modifier = Modifier,
 ) {
     val enter = slideInVertically(
-        animationSpec = spring(
-            dampingRatio = 0.68f,
-            stiffness = Spring.StiffnessMediumLow,
-        ),
+        animationSpec = arcadiaTween(ArcadiaMotion.Medium),
         initialOffsetY = { -it },
-    ) + fadeIn(tween(ArcadiaMotion.Slow))
+    ) + fadeIn(arcadiaTween(ArcadiaMotion.Medium))
     val exit = slideOutVertically(
         animationSpec = arcadiaTween(ArcadiaMotion.Medium),
         targetOffsetY = { -it },
@@ -150,13 +145,17 @@ fun VitaShortcutTray(
             // Also drops the sensor when the shell is backgrounded with the tray still open.
             val sway = visible && rememberAmbientMotionActive()
             val tilt = rememberDeviceTilt(active = sway)
+            val density = LocalDensity.current
+            val bubblePx = with(density) { bubbleDiameter.toPx() }
             val motion = rememberVitaBubbleMotion(
                 count = slots.size,
                 tilt = tilt,
-                maxShiftPx = with(LocalDensity.current) {
-                    bubbleDiameter.toPx() * TILT_SHIFT_FRACTION
-                },
+                maxShiftPx = bubblePx * TILT_SHIFT_FRACTION,
                 enabled = sway,
+            )
+            val landing = rememberVitaBubbleLanding(
+                count = slots.size,
+                dropPx = bubblePx * 0.42f,
             )
 
             val pageSlide = tween<IntOffset>(ArcadiaMotion.Medium)
@@ -185,7 +184,10 @@ fun VitaShortcutTray(
                                 selected = slotIndex == focus,
                                 diameter = bubbleDiameter,
                                 glass = glass,
-                                offsetProvider = { motion.offsetAt(slotIndex) },
+                                offsetProvider = {
+                                    val tiltShift = motion.offsetAt(slotIndex)
+                                    Offset(tiltShift.x, tiltShift.y + landing.offsetY(slotIndex))
+                                },
                                 onClick = {
                                     onSelect(slotIndex)
                                     when (slots[slotIndex]) {
@@ -212,7 +214,10 @@ fun VitaShortcutTray(
                             label = slots[focus].label(editMode),
                             unit = unit,
                             minWidth = bubbleDiameter,
-                            offsetProvider = { motion.offsetAt(focus) },
+                            offsetProvider = {
+                                val tiltShift = motion.offsetAt(focus)
+                                Offset(tiltShift.x, tiltShift.y + landing.offsetY(focus))
+                            },
                             modifier = Modifier
                                 .align(Alignment.Center)
                                 .offset(x = (columnShift * unit).dp, y = (pillCentre * unit).dp),
