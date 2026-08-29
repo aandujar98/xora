@@ -2744,26 +2744,18 @@ class HomeViewModel @Inject constructor(
         homeShortcutIndex.value = homeShortcutIndex.value.coerceIn(0, (count - 1).coerceAtLeast(0))
     }
 
-    /** Left/right walks the focused row, then carries over to the same row on the next page. */
+    /** Left/right stays on the focused row. Pages are reached with up/down. */
     private fun moveVitaShortcutFocusHorizontal(delta: Int, hub: HomeHubUiState) {
         noteUserActivity()
         val slotCount = vitaTraySlotCount(hub)
         val focus = hub.shortcutIndex.coerceIn(0, slotCount - 1)
         val page = focus / VITA_TRAY_PAGE_SIZE
         val rows = vitaTrayPageRows(slotCount, page)
-        val rowIndex = rows.indexOfFirst { focus in it }
-        if (rowIndex < 0) return
-        val row = rows[rowIndex]
+        val row = rows.firstOrNull { focus in it } ?: return
         val nextCol = row.indexOf(focus) + delta
         if (nextCol in row.indices) {
             homeShortcutIndex.value = row[nextCol]
-            return
         }
-        val nextPage = page + delta
-        if (nextPage !in 0 until vitaTrayPageCount(slotCount)) return
-        val nextRows = vitaTrayPageRows(slotCount, nextPage)
-        val landing = nextRows.getOrNull(rowIndex) ?: nextRows.lastOrNull() ?: return
-        homeShortcutIndex.value = if (delta > 0) landing.first() else landing.last()
     }
 
     private fun moveVitaShortcutFocusVertical(delta: Int, hub: HomeHubUiState) {
@@ -2774,18 +2766,30 @@ class HomeViewModel @Inject constructor(
         val rows = vitaTrayPageRows(slotCount, page)
         val rowIndex = rows.indexOfFirst { focus in it }
         if (rowIndex < 0) return
-        val targetRowIndex = (rowIndex + delta).coerceIn(0, rows.lastIndex)
-        if (targetRowIndex == rowIndex) return
         val sourceRow = rows[rowIndex]
-        val targetRow = rows[targetRowIndex]
         val sourceCol = sourceRow.indexOf(focus).coerceAtLeast(0)
-        // Rows are staggered and unequal, so hold the horizontal position proportionally.
-        val mappedCol = if (sourceRow.size <= 1 || targetRow.size <= 1) {
-            0
-        } else {
-            ((sourceCol.toFloat() / (sourceRow.size - 1)) * (targetRow.size - 1)).roundToInt()
-        }.coerceIn(0, targetRow.lastIndex)
-        homeShortcutIndex.value = targetRow[mappedCol]
+
+        fun landOn(targetRows: List<List<Int>>, targetRowIndex: Int) {
+            val targetRow = targetRows.getOrNull(targetRowIndex) ?: return
+            // Rows are staggered and unequal, so hold the horizontal position proportionally.
+            val mappedCol = if (sourceRow.size <= 1 || targetRow.size <= 1) {
+                0
+            } else {
+                ((sourceCol.toFloat() / (sourceRow.size - 1)) * (targetRow.size - 1)).roundToInt()
+            }.coerceIn(0, targetRow.lastIndex)
+            homeShortcutIndex.value = targetRow[mappedCol]
+        }
+
+        val targetRowIndex = rowIndex + delta
+        if (targetRowIndex in rows.indices) {
+            landOn(rows, targetRowIndex)
+            return
+        }
+        val nextPage = page + delta
+        if (nextPage !in 0 until vitaTrayPageCount(slotCount)) return
+        val nextRows = vitaTrayPageRows(slotCount, nextPage)
+        if (nextRows.isEmpty()) return
+        landOn(nextRows, if (delta > 0) 0 else nextRows.lastIndex)
     }
 
     private fun vitaTraySlotCount(hub: HomeHubUiState): Int {

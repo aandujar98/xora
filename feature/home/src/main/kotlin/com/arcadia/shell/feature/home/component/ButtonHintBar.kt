@@ -203,6 +203,7 @@ val XoraRomBrowseHints: List<Pair<String, String>> = listOf(
 /** Vita bubble tray over Home XMB. */
 val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
     "L/R" to "Shortcut",
+    "U/D" to "Page",
     "A" to "Open",
     "Select" to "Edit",
     "Y" to "Close",
@@ -214,6 +215,7 @@ val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
 
 val VitaShortcutTrayEditHints: List<Pair<String, String>> = listOf(
     "L/R" to "Shortcut",
+    "U/D" to "Page",
     "A" to "Add / Remove",
     "Select" to "Done",
     "Y" to "Close",

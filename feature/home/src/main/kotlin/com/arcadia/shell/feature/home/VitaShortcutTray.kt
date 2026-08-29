@@ -1,10 +1,15 @@
 package com.arcadia.shell.feature.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,7 +18,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -41,17 +45,15 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
-import com.arcadia.shell.designsystem.DEFAULT_WALLPAPER_ASSET
-import com.arcadia.shell.designsystem.DEFAULT_WALLPAPER_SPEED
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.rememberAmbientMotionActive
@@ -77,15 +79,10 @@ private const val NAME_TEXT_SIZE = 32f
 private const val PAGE_DOT_DIAMETER = 34f
 private const val PAGE_DOT_PITCH = 59f
 private const val PAGE_DOT_CENTER_X = 72f
-private const val XMB_ROW_ICON = 52f
-private const val XMB_ROW_PITCH = 94f
-private const val XMB_ROW_BOTTOM = 1047.8f
 
 /** How far a bubble may sway from its slot when the device is tilted. */
 private const val TILT_SHIFT_FRACTION = 0.115f
 
-private val VitaSkyTop = Color(0xFF2ACBFD)
-private val VitaSkyBottom = Color(0xFFDEF9FF)
 private val RingGradientTop = Color.White
 private val RingGradientBottom = Color(0xFFB5EFFF)
 private val SelectionHalo = Color(0xB3E4FAFF)
@@ -95,10 +92,6 @@ private val NamePillInnerGlow = Color(0x80FFFFFF)
 private val PageDotIdle = Color(0x33FFFFFF)
 private val PageDotActive = Color(0xD9FFFFFF)
 
-// The bottom row sits on the pale end of the sky, so the glyphs read dark rather than white.
-private val XmbRowActive = Color(0xE6102734)
-private val XmbRowIdle = Color(0x80102734)
-
 /** Sits under icons with transparent corners so every slot still reads as a glass bubble. */
 private val BubbleFill = Color(0x4D0E2230)
 
@@ -107,9 +100,10 @@ private val VITA_TRAY_ROW_CAPACITIES = intArrayOf(3, 4, 3)
 internal const val VITA_TRAY_PAGE_SIZE = 10
 
 /**
- * PS Vita LiveArea-style shortcut field: staggered bubbles over a wave sky, the focused bubble
- * ringed and named, page dots down the left edge, and the XMB category row peeking along the
- * bottom. Bubbles sway with the device's gyroscope.
+ * PS Vita LiveArea-style shortcut field: staggered bubbles over the live wallpaper (no tray
+ * backdrop), the focused bubble ringed and named, page dots down the left edge. Opens with a
+ * slide-down plus a small bounce; closes by sliding up. Pages move vertically. Bubbles sway
+ * with the device's gyroscope.
  */
 @Composable
 fun VitaShortcutTray(
@@ -117,19 +111,21 @@ fun VitaShortcutTray(
     shortcuts: List<HomeShortcut>,
     selectedIndex: Int,
     editMode: Boolean,
-    xmbCategoryIndex: Int,
     onSelect: (Int) -> Unit,
     onActivate: (Int) -> Unit,
     onAddSlot: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val enter = slideInVertically(
-        animationSpec = arcadiaTween(ArcadiaMotion.Slow),
-        initialOffsetY = { -it / 3 },
-    ) + fadeIn(arcadiaTween(ArcadiaMotion.Slow))
+        animationSpec = spring(
+            dampingRatio = 0.68f,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        initialOffsetY = { -it },
+    ) + fadeIn(tween(ArcadiaMotion.Slow))
     val exit = slideOutVertically(
         animationSpec = arcadiaTween(ArcadiaMotion.Medium),
-        targetOffsetY = { -it / 3 },
+        targetOffsetY = { -it },
     ) + fadeOut(arcadiaTween(ArcadiaMotion.Medium))
 
     val includeAdd = editMode || shortcuts.isEmpty()
@@ -137,7 +133,6 @@ fun VitaShortcutTray(
     val focus = selectedIndex.coerceIn(0, slots.lastIndex.coerceAtLeast(0))
     val pageCount = vitaTrayPageCount(slots.size)
     val page = (focus / VITA_TRAY_PAGE_SIZE).coerceIn(0, pageCount - 1)
-    val rows = remember(slots.size, page) { vitaTrayPageRows(slots.size, page) }
 
     AnimatedVisibility(
         visible = visible,
@@ -146,25 +141,6 @@ fun VitaShortcutTray(
         modifier = modifier,
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            // Same loop as the default theme wallpaper; the authored wave sky is the fallback
-            // when the video asset is absent from the build.
-            val context = LocalContext.current
-            val hasLoop = remember { assetExists(context, DEFAULT_WALLPAPER_ASSET) }
-            if (hasLoop) {
-                LoopingWallpaperVideo(
-                    uri = "asset:///$DEFAULT_WALLPAPER_ASSET",
-                    speed = DEFAULT_WALLPAPER_SPEED,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                WaveSky(
-                    topColor = VitaSkyTop,
-                    bottomColor = VitaSkyBottom,
-                    field = VitaWaveField,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-
             val unit = min(
                 maxWidth.value / XORA_DESIGN_WIDTH,
                 maxHeight.value / XORA_DESIGN_HEIGHT,
@@ -183,47 +159,66 @@ fun VitaShortcutTray(
                 enabled = sway,
             )
 
-            rows.forEachIndexed { rowIndex, row ->
-                val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
-                row.forEachIndexed { column, slotIndex ->
-                    val columnShift = (column - ((row.size - 1) / 2f)) * COLUMN_PITCH
-                    VitaBubble(
-                        slot = slots[slotIndex],
-                        selected = slotIndex == focus,
-                        diameter = bubbleDiameter,
-                        glass = glass,
-                        offsetProvider = { motion.offsetAt(slotIndex) },
-                        onClick = {
-                            onSelect(slotIndex)
-                            when (slots[slotIndex]) {
-                                is VitaShortcutSlot.Filled -> onActivate(slotIndex)
-                                VitaShortcutSlot.Add -> onAddSlot()
-                            }
-                        },
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .offset(x = (columnShift * unit).dp, y = (rowShift * unit).dp),
-                    )
-                }
-            }
+            val pageSlide = tween<IntOffset>(ArcadiaMotion.Medium)
+            val pageFade = tween<Float>(ArcadiaMotion.Fast)
+            AnimatedContent(
+                targetState = page,
+                transitionSpec = {
+                    val down = targetState > initialState
+                    val enter = slideInVertically(pageSlide) { if (down) it else -it } +
+                        fadeIn(pageFade)
+                    val exit = slideOutVertically(pageSlide) { if (down) -it else it } +
+                        fadeOut(pageFade)
+                    enter togetherWith exit
+                },
+                label = "vitaTrayPage",
+                modifier = Modifier.fillMaxSize(),
+            ) { shownPage ->
+                val rows = vitaTrayPageRows(slots.size, shownPage)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    rows.forEachIndexed { rowIndex, row ->
+                        val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
+                        row.forEachIndexed { column, slotIndex ->
+                            val columnShift = (column - ((row.size - 1) / 2f)) * COLUMN_PITCH
+                            VitaBubble(
+                                slot = slots[slotIndex],
+                                selected = slotIndex == focus,
+                                diameter = bubbleDiameter,
+                                glass = glass,
+                                offsetProvider = { motion.offsetAt(slotIndex) },
+                                onClick = {
+                                    onSelect(slotIndex)
+                                    when (slots[slotIndex]) {
+                                        is VitaShortcutSlot.Filled -> onActivate(slotIndex)
+                                        VitaShortcutSlot.Add -> onAddSlot()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .offset(x = (columnShift * unit).dp, y = (rowShift * unit).dp),
+                            )
+                        }
+                    }
 
-            // Drawn after every bubble so the focused name always reads over its neighbours.
-            rows.forEachIndexed { rowIndex, row ->
-                val focusColumn = row.indexOf(focus)
-                if (focusColumn < 0) return@forEachIndexed
-                val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
-                val columnShift = (focusColumn - ((row.size - 1) / 2f)) * COLUMN_PITCH
-                val pillCentre = rowShift + (BUBBLE_DIAMETER / 2f) + NAME_PILL_GAP +
-                    (NAME_PILL_HEIGHT / 2f)
-                SoftwareNamePill(
-                    label = slots[focus].label(editMode),
-                    unit = unit,
-                    minWidth = bubbleDiameter,
-                    offsetProvider = { motion.offsetAt(focus) },
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .offset(x = (columnShift * unit).dp, y = (pillCentre * unit).dp),
-                )
+                    // Drawn after every bubble so the focused name always reads over its neighbours.
+                    rows.forEachIndexed { rowIndex, row ->
+                        val focusColumn = row.indexOf(focus)
+                        if (focusColumn < 0) return@forEachIndexed
+                        val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
+                        val columnShift = (focusColumn - ((row.size - 1) / 2f)) * COLUMN_PITCH
+                        val pillCentre = rowShift + (BUBBLE_DIAMETER / 2f) + NAME_PILL_GAP +
+                            (NAME_PILL_HEIGHT / 2f)
+                        SoftwareNamePill(
+                            label = slots[focus].label(editMode),
+                            unit = unit,
+                            minWidth = bubbleDiameter,
+                            offsetProvider = { motion.offsetAt(focus) },
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .offset(x = (columnShift * unit).dp, y = (pillCentre * unit).dp),
+                        )
+                    }
+                }
             }
 
             PageDots(
@@ -231,14 +226,6 @@ fun VitaShortcutTray(
                 current = page,
                 unit = unit,
                 modifier = Modifier.align(Alignment.CenterStart),
-            )
-
-            XmbCategoryRow(
-                selectedIndex = xmbCategoryIndex,
-                unit = unit,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = ((XORA_DESIGN_HEIGHT - XMB_ROW_BOTTOM) * unit).dp),
             )
         }
     }
@@ -441,30 +428,6 @@ private fun PageDots(
                     .size(diameter)
                     .clip(CircleShape)
                     .background(if (index == current) PageDotActive else PageDotIdle),
-            )
-        }
-    }
-}
-
-/** The XMB categories waiting behind the tray, shown along the bottom edge as in the design. */
-@Composable
-private fun XmbCategoryRow(
-    selectedIndex: Int,
-    unit: Float,
-    modifier: Modifier = Modifier,
-) {
-    val categories = XoraXmbCategory.entries
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(((XMB_ROW_PITCH - XMB_ROW_ICON) * unit).dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        categories.forEachIndexed { index, category ->
-            XmbVectorIcon(
-                icon = category.toXmbIcon(),
-                tint = if (index == selectedIndex) XmbRowActive else XmbRowIdle,
-                size = (XMB_ROW_ICON * unit).dp,
-                outlined = false,
             )
         }
     }

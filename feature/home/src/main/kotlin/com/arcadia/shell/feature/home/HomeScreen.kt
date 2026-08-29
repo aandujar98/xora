@@ -693,7 +693,6 @@ fun HomePageContent(
                                 shortcuts = state.homeHub.shortcuts,
                                 selectedIndex = state.homeHub.shortcutIndex,
                                 editMode = state.homeHub.shortcutsEditMode,
-                                xmbCategoryIndex = state.xoraXmb.categoryIndex,
                                 onSelect = onSelectHomeShortcut,
                                 onActivate = onActivateHomeShortcut,
                                 onAddSlot = onAddHomeShortcut,

@@ -12,7 +12,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -169,6 +171,21 @@ fun XoraHomeXmbPane(
     )
     val chromeAlpha = 1f - chromeProgress
     val chromeSlidePx = chromeProgress * 72f
+    val trayOpen = state.homeHub.vitaShortcutTrayOpen
+    val trayRecede by animateFloatAsState(
+        targetValue = if (trayOpen) 1f else 0f,
+        animationSpec = if (trayOpen) {
+            spring(
+                dampingRatio = 0.78f,
+                stiffness = Spring.StiffnessMediumLow,
+            )
+        } else {
+            arcadiaTween(ArcadiaMotion.Medium)
+        },
+        label = "xmbTrayRecede",
+    )
+    val recedeScale = 1f - (trayRecede * 0.12f)
+    val recedeAlpha = 1f - (trayRecede * 0.7f)
     val artworkScale = 1f + (holdProgress * 0.06f)
     val backdropMotion = rememberXmbBackdropMotion(
         categoryIndex = xmb.categoryIndex,
@@ -215,7 +232,7 @@ fun XoraHomeXmbPane(
             XmbStarFieldLayer(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = chromeAlpha },
+                    .graphicsLayer { alpha = chromeAlpha * recedeAlpha },
             )
         }
 
@@ -239,7 +256,9 @@ fun XoraHomeXmbPane(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    alpha = chromeAlpha
+                    alpha = chromeAlpha * recedeAlpha
+                    scaleX = recedeScale
+                    scaleY = recedeScale
                     translationY = chromeSlidePx
                 },
         ) { depth ->
