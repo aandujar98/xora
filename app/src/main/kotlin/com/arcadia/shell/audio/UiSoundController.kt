@@ -176,7 +176,7 @@ class UiSoundController @Inject constructor(
     /** Cancel / back one-shot (`nav_back.wav`). */
     fun playCancel() = play(ngId)
 
-    /** Cursor / focus-move one-shot. */
+    /** Cursor / focus-move one-shot (`selection.wav`). */
     fun playCursor() = play(cursorId)
 
     private fun playFor(action: NavAction) {
@@ -262,7 +262,7 @@ class UiSoundController @Inject constructor(
                 )
                 .build()
                 .also { created ->
-                    cursorId = created.loadQuietly(R.raw.snd_cursor)
+                    cursorId = created.loadQuietly(R.raw.selection)
                     okId = created.loadQuietly(R.raw.select)
                     ngId = created.loadQuietly(R.raw.nav_back)
                     notificationId = created.loadQuietly(R.raw.notif_banner)
