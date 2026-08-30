@@ -132,7 +132,7 @@ fun HeroPane(
     )
     val holdProgress by animateFloatAsState(
         targetValue = if (isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
+        animationSpec = arcadiaTween(ArcadiaMotion.LaunchZoom),
         label = "heroLaunchHold",
     )
     val accountExpanded = accountPanelExpanded && !isLaunching

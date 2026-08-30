@@ -35,13 +35,23 @@ object ArcadiaMotion {
     /** Theme wallpaper / BGM soft mix when switching packs. */
     const val ThemeCrossfade = THEME_CROSSFADE_MS
     /** Chrome-only split-door slide when launching into an emulator. */
-    const val Launch = 560
-    /** Wait for chrome doors + backdrop zoom before the emulator Activity fades in. */
-    const val LaunchHold = 800
+    const val Launch = 900
+    /** Backdrop zoom easing. Runs alongside the doors and settles well before [LaunchHold]. */
+    const val LaunchZoom = 1100
+    /**
+     * Whole cinematic plate before the emulator Activity is started: the doors part, the backdrop
+     * finishes its zoom, and then the zoomed plate simply holds for the rest of the beat.
+     */
+    const val LaunchHold = 3000
     /** Ken Burns zoom on wallpaper / hero art while chrome splits out. */
     const val LaunchBackdropZoom = 0.14f
     /** White plate dissolve from the boot clip into the XMB. */
     const val BootWhiteFade = 560
+    /**
+     * Hero backdrop dissolve as the focused ROM changes. Long enough that the incoming art has
+     * decoded before the outgoing has finished leaving — a short fade reads as a dip to empty.
+     */
+    const val HeroCrossfade = 460
 }
 
 /**

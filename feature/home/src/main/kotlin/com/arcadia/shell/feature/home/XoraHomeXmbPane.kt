@@ -172,7 +172,7 @@ fun XoraHomeXmbPane(
     )
     val holdProgress by animateFloatAsState(
         targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
+        animationSpec = arcadiaTween(ArcadiaMotion.LaunchZoom),
         label = "xmbLaunchHold",
     )
     val chromeAlpha = 1f - chromeProgress
@@ -434,7 +434,7 @@ fun XoraXmbHeroDetail(
     )
     val holdProgress by animateFloatAsState(
         targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
+        animationSpec = arcadiaTween(ArcadiaMotion.LaunchZoom),
         label = "xmbHeroLaunchHold",
     )
     val chromeAlpha = 1f - chromeProgress
@@ -1178,12 +1178,22 @@ private fun XoraRomHeroBackdrop(
     scrimAlpha: Float = 1f,
 ) {
     val reduceMotion = rememberReduceMotion()
+    // Settle before committing: hero art is decoded with the memory cache off, so a held d-pad
+    // would otherwise start a full-screen decode per row and strobe the backdrop. Waiting for the
+    // selection to land means every fade that does run is a fade between two real images.
+    val target = artPath.orEmpty()
+    var committed by remember { mutableStateOf(target) }
+    LaunchedEffect(target, reduceMotion) {
+        if (target == committed) return@LaunchedEffect
+        if (!reduceMotion) delay(HERO_SETTLE_MS)
+        committed = target
+    }
     // Crossfade (not AnimatedContent): empty ↔ art and art ↔ art always fade,
     // including when focus clears on B / cancel / leaving Games.
     Crossfade(
-        targetState = artPath.orEmpty(),
+        targetState = committed,
         animationSpec = tween(
-            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.Medium,
+            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
             easing = FastOutSlowInEasing,
         ),
         label = "xmbRomHero",
@@ -1383,6 +1393,9 @@ private fun XoraXmbPillChrome(
         }
     }
 }
+
+/** How long the ROM selection must hold still before the hero backdrop swaps to it. */
+private const val HERO_SETTLE_MS = 140L
 
 /** Drill in / out slide between XMB rungs (PSP / PS3 shell feel). */
 private const val XMB_DEPTH_SLIDE_MS = 300

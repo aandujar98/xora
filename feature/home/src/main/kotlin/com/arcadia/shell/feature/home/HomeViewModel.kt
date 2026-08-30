@@ -2466,6 +2466,11 @@ class HomeViewModel @Inject constructor(
     private fun onNavAction(action: NavAction) {
         val state = uiState.value
 
+        // The cinematic launch plate holds the screen for [ArcadiaMotion.LaunchHold]. The chrome
+        // has already slid off, so anything accepted here would move the shell invisibly and the
+        // player would come back from the game to a menu that had shifted under them.
+        if (state.isLaunching) return
+
         // Welcome-back wake screen / boot clip: B / Cancel / A skips; other nav is swallowed.
         if (state.bootIntroOpen) {
             if (action == NavAction.Cancel || action == NavAction.Confirm) {
@@ -7219,9 +7224,10 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             isLaunching.value = true
             try {
-                // Split doors slide chrome out on [ArcadiaMotion.Launch]; backdrop zoom holds
-                // until the emulator Activity fades in. On failure, clearing isLaunching
-                // brings the shell back.
+                // Split doors slide chrome out on [ArcadiaMotion.Launch], the backdrop finishes
+                // zooming on [ArcadiaMotion.LaunchZoom], and the zoomed plate then holds for the
+                // rest of [ArcadiaMotion.LaunchHold] before the emulator Activity takes over.
+                // On failure, clearing isLaunching brings the shell back.
                 val waitMs = if (appContext.isReduceMotionPreferred()) {
                     0L
                 } else {

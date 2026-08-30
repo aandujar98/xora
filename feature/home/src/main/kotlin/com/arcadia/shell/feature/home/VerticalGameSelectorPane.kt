@@ -125,7 +125,7 @@ fun VerticalGameSelectorPane(
     )
     val holdProgress by animateFloatAsState(
         targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
+        animationSpec = arcadiaTween(ArcadiaMotion.LaunchZoom),
         label = "verticalSelectorHold",
     )
     val accountExpanded = state.accountPanelExpanded && !state.isLaunching
