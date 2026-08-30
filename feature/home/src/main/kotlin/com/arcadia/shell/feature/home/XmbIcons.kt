@@ -1,35 +1,45 @@
 package com.arcadia.shell.feature.home
 
+import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.XoraForegroundShadow
+import kotlin.math.roundToInt
 
 /** How much wider than the glyph box the XOrA wordmark is allowed to run. */
 private const val XORA_MARK_WIDTH_SCALE = 1.7f
@@ -103,37 +113,34 @@ fun XmbVectorIcon(
     glass: Boolean = false,
 ) {
     val boxWidth = if (icon == XmbIcon.Xora) size * XORA_MARK_WIDTH_SCALE else size
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val context = LocalContext.current
+    val shadow = remember(icon, boxWidth, size, glass, castShadow, density.density, density.fontScale) {
+        if (!castShadow) {
+            null
+        } else {
+            rasterizeXmbGlyphShadow(density, layoutDirection, context, icon, boxWidth, size, glass)
+        }
+    }
     Box(
         modifier = modifier.size(width = boxWidth, height = size),
         contentAlignment = Alignment.Center,
     ) {
-        if (castShadow) {
-            val shadowLayer = Modifier
-                .size(width = boxWidth, height = size)
-                .graphicsLayer {
-                    translationX = XoraForegroundShadow.OffsetX.toPx()
-                    translationY = XoraForegroundShadow.OffsetY.toPx()
-                    clip = false
-                    alpha = XoraForegroundShadow.Alpha
-                }
-                .blur(XoraForegroundShadow.Blur, BlurredEdgeTreatment.Unbounded)
-            if (icon == XmbIcon.Xora) {
-                Image(
-                    painter = painterResource(R.drawable.ic_xora_logo),
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    colorFilter = ColorFilter.tint(Color.Black, BlendMode.SrcIn),
-                    modifier = shadowLayer,
+        if (shadow != null) {
+            Canvas(
+                modifier = Modifier
+                    .size(width = boxWidth, height = size)
+                    .graphicsLayer { clip = false },
+            ) {
+                drawImage(
+                    image = shadow.image,
+                    topLeft = Offset(
+                        -shadow.padPx + XoraForegroundShadow.OffsetX.toPx(),
+                        -shadow.padPx + XoraForegroundShadow.OffsetY.toPx(),
+                    ),
+                    alpha = XoraForegroundShadow.Alpha,
                 )
-            } else {
-                Canvas(modifier = shadowLayer) {
-                    val stroke = Stroke(
-                        width = size.toPx() * (if (glass) 0.095f else 0.075f),
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round,
-                    )
-                    drawXmbIconContent(icon, Color.Black, stroke)
-                }
             }
         }
         if (icon == XmbIcon.Xora) {
@@ -177,6 +184,78 @@ fun XmbVectorIcon(
             drawXmbIconContent(icon, tint, stroke)
         }
     }
+}
+
+private data class XmbGlyphShadow(
+    val image: ImageBitmap,
+    val padPx: Float,
+)
+
+/**
+ * Blur the glyph's own alpha so the drop shadow follows the icon, not the square slot.
+ * [Bitmap.extractAlpha] runs the mask filter in software, where it actually applies.
+ */
+private fun rasterizeXmbGlyphShadow(
+    density: Density,
+    layoutDirection: LayoutDirection,
+    context: android.content.Context,
+    icon: XmbIcon,
+    width: Dp,
+    height: Dp,
+    glass: Boolean,
+): XmbGlyphShadow {
+    val widthPx = with(density) { width.toPx() }
+    val heightPx = with(density) { height.toPx() }
+    val blurPx = with(density) { XoraForegroundShadow.Blur.toPx() }
+    val padPx = blurPx * 2.5f
+    val bmpW = (widthPx + padPx * 2f).roundToInt().coerceAtLeast(1)
+    val bmpH = (heightPx + padPx * 2f).roundToInt().coerceAtLeast(1)
+    val src = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
+    val androidCanvas = android.graphics.Canvas(src)
+    if (icon == XmbIcon.Xora) {
+        context.getDrawable(R.drawable.ic_xora_logo)?.let { drawable ->
+            drawable.setBounds(
+                padPx.roundToInt(),
+                padPx.roundToInt(),
+                (padPx + widthPx).roundToInt(),
+                (padPx + heightPx).roundToInt(),
+            )
+            drawable.draw(androidCanvas)
+        }
+    } else {
+        CanvasDrawScope().draw(
+            density = density,
+            layoutDirection = layoutDirection,
+            canvas = ComposeCanvas(androidCanvas),
+            size = Size(bmpW.toFloat(), bmpH.toFloat()),
+        ) {
+            translate(padPx, padPx) {
+                val stroke = Stroke(
+                    width = heightPx * (if (glass) 0.095f else 0.075f),
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round,
+                )
+                drawXmbIconContent(icon, Color.Black, stroke)
+            }
+        }
+    }
+    val blurPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        isFilterBitmap = true
+        maskFilter = BlurMaskFilter(blurPx, BlurMaskFilter.Blur.NORMAL)
+    }
+    val alpha = src.extractAlpha(blurPaint, null)
+    src.recycle()
+    val tinted = Bitmap.createBitmap(alpha.width, alpha.height, Bitmap.Config.ARGB_8888)
+    android.graphics.Canvas(tinted).drawBitmap(
+        alpha,
+        0f,
+        0f,
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.BLACK
+        },
+    )
+    alpha.recycle()
+    return XmbGlyphShadow(image = tinted.asImageBitmap(), padPx = padPx)
 }
 
 /**

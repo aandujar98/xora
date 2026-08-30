@@ -38,7 +38,7 @@ fun Modifier.xoraForegroundShadow(shape: Shape): Modifier = dropShadow(shape) {
 
 /**
  * Offset silhouette for callers that still draw a shadow in-canvas.
- * Prefer [Modifier.blur] on a dedicated shadow layer for vector glyphs.
+ * Vector XMB glyphs rasterize a shape-following blur instead.
  */
 fun DrawScope.drawXoraForegroundSilhouette(drawGlyph: DrawScope.() -> Unit) {
     translate(
