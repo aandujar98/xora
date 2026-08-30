@@ -322,8 +322,8 @@ object ShellThemeCatalog {
  */
 const val DEFAULT_WALLPAPER_ASSET = "themes/default/wallpaper.mp4"
 
-/** The authored loop reads better a touch under real time. */
-const val DEFAULT_WALLPAPER_SPEED = 0.3f
+/** Playback is 1x: slow-mo is already encoded into the 60 fps loop. */
+const val DEFAULT_WALLPAPER_SPEED = 1f
 
 /** Asset path for the default theme looping BGM. */
 const val DEFAULT_BGM_ASSET = "themes/default/bgm.mp3"

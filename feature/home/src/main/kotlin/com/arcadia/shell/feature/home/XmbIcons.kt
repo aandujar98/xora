@@ -2,11 +2,13 @@ package com.arcadia.shell.feature.home
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -14,6 +16,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -21,12 +24,12 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.XoraForegroundShadow
-import com.arcadia.shell.designsystem.drawXoraForegroundSilhouette
 
 /** How much wider than the glyph box the XOrA wordmark is allowed to run. */
 private const val XORA_MARK_WIDTH_SCALE = 1.7f
@@ -99,65 +102,80 @@ fun XmbVectorIcon(
     /** PS3-style frosted glass body (white→ice-blue gradient + top gloss) instead of flat tint. */
     glass: Boolean = false,
 ) {
-    // The XOrA mark is brand artwork in its own four colours, so it is never tinted or glassed.
-    if (icon == XmbIcon.Xora) {
-        Image(
-            painter = painterResource(R.drawable.ic_xora_logo),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            // The mark is a ~4.3:1 wordmark: fitting it to the square glyph box would leave it
-            // a sliver, so it gets a wider slot and stays centred on the same point.
-            modifier = modifier
-                .size(width = size * XORA_MARK_WIDTH_SCALE, height = size)
-                .dropShadow(RoundedCornerShape(percent = 50)) {
-                    radius = XoraForegroundShadow.Blur.toPx()
-                    offset = Offset(
-                        XoraForegroundShadow.OffsetX.toPx(),
-                        XoraForegroundShadow.OffsetY.toPx(),
-                    )
-                    color = XoraForegroundShadow.Ink
-                    alpha = XoraForegroundShadow.Alpha
-                },
-        )
-        return
-    }
-    Canvas(modifier = modifier.size(size)) {
-        val stroke = Stroke(
-            width = size.toPx() * (if (glass) 0.095f else 0.075f),
-            cap = StrokeCap.Round,
-            join = StrokeJoin.Round,
-        )
+    val boxWidth = if (icon == XmbIcon.Xora) size * XORA_MARK_WIDTH_SCALE else size
+    Box(
+        modifier = modifier.size(width = boxWidth, height = size),
+        contentAlignment = Alignment.Center,
+    ) {
         if (castShadow) {
-            val shadowInk = XoraForegroundShadow.Ink.copy(alpha = XoraForegroundShadow.Alpha)
-            drawXoraForegroundSilhouette {
-                drawXmbIconContent(icon, shadowInk, stroke)
-            }
-        }
-        if (glass) {
-            drawGlassIcon(icon, stroke)
-            return@Canvas
-        }
-        if (outlined) {
-            val outline = size.toPx() * 0.055f
-            val ink = Color.Black
-            // 8-direction outline so strokes and fills both get a solid black edge.
-            val offsets = arrayOf(
-                Offset(-outline, 0f),
-                Offset(outline, 0f),
-                Offset(0f, -outline),
-                Offset(0f, outline),
-                Offset(-outline, -outline),
-                Offset(outline, -outline),
-                Offset(-outline, outline),
-                Offset(outline, outline),
-            )
-            for (o in offsets) {
-                translate(o.x, o.y) {
-                    drawXmbIconContent(icon, ink, stroke)
+            val shadowLayer = Modifier
+                .size(width = boxWidth, height = size)
+                .graphicsLayer {
+                    translationX = XoraForegroundShadow.OffsetX.toPx()
+                    translationY = XoraForegroundShadow.OffsetY.toPx()
+                    clip = false
+                    alpha = XoraForegroundShadow.Alpha
+                }
+                .blur(XoraForegroundShadow.Blur, BlurredEdgeTreatment.Unbounded)
+            if (icon == XmbIcon.Xora) {
+                Image(
+                    painter = painterResource(R.drawable.ic_xora_logo),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    colorFilter = ColorFilter.tint(Color.Black, BlendMode.SrcIn),
+                    modifier = shadowLayer,
+                )
+            } else {
+                Canvas(modifier = shadowLayer) {
+                    val stroke = Stroke(
+                        width = size.toPx() * (if (glass) 0.095f else 0.075f),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round,
+                    )
+                    drawXmbIconContent(icon, Color.Black, stroke)
                 }
             }
         }
-        drawXmbIconContent(icon, tint, stroke)
+        if (icon == XmbIcon.Xora) {
+            Image(
+                painter = painterResource(R.drawable.ic_xora_logo),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(width = boxWidth, height = size),
+            )
+            return@Box
+        }
+        Canvas(modifier = Modifier.size(size)) {
+            val stroke = Stroke(
+                width = size.toPx() * (if (glass) 0.095f else 0.075f),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            )
+            if (glass) {
+                drawGlassIcon(icon, stroke)
+                return@Canvas
+            }
+            if (outlined) {
+                val outline = size.toPx() * 0.055f
+                val ink = Color.Black
+                val offsets = arrayOf(
+                    Offset(-outline, 0f),
+                    Offset(outline, 0f),
+                    Offset(0f, -outline),
+                    Offset(0f, outline),
+                    Offset(-outline, -outline),
+                    Offset(outline, -outline),
+                    Offset(-outline, outline),
+                    Offset(outline, outline),
+                )
+                for (o in offsets) {
+                    translate(o.x, o.y) {
+                        drawXmbIconContent(icon, ink, stroke)
+                    }
+                }
+            }
+            drawXmbIconContent(icon, tint, stroke)
+        }
     }
 }
 

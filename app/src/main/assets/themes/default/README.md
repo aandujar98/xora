@@ -4,7 +4,7 @@ Bundled assets (shipped with the app):
 
 | File | Role |
 |------|------|
-| `wallpaper.mp4` | Full-bleed Home / Vita-tray loop (0.3x) |
+| `wallpaper.mp4` | Full-bleed Home / Vita-tray loop (60 fps, slow-mo baked in) |
 | `bgm.mp3` | Looping home menu BGM |
 
 Paths expected by the shell:
