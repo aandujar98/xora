@@ -89,11 +89,6 @@ data class ShellTheme(
     val wallpaperAssetPath: String? = null,
     /** Playback rate for a video [wallpaperAssetPath]. Below 1f slows the loop down. */
     val wallpaperPlaybackSpeed: Float = 1f,
-    /**
-     * Even black wash over the theme wallpaper so menu glyphs stay readable. Zero leaves the
-     * loop at full brightness. Hub/settings [dim] still uses its own stronger gradient.
-     */
-    val wallpaperScrimAlpha: Float = 0f,
     val bgm: ShellThemeBgm? = null,
     val description: String,
 )
@@ -119,7 +114,6 @@ object ShellThemeCatalog {
         wallpaperStyle = ShellWallpaperStyle.XoraFlowWave,
         wallpaperAssetPath = DEFAULT_WALLPAPER_ASSET,
         wallpaperPlaybackSpeed = DEFAULT_WALLPAPER_SPEED,
-        wallpaperScrimAlpha = DEFAULT_WALLPAPER_SCRIM,
         bgm = ShellThemeBgm(
             assetPath = DEFAULT_BGM_ASSET,
             displayHint = "Home menu theme",
@@ -330,9 +324,6 @@ const val DEFAULT_WALLPAPER_ASSET = "themes/default/wallpaper.mp4"
 
 /** The authored loop reads better a touch under real time. */
 const val DEFAULT_WALLPAPER_SPEED = 0.3f
-
-/** Light wash so the default loop sits behind the glass XMB glyphs. */
-const val DEFAULT_WALLPAPER_SCRIM = 0.28f
 
 /** Asset path for the default theme looping BGM. */
 const val DEFAULT_BGM_ASSET = "themes/default/bgm.mp3"

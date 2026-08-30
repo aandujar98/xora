@@ -82,28 +82,19 @@ fun HomeWallpaper(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        when {
-            dim -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Black.copy(alpha = 0.15f),
-                                    Color.Black.copy(alpha = 0.45f),
-                                ),
+        if (dim) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.15f),
+                                Color.Black.copy(alpha = 0.45f),
                             ),
                         ),
-                )
-            }
-            shellTheme.wallpaperScrimAlpha > 0f -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = shellTheme.wallpaperScrimAlpha)),
-                )
-            }
+                    ),
+            )
         }
     }
 }

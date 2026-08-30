@@ -3,8 +3,10 @@ package com.arcadia.shell.feature.home
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -105,7 +107,17 @@ fun XmbVectorIcon(
             contentScale = ContentScale.Fit,
             // The mark is a ~4.3:1 wordmark: fitting it to the square glyph box would leave it
             // a sliver, so it gets a wider slot and stays centred on the same point.
-            modifier = modifier.size(width = size * XORA_MARK_WIDTH_SCALE, height = size),
+            modifier = modifier
+                .size(width = size * XORA_MARK_WIDTH_SCALE, height = size)
+                .dropShadow(RoundedCornerShape(percent = 50)) {
+                    radius = XoraForegroundShadow.Blur.toPx()
+                    offset = Offset(
+                        XoraForegroundShadow.OffsetX.toPx(),
+                        XoraForegroundShadow.OffsetY.toPx(),
+                    )
+                    color = XoraForegroundShadow.Ink
+                    alpha = XoraForegroundShadow.Alpha
+                },
         )
         return
     }
