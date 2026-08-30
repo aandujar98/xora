@@ -117,16 +117,42 @@ fun XmbVectorIcon(
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val context = LocalContext.current
-    val shadow = remember(icon, boxWidth, size, glass, castShadow, density.density, density.fontScale) {
+    // Focused ROM rows interpolate their glyph size every frame; rasterizing on the exact Dp
+    // would re-blur a bitmap per frame. A whole-dp step is invisible under a 12dp blur.
+    val shadowHeight = size.value.roundToInt().coerceAtLeast(1).dp
+    val shadowWidth = if (icon == XmbIcon.Xora) {
+        (shadowHeight.value * XORA_MARK_WIDTH_SCALE).roundToInt().dp
+    } else {
+        shadowHeight
+    }
+    val shadow = remember(
+        icon,
+        shadowWidth,
+        shadowHeight,
+        glass,
+        castShadow,
+        density.density,
+        density.fontScale,
+    ) {
         if (!castShadow) {
             null
         } else {
-            rasterizeXmbGlyphShadow(density, layoutDirection, context, icon, boxWidth, size, glass)
+            rasterizeXmbGlyphShadow(
+                density,
+                layoutDirection,
+                context,
+                icon,
+                shadowWidth,
+                shadowHeight,
+                glass,
+            )
         }
     }
     Box(
+        // requiredSize, not size: the XOrA wordmark is wider than its slot, and a coerced box
+        // would paint the mark smaller than the silhouette rasterized above it.
         modifier = modifier
-            .size(width = boxWidth, height = size)
+            .requiredSize(width = boxWidth, height = size)
             .graphicsLayer { clip = false },
         contentAlignment = Alignment.Center,
     ) {
@@ -152,7 +178,7 @@ fun XmbVectorIcon(
                 painter = painterResource(R.drawable.ic_xora_logo),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.size(width = boxWidth, height = size),
+                modifier = Modifier.requiredSize(width = boxWidth, height = size),
             )
             return@Box
         }
@@ -228,21 +254,26 @@ private fun rasterizeXmbGlyphShadow(
             drawable.draw(androidCanvas)
         }
     } else {
+        // The draw scope has to be the *glyph* box, not the padded bitmap. Every glyph — the
+        // Figma paths especially — sizes itself against DrawScope.size, so handing it the padded
+        // size rasterizes a silhouette several times larger than the icon actually on screen,
+        // which is what turned the category shadows into offset blobs.
+        androidCanvas.save()
+        androidCanvas.translate(padPx, padPx)
         CanvasDrawScope().draw(
             density = density,
             layoutDirection = layoutDirection,
             canvas = ComposeCanvas(androidCanvas),
-            size = Size(bmpW.toFloat(), bmpH.toFloat()),
+            size = Size(widthPx, heightPx),
         ) {
-            translate(padPx, padPx) {
-                val stroke = Stroke(
-                    width = heightPx * (if (glass) 0.095f else 0.075f),
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round,
-                )
-                drawXmbIconContent(icon, Color.Black, stroke)
-            }
+            val stroke = Stroke(
+                width = heightPx * (if (glass) 0.095f else 0.075f),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            )
+            drawXmbIconContent(icon, Color.Black, stroke)
         }
+        androidCanvas.restore()
     }
     val blurPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         isFilterBitmap = true
@@ -261,7 +292,13 @@ private fun rasterizeXmbGlyphShadow(
         },
     )
     alpha.recycle()
-    return XmbGlyphShadow(image = tinted.asImageBitmap(), drawX = 0f, drawY = 0f)
+    // extractAlpha grows the bitmap by the blur and reports where the result lines up with the
+    // source. The shadow canvas is centre-aligned on the glyph slot, so correct for both.
+    return XmbGlyphShadow(
+        image = tinted.asImageBitmap(),
+        drawX = (tinted.width - bmpW) / 2f + extra[0],
+        drawY = (tinted.height - bmpH) / 2f + extra[1],
+    )
 }
 
 /**

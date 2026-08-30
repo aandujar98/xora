@@ -40,7 +40,9 @@ fun Modifier.xoraChromeSplitDoors(progress: Float): Modifier = composed {
         val eased = FastOutSlowInEasing.transform(p)
         val slide = w * 0.5f * eased
         val mid = w / 2f
-        layer.alpha = 1f - eased
+        // Half a screen of travel already clears both halves, so the fade only trails the slide:
+        // holding opacity keeps this reading as doors parting rather than chrome dissolving.
+        layer.alpha = 1f - eased * eased
         clipRect(left = 0f, top = 0f, right = mid, bottom = h) {
             translate(left = -slide) {
                 drawLayer(layer)

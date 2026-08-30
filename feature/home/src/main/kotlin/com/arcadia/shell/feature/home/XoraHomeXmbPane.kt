@@ -242,133 +242,141 @@ fun XoraHomeXmbPane(
             }
         }
 
+        // Everything over the wallpaper is chrome. The cross bar, the shortcut tray and the
+        // capsules split away as one plate so the backdrop is all that is left under the
+        // emulator — the halves would otherwise slide out from under capsules that stayed put.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .xoraChromeSplitDoors(chromeProgress)
-                .graphicsLayer {
-                    alpha = recedeAlpha
-                    scaleX = recedeScale
-                    scaleY = recedeScale
-                },
+                .xoraChromeSplitDoors(chromeProgress),
         ) {
-            if (!fullTrailer) {
-                // PS5-style ambient dust between the wallpaper and the menu chrome.
-                XmbStarFieldLayer(
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-
-            // System and ROM browsing are card rungs of the same menu, so drilling slides sideways
-            // between them the way the PSP / PS3 shells do rather than cutting.
-            val depthSlideMs = motionMillis(XMB_DEPTH_SLIDE_MS)
-            AnimatedContent(
-                targetState = xmb.depth,
-                transitionSpec = {
-                    val drillingIn = targetState.ordinal > initialState.ordinal
-                    val slide = tween<IntOffset>(depthSlideMs, easing = FastOutSlowInEasing)
-                    val enter = slideInHorizontally(slide) { width ->
-                        if (drillingIn) width / 2 else -width / 2
-                    } + fadeIn(tween(depthSlideMs, easing = FastOutSlowInEasing))
-                    val exit = slideOutHorizontally(slide) { width ->
-                        if (drillingIn) -width / 3 else width / 3
-                    } + fadeOut(tween(depthSlideMs / 2, easing = FastOutSlowInEasing))
-                    enter togetherWith exit
-                },
-                label = "xmbDepth",
-                modifier = Modifier.fillMaxSize(),
-            ) { depth ->
-            when (depth) {
-                XoraXmbDepth.NowPlaying -> XoraNowPlayingPane(
-                    state = state.music.nowPlaying,
-                    onTogglePlayPause = onToggleNowPlaying,
-                    onSkipPrevious = onSkipPreviousTrack,
-                    onSkipNext = onSkipNextTrack,
-                    onToggleShuffle = onToggleShuffle,
-                    onToggleRepeat = onToggleRepeat,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                XoraXmbDepth.Photos -> XoraPhotoViewerPane(
-                    state = state.photos,
-                    onCommand = onPhotoCommand,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                XoraXmbDepth.Dashboard -> XoraDashboardPane(
-                    state = state.dashboard,
-                    achievements = state.achievements,
-                    onCommand = onDashboardCommand,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                XoraXmbDepth.Systems,
-                XoraXmbDepth.Roms,
-                XoraXmbDepth.DspAccounts,
-                XoraXmbDepth.MusicAlbums,
-                XoraXmbDepth.MusicTracks,
-                -> XoraCardBrowsePane(
-                    items = xmb.items,
-                    selectedIndex = xmb.itemIndex,
-                    mode = when (depth) {
-                        XoraXmbDepth.Systems -> CardBrowseMode.Systems
-                        XoraXmbDepth.Roms -> CardBrowseMode.Roms
-                        XoraXmbDepth.MusicAlbums -> CardBrowseMode.MusicAlbums
-                        XoraXmbDepth.MusicTracks -> CardBrowseMode.MusicTracks
-                        else -> CardBrowseMode.DspAccounts
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = recedeAlpha
+                        scaleX = recedeScale
+                        scaleY = recedeScale
                     },
-                    onSelectItem = onSelectItem,
-                    onActivateItem = onActivateItem,
+            ) {
+                if (!fullTrailer) {
+                    // PS5-style ambient dust between the wallpaper and the menu chrome.
+                    XmbStarFieldLayer(
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                // System and ROM browsing are card rungs of the same menu, so drilling slides sideways
+                // between them the way the PSP / PS3 shells do rather than cutting.
+                val depthSlideMs = motionMillis(XMB_DEPTH_SLIDE_MS)
+                AnimatedContent(
+                    targetState = xmb.depth,
+                    transitionSpec = {
+                        val drillingIn = targetState.ordinal > initialState.ordinal
+                        val slide = tween<IntOffset>(depthSlideMs, easing = FastOutSlowInEasing)
+                        val enter = slideInHorizontally(slide) { width ->
+                            if (drillingIn) width / 2 else -width / 2
+                        } + fadeIn(tween(depthSlideMs, easing = FastOutSlowInEasing))
+                        val exit = slideOutHorizontally(slide) { width ->
+                            if (drillingIn) -width / 3 else width / 3
+                        } + fadeOut(tween(depthSlideMs / 2, easing = FastOutSlowInEasing))
+                        enter togetherWith exit
+                    },
+                    label = "xmbDepth",
                     modifier = Modifier.fillMaxSize(),
-                    titleStyle = xmb.titleStyle,
-                )
-                else -> XmbCross(
-                    xmb = xmb,
-                    introReveal = state.homeIntroReveal,
-                    onSelectCategory = onSelectCategory,
-                    onSelectItem = onSelectItem,
-                    onActivateItem = onActivateItem,
-                    modifier = Modifier.fillMaxSize(),
+                ) { depth ->
+                when (depth) {
+                    XoraXmbDepth.NowPlaying -> XoraNowPlayingPane(
+                        state = state.music.nowPlaying,
+                        onTogglePlayPause = onToggleNowPlaying,
+                        onSkipPrevious = onSkipPreviousTrack,
+                        onSkipNext = onSkipNextTrack,
+                        onToggleShuffle = onToggleShuffle,
+                        onToggleRepeat = onToggleRepeat,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    XoraXmbDepth.Photos -> XoraPhotoViewerPane(
+                        state = state.photos,
+                        onCommand = onPhotoCommand,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    XoraXmbDepth.Dashboard -> XoraDashboardPane(
+                        state = state.dashboard,
+                        achievements = state.achievements,
+                        onCommand = onDashboardCommand,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    XoraXmbDepth.Systems,
+                    XoraXmbDepth.Roms,
+                    XoraXmbDepth.DspAccounts,
+                    XoraXmbDepth.MusicAlbums,
+                    XoraXmbDepth.MusicTracks,
+                    -> XoraCardBrowsePane(
+                        items = xmb.items,
+                        selectedIndex = xmb.itemIndex,
+                        mode = when (depth) {
+                            XoraXmbDepth.Systems -> CardBrowseMode.Systems
+                            XoraXmbDepth.Roms -> CardBrowseMode.Roms
+                            XoraXmbDepth.MusicAlbums -> CardBrowseMode.MusicAlbums
+                            XoraXmbDepth.MusicTracks -> CardBrowseMode.MusicTracks
+                            else -> CardBrowseMode.DspAccounts
+                        },
+                        onSelectItem = onSelectItem,
+                        onActivateItem = onActivateItem,
+                        modifier = Modifier.fillMaxSize(),
+                        titleStyle = xmb.titleStyle,
+                    )
+                    else -> XmbCross(
+                        xmb = xmb,
+                        introReveal = state.homeIntroReveal,
+                        onSelectCategory = onSelectCategory,
+                        onSelectItem = onSelectItem,
+                        onActivateItem = onActivateItem,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = trayRecede * 0.36f)),
+            )
+
+            overlayContent()
+
+            if (showPillChrome) {
+                XoraXmbPillChrome(
+                    state = state,
+                    onToggleAccountPanel = onToggleAccountPanel,
+                    onToggleSystemPanel = onToggleSystemPanel,
+                    onToggleAchievementsPanel = onToggleAchievementsPanel,
+                    onSelectSocialTab = onSelectSocialTab,
+                    onSelectAccountRow = onSelectAccountRow,
+                    onActivateAccountRow = onActivateAccountRow,
+                    onSelectSystemRow = onSelectSystemRow,
+                    onActivateSystemRow = onActivateSystemRow,
+                    onOpenNotifications = onOpenNotifications,
+                    onSystemStatusDraftChange = onSystemStatusDraftChange,
+                    onSaveCustomStatus = onSaveCustomStatus,
+                    onClearCustomStatus = onClearCustomStatus,
+                    onSaveProfile = onSaveProfile,
+                    onSelectAvatarPreset = onSelectAvatarPreset,
+                    onRequestLocalAvatar = onRequestLocalAvatar,
+                    onUseRaAvatar = onUseRaAvatar,
+                    onUseDiscordAvatar = onUseDiscordAvatar,
+                    onUseXoraAvatar = onUseXoraAvatar,
+                    onXoraPresenceMode = onXoraPresenceMode,
+                    onClearAvatar = onClearAvatar,
+                    onClearNotifications = onClearNotifications,
+                    onFriendSearchChange = onFriendSearchChange,
+                    onReplyDraftChange = onReplyDraftChange,
+                    onSelectAchievementsTab = onSelectAchievementsTab,
+                    onLoginRetroAchievements = onLoginRetroAchievements,
+                    onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
+                    onSignOutRetroAchievements = onSignOutRetroAchievements,
                 )
             }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = trayRecede * 0.36f)),
-        )
-
-        overlayContent()
-
-        if (showPillChrome) {
-            XoraXmbPillChrome(
-                state = state,
-                onToggleAccountPanel = onToggleAccountPanel,
-                onToggleSystemPanel = onToggleSystemPanel,
-                onToggleAchievementsPanel = onToggleAchievementsPanel,
-                onSelectSocialTab = onSelectSocialTab,
-                onSelectAccountRow = onSelectAccountRow,
-                onActivateAccountRow = onActivateAccountRow,
-                onSelectSystemRow = onSelectSystemRow,
-                onActivateSystemRow = onActivateSystemRow,
-                onOpenNotifications = onOpenNotifications,
-                onSystemStatusDraftChange = onSystemStatusDraftChange,
-                onSaveCustomStatus = onSaveCustomStatus,
-                onClearCustomStatus = onClearCustomStatus,
-                onSaveProfile = onSaveProfile,
-                onSelectAvatarPreset = onSelectAvatarPreset,
-                onRequestLocalAvatar = onRequestLocalAvatar,
-                onUseRaAvatar = onUseRaAvatar,
-                onUseDiscordAvatar = onUseDiscordAvatar,
-                onUseXoraAvatar = onUseXoraAvatar,
-                onXoraPresenceMode = onXoraPresenceMode,
-                onClearAvatar = onClearAvatar,
-                onClearNotifications = onClearNotifications,
-                onFriendSearchChange = onFriendSearchChange,
-                onReplyDraftChange = onReplyDraftChange,
-                onSelectAchievementsTab = onSelectAchievementsTab,
-                onLoginRetroAchievements = onLoginRetroAchievements,
-                onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOutRetroAchievements = onSignOutRetroAchievements,
-            )
         }
         }
     }

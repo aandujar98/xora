@@ -37,9 +37,13 @@ import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.assetExists
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Bundled cold-start boot clip (from the `xora-boot` GitHub release). */
 const val BOOT_INTRO_ASSET = "boot/bootup.mp4"
+
+/** Fraction of the white dissolve that passes before the XMB starts its entrance. */
+private const val BOOT_REVEAL_AT = 0.55f
 
 private const val BOOT_URI = "asset:///$BOOT_INTRO_ASSET"
 
@@ -84,14 +88,18 @@ fun BootIntroOverlay(
     LaunchedEffect(requestEnd) {
         if (!requestEnd || fading) return@LaunchedEffect
         fading = true
+        // Plate up first so the clip's last frame is never seen tearing off, then drop the player.
         whiteAlpha.snapTo(1f)
-        revealHome.value()
         withFrameNanos { }
         playVideo = false
-        whiteAlpha.animateTo(
-            0f,
-            tween(ArcadiaMotion.BootWhiteFade, easing = FastOutSlowInEasing),
-        )
+        val fadeMs = if (reduceMotion) 0 else ArcadiaMotion.BootWhiteFade
+        // The plate dissolves onto the wallpaper before the XMB is told to reveal, so the icon
+        // bounce and the capsule slide play in view rather than finishing behind opaque white.
+        launch {
+            delay((fadeMs * BOOT_REVEAL_AT).toLong())
+            revealHome.value()
+        }
+        whiteAlpha.animateTo(0f, tween(fadeMs, easing = FastOutSlowInEasing))
         finished.value()
     }
 
@@ -105,10 +113,11 @@ fun BootIntroOverlay(
 
     BackHandler(enabled = allowSkip && !fading) { requestEnd = true }
 
+    // No opaque background on the root: the white *plate* below is what dissolves, and a second
+    // solid fill under it would hold the boot screen at full white until the overlay unmounted.
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White)
             .clickable(
                 enabled = allowSkip && !fading,
                 interactionSource = remember { MutableInteractionSource() },
