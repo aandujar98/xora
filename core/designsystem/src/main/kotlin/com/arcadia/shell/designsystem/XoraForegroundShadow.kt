@@ -13,27 +13,31 @@ import androidx.compose.ui.unit.dp
 /**
  * Soft hover drop shadow for XMB foreground assets (icons, box art, plates).
  *
- * A wide, light blur sits a few pixels down/right so glyphs float without a hard stamp.
+ * Glyphs rasterize a shape-following blur; plates use [xoraForegroundShadow] with a lighter halo
+ * so capsules do not sit in a dark fog.
  */
 object XoraForegroundShadow {
-    val OffsetX: Dp = 4.dp
-    val OffsetY: Dp = 6.dp
+    val OffsetX: Dp = 2.dp
+    val OffsetY: Dp = 3.dp
     val Spread: Dp = 0.dp
-    val Blur: Dp = 40.dp
-    const val Alpha: Float = 0.45f
+    /** Glyph silhouette blur — wide enough to read as a halo, tight enough to follow the shape. */
+    val Blur: Dp = 12.dp
+    const val Alpha: Float = 0.40f
+    val PlateBlur: Dp = 16.dp
+    const val PlateAlpha: Float = 0.22f
     val Ink: Color = Color.Black
 }
 
-/** Shape-based drop shadow that matches [XoraForegroundShadow] exactly. */
+/** Shape-based drop shadow for plates / pills (not vector glyphs). */
 fun Modifier.xoraForegroundShadow(shape: Shape): Modifier = dropShadow(shape) {
-    radius = XoraForegroundShadow.Blur.toPx()
+    radius = XoraForegroundShadow.PlateBlur.toPx()
     spread = XoraForegroundShadow.Spread.toPx()
     offset = Offset(
         XoraForegroundShadow.OffsetX.toPx(),
         XoraForegroundShadow.OffsetY.toPx(),
     )
     color = XoraForegroundShadow.Ink
-    alpha = XoraForegroundShadow.Alpha
+    alpha = XoraForegroundShadow.PlateAlpha
 }
 
 /**

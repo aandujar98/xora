@@ -131,7 +131,6 @@ fun XmbVectorIcon(
         contentAlignment = Alignment.Center,
     ) {
         if (shadow != null) {
-            // Size the layer to the blurred bitmap so Compose cannot crop the halo into a square.
             val shadowW = with(density) { shadow.image.width.toDp() }
             val shadowH = with(density) { shadow.image.height.toDp() }
             Canvas(
@@ -140,8 +139,8 @@ fun XmbVectorIcon(
                     .align(Alignment.Center)
                     .graphicsLayer {
                         clip = false
-                        translationX = XoraForegroundShadow.OffsetX.toPx()
-                        translationY = XoraForegroundShadow.OffsetY.toPx()
+                        translationX = shadow.drawX + XoraForegroundShadow.OffsetX.toPx()
+                        translationY = shadow.drawY + XoraForegroundShadow.OffsetY.toPx()
                         alpha = XoraForegroundShadow.Alpha
                     },
             ) {
@@ -193,7 +192,8 @@ fun XmbVectorIcon(
 
 private data class XmbGlyphShadow(
     val image: ImageBitmap,
-    val padPx: Float,
+    val drawX: Float,
+    val drawY: Float,
 )
 
 /**
@@ -212,7 +212,7 @@ private fun rasterizeXmbGlyphShadow(
     val widthPx = with(density) { width.toPx() }
     val heightPx = with(density) { height.toPx() }
     val blurPx = with(density) { XoraForegroundShadow.Blur.toPx() }
-    val padPx = blurPx * 2.5f
+    val padPx = blurPx * 2f
     val bmpW = (widthPx + padPx * 2f).roundToInt().coerceAtLeast(1)
     val bmpH = (heightPx + padPx * 2f).roundToInt().coerceAtLeast(1)
     val src = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
@@ -248,7 +248,8 @@ private fun rasterizeXmbGlyphShadow(
         isFilterBitmap = true
         maskFilter = BlurMaskFilter(blurPx, BlurMaskFilter.Blur.NORMAL)
     }
-    val alpha = src.extractAlpha(blurPaint, null)
+    val extra = IntArray(2)
+    val alpha = src.extractAlpha(blurPaint, extra)
     src.recycle()
     val tinted = Bitmap.createBitmap(alpha.width, alpha.height, Bitmap.Config.ARGB_8888)
     android.graphics.Canvas(tinted).drawBitmap(
@@ -260,7 +261,7 @@ private fun rasterizeXmbGlyphShadow(
         },
     )
     alpha.recycle()
-    return XmbGlyphShadow(image = tinted.asImageBitmap(), padPx = padPx)
+    return XmbGlyphShadow(image = tinted.asImageBitmap(), drawX = 0f, drawY = 0f)
 }
 
 /**

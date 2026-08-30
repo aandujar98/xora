@@ -672,6 +672,7 @@ private fun XmbCross(
                         scaleY = scale * intro.scale
                         this.alpha = alpha * intro.alpha
                         transformOrigin = TransformOrigin.Center
+                        clip = false
                     }
                     .size(catIcon)
                     .clickable(
@@ -760,6 +761,7 @@ private fun XmbCross(
                             scaleX = scale * intro.scale
                             scaleY = scale * intro.scale
                             transformOrigin = TransformOrigin.Center
+                            clip = false
                         }
                         .width(glyphSlot)
                         .height(itemRow)
