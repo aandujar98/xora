@@ -3,6 +3,7 @@ package com.arcadia.shell.feature.home.component
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.arcadia.shell.feature.home.xoraFriendActivity
 import com.arcadia.shell.feature.home.xoraFriendPresence
 import com.arcadia.shell.xoranetwork.XoraNetworkClient
 import com.arcadia.shell.xoranetwork.XoraNetworkState
@@ -35,7 +36,7 @@ fun XoraConversationWindow(
         open = open && dm.isOpen,
         peerName = peerName,
         peerFallbackName = "XOrA Network",
-        subtitle = "XOrA Network DM · A send · B close",
+        statusLine = xoraFriendActivity(friend) ?: "XOrA Network",
         avatarModel = friend?.resolvedAvatarUrl
             ?: peerUsername.takeIf { it.isNotBlank() }
                 ?.let { XoraNetworkClient.avatarUrlFor(it) },
@@ -52,8 +53,6 @@ fun XoraConversationWindow(
         loading = dm.loading,
         sending = dm.sending,
         error = dm.error,
-        footnote = "Messages sync with account.xoranetwork.com — " +
-            "your friend can reply from the website or another launcher.",
         onDraftChange = onDraftChange,
         onSend = onSend,
         onDismiss = onDismiss,

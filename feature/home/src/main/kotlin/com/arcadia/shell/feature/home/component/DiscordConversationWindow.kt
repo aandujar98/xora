@@ -3,8 +3,10 @@ package com.arcadia.shell.feature.home.component
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import com.arcadia.shell.feature.home.SocialPresence
+import com.arcadia.shell.feature.home.discordFriendActivity
+import com.arcadia.shell.feature.home.discordFriendPresence
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
+import com.arcadia.shell.launcher.discord.DiscordFriendEntry
 
 private val DiscordAccent = Color(0xFF5865F2)
 
@@ -16,19 +18,22 @@ private val DiscordAccent = Color(0xFF5865F2)
 fun DiscordConversationWindow(
     open: Boolean,
     thread: DiscordDmThreadUiState,
+    friends: List<DiscordFriendEntry>,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     onAttachMedia: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val friend = friends.firstOrNull { it.userId == thread.peerUserId }
+
     ConversationWindow(
         open = open && thread.peerUserId != null,
         peerName = thread.peerDisplayName,
         peerFallbackName = "Discord",
-        subtitle = "Discord DM · A send · B close",
+        statusLine = discordFriendActivity(friend) ?: "Discord",
         avatarModel = thread.peerAvatarUrl,
-        presence = SocialPresence.Online,
+        presence = discordFriendPresence(friend),
         accent = DiscordAccent,
         messages = thread.messages.map { message ->
             ConversationMessage(
@@ -43,8 +48,6 @@ fun DiscordConversationWindow(
         loading = thread.loading,
         sending = thread.sending,
         error = thread.error,
-        footnote = "Paste an image or GIF link to send it inline. " +
-            "Files upload through the Discord app.",
         onDraftChange = onDraftChange,
         onSend = onSend,
         onDismiss = onDismiss,

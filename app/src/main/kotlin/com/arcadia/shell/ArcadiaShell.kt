@@ -547,6 +547,7 @@ fun ArcadiaShell(
                 DiscordConversationWindow(
                     open = state.socialMenu.isDiscordDmOpen,
                     thread = state.socialMenu.discordDm,
+                    friends = state.socialMenu.discord.friends,
                     onDraftChange = homeViewModel::updateConversationReplyDraft,
                     onSend = homeViewModel::sendOpenDiscordDm,
                     onAttachMedia = homeViewModel::requestDiscordAttachment,
@@ -612,6 +613,7 @@ fun ArcadiaShell(
                             DiscordConversationWindow(
                                 open = state.socialMenu.isDiscordDmOpen,
                                 thread = state.socialMenu.discordDm,
+                                friends = state.socialMenu.discord.friends,
                                 onDraftChange = homeViewModel::updateConversationReplyDraft,
                                 onSend = homeViewModel::sendOpenDiscordDm,
                                 onAttachMedia = homeViewModel::requestDiscordAttachment,
