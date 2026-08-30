@@ -40,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,6 +58,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -626,6 +628,12 @@ private fun XmbCross(
         val catScroll = categoryScroll.value
         val rowScroll = itemScroll.value
         val enterAlpha = listEnterAlpha.value
+        var detailHeightPx by remember {
+            mutableFloatStateOf(with(density) { 56.dp.toPx() })
+        }
+        var emptyLabelHeightPx by remember {
+            mutableFloatStateOf(with(density) { 22.dp.toPx() })
+        }
 
         // ——— Horizontal categories ———
         // Icons stay on a fixed pitch grid (no focus slide) so labels can share one axis.
@@ -679,11 +687,13 @@ private fun XmbCross(
                 text = "Nothing here yet",
                 fontSize = 18.sp,
                 fillColor = Color.White,
-                modifier = Modifier.graphicsLayer {
-                    translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
-                    translationY = itemFocusYPx - with(density) { 10.dp.toPx() }
-                    alpha = enterAlpha
-                },
+                modifier = Modifier
+                    .onSizeChanged { emptyLabelHeightPx = it.height.toFloat() }
+                    .graphicsLayer {
+                        translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
+                        translationY = itemFocusYPx - emptyLabelHeightPx / 2f
+                        alpha = enterAlpha
+                    },
             )
         } else {
             val first = (rowScroll - VISIBLE_ITEM_RADIUS - 1f).toInt().coerceAtLeast(0)
@@ -779,9 +789,10 @@ private fun XmbCross(
                     contentKey = { it.id },
                     label = "xmbFocusDetail",
                     modifier = Modifier
+                        .onSizeChanged { detailHeightPx = it.height.toFloat() }
                         .graphicsLayer {
                             translationX = detailX
-                            translationY = itemFocusYPx - with(density) { 36.dp.toPx() }
+                            translationY = itemFocusYPx - detailHeightPx / 2f
                             alpha = enterAlpha
                         }
                         .widthIn(max = if (browsingBoxes) 480.dp else 400.dp),

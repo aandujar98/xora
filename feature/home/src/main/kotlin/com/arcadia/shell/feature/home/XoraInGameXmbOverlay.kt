@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -289,15 +291,20 @@ fun XoraInGameXmbOverlay(
             )
 
             if (items.isEmpty()) {
+                var emptyLabelHeightPx by remember {
+                    mutableFloatStateOf(with(density) { 22.dp.toPx() })
+                }
                 XoraSecondaryText(
                     text = "Nothing here yet",
                     fontSize = 18.sp,
                     fillColor = Color.White,
-                    modifier = Modifier.graphicsLayer {
-                        translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
-                        translationY = itemFocusYPx
-                        alpha = enterAlpha
-                    },
+                    modifier = Modifier
+                        .onSizeChanged { emptyLabelHeightPx = it.height.toFloat() }
+                        .graphicsLayer {
+                            translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
+                            translationY = itemFocusYPx - emptyLabelHeightPx / 2f
+                            alpha = enterAlpha
+                        },
                 )
             } else {
                 val first = (rowScroll - VISIBLE_ITEM_RADIUS - 1f).toInt().coerceAtLeast(0)
@@ -356,15 +363,20 @@ fun XoraInGameXmbOverlay(
                             size = ITEM_GLYPH,
                         )
                     }
+                    var labelHeightPx by remember(item.id) {
+                        mutableFloatStateOf(with(density) { 28.dp.toPx() })
+                    }
                     Column(
-                        modifier = Modifier.graphicsLayer {
-                            translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
-                            translationY = yPx + itemRowPx * 0.12f
-                            this.alpha = alpha * enterAlpha
-                            scaleX = lerp(0.92f, 1.05f, focus)
-                            scaleY = lerp(0.92f, 1.05f, focus)
-                            transformOrigin = TransformOrigin(0f, 0.5f)
-                        },
+                        modifier = Modifier
+                            .onSizeChanged { labelHeightPx = it.height.toFloat() }
+                            .graphicsLayer {
+                                translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
+                                translationY = yPx + itemRowPx / 2f - labelHeightPx / 2f
+                                this.alpha = alpha * enterAlpha
+                                scaleX = lerp(0.92f, 1.05f, focus)
+                                scaleY = lerp(0.92f, 1.05f, focus)
+                                transformOrigin = TransformOrigin(0f, 0.5f)
+                            },
                     ) {
                         XoraTitleText(
                             text = item.title,

@@ -5,6 +5,7 @@ import android.graphics.BlurMaskFilter
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -124,23 +125,27 @@ fun XmbVectorIcon(
         }
     }
     Box(
-        modifier = modifier.size(width = boxWidth, height = size),
+        modifier = modifier
+            .size(width = boxWidth, height = size)
+            .graphicsLayer { clip = false },
         contentAlignment = Alignment.Center,
     ) {
         if (shadow != null) {
+            // Size the layer to the blurred bitmap so Compose cannot crop the halo into a square.
+            val shadowW = with(density) { shadow.image.width.toDp() }
+            val shadowH = with(density) { shadow.image.height.toDp() }
             Canvas(
                 modifier = Modifier
-                    .size(width = boxWidth, height = size)
-                    .graphicsLayer { clip = false },
+                    .requiredSize(shadowW, shadowH)
+                    .align(Alignment.Center)
+                    .graphicsLayer {
+                        clip = false
+                        translationX = XoraForegroundShadow.OffsetX.toPx()
+                        translationY = XoraForegroundShadow.OffsetY.toPx()
+                        alpha = XoraForegroundShadow.Alpha
+                    },
             ) {
-                drawImage(
-                    image = shadow.image,
-                    topLeft = Offset(
-                        -shadow.padPx + XoraForegroundShadow.OffsetX.toPx(),
-                        -shadow.padPx + XoraForegroundShadow.OffsetY.toPx(),
-                    ),
-                    alpha = XoraForegroundShadow.Alpha,
-                )
+                drawImage(image = shadow.image)
             }
         }
         if (icon == XmbIcon.Xora) {
