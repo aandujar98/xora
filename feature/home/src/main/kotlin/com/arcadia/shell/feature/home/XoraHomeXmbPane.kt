@@ -673,50 +673,6 @@ private fun XmbCross(
             }
         }
 
-        // Category label — centered under the focused icon (same cross X).
-        val catLabel = when {
-            atRoot -> xmb.category.label
-            xmb.depth == XoraXmbDepth.Systems -> "All Games"
-            xmb.depth == XoraXmbDepth.Roms -> "Games"
-            xmb.depth == XoraXmbDepth.Emulator -> "XOrA Emulator"
-            xmb.depth == XoraXmbDepth.DspAccounts -> "Link DSP Accounts"
-            xmb.depth == XoraXmbDepth.MusicAlbums -> "Playlist"
-            xmb.depth == XoraXmbDepth.MusicTracks -> "Songs"
-            xmb.depth == XoraXmbDepth.NowPlaying -> "Now Playing"
-            xmb.depth == XoraXmbDepth.Photos -> "Photos"
-            xmb.depth == XoraXmbDepth.Dashboard -> "Dashboard"
-            else -> xmb.category.label
-        }
-        val catLabelWidth = if (xmb.depth == XoraXmbDepth.DspAccounts) 220.dp else 160.dp
-        AnimatedContent(
-            targetState = catLabel,
-            // Cross-fade only: sliding the label sideways pulled it off the icon it names.
-            transitionSpec = {
-                fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) togetherWith
-                    fadeOut(tween(110, easing = FastOutSlowInEasing))
-            },
-            label = "catLabel",
-            modifier = Modifier
-                .graphicsLayer {
-                    translationX = crossXPx - with(density) { catLabelWidth.toPx() } / 2f
-                    // Clear the focused icon at its enlarged size — half the unscaled height
-                    // left the label sitting on top of it.
-                    translationY = catYPx + (catIconPx * CATEGORY_FOCUS_SCALE / 2f) +
-                        with(density) { CATEGORY_LABEL_GAP.toPx() }
-                    alpha = if (atRoot) 0.95f else 0.45f
-                }
-                .width(catLabelWidth),
-        ) { label ->
-            XoraTitleText(
-                text = label,
-                fontWeight = FontWeight.Medium,
-                fontSize = 11.sp,
-                maxLines = 1,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
         // ——— Vertical items (glyphs slide through a fixed focus slot) ———
         if (items.isEmpty()) {
             XoraSecondaryText(
@@ -1002,18 +958,20 @@ private fun XmbItemGlyph(
     val cornerPx = 16.dp
     val glow = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
     val rim = Color.White.copy(alpha = 0.95f)
-    val isVectorIcon = artPath.isNullOrBlank() && !boxArt
+    val hasArt = !artPath.isNullOrBlank()
     Box(
         modifier = modifier
             .width(width)
             .height(height)
             .then(
-                when {
-                    boxArt -> Modifier
+                // Artwork needs a plate to sit on; a vector glyph reads better floating over the
+                // wallpaper on its own shadow, so it gets no plate, border or fill at all.
+                if (hasArt) {
+                    Modifier
                         .xoraForegroundShadow(shape)
                         .drawWithContent {
                             drawContent()
-                            if (selected) {
+                            if (selected && boxArt) {
                                 val stroke = 3.5.dp.toPx()
                                 val inset = stroke / 2f
                                 drawRoundRect(
@@ -1035,31 +993,14 @@ private fun XmbItemGlyph(
                         }
                         .clip(shape)
                         .border(
-                            width = if (selected) 2.5.dp else 0.dp,
-                            color = if (selected) rim else Color.Transparent,
+                            width = if (selected && boxArt) 2.5.dp else 0.dp,
+                            color = if (selected && boxArt) rim else Color.Transparent,
                             shape = shape,
                         )
-                    isVectorIcon -> Modifier
-                        .xoraForegroundShadow(shape)
-                        .clip(shape)
-                        .border(
-                            width = if (selected) 2.dp else 1.5.dp,
-                            color = Color.Black,
-                            shape = shape,
-                        )
-                    else -> Modifier
-                        .xoraForegroundShadow(shape)
-                        .clip(shape)
-                },
-            )
-            .background(
-                when {
-                    !artPath.isNullOrBlank() -> Color.Black.copy(alpha = 0.35f)
-                    // Solid plate — no frosted / translucent circle behind vector glyphs.
-                    isVectorIcon -> if (selected) Color(0xFF1A1D24) else Color(0xFF101218)
-                    selected -> Color.White.copy(alpha = 0.16f)
-                    else -> Color.White.copy(alpha = 0.08f)
-                },
+                        .background(Color.Black.copy(alpha = 0.35f))
+                } else {
+                    Modifier
+                }
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -1077,9 +1018,9 @@ private fun XmbItemGlyph(
             XmbVectorIcon(
                 icon = icon,
                 tint = Color.White,
-                size = minOf(width, height) * 0.5f,
-                outlined = true,
-                castShadow = false,
+                // Without a plate the glyph can carry more of the slot.
+                size = minOf(width, height) * 0.62f,
+                glass = true,
             )
         }
     }
@@ -1299,9 +1240,8 @@ private const val VISIBLE_ITEM_RADIUS = 4
 private val CATEGORY_PITCH = 96.dp
 private val ITEM_PITCH = 58.dp
 private val CATEGORY_ICON = 52.dp
-/** Focused category icon scale — the label is placed clear of the icon at this size. */
+/** Focused category icon scale. */
 private const val CATEGORY_FOCUS_SCALE = 1.32f
-private val CATEGORY_LABEL_GAP = 8.dp
 private val ITEM_ICON = 42.dp
 private val ITEM_ROW = 56.dp
 /** Landscape 16:9 ROM box (height = width × [ROM_BOX_ASPECT]). */

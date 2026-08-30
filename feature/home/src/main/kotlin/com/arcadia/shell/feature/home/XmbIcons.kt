@@ -1,6 +1,7 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -18,10 +19,15 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.drawXoraForegroundSilhouette
+
+/** How much wider than the glyph box the XOrA wordmark is allowed to run. */
+private const val XORA_MARK_WIDTH_SCALE = 1.7f
 
 /** Stable glyph ids for XMB rows that are not ROM box art. */
 enum class XmbIcon {
@@ -74,8 +80,8 @@ fun XoraXmbCategory.toXmbIcon(): XmbIcon = when (this) {
     XoraXmbCategory.Games -> XmbIcon.Games
     XoraXmbCategory.Media -> XmbIcon.Media
     XoraXmbCategory.Music -> XmbIcon.Music
-    // The board ends the cross bar with the globe rather than the XOrA wordmark.
-    XoraXmbCategory.Network -> XmbIcon.Network
+    // The brand mark closes the cross bar; the globe stays available as [XmbIcon.Network].
+    XoraXmbCategory.Network -> XmbIcon.Xora
 }
 
 @Composable
@@ -91,6 +97,18 @@ fun XmbVectorIcon(
     /** PS3-style frosted glass body (white→ice-blue gradient + top gloss) instead of flat tint. */
     glass: Boolean = false,
 ) {
+    // The XOrA mark is brand artwork in its own four colours, so it is never tinted or glassed.
+    if (icon == XmbIcon.Xora) {
+        Image(
+            painter = painterResource(R.drawable.ic_xora_logo),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            // The mark is a ~4.3:1 wordmark: fitting it to the square glyph box would leave it
+            // a sliver, so it gets a wider slot and stays centred on the same point.
+            modifier = modifier.size(width = size * XORA_MARK_WIDTH_SCALE, height = size),
+        )
+        return
+    }
     Canvas(modifier = modifier.size(size)) {
         val stroke = Stroke(
             width = size.toPx() * (if (glass) 0.095f else 0.075f),
@@ -145,10 +163,10 @@ private fun DrawScope.drawGlassIcon(icon: XmbIcon, stroke: Stroke) {
     drawXmbIconContent(icon, Color.White, stroke)
     drawRect(
         brush = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0.98f),
-            0.40f to Color(0xFFE2F1FC).copy(alpha = 0.94f),
-            0.72f to Color(0xFFB7DBF6).copy(alpha = 0.90f),
-            1f to Color(0xFF84B9E9).copy(alpha = 0.88f),
+            0f to Color.White,
+            0.34f to Color(0xFFEAF5FE),
+            0.66f to Color(0xFFB9DCF7),
+            1f to Color(0xFF7FB4E6),
         ),
         topLeft = bounds.topLeft,
         size = bounds.size,
@@ -156,14 +174,30 @@ private fun DrawScope.drawGlassIcon(icon: XmbIcon, stroke: Stroke) {
     )
     canvas.restore()
 
-    // Gloss: extra white sheen fading out by mid-height — the "reflection" on the glass.
+    // Gloss: hard white sheen across the top third — the "reflection" on the glass.
     canvas.saveLayer(bounds, Paint())
     drawXmbIconContent(icon, Color.White, stroke)
     drawRect(
         brush = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0.55f),
-            0.45f to Color.Transparent,
+            0f to Color.White.copy(alpha = 0.85f),
+            0.30f to Color.White.copy(alpha = 0.18f),
+            0.52f to Color.Transparent,
             1f to Color.Transparent,
+        ),
+        topLeft = bounds.topLeft,
+        size = bounds.size,
+        blendMode = BlendMode.SrcIn,
+    )
+    canvas.restore()
+
+    // Rim light: refraction catching the bottom edge, which is what sells solid glyphs as glass.
+    canvas.saveLayer(bounds, Paint())
+    drawXmbIconContent(icon, Color.White, stroke)
+    drawRect(
+        brush = Brush.verticalGradient(
+            0f to Color.Transparent,
+            0.74f to Color.Transparent,
+            1f to Color.White.copy(alpha = 0.6f),
         ),
         topLeft = bounds.topLeft,
         size = bounds.size,
