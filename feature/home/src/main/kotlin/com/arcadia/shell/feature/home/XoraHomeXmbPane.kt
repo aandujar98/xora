@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -73,8 +74,10 @@ import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.launchBackdropScale
 import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.xoraChromeSplitDoors
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
@@ -173,7 +176,6 @@ fun XoraHomeXmbPane(
         label = "xmbLaunchHold",
     )
     val chromeAlpha = 1f - chromeProgress
-    val chromeSlidePx = chromeProgress * 72f
     val trayOpen = state.homeHub.vitaShortcutTrayOpen
     val trayRecede by animateFloatAsState(
         targetValue = if (trayOpen) 1f else 0f,
@@ -189,7 +191,7 @@ fun XoraHomeXmbPane(
     )
     val recedeScale = 1f - (trayRecede * 0.12f)
     val recedeAlpha = 1f - trayRecede
-    val artworkScale = 1f + (holdProgress * 0.06f)
+    val artworkScale = launchBackdropScale(holdProgress)
     val backdropMotion = rememberXmbBackdropMotion(
         categoryIndex = xmb.categoryIndex,
         launchScale = artworkScale,
@@ -200,71 +202,82 @@ fun XoraHomeXmbPane(
         modifier = modifier.fillMaxSize(),
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        // Theme / custom wallpaper must remain the base plate.
-        HomeWallpaper(
-            customPath = state.homeHub.wallpaperPath,
-            dim = false,
+        // Theme / custom wallpaper must remain the base plate — it zooms, it does not split.
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(backdropMotion),
-        )
-
-        // Keep mounted so focus / back / cancel always crossfade (never unmount-snap).
-        XoraRomHeroBackdrop(
-            artPath = backdropArtPath,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(backdropMotion),
-        )
-
-        HeroTrailerLayer(
-            state = state.trailer,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(backdropMotion),
-        )
-
-        if (fullTrailer) {
-            Box(
+                .clipToBounds(),
+        ) {
+            HomeWallpaper(
+                customPath = state.homeHub.wallpaperPath,
+                dim = false,
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.38f)),
+                    .then(backdropMotion),
             )
-        } else {
-            // PS5-style ambient dust between the wallpaper and the menu chrome.
-            XmbStarFieldLayer(
+
+            // Keep mounted so focus / back / cancel always crossfade (never unmount-snap).
+            XoraRomHeroBackdrop(
+                artPath = backdropArtPath,
+                scrimAlpha = chromeAlpha,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = chromeAlpha * recedeAlpha },
+                    .then(backdropMotion),
             )
+
+            HeroTrailerLayer(
+                state = state.trailer,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(backdropMotion),
+            )
+
+            if (fullTrailer) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = chromeAlpha }
+                        .background(Color.Black.copy(alpha = 0.38f)),
+                )
+            }
         }
 
-        // System and ROM browsing are card rungs of the same menu, so drilling slides sideways
-        // between them the way the PSP / PS3 shells do rather than cutting.
-        val depthSlideMs = motionMillis(XMB_DEPTH_SLIDE_MS)
-        AnimatedContent(
-            targetState = xmb.depth,
-            transitionSpec = {
-                val drillingIn = targetState.ordinal > initialState.ordinal
-                val slide = tween<IntOffset>(depthSlideMs, easing = FastOutSlowInEasing)
-                val enter = slideInHorizontally(slide) { width ->
-                    if (drillingIn) width / 2 else -width / 2
-                } + fadeIn(tween(depthSlideMs, easing = FastOutSlowInEasing))
-                val exit = slideOutHorizontally(slide) { width ->
-                    if (drillingIn) -width / 3 else width / 3
-                } + fadeOut(tween(depthSlideMs / 2, easing = FastOutSlowInEasing))
-                enter togetherWith exit
-            },
-            label = "xmbDepth",
+        Box(
             modifier = Modifier
                 .fillMaxSize()
+                .xoraChromeSplitDoors(chromeProgress)
                 .graphicsLayer {
-                    alpha = chromeAlpha * recedeAlpha
+                    alpha = recedeAlpha
                     scaleX = recedeScale
                     scaleY = recedeScale
-                    translationY = chromeSlidePx
                 },
-        ) { depth ->
+        ) {
+            if (!fullTrailer) {
+                // PS5-style ambient dust between the wallpaper and the menu chrome.
+                XmbStarFieldLayer(
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            // System and ROM browsing are card rungs of the same menu, so drilling slides sideways
+            // between them the way the PSP / PS3 shells do rather than cutting.
+            val depthSlideMs = motionMillis(XMB_DEPTH_SLIDE_MS)
+            AnimatedContent(
+                targetState = xmb.depth,
+                transitionSpec = {
+                    val drillingIn = targetState.ordinal > initialState.ordinal
+                    val slide = tween<IntOffset>(depthSlideMs, easing = FastOutSlowInEasing)
+                    val enter = slideInHorizontally(slide) { width ->
+                        if (drillingIn) width / 2 else -width / 2
+                    } + fadeIn(tween(depthSlideMs, easing = FastOutSlowInEasing))
+                    val exit = slideOutHorizontally(slide) { width ->
+                        if (drillingIn) -width / 3 else width / 3
+                    } + fadeOut(tween(depthSlideMs / 2, easing = FastOutSlowInEasing))
+                    enter togetherWith exit
+                },
+                label = "xmbDepth",
+                modifier = Modifier.fillMaxSize(),
+            ) { depth ->
             when (depth) {
                 XoraXmbDepth.NowPlaying -> XoraNowPlayingPane(
                     state = state.music.nowPlaying,
@@ -357,6 +370,7 @@ fun XoraHomeXmbPane(
                 onSignOutRetroAchievements = onSignOutRetroAchievements,
             )
         }
+        }
     }
     }
 }
@@ -416,8 +430,7 @@ fun XoraXmbHeroDetail(
         label = "xmbHeroLaunchHold",
     )
     val chromeAlpha = 1f - chromeProgress
-    val chromeSlidePx = chromeProgress * 72f
-    val artworkScale = 1f + (holdProgress * 0.06f)
+    val artworkScale = launchBackdropScale(holdProgress)
     val backdropMotion = rememberXmbBackdropMotion(
         categoryIndex = xmb.categoryIndex,
         launchScale = artworkScale,
@@ -428,111 +441,128 @@ fun XoraXmbHeroDetail(
         modifier = modifier.fillMaxSize(),
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        HomeWallpaper(
-            customPath = state.homeHub.wallpaperPath,
-            dim = false,
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(backdropMotion),
-        )
-        XoraRomHeroBackdrop(
-            artPath = heroGame?.takeIf {
-                xmb.depth == XoraXmbDepth.Roms ||
-                    xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
-                    xmb.selectedItem?.action is XoraXmbAction.LaunchGame
-            }?.let { it.heroImagePath ?: it.boxArtPath ?: it.logoImagePath },
-            modifier = Modifier
-                .fillMaxSize()
-                .then(backdropMotion),
-        )
-        HeroTrailerLayer(
-            state = state.trailer,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(backdropMotion),
-        )
-
-        AnimatedContent(
-            targetState = Triple(
-                xmb.focusTitle,
-                xmb.focusSubtitle,
-                heroGame?.id to heroGame?.logoImagePath,
-            ),
-            transitionSpec = { titleEnter togetherWith titleExit },
-            label = "xmbHeroTitle",
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(28.dp)
-                .graphicsLayer {
-                    alpha = chromeAlpha
-                    translationY = chromeSlidePx
-                },
-        ) { (title, subtitle, logoKey) ->
-            val logoPath = logoKey.second
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!logoPath.isNullOrBlank()) {
-                    ArtworkImage(
-                        path = logoPath,
-                        contentDescription = title,
-                        fallbackText = title,
-                        contentScale = ContentScale.Fit,
-                        cacheInMemory = false,
-                        decodeMaxEdgePx = 720,
-                        modifier = Modifier
-                            .widthIn(max = 420.dp)
-                            .height(96.dp)
-                            .fillMaxWidth(0.7f),
-                    )
-                } else {
-                    XoraTitleText(
-                        text = title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp,
-                        maxLines = 2,
-                    )
-                }
-                subtitle?.let {
-                    XoraSecondaryText(
-                        text = it,
-                        fontSize = 13.sp,
-                        fillColor = Color.White,
-                        maxLines = 2,
-                    )
-                }
+                .clipToBounds(),
+        ) {
+            HomeWallpaper(
+                customPath = state.homeHub.wallpaperPath,
+                dim = false,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(backdropMotion),
+            )
+            XoraRomHeroBackdrop(
+                artPath = heroGame?.takeIf {
+                    xmb.depth == XoraXmbDepth.Roms ||
+                        xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
+                        xmb.selectedItem?.action is XoraXmbAction.LaunchGame
+                }?.let { it.heroImagePath ?: it.boxArtPath ?: it.logoImagePath },
+                scrimAlpha = chromeAlpha,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(backdropMotion),
+            )
+            HeroTrailerLayer(
+                state = state.trailer,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(backdropMotion),
+            )
+            if (fullTrailer) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = chromeAlpha }
+                        .background(Color.Black.copy(alpha = 0.38f)),
+                )
             }
         }
 
-        if (showPillChrome) {
-            XoraXmbPillChrome(
-                state = state,
-                onToggleAccountPanel = onToggleAccountPanel,
-                onToggleSystemPanel = onToggleSystemPanel,
-                onToggleAchievementsPanel = onToggleAchievementsPanel,
-                onSelectSocialTab = onSelectSocialTab,
-                onSelectAccountRow = onSelectAccountRow,
-                onActivateAccountRow = onActivateAccountRow,
-                onSelectSystemRow = onSelectSystemRow,
-                onActivateSystemRow = onActivateSystemRow,
-                onOpenNotifications = onOpenNotifications,
-                onSystemStatusDraftChange = onSystemStatusDraftChange,
-                onSaveCustomStatus = onSaveCustomStatus,
-                onClearCustomStatus = onClearCustomStatus,
-                onSaveProfile = onSaveProfile,
-                onSelectAvatarPreset = onSelectAvatarPreset,
-                onRequestLocalAvatar = onRequestLocalAvatar,
-                onUseRaAvatar = onUseRaAvatar,
-                onUseDiscordAvatar = onUseDiscordAvatar,
-                onUseXoraAvatar = onUseXoraAvatar,
-                onXoraPresenceMode = onXoraPresenceMode,
-                onClearAvatar = onClearAvatar,
-                onClearNotifications = onClearNotifications,
-                onFriendSearchChange = onFriendSearchChange,
-                onReplyDraftChange = onReplyDraftChange,
-                onSelectAchievementsTab = onSelectAchievementsTab,
-                onLoginRetroAchievements = onLoginRetroAchievements,
-                onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOutRetroAchievements = onSignOutRetroAchievements,
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .xoraChromeSplitDoors(chromeProgress),
+        ) {
+            AnimatedContent(
+                targetState = Triple(
+                    xmb.focusTitle,
+                    xmb.focusSubtitle,
+                    heroGame?.id to heroGame?.logoImagePath,
+                ),
+                transitionSpec = { titleEnter togetherWith titleExit },
+                label = "xmbHeroTitle",
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(28.dp),
+            ) { (title, subtitle, logoKey) ->
+                val logoPath = logoKey.second
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!logoPath.isNullOrBlank()) {
+                        ArtworkImage(
+                            path = logoPath,
+                            contentDescription = title,
+                            fallbackText = title,
+                            contentScale = ContentScale.Fit,
+                            cacheInMemory = false,
+                            decodeMaxEdgePx = 720,
+                            modifier = Modifier
+                                .widthIn(max = 420.dp)
+                                .height(96.dp)
+                                .fillMaxWidth(0.7f),
+                        )
+                    } else {
+                        XoraTitleText(
+                            text = title,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp,
+                            maxLines = 2,
+                        )
+                    }
+                    subtitle?.let {
+                        XoraSecondaryText(
+                            text = it,
+                            fontSize = 13.sp,
+                            fillColor = Color.White,
+                            maxLines = 2,
+                        )
+                    }
+                }
+            }
+
+            if (showPillChrome) {
+                XoraXmbPillChrome(
+                    state = state,
+                    onToggleAccountPanel = onToggleAccountPanel,
+                    onToggleSystemPanel = onToggleSystemPanel,
+                    onToggleAchievementsPanel = onToggleAchievementsPanel,
+                    onSelectSocialTab = onSelectSocialTab,
+                    onSelectAccountRow = onSelectAccountRow,
+                    onActivateAccountRow = onActivateAccountRow,
+                    onSelectSystemRow = onSelectSystemRow,
+                    onActivateSystemRow = onActivateSystemRow,
+                    onOpenNotifications = onOpenNotifications,
+                    onSystemStatusDraftChange = onSystemStatusDraftChange,
+                    onSaveCustomStatus = onSaveCustomStatus,
+                    onClearCustomStatus = onClearCustomStatus,
+                    onSaveProfile = onSaveProfile,
+                    onSelectAvatarPreset = onSelectAvatarPreset,
+                    onRequestLocalAvatar = onRequestLocalAvatar,
+                    onUseRaAvatar = onUseRaAvatar,
+                    onUseDiscordAvatar = onUseDiscordAvatar,
+                    onUseXoraAvatar = onUseXoraAvatar,
+                    onXoraPresenceMode = onXoraPresenceMode,
+                    onClearAvatar = onClearAvatar,
+                    onClearNotifications = onClearNotifications,
+                    onFriendSearchChange = onFriendSearchChange,
+                    onReplyDraftChange = onReplyDraftChange,
+                    onSelectAchievementsTab = onSelectAchievementsTab,
+                    onLoginRetroAchievements = onLoginRetroAchievements,
+                    onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
+                    onSignOutRetroAchievements = onSignOutRetroAchievements,
+                )
+            }
         }
     }
     }
@@ -1137,6 +1167,7 @@ internal fun formatXmbPlaytime(millis: Long): String {
 private fun XoraRomHeroBackdrop(
     artPath: String?,
     modifier: Modifier = Modifier,
+    scrimAlpha: Float = 1f,
 ) {
     val reduceMotion = rememberReduceMotion()
     // Crossfade (not AnimatedContent): empty ↔ art and art ↔ art always fade,
@@ -1164,6 +1195,7 @@ private fun XoraRomHeroBackdrop(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .graphicsLayer { alpha = scrimAlpha }
                         .background(
                             Brush.verticalGradient(
                                 0f to Color.Black.copy(alpha = 0.55f),
@@ -1175,6 +1207,7 @@ private fun XoraRomHeroBackdrop(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .graphicsLayer { alpha = scrimAlpha }
                         .background(
                             Brush.horizontalGradient(
                                 0f to Color.Black.copy(alpha = 0.58f),

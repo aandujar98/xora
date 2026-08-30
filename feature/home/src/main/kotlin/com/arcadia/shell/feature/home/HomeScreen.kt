@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.xoraChromeSplitDoors
 import com.arcadia.shell.feature.home.component.ButtonHintBar
 import com.arcadia.shell.feature.home.component.hintsForGuide
 import com.arcadia.shell.feature.home.component.hintsForPage
@@ -140,8 +141,6 @@ fun HomeScreen(
         animationSpec = arcadiaTween(ArcadiaMotion.Launch),
         label = "libraryLaunchChrome",
     )
-    val libraryChromeAlpha = 1f - launchProgress
-    val librarySlidePx = launchProgress * 96f
 
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         AnimatedContent(
@@ -262,10 +261,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .graphicsLayer {
-                                    alpha = libraryChromeAlpha
-                                    translationY = librarySlidePx
-                                },
+                                .xoraChromeSplitDoors(launchProgress),
                         ) {
                             HomePageContent(
                                 state = state,
@@ -497,10 +493,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(GRID_WEIGHT)
-                                .graphicsLayer {
-                                    alpha = libraryChromeAlpha
-                                    translationY = librarySlidePx
-                                },
+                                .xoraChromeSplitDoors(launchProgress),
                         )
                     }
 
@@ -523,10 +516,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 40.dp, max = 72.dp)
-                                .graphicsLayer {
-                                    alpha = libraryChromeAlpha
-                                    translationY = librarySlidePx
-                                },
+                                .graphicsLayer { alpha = 1f - launchProgress },
                         )
                     }
                 }

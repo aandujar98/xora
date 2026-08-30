@@ -71,7 +71,6 @@ import com.arcadia.shell.feature.home.component.XoraConversationWindow
 import com.arcadia.shell.feature.home.component.StartSettingsPanel
 import com.arcadia.shell.feature.home.component.WelcomeBackOverlay
 import com.arcadia.shell.feature.home.component.BootIntroOverlay
-import com.arcadia.shell.feature.home.component.LaunchSplitOverlay
 import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.feature.settings.OnboardingExternalAuthRequest
 import com.arcadia.shell.feature.settings.OnboardingScreen
@@ -484,11 +483,6 @@ fun ArcadiaShell(
                 )
             }
 
-            LaunchSplitOverlay(
-                launching = state.isLaunching && route == ShellRoute.Home,
-                modifier = Modifier.fillMaxSize(),
-            )
-
             AnimatedVisibility(
                 visible = route == ShellRoute.Settings,
                 enter = fadeIn(routeTween),
@@ -615,10 +609,6 @@ fun ArcadiaShell(
                                 role = shellState.secondaryDisplayRole,
                                 state = state,
                                 homeViewModel = homeViewModel,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                            LaunchSplitOverlay(
-                                launching = state.isLaunching,
                                 modifier = Modifier.fillMaxSize(),
                             )
                             // Guide may still mirror; Start settings + notification banners stay on

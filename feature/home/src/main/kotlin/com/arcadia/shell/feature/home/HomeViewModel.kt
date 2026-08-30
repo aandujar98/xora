@@ -7219,8 +7219,9 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             isLaunching.value = true
             try {
-                // Split doors slide out on [ArcadiaMotion.Launch]; the emulator starts once
-                // the halves have cleared. On failure, clearing isLaunching brings the shell back.
+                // Split doors slide chrome out on [ArcadiaMotion.Launch]; backdrop zoom holds
+                // until the emulator Activity fades in. On failure, clearing isLaunching
+                // brings the shell back.
                 val waitMs = if (appContext.isReduceMotionPreferred()) {
                     0L
                 } else {
