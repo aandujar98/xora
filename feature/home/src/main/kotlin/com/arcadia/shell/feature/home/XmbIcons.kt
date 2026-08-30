@@ -74,7 +74,8 @@ fun XoraXmbCategory.toXmbIcon(): XmbIcon = when (this) {
     XoraXmbCategory.Games -> XmbIcon.Games
     XoraXmbCategory.Media -> XmbIcon.Media
     XoraXmbCategory.Music -> XmbIcon.Music
-    XoraXmbCategory.Network -> XmbIcon.Xora
+    // The board ends the cross bar with the globe rather than the XOrA wordmark.
+    XoraXmbCategory.Network -> XmbIcon.Network
 }
 
 @Composable
@@ -174,11 +175,11 @@ private fun DrawScope.drawGlassIcon(icon: XmbIcon, stroke: Stroke) {
 private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Stroke) {
     when (icon) {
         XmbIcon.Profiles -> drawProfiles(tint, stroke)
-        XmbIcon.Settings -> drawSettingsToolbox(tint, stroke)
-        XmbIcon.Games -> drawController(tint, stroke)
-        XmbIcon.Media -> drawCamera(tint, stroke)
-        XmbIcon.Music -> drawNote(tint, stroke)
-        XmbIcon.Network -> drawGlobe(tint, stroke)
+        XmbIcon.Settings -> drawFigmaGlyph(FigmaGlyph.SETTINGS, tint)
+        XmbIcon.Games -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
+        XmbIcon.Media -> drawFigmaGlyph(FigmaGlyph.PHOTO, tint)
+        XmbIcon.Music -> drawFigmaGlyph(FigmaGlyph.MUSIC, tint)
+        XmbIcon.Network -> drawFigmaGlyph(FigmaGlyph.NETWORK, tint)
         XmbIcon.User -> drawUser(tint, stroke)
         XmbIcon.Guest -> drawGuest(tint, stroke)
         XmbIcon.General -> drawGear(tint, stroke)
@@ -189,13 +190,13 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Social -> drawChat(tint, stroke)
         XmbIcon.Notifications -> drawBell(tint, stroke)
         XmbIcon.Trophy -> drawTrophy(tint, stroke)
-        XmbIcon.Emulator -> drawController(tint, stroke)
+        XmbIcon.Emulator -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
         XmbIcon.Continue -> drawPlay(tint, stroke)
         XmbIcon.Favorite -> drawStar(tint, stroke)
         XmbIcon.Folder -> drawFolder(tint, stroke)
-        XmbIcon.Photo -> drawCamera(tint, stroke)
-        XmbIcon.Video -> drawFilm(tint, stroke)
-        XmbIcon.NowPlaying -> drawNote(tint, stroke)
+        XmbIcon.Photo -> drawFigmaGlyph(FigmaGlyph.PHOTO, tint)
+        XmbIcon.Video -> drawFigmaGlyph(FigmaGlyph.VIDEO, tint)
+        XmbIcon.NowPlaying -> drawFigmaGlyph(FigmaGlyph.MUSIC, tint)
         XmbIcon.Playlist -> drawList(tint, stroke)
         XmbIcon.Dsp -> drawWave(tint, stroke)
         XmbIcon.Spotify -> drawSpotify(tint, stroke)
@@ -211,7 +212,7 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Store -> drawBag(tint, stroke)
         XmbIcon.News -> drawNews(tint, stroke)
         XmbIcon.System -> drawSystemCube(tint, stroke)
-        XmbIcon.GamePad -> drawController(tint, stroke)
+        XmbIcon.GamePad -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
         XmbIcon.Xora -> drawXoraWordmark(tint, stroke)
     }
 }
@@ -266,55 +267,6 @@ private fun DrawScope.drawProfiles(tint: Color, stroke: Stroke) {
     )
 }
 
-private fun DrawScope.drawSettingsToolbox(tint: Color, stroke: Stroke) {
-    val w = size.width
-    val h = size.height
-    drawRoundRect(
-        color = tint,
-        topLeft = Offset(w * 0.18f, h * 0.38f),
-        size = Size(w * 0.64f, h * 0.42f),
-        cornerRadius = CornerRadius(w * 0.06f),
-        style = stroke,
-    )
-    drawRoundRect(
-        color = tint,
-        topLeft = Offset(w * 0.32f, h * 0.22f),
-        size = Size(w * 0.36f, h * 0.2f),
-        cornerRadius = CornerRadius(w * 0.04f),
-        style = stroke,
-    )
-    drawLine(tint, Offset(w * 0.18f, h * 0.52f), Offset(w * 0.82f, h * 0.52f), strokeWidth = stroke.width)
-}
-
-private fun DrawScope.drawController(tint: Color, stroke: Stroke) {
-    val w = size.width
-    val h = size.height
-    drawRoundRect(
-        color = tint,
-        topLeft = Offset(w * 0.12f, h * 0.32f),
-        size = Size(w * 0.76f, h * 0.4f),
-        cornerRadius = CornerRadius(w * 0.18f),
-        style = stroke,
-    )
-    drawCircle(tint, radius = w * 0.055f, center = Offset(w * 0.32f, h * 0.52f))
-    drawCircle(tint, radius = w * 0.04f, center = Offset(w * 0.68f, h * 0.46f), style = stroke)
-    drawCircle(tint, radius = w * 0.04f, center = Offset(w * 0.76f, h * 0.54f), style = stroke)
-}
-
-private fun DrawScope.drawCamera(tint: Color, stroke: Stroke) {
-    val w = size.width
-    val h = size.height
-    drawRoundRect(
-        color = tint,
-        topLeft = Offset(w * 0.16f, h * 0.32f),
-        size = Size(w * 0.68f, h * 0.44f),
-        cornerRadius = CornerRadius(w * 0.08f),
-        style = stroke,
-    )
-    drawCircle(tint, radius = w * 0.12f, center = Offset(w * 0.5f, h * 0.54f), style = stroke)
-    drawCircle(tint, radius = w * 0.04f, center = Offset(w * 0.72f, h * 0.42f))
-}
-
 private fun DrawScope.drawNote(tint: Color, stroke: Stroke) {
     val w = size.width
     val h = size.height
@@ -323,20 +275,6 @@ private fun DrawScope.drawNote(tint: Color, stroke: Stroke) {
     drawLine(tint, Offset(w * 0.72f, h * 0.16f), Offset(w * 0.72f, h * 0.58f), strokeWidth = stroke.width * 1.2f)
     drawCircle(tint, radius = w * 0.09f, center = Offset(w * 0.3f, h * 0.72f))
     drawCircle(tint, radius = w * 0.09f, center = Offset(w * 0.64f, h * 0.62f))
-}
-
-private fun DrawScope.drawGlobe(tint: Color, stroke: Stroke) {
-    val w = size.width
-    val c = Offset(w * 0.5f, size.height * 0.5f)
-    val r = w * 0.32f
-    drawCircle(tint, radius = r, center = c, style = stroke)
-    drawOval(
-        color = tint,
-        topLeft = Offset(c.x - r * 0.45f, c.y - r),
-        size = Size(r * 0.9f, r * 2f),
-        style = stroke,
-    )
-    drawLine(tint, Offset(c.x - r, c.y), Offset(c.x + r, c.y), strokeWidth = stroke.width)
 }
 
 private fun DrawScope.drawUser(tint: Color, stroke: Stroke) {
@@ -531,23 +469,6 @@ private fun DrawScope.drawFolder(tint: Color, stroke: Stroke) {
         CornerRadius(w * 0.04f),
         style = stroke,
     )
-}
-
-private fun DrawScope.drawFilm(tint: Color, stroke: Stroke) {
-    val w = size.width
-    val h = size.height
-    drawRoundRect(
-        tint,
-        Offset(w * 0.22f, h * 0.18f),
-        Size(w * 0.56f, h * 0.64f),
-        CornerRadius(w * 0.04f),
-        style = stroke,
-    )
-    for (i in 0 until 4) {
-        val y = h * (0.28f + i * 0.14f)
-        drawLine(tint, Offset(w * 0.28f, y), Offset(w * 0.36f, y), strokeWidth = stroke.width)
-        drawLine(tint, Offset(w * 0.64f, y), Offset(w * 0.72f, y), strokeWidth = stroke.width)
-    }
 }
 
 private fun DrawScope.drawList(tint: Color, stroke: Stroke) {
