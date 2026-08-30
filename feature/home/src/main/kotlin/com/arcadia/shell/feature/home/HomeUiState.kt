@@ -283,6 +283,15 @@ data class HomeUiState(
     val profileEditRequest: Int = 0,
     /** Wake/resume greeting overlay on the primary display. */
     val welcomeBackOpen: Boolean = false,
+    /** Cold-start boot clip overlay (fully closed → opened). */
+    val bootIntroOpen: Boolean = false,
+    /** Gamepad / caller asked the boot overlay to skip to the white fade. */
+    val bootIntroSkip: Boolean = false,
+    /**
+     * False while the boot clip is still playing so XMB icons stay hidden, then true to bounce
+     * them in as the white plate fades.
+     */
+    val homeIntroReveal: Boolean = true,
     /** Latest online netplay invite waiting for Accept / Decline. */
     val pendingNetplayInvite: NetplayInvitePrompt? = null,
     val netplayInvitePromptOpen: Boolean = false,

@@ -34,13 +34,15 @@ object ArcadiaMotion {
     const val Slow = 320
     /** Theme wallpaper / BGM soft mix when switching packs. */
     const val ThemeCrossfade = THEME_CROSSFADE_MS
-    /** Library / pill chrome exit when launching into an emulator. */
-    const val Launch = 420
+    /** Split-door slide when launching into an emulator (left/right halves). */
+    const val Launch = 560
     /**
-     * Hero artwork hold as the cinematic transition plate before the emulator starts.
-     * Chrome may finish sliding out earlier; the ROM launch waits for this full beat.
+     * Wait for the split doors to clear before the emulator Activity starts.
+     * Slightly longer than [Launch] so the halves are off-screen first.
      */
-    const val LaunchHold = 3_000
+    const val LaunchHold = 720
+    /** White plate dissolve from the boot clip into the XMB. */
+    const val BootWhiteFade = 560
 }
 
 /**

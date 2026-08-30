@@ -311,6 +311,9 @@ class HomeViewModel @Inject constructor(
     private val raSettingsState = MutableStateFlow(RetroAchievementsSettings())
     private val xoraEmulatorSettingsState = MutableStateFlow(XoraEmulatorSettings())
     private val welcomeBackOpen = MutableStateFlow(false)
+    private val bootIntroOpen = MutableStateFlow(false)
+    private val bootIntroSkip = MutableStateFlow(false)
+    private val homeIntroReveal = MutableStateFlow(true)
     private val isScraping = MutableStateFlow(false)
     private val lastInputAt = MutableStateFlow(SystemClock.elapsedRealtime())
     /** False while Settings / options dialog own the shell, or the host asks to pause trailers. */
@@ -323,8 +326,8 @@ class HomeViewModel @Inject constructor(
     /** True when the last pause happened while the display was not interactive (screen off). */
     private var pausedWhileScreenOff: Boolean = false
     /**
-     * Process-start greeting candidate. Consumed on the first [onResumed] that can decide
-     * (onboarding complete → show; incomplete → skip without showing later for this cold start).
+     * Process-start boot candidate. Consumed on the first [onResumed] that can decide
+     * (onboarding complete → play boot clip; incomplete → skip without showing later).
      */
     private var pendingColdStartWelcome: Boolean = true
 
@@ -877,8 +880,20 @@ class HomeViewModel @Inject constructor(
         val invitePromptOpen: Boolean,
     )
 
+    private data class WakeChrome(
+        val welcomeBack: Boolean,
+        val bootIntro: Boolean,
+        val bootSkip: Boolean,
+        val homeIntroReveal: Boolean,
+        val notif: NotificationChrome,
+    )
+
     private data class AuxChrome(
-        val welcomeAndNotif: Pair<Boolean, NotificationChrome>,
+        val welcomeBack: Boolean,
+        val bootIntro: Boolean,
+        val bootSkip: Boolean,
+        val homeIntroReveal: Boolean,
+        val notif: NotificationChrome,
         val systemProfile: SystemProfileCardState,
         val photos: PhotosUiState,
         val dashboard: XoraDashboardUiState,
@@ -890,27 +905,46 @@ class HomeViewModel @Inject constructor(
         insightUi,
         systemPanelSelectedIndex,
         combine(
-            combine(welcomeBackOpen, notificationChrome) { welcome, notif -> welcome to notif },
+            combine(
+                welcomeBackOpen,
+                bootIntroOpen,
+                bootIntroSkip,
+                homeIntroReveal,
+                notificationChrome,
+            ) { welcome, boot, skip, reveal, notif ->
+                WakeChrome(welcome, boot, skip, reveal, notif)
+            },
             systemProfileChromeFlow(),
             photosUi,
             dashboardFlow,
-        ) { welcomeAndNotif, systemProfile, photos, dashboard ->
-            AuxChrome(welcomeAndNotif, systemProfile, photos, dashboard)
+        ) { wake, systemProfile, photos, dashboard ->
+            AuxChrome(
+                welcomeBack = wake.welcomeBack,
+                bootIntro = wake.bootIntro,
+                bootSkip = wake.bootSkip,
+                homeIntroReveal = wake.homeIntroReveal,
+                notif = wake.notif,
+                systemProfile = systemProfile,
+                photos = photos,
+                dashboard = dashboard,
+            )
         },
     ) { base, trailer, insight, systemIndex, aux ->
-        val (welcomeBack, notif) = aux.welcomeAndNotif
         base.copy(
             trailer = trailer,
             insight = insight,
             systemPanelSelectedIndex = systemIndex,
-            welcomeBackOpen = welcomeBack,
-            notificationHistoryOpen = notif.open,
-            notificationHistory = notif.history,
-            notificationUnreadCount = notif.unreadCount,
-            notificationHistorySelectedIndex = notif.selectedIndex
-                .coerceIn(0, if (notif.history.isEmpty()) 0 else notif.history.size),
-            pendingNetplayInvite = notif.pendingInvite,
-            netplayInvitePromptOpen = notif.invitePromptOpen,
+            welcomeBackOpen = aux.welcomeBack,
+            bootIntroOpen = aux.bootIntro,
+            bootIntroSkip = aux.bootSkip,
+            homeIntroReveal = aux.homeIntroReveal,
+            notificationHistoryOpen = aux.notif.open,
+            notificationHistory = aux.notif.history,
+            notificationUnreadCount = aux.notif.unreadCount,
+            notificationHistorySelectedIndex = aux.notif.selectedIndex
+                .coerceIn(0, if (aux.notif.history.isEmpty()) 0 else aux.notif.history.size),
+            pendingNetplayInvite = aux.notif.pendingInvite,
+            netplayInvitePromptOpen = aux.notif.invitePromptOpen,
             systemProfile = aux.systemProfile,
             photos = aux.photos,
             dashboard = aux.dashboard,
@@ -2432,7 +2466,13 @@ class HomeViewModel @Inject constructor(
     private fun onNavAction(action: NavAction) {
         val state = uiState.value
 
-        // Welcome-back wake screen: B / Cancel skips early; other nav is swallowed.
+        // Welcome-back wake screen / boot clip: B / Cancel / A skips; other nav is swallowed.
+        if (state.bootIntroOpen) {
+            if (action == NavAction.Cancel || action == NavAction.Confirm) {
+                skipBootIntro()
+            }
+            return
+        }
         if (state.welcomeBackOpen) {
             if (action == NavAction.Cancel || action == NavAction.Confirm) {
                 dismissWelcomeBack()
@@ -7179,9 +7219,8 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             isLaunching.value = true
             try {
-                // Chrome slides out on [ArcadiaMotion.Launch]; hero artwork holds as the
-                // transition plate for ~3s, then the emulator starts. On failure, clearing
-                // isLaunching reverses the chrome so the shell never feels stuck.
+                // Split doors slide out on [ArcadiaMotion.Launch]; the emulator starts once
+                // the halves have cleared. On failure, clearing isLaunching brings the shell back.
                 val waitMs = if (appContext.isReduceMotionPreferred()) {
                     0L
                 } else {
@@ -7534,25 +7573,46 @@ class HomeViewModel @Inject constructor(
         welcomeBackOpen.value = false
     }
 
+    fun skipBootIntro() {
+        if (!bootIntroOpen.value) return
+        bootIntroSkip.value = true
+    }
+
+    fun revealHomeAfterBoot() {
+        homeIntroReveal.value = true
+    }
+
+    fun dismissBootIntro() {
+        if (!bootIntroOpen.value) return
+        noteUserActivity()
+        bootIntroOpen.value = false
+        bootIntroSkip.value = false
+        homeIntroReveal.value = true
+    }
+
     private suspend fun maybeShowWelcomeBack() {
         val onboardingDone = preferences.onboardingComplete.first()
-        val now = SystemClock.elapsedRealtime()
-        val backgroundedAt = backgroundedAtElapsed
         val screenWasOff = pausedWhileScreenOff
         backgroundedAtElapsed = null
         pausedWhileScreenOff = false
 
-        if (welcomeBackOpen.value) return
+        if (!onboardingDone) return
 
         val coldStart = pendingColdStartWelcome
         if (pendingColdStartWelcome) pendingColdStartWelcome = false
 
-        if (!onboardingDone) return
+        if (coldStart) {
+            if (welcomeBackOpen.value || bootIntroOpen.value) return
+            homeIntroReveal.value = false
+            bootIntroSkip.value = false
+            bootIntroOpen.value = true
+            return
+        }
 
-        val awayLongEnough = backgroundedAt != null &&
-            (now - backgroundedAt) >= WELCOME_BACK_THRESHOLD_MS
-        val shouldShow = coldStart || screenWasOff || awayLongEnough
-        if (shouldShow) {
+        if (welcomeBackOpen.value || bootIntroOpen.value) return
+
+        // Sleep / screen-off wake only — quick app switches stay on the XMB.
+        if (screenWasOff) {
             welcomeBackOpen.value = true
         }
     }
@@ -7579,8 +7639,6 @@ class HomeViewModel @Inject constructor(
         const val XORA_NETPLAY_INVITE_POLL_MS = 5_000L
         /** Open-conversation refresh — chat cadence, only while the DM pane is on screen. */
         const val XORA_DM_POLL_MS = 4_000L
-        /** Ignore brief pauses (permission sheets, quick app switches). */
-        const val WELCOME_BACK_THRESHOLD_MS = 45_000L
         /** One press must not fire through two Photo Viewer layers. */
         const val PHOTO_LAYER_DEBOUNCE_MS = 250L
         /** Fullscreen photo chrome fades after this pause. */

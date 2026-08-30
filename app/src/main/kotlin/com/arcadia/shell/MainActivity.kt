@@ -87,6 +87,12 @@ class MainActivity : ComponentActivity() {
                 backgroundMusic.setLibraryMusicActive(homeState.music.nowPlaying.isPlaying)
             }
 
+            LaunchedEffect(homeState.bootIntroOpen, homeState.homeIntroReveal) {
+                backgroundMusic.setBootIntroActive(
+                    homeState.bootIntroOpen && !homeState.homeIntroReveal,
+                )
+            }
+
             LaunchedEffect(shellState.prefsReady, shellState.showOnboarding) {
                 val holdShellBgm = !shellState.prefsReady || shellState.showOnboarding
                 backgroundMusic.setOnboardingActive(holdShellBgm)

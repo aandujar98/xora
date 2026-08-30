@@ -90,6 +90,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
+import kotlinx.coroutines.delay
 
 /**
  * PSP / PS3-style Cross Media Bar.
@@ -307,6 +308,7 @@ fun XoraHomeXmbPane(
                 )
                 else -> XmbCross(
                     xmb = xmb,
+                    introReveal = state.homeIntroReveal,
                     onSelectCategory = onSelectCategory,
                     onSelectItem = onSelectItem,
                     onActivateItem = onActivateItem,
@@ -539,6 +541,7 @@ fun XoraXmbHeroDetail(
 @Composable
 private fun XmbCross(
     xmb: XoraXmbUiState,
+    introReveal: Boolean,
     onSelectCategory: (Int) -> Unit,
     onSelectItem: (Int) -> Unit,
     onActivateItem: () -> Unit,
@@ -654,15 +657,20 @@ private fun XmbCross(
             }
             val xPx = crossXPx - catIconPx / 2f + categoryPitchPx * delta
             val yPx = catYPx - catIconPx / 2f
+            val intro = rememberIntroAppear(
+                reveal = introReveal,
+                delayMs = (abs(index - xmb.categoryIndex) * 26).coerceAtMost(180),
+                reduceMotion = reduceMotion,
+            )
 
             Box(
                 modifier = Modifier
                     .graphicsLayer {
                         translationX = xPx
-                        translationY = yPx
-                        scaleX = scale
-                        scaleY = scale
-                        this.alpha = alpha
+                        translationY = yPx + intro.dropPx
+                        scaleX = scale * intro.scale
+                        scaleY = scale * intro.scale
+                        this.alpha = alpha * intro.alpha
                         transformOrigin = TransformOrigin.Center
                     }
                     .size(catIcon)
@@ -683,6 +691,11 @@ private fun XmbCross(
 
         // ——— Vertical items (glyphs slide through a fixed focus slot) ———
         if (items.isEmpty()) {
+            val emptyIntro = rememberIntroAppear(
+                reveal = introReveal,
+                delayMs = 80,
+                reduceMotion = reduceMotion,
+            )
             XoraSecondaryText(
                 text = "Nothing here yet",
                 fontSize = 18.sp,
@@ -691,8 +704,8 @@ private fun XmbCross(
                     .onSizeChanged { emptyLabelHeightPx = it.height.toFloat() }
                     .graphicsLayer {
                         translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
-                        translationY = itemFocusYPx - emptyLabelHeightPx / 2f
-                        alpha = enterAlpha
+                        translationY = itemFocusYPx - emptyLabelHeightPx / 2f + emptyIntro.dropPx
+                        alpha = enterAlpha * emptyIntro.alpha
                     },
             )
         } else {
@@ -731,16 +744,21 @@ private fun XmbCross(
                 // Expand spacing around the focus slot so the selected glyph can breathe.
                 val yPx = itemFocusYPx - itemRowPx / 2f + xmbItemOffsetY(delta, itemPitchPx)
                 val xPx = crossXPx - glyphSlotPx / 2f
+                val intro = rememberIntroAppear(
+                    reveal = introReveal,
+                    delayMs = (abs(index - xmb.itemIndex) * 22).coerceAtMost(160) + 40,
+                    reduceMotion = reduceMotion,
+                )
 
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .graphicsLayer {
                             translationX = xPx
-                            translationY = yPx
-                            this.alpha = alpha * enterAlpha
-                            scaleX = scale
-                            scaleY = scale
+                            translationY = yPx + intro.dropPx
+                            this.alpha = alpha * enterAlpha * intro.alpha
+                            scaleX = scale * intro.scale
+                            scaleY = scale * intro.scale
                             transformOrigin = TransformOrigin.Center
                         }
                         .width(glyphSlot)
@@ -768,6 +786,11 @@ private fun XmbCross(
             val focusItem = items.getOrNull(xmb.itemIndex)
             if (focusItem != null) {
                 val detailX = crossXPx + glyphSlotPx / 2f + glyphGapPx
+                val detailIntro = rememberIntroAppear(
+                    reveal = introReveal,
+                    delayMs = 90,
+                    reduceMotion = reduceMotion,
+                )
                 AnimatedContent(
                     targetState = FocusDetail(
                         id = focusItem.id,
@@ -792,8 +815,8 @@ private fun XmbCross(
                         .onSizeChanged { detailHeightPx = it.height.toFloat() }
                         .graphicsLayer {
                             translationX = detailX
-                            translationY = itemFocusYPx - detailHeightPx / 2f
-                            alpha = enterAlpha
+                            translationY = itemFocusYPx - detailHeightPx / 2f + detailIntro.dropPx
+                            alpha = enterAlpha * detailIntro.alpha
                         }
                         .widthIn(max = if (browsingBoxes) 480.dp else 400.dp),
                 ) { detail ->
@@ -893,6 +916,66 @@ private fun xmbItemOffsetY(delta: Float, pitchPx: Float): Float {
 private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)
 
 private fun lerpDp(a: Dp, b: Dp, t: Float): Dp = a + (b - a) * t.coerceIn(0f, 1f)
+
+private data class IntroAppear(
+    val scale: Float,
+    val alpha: Float,
+    val dropPx: Float,
+)
+
+@Composable
+private fun rememberIntroAppear(
+    reveal: Boolean,
+    delayMs: Int,
+    reduceMotion: Boolean,
+): IntroAppear {
+    val progress = remember { Animatable(if (reveal) 1f else 0f) }
+    LaunchedEffect(reveal, delayMs, reduceMotion) {
+        if (!reveal) {
+            progress.snapTo(0f)
+            return@LaunchedEffect
+        }
+        if (progress.value >= 0.999f) return@LaunchedEffect
+        if (reduceMotion) {
+            progress.snapTo(1f)
+            return@LaunchedEffect
+        }
+        delay(delayMs.toLong())
+        progress.animateTo(
+            1f,
+            spring(dampingRatio = 0.48f, stiffness = 420f),
+        )
+    }
+    val p = progress.value
+    return IntroAppear(
+        scale = 0.22f + 0.78f * p,
+        alpha = p.coerceIn(0f, 1f),
+        dropPx = (1f - p.coerceIn(0f, 1f)) * -22f,
+    )
+}
+
+@Composable
+private fun rememberIntroSlide(
+    reveal: Boolean,
+    delayMs: Int,
+    reduceMotion: Boolean,
+): Float {
+    val slide = remember { Animatable(if (reveal) 0f else 1f) }
+    LaunchedEffect(reveal, delayMs, reduceMotion) {
+        if (!reveal) {
+            slide.snapTo(1f)
+            return@LaunchedEffect
+        }
+        if (slide.value <= 0.001f) return@LaunchedEffect
+        if (reduceMotion) {
+            slide.snapTo(0f)
+            return@LaunchedEffect
+        }
+        delay(delayMs.toLong())
+        slide.animateTo(0f, tween(480, easing = FastOutSlowInEasing))
+    }
+    return slide.value
+}
 
 @Composable
 private fun XmbRomTitle(
@@ -1139,6 +1222,14 @@ private fun XoraXmbPillChrome(
         if (state.profileEditRequest > 0) profileEditing = true
     }
     val launching = state.isLaunching
+    val reduceMotion = rememberReduceMotion()
+    val introSlide = rememberIntroSlide(
+        reveal = state.homeIntroReveal,
+        delayMs = 110,
+        reduceMotion = reduceMotion,
+    )
+    val slidePx = with(LocalDensity.current) { 72.dp.toPx() } * introSlide
+    val introAlpha = (1f - introSlide).coerceIn(0f, 1f)
     val accountExpanded = state.accountPanelExpanded && !launching
     val systemExpanded = state.systemPanelExpanded && !launching
     val achievementsExpanded = state.achievementsPanelExpanded && !launching
@@ -1165,7 +1256,10 @@ private fun XoraXmbPillChrome(
                 .align(Alignment.TopStart)
                 .heightIn(max = paneMaxHeight - 24.dp)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
-                .graphicsLayer { alpha = if (launching) 0f else 1f },
+                .graphicsLayer {
+                    alpha = introAlpha
+                    translationX = -slidePx
+                },
         )
         SystemPill(
             profile = state.profile,
@@ -1187,7 +1281,10 @@ private fun XoraXmbPillChrome(
                 .align(Alignment.TopEnd)
                 .heightIn(max = paneMaxHeight)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
-                .graphicsLayer { alpha = if (launching) 0f else 1f },
+                .graphicsLayer {
+                    alpha = introAlpha
+                    translationX = slidePx
+                },
         )
 
         // Music owns this corner while browsing; the full Now Playing page already has transport,
@@ -1200,7 +1297,10 @@ private fun XoraXmbPillChrome(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .graphicsLayer { alpha = if (launching) 0f else 1f },
+                    .graphicsLayer {
+                        alpha = introAlpha
+                        translationY = slidePx * 0.85f
+                    },
             )
         } else if (!musicFocused) {
             AchievementsPill(
@@ -1213,7 +1313,10 @@ private fun XoraXmbPillChrome(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .graphicsLayer { alpha = if (launching) 0f else 1f },
+                    .graphicsLayer {
+                        alpha = introAlpha
+                        translationY = slidePx * 0.85f
+                    },
             )
         }
 

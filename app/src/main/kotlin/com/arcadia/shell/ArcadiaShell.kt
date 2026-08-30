@@ -70,6 +70,8 @@ import com.arcadia.shell.feature.home.component.DiscordConversationWindow
 import com.arcadia.shell.feature.home.component.XoraConversationWindow
 import com.arcadia.shell.feature.home.component.StartSettingsPanel
 import com.arcadia.shell.feature.home.component.WelcomeBackOverlay
+import com.arcadia.shell.feature.home.component.BootIntroOverlay
+import com.arcadia.shell.feature.home.component.LaunchSplitOverlay
 import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.feature.settings.OnboardingExternalAuthRequest
 import com.arcadia.shell.feature.settings.OnboardingScreen
@@ -279,8 +281,8 @@ fun ArcadiaShell(
             route == ShellRoute.Home && !dialogOverlayOpen && !shellState.showOnboarding
     }
 
-    // Idle trailers are Home-only; Settings, options, Guide, Start config, welcome-back, and launch overlay must return to artwork.
-    LaunchedEffect(route, overlayOpen, state.isLaunching, state.guideOpen, state.startSettingsOpen, state.welcomeBackOpen, shellState.showOnboarding) {
+    // Idle trailers are Home-only; Settings, options, Guide, Start config, welcome-back, boot, and launch overlay must return to artwork.
+    LaunchedEffect(route, overlayOpen, state.isLaunching, state.guideOpen, state.startSettingsOpen, state.welcomeBackOpen, state.bootIntroOpen, shellState.showOnboarding) {
         homeViewModel.setTrailerGateAllowed(
             allowed = route == ShellRoute.Home &&
                 !overlayOpen &&
@@ -288,14 +290,16 @@ fun ArcadiaShell(
                 !state.guideOpen &&
                 !state.startSettingsOpen &&
                 !state.welcomeBackOpen &&
+                !state.bootIntroOpen &&
                 !shellState.showOnboarding,
         )
     }
 
-    // Drop a queued wake greeting if onboarding or Settings owns the shell.
-    LaunchedEffect(state.welcomeBackOpen, route, shellState.showOnboarding) {
-        if (state.welcomeBackOpen && (shellState.showOnboarding || route != ShellRoute.Home)) {
-            homeViewModel.dismissWelcomeBack()
+    // Drop a queued wake greeting / boot clip if onboarding or Settings owns the shell.
+    LaunchedEffect(state.welcomeBackOpen, state.bootIntroOpen, route, shellState.showOnboarding) {
+        if (shellState.showOnboarding || route != ShellRoute.Home) {
+            if (state.welcomeBackOpen) homeViewModel.dismissWelcomeBack()
+            if (state.bootIntroOpen) homeViewModel.dismissBootIntro()
         }
     }
 
@@ -480,6 +484,11 @@ fun ArcadiaShell(
                 )
             }
 
+            LaunchSplitOverlay(
+                launching = state.isLaunching && route == ShellRoute.Home,
+                modifier = Modifier.fillMaxSize(),
+            )
+
             AnimatedVisibility(
                 visible = route == ShellRoute.Settings,
                 enter = fadeIn(routeTween),
@@ -516,6 +525,13 @@ fun ArcadiaShell(
                     modifier = Modifier.fillMaxSize(),
                 )
                 // Primary Activity only — same rule as Start settings / notification banners.
+                BootIntroOverlay(
+                    visible = state.bootIntroOpen && !shellState.showOnboarding,
+                    skip = state.bootIntroSkip,
+                    onRevealHome = homeViewModel::revealHomeAfterBoot,
+                    onFinished = homeViewModel::dismissBootIntro,
+                    modifier = Modifier.fillMaxSize(),
+                )
                 WelcomeBackOverlay(
                     visible = state.welcomeBackOpen && !shellState.showOnboarding,
                     profile = state.profile,
@@ -599,6 +615,10 @@ fun ArcadiaShell(
                                 role = shellState.secondaryDisplayRole,
                                 state = state,
                                 homeViewModel = homeViewModel,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            LaunchSplitOverlay(
+                                launching = state.isLaunching,
                                 modifier = Modifier.fillMaxSize(),
                             )
                             // Guide may still mirror; Start settings + notification banners stay on

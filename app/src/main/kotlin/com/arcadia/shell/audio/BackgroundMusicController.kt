@@ -62,6 +62,8 @@ class BackgroundMusicController @Inject constructor(
     private var onboardingActive: Boolean = false
     /** When true, shell BGM stays paused so Music / Now Playing owns the soundtrack. */
     private var libraryMusicActive: Boolean = false
+    /** When true, shell BGM stays paused so the boot clip can own the soundtrack. */
+    private var bootIntroActive: Boolean = false
     private var crossfadeJob: Job? = null
     /** Outgoing player during a soft mix; released when the fade completes or is cancelled. */
     private var fadingOutPlayer: MediaPlayer? = null
@@ -131,6 +133,13 @@ class BackgroundMusicController @Inject constructor(
         syncPlayback()
     }
 
+    /** Pause shell BGM while the cold-start boot clip is playing (it has its own audio). */
+    fun setBootIntroActive(active: Boolean) {
+        if (bootIntroActive == active) return
+        bootIntroActive = active
+        syncPlayback()
+    }
+
     fun onForeground() {
         foreground = true
         syncPlayback()
@@ -155,7 +164,7 @@ class BackgroundMusicController @Inject constructor(
     }
 
     private fun syncPlayback() {
-        if (!foreground || volume <= 0f || onboardingActive || libraryMusicActive) {
+        if (!foreground || volume <= 0f || onboardingActive || libraryMusicActive || bootIntroActive) {
             runCatching { player?.pause() }
             if (!foreground) abandonAudioFocus()
             return
@@ -177,7 +186,7 @@ class BackgroundMusicController @Inject constructor(
             syncPlayback()
             return
         }
-        if (!foreground || volume <= 0f || onboardingActive || player == null || loadedKey == KEY_UNLOADED) {
+        if (!foreground || volume <= 0f || onboardingActive || bootIntroActive || player == null || loadedKey == KEY_UNLOADED) {
             cancelCrossfade(releaseOutgoing = true)
             resetPlayer()
             syncPlayback()
