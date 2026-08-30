@@ -621,7 +621,7 @@ private fun XmbCross(
         val itemFocusYPx = with(density) { itemFocusY.toPx() }
         val glyphSlot = if (browsingBoxes) boxFocusWidth else itemIcon
         val glyphSlotPx = with(density) { glyphSlot.toPx() }
-        val glyphGap = if (browsingBoxes) 18.dp else 14.dp
+        val glyphGap = if (browsingBoxes) 24.dp else 20.dp
         val glyphGapPx = with(density) { glyphGap.toPx() }
         val catScroll = categoryScroll.value
         val rowScroll = itemScroll.value
@@ -667,7 +667,7 @@ private fun XmbCross(
                 XmbVectorIcon(
                     icon = category.toXmbIcon(),
                     tint = Color.White,
-                    size = 34.dp,
+                    size = CATEGORY_GLYPH,
                     glass = true,
                 )
             }
@@ -781,10 +781,10 @@ private fun XmbCross(
                     modifier = Modifier
                         .graphicsLayer {
                             translationX = detailX
-                            translationY = itemFocusYPx - with(density) { 28.dp.toPx() }
+                            translationY = itemFocusYPx - with(density) { 36.dp.toPx() }
                             alpha = enterAlpha
                         }
-                        .widthIn(max = if (browsingBoxes) 420.dp else 360.dp),
+                        .widthIn(max = if (browsingBoxes) 480.dp else 400.dp),
                 ) { detail ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (detail.browsingRoms) {
@@ -810,13 +810,13 @@ private fun XmbCross(
                                 XoraTitleText(
                                     text = detail.title,
                                     fontWeight = FontWeight.SemiBold,
-                                    fontSize = 20.sp,
+                                    fontSize = 24.sp,
                                     maxLines = 2,
                                 )
                                 if (!detail.subtitle.isNullOrBlank()) {
                                     XoraSecondaryText(
                                         text = detail.subtitle,
-                                        fontSize = 12.sp,
+                                        fontSize = 14.sp,
                                         maxLines = 1,
                                     )
                                 }
@@ -915,7 +915,7 @@ private fun XmbRomTitle(
             XoraTitleText(
                 text = title,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                fontSize = if (selected) 18.sp else 14.sp,
+                fontSize = if (selected) 22.sp else 16.sp,
                 maxLines = 2,
             )
         }
@@ -929,13 +929,13 @@ private fun XmbRomTitle(
                 if (!subtitle.isNullOrBlank()) {
                     XoraSecondaryText(
                         text = subtitle,
-                        fontSize = 11.sp,
+                        fontSize = 13.sp,
                         maxLines = 1,
                     )
                 }
                 XoraSecondaryText(
                     text = "Playtime: ${formatXmbPlaytime(playTimeMs)}",
-                    fontSize = 11.sp,
+                    fontSize = 13.sp,
                     maxLines = 1,
                 )
             }
@@ -1019,7 +1019,7 @@ private fun XmbItemGlyph(
                 icon = icon,
                 tint = Color.White,
                 // Without a plate the glyph can carry more of the slot.
-                size = minOf(width, height) * 0.62f,
+                size = minOf(width, height) * 0.78f,
                 glass = true,
             )
         }
@@ -1231,30 +1231,32 @@ private fun XoraXmbPillChrome(
 private const val XMB_DEPTH_SLIDE_MS = 300
 private const val CROSS_X_FRACTION = 0.28f
 /** Category strip sits in the upper third (PS3 XMB). */
-private const val CATEGORY_Y_FRACTION = 0.30f
+private const val CATEGORY_Y_FRACTION = 0.28f
 /** Ease-out slide duration for category / item cursors and focus titles. */
 private const val XMB_SCROLL_MS = 340
-/** Focused item center sits below the category strip + label. */
-private val CATEGORY_TO_ITEM_GAP = 110.dp
+/** Focused item center sits below the category strip. */
+private val CATEGORY_TO_ITEM_GAP = 150.dp
 private const val VISIBLE_ITEM_RADIUS = 4
-private val CATEGORY_PITCH = 96.dp
-private val ITEM_PITCH = 58.dp
-private val CATEGORY_ICON = 52.dp
+private val CATEGORY_PITCH = 148.dp
+private val ITEM_PITCH = 76.dp
+private val CATEGORY_ICON = 78.dp
+/** Drawn glyph inside [CATEGORY_ICON] — fills most of the slot now that plates are gone. */
+private val CATEGORY_GLYPH = 60.dp
 /** Focused category icon scale. */
-private const val CATEGORY_FOCUS_SCALE = 1.32f
-private val ITEM_ICON = 42.dp
-private val ITEM_ROW = 56.dp
+private const val CATEGORY_FOCUS_SCALE = 1.40f
+private val ITEM_ICON = 62.dp
+private val ITEM_ROW = 78.dp
 /** Landscape 16:9 ROM box (height = width × [ROM_BOX_ASPECT]). */
-private val ROM_BOX_WIDTH = 128.dp
-private val ROM_BOX_WIDTH_FOCUS = 176.dp
+private val ROM_BOX_WIDTH = 148.dp
+private val ROM_BOX_WIDTH_FOCUS = 204.dp
 private const val ROM_BOX_ASPECT = 9f / 16f
-private val ROM_ITEM_ROW = 118.dp
-private val ROM_ITEM_PITCH = 104.dp
-private val ROM_LOGO_HEIGHT = 42.dp
-private val ROM_LOGO_HEIGHT_FOCUS = 64.dp
+private val ROM_ITEM_ROW = 136.dp
+private val ROM_ITEM_PITCH = 120.dp
+private val ROM_LOGO_HEIGHT = 48.dp
+private val ROM_LOGO_HEIGHT_FOCUS = 76.dp
 /** Console product art (ScreenScraper illustration/photo) — near-square card. */
-private val SYSTEM_BOX_WIDTH = 96.dp
-private val SYSTEM_BOX_WIDTH_FOCUS = 132.dp
+private val SYSTEM_BOX_WIDTH = 112.dp
+private val SYSTEM_BOX_WIDTH_FOCUS = 154.dp
 private const val SYSTEM_BOX_ASPECT = 1.05f
-private val SYSTEM_ITEM_ROW = 156.dp
-private val SYSTEM_ITEM_PITCH = 140.dp
+private val SYSTEM_ITEM_ROW = 180.dp
+private val SYSTEM_ITEM_PITCH = 162.dp

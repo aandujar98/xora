@@ -231,7 +231,7 @@ fun XoraInGameXmbOverlay(
                 val delta = index - catScroll
                 val distance = abs(delta)
                 val scale = when {
-                    distance < 0.5f -> lerp(1.12f, 1.32f, 1f - distance / 0.5f)
+                    distance < 0.5f -> lerp(1.12f, 1.40f, 1f - distance / 0.5f)
                     distance < 1.5f -> lerp(0.86f, 1.12f, 1.5f - distance)
                     distance < 2.5f -> lerp(0.72f, 0.86f, 2.5f - distance)
                     else -> 0.58f
@@ -264,7 +264,7 @@ fun XoraInGameXmbOverlay(
                     XmbVectorIcon(
                         icon = cat.toXmbIcon(),
                         tint = Color.White,
-                        size = 34.dp,
+                        size = CATEGORY_GLYPH,
                     )
                 }
             }
@@ -276,16 +276,16 @@ fun XoraInGameXmbOverlay(
             XoraTitleText(
                 text = catLabel,
                 fontWeight = FontWeight.Medium,
-                fontSize = 11.sp,
+                fontSize = 14.sp,
                 maxLines = 1,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .graphicsLayer {
-                        translationX = crossXPx - with(density) { 120.dp.toPx() } / 2f
-                        translationY = catYPx + catIconPx / 2f + with(density) { 4.dp.toPx() }
+                        translationX = crossXPx - with(density) { 160.dp.toPx() } / 2f
+                        translationY = catYPx + catIconPx / 2f + with(density) { 8.dp.toPx() }
                         alpha = if (atRoot) 0.95f else 0.45f
                     }
-                    .width(120.dp),
+                    .width(160.dp),
             )
 
             if (items.isEmpty()) {
@@ -353,7 +353,7 @@ fun XoraInGameXmbOverlay(
                         XmbVectorIcon(
                             icon = item.icon,
                             tint = Color.White,
-                            size = 28.dp,
+                            size = ITEM_GLYPH,
                         )
                     }
                     Column(
@@ -373,13 +373,13 @@ fun XoraInGameXmbOverlay(
                             } else {
                                 FontWeight.Medium
                             },
-                            fontSize = if (index == safeItemIndex) 20.sp else 16.sp,
+                            fontSize = if (index == safeItemIndex) 24.sp else 18.sp,
                             maxLines = 1,
                         )
                         if (!item.subtitle.isNullOrBlank() && index == safeItemIndex) {
                             XoraSecondaryText(
                                 text = item.subtitle,
-                                fontSize = 12.sp,
+                                fontSize = 14.sp,
                                 fillColor = Color.White.copy(alpha = 0.7f),
                                 maxLines = 1,
                             )
@@ -467,12 +467,14 @@ private fun xmbInGameItemOffsetY(delta: Float, pitchPx: Float): Float {
 private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)
 
 private const val CROSS_X_FRACTION = 0.28f
-private const val CATEGORY_Y_FRACTION = 0.30f
-private val CATEGORY_TO_ITEM_GAP = 72.dp
+private const val CATEGORY_Y_FRACTION = 0.28f
+private val CATEGORY_TO_ITEM_GAP = 100.dp
 private const val INGAME_XMB_SCROLL_MS = 340
 private const val VISIBLE_ITEM_RADIUS = 4
-private val CATEGORY_ICON = 56.dp
-private val CATEGORY_PITCH = 72.dp
-private val ITEM_ICON = 44.dp
-private val ITEM_ROW = 52.dp
-private val ITEM_PITCH = 58.dp
+private val CATEGORY_ICON = 72.dp
+private val CATEGORY_GLYPH = 54.dp
+private val CATEGORY_PITCH = 128.dp
+private val ITEM_ICON = 56.dp
+private val ITEM_GLYPH = 44.dp
+private val ITEM_ROW = 70.dp
+private val ITEM_PITCH = 72.dp
