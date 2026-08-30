@@ -335,8 +335,45 @@ fun XoraHomeXmbPane(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
+                }
+
+                if (showPillChrome) {
+                    XoraXmbPillChrome(
+                        state = state,
+                        onToggleAccountPanel = onToggleAccountPanel,
+                        onToggleSystemPanel = onToggleSystemPanel,
+                        onToggleAchievementsPanel = onToggleAchievementsPanel,
+                        onSelectSocialTab = onSelectSocialTab,
+                        onSelectAccountRow = onSelectAccountRow,
+                        onActivateAccountRow = onActivateAccountRow,
+                        onSelectSystemRow = onSelectSystemRow,
+                        onActivateSystemRow = onActivateSystemRow,
+                        onOpenNotifications = onOpenNotifications,
+                        onSystemStatusDraftChange = onSystemStatusDraftChange,
+                        onSaveCustomStatus = onSaveCustomStatus,
+                        onClearCustomStatus = onClearCustomStatus,
+                        onSaveProfile = onSaveProfile,
+                        onSelectAvatarPreset = onSelectAvatarPreset,
+                        onRequestLocalAvatar = onRequestLocalAvatar,
+                        onUseRaAvatar = onUseRaAvatar,
+                        onUseDiscordAvatar = onUseDiscordAvatar,
+                        onUseXoraAvatar = onUseXoraAvatar,
+                        onXoraPresenceMode = onXoraPresenceMode,
+                        onClearAvatar = onClearAvatar,
+                        onClearNotifications = onClearNotifications,
+                        onFriendSearchChange = onFriendSearchChange,
+                        onReplyDraftChange = onReplyDraftChange,
+                        onSelectAchievementsTab = onSelectAchievementsTab,
+                        onLoginRetroAchievements = onLoginRetroAchievements,
+                        onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
+                        onSignOutRetroAchievements = onSignOutRetroAchievements,
+                    )
+                }
             }
 
+            // Dim and the Vita tray ride *above* the receding XMB. They must stay
+            // outside the layer above: it animates to alpha 0 as the tray opens, so
+            // anything nested in it fades out at the same rate the tray fades in.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -344,40 +381,6 @@ fun XoraHomeXmbPane(
             )
 
             overlayContent()
-
-            if (showPillChrome) {
-                XoraXmbPillChrome(
-                    state = state,
-                    onToggleAccountPanel = onToggleAccountPanel,
-                    onToggleSystemPanel = onToggleSystemPanel,
-                    onToggleAchievementsPanel = onToggleAchievementsPanel,
-                    onSelectSocialTab = onSelectSocialTab,
-                    onSelectAccountRow = onSelectAccountRow,
-                    onActivateAccountRow = onActivateAccountRow,
-                    onSelectSystemRow = onSelectSystemRow,
-                    onActivateSystemRow = onActivateSystemRow,
-                    onOpenNotifications = onOpenNotifications,
-                    onSystemStatusDraftChange = onSystemStatusDraftChange,
-                    onSaveCustomStatus = onSaveCustomStatus,
-                    onClearCustomStatus = onClearCustomStatus,
-                    onSaveProfile = onSaveProfile,
-                    onSelectAvatarPreset = onSelectAvatarPreset,
-                    onRequestLocalAvatar = onRequestLocalAvatar,
-                    onUseRaAvatar = onUseRaAvatar,
-                    onUseDiscordAvatar = onUseDiscordAvatar,
-                    onUseXoraAvatar = onUseXoraAvatar,
-                    onXoraPresenceMode = onXoraPresenceMode,
-                    onClearAvatar = onClearAvatar,
-                    onClearNotifications = onClearNotifications,
-                    onFriendSearchChange = onFriendSearchChange,
-                    onReplyDraftChange = onReplyDraftChange,
-                    onSelectAchievementsTab = onSelectAchievementsTab,
-                    onLoginRetroAchievements = onLoginRetroAchievements,
-                    onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                    onSignOutRetroAchievements = onSignOutRetroAchievements,
-                )
-            }
-        }
         }
     }
     }
