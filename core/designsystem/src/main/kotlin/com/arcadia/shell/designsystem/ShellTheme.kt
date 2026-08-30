@@ -120,7 +120,10 @@ object ShellThemeCatalog {
         wallpaperAssetPath = DEFAULT_WALLPAPER_ASSET,
         wallpaperPlaybackSpeed = DEFAULT_WALLPAPER_SPEED,
         wallpaperScrimAlpha = DEFAULT_WALLPAPER_SCRIM,
-        bgm = null,
+        bgm = ShellThemeBgm(
+            assetPath = DEFAULT_BGM_ASSET,
+            displayHint = "Home menu theme",
+        ),
         description = "XOrA flowing blue wave",
     )
 
@@ -330,6 +333,9 @@ const val DEFAULT_WALLPAPER_SPEED = 0.3f
 
 /** Light wash so the default loop sits behind the glass XMB glyphs. */
 const val DEFAULT_WALLPAPER_SCRIM = 0.28f
+
+/** Asset path for the default theme looping BGM. */
+const val DEFAULT_BGM_ASSET = "themes/default/bgm.mp3"
 
 /** Asset path for Persona 3 Reload theme BGM. */
 const val PERSONA3_BGM_ASSET = "themes/persona3_reload/bgm.mp3"
