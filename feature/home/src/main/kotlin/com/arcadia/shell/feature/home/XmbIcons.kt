@@ -2,8 +2,8 @@ package com.arcadia.shell.feature.home
 
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
+import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
@@ -38,7 +39,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -49,6 +49,11 @@ import kotlin.math.roundToInt
 
 /** How much wider than the glyph box the XOrA wordmark is allowed to run. */
 private const val XORA_MARK_WIDTH_SCALE = 1.7f
+
+/** XMB glyph body and 4px rim, matching the Figma icons. */
+internal val XmbGlyphFill = Color(0xFFEBEBEB)
+internal val XmbGlyphStroke = Color.White
+internal const val XmbGlyphStrokeDesignPx = 4f
 
 /** Stable glyph ids for XMB rows that are not ROM box art. */
 enum class XmbIcon {
@@ -150,6 +155,8 @@ fun XmbVectorIcon(
     castShadow: Boolean = true,
     /** PS3-style frosted glass body (white→ice-blue gradient + top gloss) instead of flat tint. */
     glass: Boolean = false,
+    /** 1080p design-px white rim around the glyph. 0 skips the rim (XML fill only). */
+    strokeWidth: Dp = 0.dp,
     shadowOffsetX: Dp = XoraForegroundShadow.OffsetX,
     shadowOffsetY: Dp = XoraForegroundShadow.OffsetY,
     shadowBlur: Dp = XoraForegroundShadow.Blur,
@@ -168,6 +175,7 @@ fun XmbVectorIcon(
         shadowWidth,
         shadowHeight,
         shadowBlur,
+        strokeWidth,
         glass,
         castShadow,
         density.density,
@@ -185,6 +193,7 @@ fun XmbVectorIcon(
                 shadowHeight,
                 glass,
                 shadowBlur,
+                strokeWidth,
             )
         }
     }
@@ -194,7 +203,7 @@ fun XmbVectorIcon(
         modifier = modifier
             .requiredSize(width = width, height = height)
             .graphicsLayer { clip = false },
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.TopStart,
     ) {
         if (shadow != null) {
             val shadowW = with(density) { shadow.image.width.toDp() }
@@ -202,9 +211,10 @@ fun XmbVectorIcon(
             Canvas(
                 modifier = Modifier
                     .requiredSize(shadowW, shadowH)
-                    .align(Alignment.TopStart)
                     .graphicsLayer {
                         clip = false
+                        // extra[] lines the blurred plate up with the glyph; then sit it
+                        // exactly 10 design-px right and 10 design-px down.
                         translationX = shadow.drawX + shadowOffsetX.toPx()
                         translationY = shadow.drawY + shadowOffsetY.toPx()
                         alpha = shadowAlpha
@@ -214,12 +224,16 @@ fun XmbVectorIcon(
             }
         }
         if (vectorRes != null) {
-            Image(
-                painter = painterResource(vectorRes),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.requiredSize(width = width, height = height),
-            )
+            Canvas(modifier = Modifier.requiredSize(width = width, height = height)) {
+                val drawable = context.getDrawable(vectorRes) ?: return@Canvas
+                val box = drawContext.size
+                drawStyledXmbDrawable(
+                    drawable = drawable,
+                    widthPx = box.width,
+                    heightPx = box.height,
+                    strokePx = strokeWidth.toPx(),
+                )
+            }
             return@Box
         }
         Canvas(modifier = Modifier.size(width = width, height = height)) {
@@ -232,9 +246,13 @@ fun XmbVectorIcon(
                 drawGlassIcon(icon, stroke)
                 return@Canvas
             }
-            if (outlined) {
-                val outline = size.toPx() * 0.055f
-                val ink = Color.Black
+            if (strokeWidth > 0.dp || outlined) {
+                val outline = if (strokeWidth > 0.dp) {
+                    strokeWidth.toPx()
+                } else {
+                    size.toPx() * 0.055f
+                }
+                val ink = if (strokeWidth > 0.dp) XmbGlyphStroke else Color.Black
                 val offsets = arrayOf(
                     Offset(-outline, 0f),
                     Offset(outline, 0f),
@@ -251,7 +269,11 @@ fun XmbVectorIcon(
                     }
                 }
             }
-            drawXmbIconContent(icon, tint, stroke)
+            drawXmbIconContent(
+                icon,
+                if (strokeWidth > 0.dp) XmbGlyphFill else tint,
+                stroke,
+            )
         }
     }
 }
@@ -277,6 +299,7 @@ fun XmbFolderImgIcon(
     shadowOffsetY: Dp = XoraForegroundShadow.OffsetY,
     shadowBlur: Dp = XoraForegroundShadow.Blur,
     shadowAlpha: Float = XoraForegroundShadow.Alpha,
+    strokeWidth: Dp = 0.dp,
 ) {
     Box(
         modifier = modifier
@@ -294,6 +317,7 @@ fun XmbFolderImgIcon(
             shadowOffsetY = shadowOffsetY,
             shadowBlur = shadowBlur,
             shadowAlpha = shadowAlpha,
+            strokeWidth = strokeWidth,
             modifier = Modifier.fillMaxSize(),
         )
         Box(
@@ -358,33 +382,30 @@ private fun rasterizeXmbGlyphShadow(
     height: Dp,
     glass: Boolean,
     blur: Dp,
+    strokeWidth: Dp,
 ): XmbGlyphShadow {
     val widthPx = with(density) { width.toPx() }
     val heightPx = with(density) { height.toPx() }
     val blurPx = with(density) { blur.toPx() }.coerceAtLeast(1f)
-    val padPx = blurPx * 2f
-    val bmpW = (widthPx + padPx * 2f).roundToInt().coerceAtLeast(1)
-    val bmpH = (heightPx + padPx * 2f).roundToInt().coerceAtLeast(1)
+    val strokePx = with(density) { strokeWidth.toPx() }.coerceAtLeast(0f)
+    // Icon-sized source: extractAlpha grows the result by the blur, and extra[] is the
+    // offset that lines that result back up with this bitmap — then the caller adds 10×10.
+    val bmpW = widthPx.roundToInt().coerceAtLeast(1)
+    val bmpH = heightPx.roundToInt().coerceAtLeast(1)
     val src = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
     val androidCanvas = android.graphics.Canvas(src)
     val vectorRes = icon.vectorDrawableRes()
     if (vectorRes != null) {
         context.getDrawable(vectorRes)?.let { drawable ->
-            drawable.setBounds(
-                padPx.roundToInt(),
-                padPx.roundToInt(),
-                (padPx + widthPx).roundToInt(),
-                (padPx + heightPx).roundToInt(),
+            drawStyledXmbDrawable(
+                canvas = androidCanvas,
+                drawable = drawable,
+                widthPx = widthPx,
+                heightPx = heightPx,
+                strokePx = strokePx,
             )
-            drawable.draw(androidCanvas)
         }
     } else {
-        // The draw scope has to be the *glyph* box, not the padded bitmap. Every glyph — the
-        // Figma paths especially — sizes itself against DrawScope.size, so handing it the padded
-        // size rasterizes a silhouette several times larger than the icon actually on screen,
-        // which is what turned the category shadows into offset blobs.
-        androidCanvas.save()
-        androidCanvas.translate(padPx, padPx)
         CanvasDrawScope().draw(
             density = density,
             layoutDirection = layoutDirection,
@@ -396,9 +417,27 @@ private fun rasterizeXmbGlyphShadow(
                 cap = StrokeCap.Round,
                 join = StrokeJoin.Round,
             )
-            drawXmbIconContent(icon, Color.Black, stroke)
+            if (strokePx > 0f) {
+                val offsets = arrayOf(
+                    Offset(-strokePx, 0f),
+                    Offset(strokePx, 0f),
+                    Offset(0f, -strokePx),
+                    Offset(0f, strokePx),
+                    Offset(-strokePx, -strokePx),
+                    Offset(strokePx, -strokePx),
+                    Offset(-strokePx, strokePx),
+                    Offset(strokePx, strokePx),
+                )
+                for (o in offsets) {
+                    translate(o.x, o.y) {
+                        drawXmbIconContent(icon, XmbGlyphStroke, stroke)
+                    }
+                }
+                drawXmbIconContent(icon, XmbGlyphFill, stroke)
+            } else {
+                drawXmbIconContent(icon, Color.Black, stroke)
+            }
         }
-        androidCanvas.restore()
     }
     val blurPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         isFilterBitmap = true
@@ -417,13 +456,46 @@ private fun rasterizeXmbGlyphShadow(
         },
     )
     alpha.recycle()
-    // Align the unblurred glyph with the icon box (top-start), then the caller adds the 10×10
-    // design-unit offset. extra[] is where extractAlpha wants the blurred plate drawn vs [src].
     return XmbGlyphShadow(
         image = tinted.asImageBitmap(),
-        drawX = extra[0] - padPx,
-        drawY = extra[1] - padPx,
+        drawX = extra[0].toFloat(),
+        drawY = extra[1].toFloat(),
     )
+}
+
+/** Fill #EBEBEB with a 4px (design) white rim, using the same drawable the screen shows. */
+private fun DrawScope.drawStyledXmbDrawable(
+    drawable: Drawable,
+    widthPx: Float,
+    heightPx: Float,
+    strokePx: Float,
+) {
+    drawStyledXmbDrawable(
+        canvas = drawContext.canvas.nativeCanvas,
+        drawable = drawable,
+        widthPx = widthPx,
+        heightPx = heightPx,
+        strokePx = strokePx,
+    )
+}
+
+private fun drawStyledXmbDrawable(
+    canvas: android.graphics.Canvas,
+    drawable: Drawable,
+    widthPx: Float,
+    heightPx: Float,
+    strokePx: Float,
+) {
+    drawable.mutate()
+    val inset = if (strokePx > 0f) (strokePx / 2f).roundToInt() else 0
+    drawable.setBounds(
+        inset,
+        inset,
+        (widthPx.roundToInt() - inset).coerceAtLeast(inset + 1),
+        (heightPx.roundToInt() - inset).coerceAtLeast(inset + 1),
+    )
+    drawable.colorFilter = null
+    drawable.draw(canvas)
 }
 
 /**

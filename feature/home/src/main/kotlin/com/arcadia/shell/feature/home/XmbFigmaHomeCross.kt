@@ -59,7 +59,8 @@ import kotlin.math.roundToInt
  *
  * Active tab: center X = 430, top = 280, contain-fit inside 178×136.
  * Inactive icons: contain-fit inside 128×92.
- * Column items share that same 430 center: focused top = 428, neighbor
+ * Column items share that same 430 center: focused item is vertically
+ * centered on y=428 so every hovered row sits on one plane. Neighbor
  * above = 105, neighbor below = 788, further items stack with 112px gap.
  */
 private const val TAB_CENTER_X = 430f
@@ -161,6 +162,7 @@ internal fun XmbCross(
         fun du(v: Float) = (v * unit).dp
         val shadowOffset = du(XoraForegroundShadow.DesignOffset)
         val shadowBlur = du(XoraForegroundShadow.DesignBlur)
+        val glyphStroke = du(XmbGlyphStrokeDesignPx)
 
         val categories = XoraXmbCategory.entries
         val items = xmb.items
@@ -214,6 +216,7 @@ internal fun XmbCross(
                     shadowOffsetY = shadowOffset,
                     shadowBlur = shadowBlur,
                     shadowAlpha = XoraForegroundShadow.Alpha,
+                    strokeWidth = glyphStroke,
                 )
             }
         }
@@ -367,6 +370,7 @@ private fun XmbColumnGlyph(
 ) {
     val shadowOffset = (XoraForegroundShadow.DesignOffset * unit).dp
     val shadowBlur = (XoraForegroundShadow.DesignBlur * unit).dp
+    val glyphStroke = (XmbGlyphStrokeDesignPx * unit).dp
     when {
         isGamePlate(item) -> XmbGamePlate(
             title = item.title,
@@ -384,6 +388,7 @@ private fun XmbColumnGlyph(
             shadowOffsetY = shadowOffset,
             shadowBlur = shadowBlur,
             shadowAlpha = XoraForegroundShadow.Alpha,
+            strokeWidth = glyphStroke,
         )
         !item.artPath.isNullOrBlank() -> {
             val shape = RoundedCornerShape((12f * unit).dp)
@@ -425,6 +430,7 @@ private fun XmbColumnGlyph(
                 shadowOffsetY = shadowOffset,
                 shadowBlur = shadowBlur,
                 shadowAlpha = XoraForegroundShadow.Alpha,
+                strokeWidth = glyphStroke,
             )
         }
     }
@@ -543,7 +549,9 @@ private fun layoutColumn(
     val focus = focusIndex.coerceIn(0, n - 1)
     val sizes = items.mapIndexed { i, item -> itemDesignSize(item, i == focus) }
     val tops = FloatArray(n)
-    tops[focus] = ITEM_FOCUS_Y
+    // Hovered/active item is vertically centered on 428 so every focused glyph
+    // (trophy, recents plate, device, folder) shares the same horizontal plane.
+    tops[focus] = ITEM_FOCUS_Y - sizes[focus].second / 2f
     for (i in focus - 1 downTo 0) {
         tops[i] =
             if (i == focus - 1) {
