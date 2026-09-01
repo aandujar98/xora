@@ -193,6 +193,11 @@ data class ShellSettings(
      */
     val homeWallpaperPath: String? = null,
     /**
+     * Absolute path to a gallery still cropped into the Games column Folder_IMG window.
+     * Null / blank shows the checker placeholder.
+     */
+    val homeFolderImagePath: String? = null,
+    /**
      * Absolute path to a user-picked looping BGM file. Null / blank uses the active
      * launcher theme's asset BGM when present, otherwise the bundled default
      * soundtrack (`raw/background`).
@@ -391,6 +396,7 @@ class ShellPreferences @Inject constructor(
             trailerIdleSeconds = (prefs[Keys.TRAILER_IDLE_SECONDS] ?: DEFAULT_TRAILER_IDLE_SECONDS)
                 .coerceIn(5, 60),
             homeWallpaperPath = prefs[Keys.HOME_WALLPAPER_PATH]?.takeIf { it.isNotBlank() },
+            homeFolderImagePath = prefs[Keys.HOME_FOLDER_IMAGE_PATH]?.takeIf { it.isNotBlank() },
             customBgmPath = prefs[Keys.CUSTOM_BGM_PATH]?.takeIf { it.isNotBlank() },
             musicLibraryPath = prefs[Keys.MUSIC_LIBRARY_PATH]?.takeIf { it.isNotBlank() },
             shellThemeId = prefs[Keys.SHELL_THEME_ID]?.takeIf { it.isNotBlank() }
@@ -679,6 +685,11 @@ class ShellPreferences @Inject constructor(
     suspend fun setHomeWallpaperPath(path: String?) = edit {
         if (path.isNullOrBlank()) it.remove(Keys.HOME_WALLPAPER_PATH)
         else it[Keys.HOME_WALLPAPER_PATH] = path
+    }
+
+    suspend fun setHomeFolderImagePath(path: String?) = edit {
+        if (path.isNullOrBlank()) it.remove(Keys.HOME_FOLDER_IMAGE_PATH)
+        else it[Keys.HOME_FOLDER_IMAGE_PATH] = path
     }
 
     suspend fun setCustomBgmPath(path: String?) = edit {
@@ -1210,6 +1221,7 @@ class ShellPreferences @Inject constructor(
         /** JSON array of MediaStore photo ids favourited in the Photo Viewer. */
         val FAVORITE_PHOTO_IDS = stringPreferencesKey("favorite_photo_ids")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
+        val HOME_FOLDER_IMAGE_PATH = stringPreferencesKey("home_folder_image_path")
         val CUSTOM_BGM_PATH = stringPreferencesKey("custom_bgm_path")
         val MUSIC_LIBRARY_PATH = stringPreferencesKey("music_library_path")
         val SHELL_THEME_ID = stringPreferencesKey("shell_theme_id")

@@ -135,6 +135,11 @@ fun ArcadiaShell(
     ) { uri ->
         if (uri != null) homeViewModel.setHomeWallpaper(uri)
     }
+    val folderImagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) homeViewModel.setHomeFolderImage(uri)
+    }
     val bgmPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
     ) { uri ->
@@ -239,6 +244,9 @@ fun ArcadiaShell(
                         pendingGameMediaId = request.gameId
                         gameSoundBitePicker.launch("audio/*")
                     }
+                    HomeMediaPickerRequest.HomeFolderImage -> folderImagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
                 }
             }
         }

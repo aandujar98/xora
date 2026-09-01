@@ -367,6 +367,9 @@ sealed interface HomeMediaPickerRequest {
     data class GameBoxArt(val gameId: String) : HomeMediaPickerRequest
     data class GameBackground(val gameId: String) : HomeMediaPickerRequest
     data class GameSoundBite(val gameId: String) : HomeMediaPickerRequest
+
+    /** Gallery still for the Games column Folder_IMG window. */
+    data object HomeFolderImage : HomeMediaPickerRequest
 }
 
 /**

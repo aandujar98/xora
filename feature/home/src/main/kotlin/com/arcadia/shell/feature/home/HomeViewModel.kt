@@ -240,7 +240,7 @@ class HomeViewModel @Inject constructor(
     private val homeHubSection = MutableStateFlow(HomeHubSection.ShardMenu)
     private val homeShard = MutableStateFlow(HomeShard.Continue)
     private val xoraCategoryIndex = MutableStateFlow(XoraXmbCategory.Games.ordinal)
-    private val xoraItemIndex = MutableStateFlow(0)
+    private val xoraItemIndex = MutableStateFlow(GAMES_ITEM_RECENTS)
     private val xoraDepth = MutableStateFlow(XoraXmbDepth.Category)
     private val xoraDrilledPlatformId = MutableStateFlow<String?>(null)
     private val homeShortcutIndex = MutableStateFlow(0)
@@ -1904,6 +1904,7 @@ class HomeViewModel @Inject constructor(
                     "${track.title} — ${track.artist}"
                 },
                 nowPlayingArtPath = platformChrome.music.nowPlayingArtPath,
+                homeFolderImagePath = chrome.settings.homeFolderImagePath,
             )
             XoraXmbDepth.Systems -> buildXoraSystemItems(
                 summaries = summaries,
@@ -2851,7 +2852,9 @@ class HomeViewModel @Inject constructor(
             return
         }
         xoraCategoryIndex.value = coerced
-        xoraItemIndex.value = 0
+        xoraItemIndex.value = defaultXoraCategoryItemIndex(
+            XoraXmbCategory.entries[coerced],
+        )
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
     }
@@ -2883,6 +2886,7 @@ class HomeViewModel @Inject constructor(
                 xoraItemIndex.value = 0
                 xoraDrilledPlatformId.value = null
             }
+            XoraXmbAction.PickHomeFolderImage -> requestHomeFolderImage()
             XoraXmbAction.DrillXoraEmulator -> {
                 xoraDepth.value = XoraXmbDepth.Emulator
                 xoraItemIndex.value = 0
@@ -3042,7 +3046,11 @@ class HomeViewModel @Inject constructor(
                     openMusicRung(XoraXmbDepth.MusicAlbums)
                 } else {
                     xoraDepth.value = XoraXmbDepth.Category
-                    xoraItemIndex.value = 0
+                    xoraItemIndex.value = defaultXoraCategoryItemIndex(
+                        XoraXmbCategory.entries.getOrElse(xoraCategoryIndex.value) {
+                            XoraXmbCategory.Games
+                        },
+                    )
                 }
             }
             XoraXmbDepth.NowPlaying -> {
@@ -3071,7 +3079,11 @@ class HomeViewModel @Inject constructor(
                 xoraDepth.value = XoraXmbDepth.Category
                 xoraItemIndex.value = 0
             }
-            XoraXmbDepth.Systems,
+            XoraXmbDepth.Systems -> {
+                xoraDepth.value = XoraXmbDepth.Category
+                xoraItemIndex.value = GAMES_ITEM_LIBRARY
+                xoraDrilledPlatformId.value = null
+            }
             XoraXmbDepth.Emulator,
             XoraXmbDepth.DspAccounts,
             XoraXmbDepth.MusicAlbums,
@@ -4302,7 +4314,9 @@ class HomeViewModel @Inject constructor(
         val size = XoraXmbCategory.entries.size
         val next = (xoraCategoryIndex.value + delta).mod(size)
         xoraCategoryIndex.value = next
-        xoraItemIndex.value = 0
+        xoraItemIndex.value = defaultXoraCategoryItemIndex(
+            XoraXmbCategory.entries[next],
+        )
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
     }
@@ -4946,6 +4960,23 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             themeMediaStore.clearWallpaper()
             preferences.setHomeWallpaperPath(null)
+        }
+    }
+
+    private fun requestHomeFolderImage() {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.HomeFolderImage) }
+        }
+    }
+
+    fun setHomeFolderImage(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = themeMediaStore.importFolderImage(uri)
+                preferences.setHomeFolderImagePath(path)
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import folder image."))
+            }
         }
     }
 

@@ -74,7 +74,7 @@ private const val TITLE_SIZE = 48f
 private const val SUBTITLE_CENTER_Y = 583f
 private const val SUBTITLE_SIZE = 40f
 private const val RULE_X = 687f
-private const val RULE_WIDTH = 1187.5f
+private const val RULE_WIDTH = 1157f
 private const val RULE_THICKNESS = 4f
 private const val CHECK_DIAMETER = 42f
 private const val CHECK_GAP = 24f
@@ -215,7 +215,7 @@ fun XoraCardBrowsePane(
                         sizeDesignUnits = TITLE_SIZE,
                         unit = unit,
                         maxWidthDesignUnits = RULE_WIDTH - CHECK_DIAMETER - CHECK_GAP,
-                        fontFamily = XoraFonts.Title,
+                        fontFamily = XoraFonts.Secondary,
                     )
                 }
                 // Systems: core ready. DSP: account linked.

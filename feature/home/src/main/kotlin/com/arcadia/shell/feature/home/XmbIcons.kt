@@ -5,12 +5,16 @@ import android.graphics.BlurMaskFilter
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -40,6 +44,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.XoraForegroundShadow
+import com.arcadia.shell.feature.home.component.ArtworkImage
 import kotlin.math.roundToInt
 
 /** How much wider than the glyph box the XOrA wordmark is allowed to run. */
@@ -66,6 +71,8 @@ enum class XmbIcon {
     Continue,
     Favorite,
     Folder,
+    /** Handheld / Device glyph — Games column entry into the full library. */
+    Device,
     Photo,
     Video,
     NowPlaying,
@@ -96,8 +103,22 @@ fun XoraXmbCategory.toXmbIcon(): XmbIcon = when (this) {
     XoraXmbCategory.Games -> XmbIcon.Games
     XoraXmbCategory.Media -> XmbIcon.Media
     XoraXmbCategory.Music -> XmbIcon.Music
-    // The brand mark closes the cross bar; the globe stays available as [XmbIcon.Network].
-    XoraXmbCategory.Network -> XmbIcon.Xora
+    XoraXmbCategory.Network -> XmbIcon.Network
+}
+
+/** Filled Figma glyphs (and the XOrA wordmark) drawn from vector drawables instead of strokes. */
+fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
+    XmbIcon.Settings -> R.drawable.xmb_figma_settings
+    XmbIcon.Games, XmbIcon.GamePad, XmbIcon.Emulator -> R.drawable.xmb_figma_game
+    XmbIcon.Media, XmbIcon.Photo -> R.drawable.xmb_figma_photo
+    XmbIcon.Music, XmbIcon.NowPlaying -> R.drawable.xmb_figma_music
+    XmbIcon.Video -> R.drawable.xmb_figma_video
+    XmbIcon.Network -> R.drawable.xmb_figma_network
+    XmbIcon.Trophy -> R.drawable.xmb_figma_trophy
+    XmbIcon.Device -> R.drawable.xmb_figma_device
+    XmbIcon.Folder -> R.drawable.xmb_figma_folder
+    XmbIcon.Xora -> R.drawable.ic_xora_logo
+    else -> null
 }
 
 @Composable
@@ -106,6 +127,8 @@ fun XmbVectorIcon(
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
     size: Dp = 28.dp,
+    width: Dp = if (icon == XmbIcon.Xora) size * XORA_MARK_WIDTH_SCALE else size,
+    height: Dp = size,
     /** Soft black halo so glyphs stay readable over bright hero art (no glass / reflection). */
     outlined: Boolean = true,
     /** When false, a parent plate / tile already casts [XoraForegroundShadow]. */
@@ -113,18 +136,14 @@ fun XmbVectorIcon(
     /** PS3-style frosted glass body (white→ice-blue gradient + top gloss) instead of flat tint. */
     glass: Boolean = false,
 ) {
-    val boxWidth = if (icon == XmbIcon.Xora) size * XORA_MARK_WIDTH_SCALE else size
+    val vectorRes = icon.vectorDrawableRes()
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val context = LocalContext.current
     // Focused ROM rows interpolate their glyph size every frame; rasterizing on the exact Dp
     // would re-blur a bitmap per frame. A whole-dp step is invisible under a 12dp blur.
-    val shadowHeight = size.value.roundToInt().coerceAtLeast(1).dp
-    val shadowWidth = if (icon == XmbIcon.Xora) {
-        (shadowHeight.value * XORA_MARK_WIDTH_SCALE).roundToInt().dp
-    } else {
-        shadowHeight
-    }
+    val shadowHeight = height.value.roundToInt().coerceAtLeast(1).dp
+    val shadowWidth = width.value.roundToInt().coerceAtLeast(1).dp
     val shadow = remember(
         icon,
         shadowWidth,
@@ -152,7 +171,7 @@ fun XmbVectorIcon(
         // requiredSize, not size: the XOrA wordmark is wider than its slot, and a coerced box
         // would paint the mark smaller than the silhouette rasterized above it.
         modifier = modifier
-            .requiredSize(width = boxWidth, height = size)
+            .requiredSize(width = width, height = height)
             .graphicsLayer { clip = false },
         contentAlignment = Alignment.Center,
     ) {
@@ -173,16 +192,16 @@ fun XmbVectorIcon(
                 drawImage(image = shadow.image)
             }
         }
-        if (icon == XmbIcon.Xora) {
+        if (vectorRes != null) {
             Image(
-                painter = painterResource(R.drawable.ic_xora_logo),
+                painter = painterResource(vectorRes),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.requiredSize(width = boxWidth, height = size),
+                modifier = Modifier.requiredSize(width = width, height = height),
             )
             return@Box
         }
-        Canvas(modifier = Modifier.size(size)) {
+        Canvas(modifier = Modifier.size(width = width, height = height)) {
             val stroke = Stroke(
                 width = size.toPx() * (if (glass) 0.095f else 0.075f),
                 cap = StrokeCap.Round,
@@ -216,6 +235,81 @@ fun XmbVectorIcon(
     }
 }
 
+/** Inner window of [R.drawable.xmb_figma_folder] where cover art / the checker sits. */
+private const val FOLDER_WINDOW_LEFT = 0.208f
+private const val FOLDER_WINDOW_TOP = 0.284f
+private const val FOLDER_WINDOW_RIGHT = 0.799f
+private const val FOLDER_WINDOW_BOTTOM = 0.853f
+
+/**
+ * Folder_IMG: the Figma folder glyph with a checker in its window, or a gallery image cropped
+ * into that same window when the user has attached one.
+ */
+@Composable
+fun XmbFolderImgIcon(
+    artPath: String?,
+    modifier: Modifier = Modifier,
+    width: Dp,
+    height: Dp,
+    castShadow: Boolean = true,
+) {
+    Box(
+        modifier = modifier
+            .requiredSize(width = width, height = height)
+            .graphicsLayer { clip = false },
+    ) {
+        XmbVectorIcon(
+            icon = XmbIcon.Folder,
+            width = width,
+            height = height,
+            glass = false,
+            outlined = false,
+            castShadow = castShadow,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = width * FOLDER_WINDOW_LEFT,
+                    top = height * FOLDER_WINDOW_TOP,
+                    end = width * (1f - FOLDER_WINDOW_RIGHT),
+                    bottom = height * (1f - FOLDER_WINDOW_BOTTOM),
+                )
+                .clip(RoundedCornerShape(width * 0.04f)),
+        ) {
+            if (!artPath.isNullOrBlank()) {
+                ArtworkImage(
+                    path = artPath,
+                    contentDescription = null,
+                    fallbackText = "",
+                    contentScale = ContentScale.Crop,
+                    cacheInMemory = true,
+                    decodeMaxEdgePx = 256,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val cells = 8
+                    val cellW = size.width / cells
+                    val cellH = size.height / cells
+                    val light = Color(0xFFD9D9D9)
+                    val dark = Color(0xFF9A9A9A)
+                    for (row in 0 until cells) {
+                        for (col in 0 until cells) {
+                            drawRect(
+                                color = if ((row + col) % 2 == 0) light else dark,
+                                topLeft = Offset(col * cellW, row * cellH),
+                                size = Size(cellW + 0.5f, cellH + 0.5f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 private data class XmbGlyphShadow(
     val image: ImageBitmap,
     val drawX: Float,
@@ -243,8 +337,9 @@ private fun rasterizeXmbGlyphShadow(
     val bmpH = (heightPx + padPx * 2f).roundToInt().coerceAtLeast(1)
     val src = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
     val androidCanvas = android.graphics.Canvas(src)
-    if (icon == XmbIcon.Xora) {
-        context.getDrawable(R.drawable.ic_xora_logo)?.let { drawable ->
+    val vectorRes = icon.vectorDrawableRes()
+    if (vectorRes != null) {
+        context.getDrawable(vectorRes)?.let { drawable ->
             drawable.setBounds(
                 padPx.roundToInt(),
                 padPx.roundToInt(),
@@ -380,6 +475,7 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Continue -> drawPlay(tint, stroke)
         XmbIcon.Favorite -> drawStar(tint, stroke)
         XmbIcon.Folder -> drawFolder(tint, stroke)
+        XmbIcon.Device -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
         XmbIcon.Photo -> drawFigmaGlyph(FigmaGlyph.PHOTO, tint)
         XmbIcon.Video -> drawFigmaGlyph(FigmaGlyph.VIDEO, tint)
         XmbIcon.NowPlaying -> drawFigmaGlyph(FigmaGlyph.MUSIC, tint)

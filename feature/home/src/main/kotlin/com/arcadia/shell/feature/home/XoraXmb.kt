@@ -91,6 +91,8 @@ sealed interface XoraXmbAction {
     data object OpenRaLibrary : XoraXmbAction
     data object LaunchContinueOrFavorite : XoraXmbAction
     data object DrillAllGames : XoraXmbAction
+    /** Games column Folder_IMG — pick a gallery still to sit in the folder window. */
+    data object PickHomeFolderImage : XoraXmbAction
     /** Games → XOrA Emulator settings list. */
     data object DrillXoraEmulator : XoraXmbAction
     /** In-emulator XMB only — close overlay and keep playing. */
@@ -171,6 +173,15 @@ data class XoraXmbUiState(
     val selectedItem: XoraXmbItem? get() = items.getOrNull(itemIndex)
 }
 
+/** Home Games column: Trophy, recents plate, Device library, Folder_IMG. */
+const val GAMES_ITEM_TROPHY = 0
+const val GAMES_ITEM_RECENTS = 1
+const val GAMES_ITEM_LIBRARY = 2
+const val GAMES_ITEM_FOLDER = 3
+
+fun defaultXoraCategoryItemIndex(category: XoraXmbCategory): Int =
+    if (category == XoraXmbCategory.Games) GAMES_ITEM_RECENTS else 0
+
 fun buildXoraCategoryItems(
     category: XoraXmbCategory,
     /** The player's own display name — not whichever emulator would launch the selected game. */
@@ -189,6 +200,8 @@ fun buildXoraCategoryItems(
     nowPlayingLabel: String? = null,
     /** Cover art for the Music → Now Playing row. */
     nowPlayingArtPath: String? = null,
+    /** Gallery still cropped into the Games column Folder_IMG window. */
+    homeFolderImagePath: String? = null,
 ): List<XoraXmbItem> = when (category) {
     XoraXmbCategory.Profiles -> listOf(
         XoraXmbItem(
@@ -262,20 +275,22 @@ fun buildXoraCategoryItems(
         val secondary = when (gamesSecondarySlot) {
             GamesSecondarySlot.Continue -> XoraXmbItem(
                 id = "continue",
-                title = "Continue",
-                subtitle = continueGame?.title ?: "No recent game yet",
+                title = continueGame?.title ?: "Game 0",
+                subtitle = "Recently Played",
                 action = XoraXmbAction.LaunchContinueOrFavorite,
-                artPath = continueGame?.boxArtPath ?: continueGame?.heroImagePath,
+                artPath = continueGame?.heroImagePath ?: continueGame?.boxArtPath,
                 logoPath = continueGame?.logoImagePath,
+                playTimeMs = continueGame?.playTimeMs ?: 0L,
                 icon = XmbIcon.Continue,
             )
             GamesSecondarySlot.Favorite -> XoraXmbItem(
                 id = "favorite",
-                title = "Favorite",
-                subtitle = favoriteGame?.title ?: "No favourite pinned yet",
+                title = favoriteGame?.title ?: "Game 0",
+                subtitle = "Recently Played",
                 action = XoraXmbAction.LaunchContinueOrFavorite,
-                artPath = favoriteGame?.boxArtPath ?: favoriteGame?.heroImagePath,
+                artPath = favoriteGame?.heroImagePath ?: favoriteGame?.boxArtPath,
                 logoPath = favoriteGame?.logoImagePath,
+                playTimeMs = favoriteGame?.playTimeMs ?: 0L,
                 icon = XmbIcon.Favorite,
             )
         }
@@ -352,9 +367,23 @@ fun buildXoraCategoryItems(
                 add(
                     XoraXmbItem(
                         id = "all_games",
-                        title = "All Games",
-                        subtitle = "Browse by system",
+                        title = "Library",
+                        subtitle = "Platforms & titles",
                         action = XoraXmbAction.DrillAllGames,
+                        icon = XmbIcon.Device,
+                    ),
+                )
+                add(
+                    XoraXmbItem(
+                        id = "home_folder",
+                        title = "Folder",
+                        subtitle = if (homeFolderImagePath.isNullOrBlank()) {
+                            "Attach a cover from Gallery"
+                        } else {
+                            "Custom folder"
+                        },
+                        action = XoraXmbAction.PickHomeFolderImage,
+                        artPath = homeFolderImagePath,
                         icon = XmbIcon.Folder,
                     ),
                 )
