@@ -32,6 +32,9 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: gradle-
 
+      - name: Hide Discord AAR (unsupported local AAR in library module)
+        run: mv core/launcher/libs/discord_partner_sdk.aar core/launcher/libs/discord_partner_sdk.aar.bak
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
