@@ -166,7 +166,7 @@ internal fun XmbCross(
         listEnterAlpha.animateTo(1f, tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing))
     }
 
-    BoxWithConstraints(modifier = modifier) {
+    BoxWithConstraints(modifier = modifier.graphicsLayer { clip = false }) {
         val density = LocalDensity.current
         val unit = min(
             maxWidth.value / XORA_DESIGN_WIDTH,
@@ -205,20 +205,22 @@ internal fun XmbCross(
                 delayMs = (abs(index - xmb.categoryIndex) * 26).coerceAtMost(180),
                 reduceMotion = reduceMotion,
             )
+            val pad = XoraForegroundShadow.DesignExtent
             val icon = category.toXmbIcon()
 
             Box(
                 modifier = Modifier
                     .graphicsLayer {
-                        translationX = pxX(left)
-                        translationY = pxY(top) + intro.dropPx
+                        // Pad the offscreen alpha layer so the 10×10 / 15px blur is not cropped.
+                        translationX = pxX(left - pad)
+                        translationY = pxY(top - pad) + intro.dropPx
                         scaleX = intro.scale
                         scaleY = intro.scale
                         this.alpha = alpha * intro.alpha
                         transformOrigin = TransformOrigin.Center
                         clip = false
                     }
-                    .requiredSize(du(visW), du(visH))
+                    .requiredSize(du(visW + pad * 2f), du(visH + pad * 2f))
                     .clickable(
                         interactionSource = remember(index) { MutableInteractionSource() },
                         indication = null,
@@ -283,19 +285,22 @@ internal fun XmbCross(
                     delayMs = (abs(index - xmb.itemIndex) * 22).coerceAtMost(160) + 40,
                     reduceMotion = reduceMotion,
                 )
+                val pad = XoraForegroundShadow.DesignExtent
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .graphicsLayer {
-                            translationX = pxX(slot.left)
-                            translationY = pxY(slot.top) + intro.dropPx
+                            // Inactive icons use layer alpha, which otherwise crops the drop
+                            // shadow to the glyph box. Pad so the full 10×10 / 15px blur fits.
+                            translationX = pxX(slot.left - pad)
+                            translationY = pxY(slot.top - pad) + intro.dropPx
                             this.alpha = slot.alpha * enterAlpha * intro.alpha
                             scaleX = intro.scale
                             scaleY = intro.scale
                             transformOrigin = TransformOrigin.Center
                             clip = false
                         }
-                        .requiredSize(du(slot.width), du(slot.height))
+                        .requiredSize(du(slot.width + pad * 2f), du(slot.height + pad * 2f))
                         .clickable(
                             interactionSource = remember(item.id) { MutableInteractionSource() },
                             indication = null,

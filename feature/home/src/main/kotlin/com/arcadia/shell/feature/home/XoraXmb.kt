@@ -171,6 +171,22 @@ data class XoraXmbUiState(
         get() = XoraXmbCategory.entries.getOrElse(categoryIndex) { XoraXmbCategory.Games }
 
     val selectedItem: XoraXmbItem? get() = items.getOrNull(itemIndex)
+
+    /**
+     * The bottom-right RA card only belongs next to a real game (recents plate, a ROM,
+     * or in-session Resume). Trophy / Device / Folder and every other category stay clean.
+     */
+    val showsAchievementsCard: Boolean
+        get() {
+            if (focusGame == null) return false
+            return when (selectedItem?.action) {
+                is XoraXmbAction.LaunchGame,
+                is XoraXmbAction.LaunchContinueOrFavorite,
+                is XoraXmbAction.ResumeGame,
+                -> true
+                else -> depth == XoraXmbDepth.Roms
+            }
+        }
 }
 
 /** Home Games column: Trophy, recents plate, Device library, Folder_IMG. */

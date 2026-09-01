@@ -7,6 +7,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -848,9 +849,11 @@ private fun XoraXmbPillChrome(
         )
 
         // Music owns this corner while browsing; the full Now Playing page already has transport,
-        // so the mini player hides there and comes back on exit.
+        // so the mini player hides there and comes back on exit. The RA card stays hidden until
+        // the XMB is actually sitting on a game (recents / a ROM / in-session Resume).
         val musicFocused = state.xoraXmb.category == XoraXmbCategory.Music
         val showMiniPlayer = musicFocused && state.xoraXmb.depth != XoraXmbDepth.NowPlaying
+        val showAchievementsCard = !musicFocused && state.xoraXmb.showsAchievementsCard
         if (showMiniPlayer) {
             NowPlayingPill(
                 state = state.music.nowPlaying,
@@ -862,7 +865,27 @@ private fun XoraXmbPillChrome(
                         translationY = slidePx * 0.85f
                     },
             )
-        } else if (!musicFocused) {
+        }
+        AnimatedVisibility(
+            visible = showAchievementsCard,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
+                animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+                initialScale = 0.92f,
+                transformOrigin = TransformOrigin(1f, 1f),
+            ),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) + scaleOut(
+                animationSpec = arcadiaTween(ArcadiaMotion.Fast),
+                targetScale = 0.96f,
+                transformOrigin = TransformOrigin(1f, 1f),
+            ),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .graphicsLayer {
+                    alpha = introAlpha
+                    translationY = slidePx * 0.85f
+                },
+        ) {
             AchievementsPill(
                 expanded = achievementsExpanded,
                 state = state.achievements,
@@ -870,13 +893,6 @@ private fun XoraXmbPillChrome(
                 onSelectTab = onSelectAchievementsTab,
                 onLogin = onLoginRetroAchievements,
                 onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .graphicsLayer {
-                        alpha = introAlpha
-                        translationY = slidePx * 0.85f
-                    },
             )
         }
 

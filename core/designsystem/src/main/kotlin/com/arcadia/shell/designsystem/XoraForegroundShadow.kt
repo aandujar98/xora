@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.dp
 object XoraForegroundShadow {
     const val DesignOffset = 10f
     const val DesignBlur = 15f
+    /** Layout pad so an alpha offscreen layer still fits offset + blur on every side. */
+    const val DesignExtent = DesignOffset + DesignBlur
     val OffsetX: Dp = DesignOffset.dp
     val OffsetY: Dp = DesignOffset.dp
     val Spread: Dp = 0.dp

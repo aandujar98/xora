@@ -1257,7 +1257,10 @@ class HomeViewModel @Inject constructor(
         @OptIn(ExperimentalCoroutinesApi::class)
         combine(
             achievementsPanelExpanded,
-            uiState.map { it.selectedGame?.id }.distinctUntilChanged(),
+            uiState.map { state ->
+                state.xoraXmb.focusGame?.id?.takeIf { state.xoraXmb.showsAchievementsCard }
+                    ?: state.selectedGame?.id
+            }.distinctUntilChanged(),
             achievementsUi.map { it.tab }.distinctUntilChanged(),
             retroAchievements.credentials,
         ) { expanded, gameId, tab, creds ->
@@ -1272,6 +1275,14 @@ class HomeViewModel @Inject constructor(
                     return@mapLatest
                 }
                 refreshAchievements(request.gameId, request.tab, request.signedIn)
+            }
+            .launchIn(viewModelScope)
+
+        uiState
+            .map { it.homePage == HomePage.Home && !it.xoraXmb.showsAchievementsCard }
+            .distinctUntilChanged()
+            .onEach { hideHomeCard ->
+                if (hideHomeCard) achievementsPanelExpanded.value = false
             }
             .launchIn(viewModelScope)
 
@@ -6835,6 +6846,12 @@ class HomeViewModel @Inject constructor(
     fun toggleAchievementsPanel() {
         noteUserActivity()
         val opening = !achievementsPanelExpanded.value
+        if (opening) {
+            val state = uiState.value
+            if (state.homePage == HomePage.Home && !state.xoraXmb.showsAchievementsCard) {
+                return
+            }
+        }
         achievementsPanelExpanded.value = opening
         if (opening) {
             playNavCloseIfHeroPanelOpen()
