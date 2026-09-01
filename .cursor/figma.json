@@ -1,0 +1,11 @@
+{
+  "project": "https://www.figma.com/make/fxlmu6hsXHYOrxO81DdVyn/Replicate-Figma-Prototype-Layout",
+  "fileKey": "fxlmu6hsXHYOrxO81DdVyn",
+  "kind": "make",
+  "rootNodeId": "0:1",
+  "name": "Replicate Figma Prototype Layout",
+  "clientLanguages": "kotlin",
+  "clientFrameworks": "Compose",
+  "artboard": { "width": 1920, "height": 1080 },
+  "source": "src/App.tsx"
+}

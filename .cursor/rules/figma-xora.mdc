@@ -1,6 +1,6 @@
 ---
 description: Link the official Figma MCP to the current XOrA Android/Compose build. Use when implementing or syncing XMB UI, icons, or 1080p home chrome from Figma.
-globs: "feature/home/**/*.{kt,xml},core/designsystem/**/*.kt,.cursor/mcp.json"
+globs: "feature/home/**/*.{kt,xml},core/designsystem/**/*.kt,.cursor/mcp.json,.cursor/figma.json"
 alwaysApply: true
 ---
 
@@ -8,35 +8,43 @@ alwaysApply: true
 
 Figma MCP is configured for this repo in `.cursor/mcp.json` (`https://mcp.figma.com/mcp`). Authenticate with **Cursor Settings → Tools & MCP → Connect** next to Figma (OAuth). Cloud agents need the same HTTP server enabled in the Cloud Agents MCP dropdown.
 
-Canonical file: https://www.figma.com/design/sZn7Pye8J4o1ldduKhYCZm (`fileKey` `sZn7Pye8J4o1ldduKhYCZm`)
+Canonical project (Figma Make):
+https://www.figma.com/make/fxlmu6hsXHYOrxO81DdVyn/Replicate-Figma-Prototype-Layout
 
-When a Figma URL is in the prompt, extract `fileKey` and `node-id` (`1-2` → `1:2`). Load `/figma-design-to-code` before `get_design_context`. Load `/figma-use` before `use_figma`. Pass `clientLanguages: kotlin` and `clientFrameworks: Compose`.
+Pinned in `.cursor/figma.json`:
 
-## Current-build screens (0.2.166+)
+- `fileKey` `fxlmu6hsXHYOrxO81DdVyn`
+- `/make/` file — `get_design_context` uses `nodeId` `0:1` unless the prompt has a more specific `node-id`
+- Layout source: Make `src/App.tsx` (1920×1080 virtual canvas)
+- `get_metadata` / `get_screenshot` / `use_figma` do not apply to Make files
 
-Artboard is 1920×1080. Compose scales with `XORA_DESIGN_WIDTH` / `XORA_DESIGN_HEIGHT`.
+When a Figma URL is in the prompt, extract `fileKey` and `node-id` (`1-2` → `1:2`). For this Make project, start with `0:1`. Load `/figma-design-to-code` before `get_design_context`. Pass `clientLanguages: kotlin` and `clientFrameworks: Compose`.
 
-| Figma frame | Node | Compose |
-|---|---|---|
-| HOME - GAME | `545:1974` | `XmbFigmaHomeCross.kt` |
-| HOME - PHOTOS | `447:1741` | `XoraPhotoViewerPane.kt` |
-| Now Playing | `301:1495` | `XoraNowPlayingPane.kt` |
-| LT social pill | `56:160` | `component/AccountPill.kt` |
+## Prototype ↔ Compose
 
-Home XMB (HOME - GAME) — do not regress:
+| Make (App.tsx) | Compose |
+|---|---|
+| 1920×1080 scaled canvas | `XORA_DESIGN_WIDTH` / `XORA_DESIGN_HEIGHT` |
+| LT account pill | `component/AccountPill.kt` |
+| XMB icon row (toolbox, controller, camera, music, filmstrip, globe) | `XmbFigmaHomeCross.kt` + `xmb_figma_*.xml` |
+| Game card + “Recently Played” | Recents plate in `XmbFigmaHomeCross.kt` |
+| HOME - PHOTOS | `XoraPhotoViewerPane.kt` |
+| Now Playing | `XoraNowPlayingPane.kt` |
+
+Home XMB — do not regress current-build numbers unless the Make prototype is being implemented as a layout change:
 
 - Active tab center **(430, 280)**, contain-fit **178×136**
 - Inactive tabs **128×92** on the same 280 center line, pitch **290**
 - Column x **430**; focused recents plate **top = 428**
 - Neighbour above top **105**, below top **788**, stack gap **112**
 - Categories: Profiles, Settings, Games, **Photos**, **Videos**, Music, XOrA Network
-- Photos / Videos / Music device albums use Folder_Photo / Folder_Video / Folder_Music (`XmbIcon.FolderPhoto` / `FolderVideo` / `FolderMusic`)
+- Photos / Videos / Music device albums use Folder_Photo / Folder_Video / Folder_Music
 
 Glyphs live in `feature/home/src/main/res/drawable/xmb_figma_*.xml` and `XmbIcons.kt`.
 
 ## Workflow
 
-1. Prefer `get_design_context` + `get_screenshot` on the node above before changing layout numbers.
+1. Call `get_design_context` with `fileKey` `fxlmu6hsXHYOrxO81DdVyn` and `nodeId` `0:1` before changing layout numbers. Then read Make `src/App.tsx` from the returned resources.
 2. Reuse existing Compose panes, tokens (`XoraForegroundShadow`, `XoraFonts`, `#EBEBEB` glyph fill), and vector drawables. Do not invent a parallel icon set.
-3. Default file is https://www.figma.com/design/sZn7Pye8J4o1ldduKhYCZm. If the prompt has a different `figma.com/design/…?node-id=…` link, use that instead.
-4. Code Connect (`add_code_connect_map`) needs a published library on an Organization/Enterprise plan. Until then, keep the table above as the mapping.
+3. If the prompt has a different `figma.com/design/…` or `figma.com/make/…` URL, use that file instead.
+4. Code Connect needs a published library on an Organization/Enterprise plan and a `/design/` file. This Make project is the layout source of truth.
