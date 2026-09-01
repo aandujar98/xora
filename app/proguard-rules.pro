@@ -13,6 +13,10 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+# XMB sealed actions are matched with `is` in the home cross; keep the hierarchy.
+-keep class com.arcadia.shell.feature.home.XoraXmbAction { *; }
+-keep class com.arcadia.shell.feature.home.XoraXmbAction$* { *; }
+
 # Notification listener is bound by the system via the manifest component name.
 -keep class com.arcadia.shell.conversations.ShellNotificationListenerService { *; }
 

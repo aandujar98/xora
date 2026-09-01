@@ -281,6 +281,7 @@ fun buildXoraCategoryItems(
                 artPath = continueGame?.heroImagePath ?: continueGame?.boxArtPath,
                 logoPath = continueGame?.logoImagePath,
                 playTimeMs = continueGame?.playTimeMs ?: 0L,
+                platformLabel = continueGame?.platform?.displayName,
                 icon = XmbIcon.Continue,
             )
             GamesSecondarySlot.Favorite -> XoraXmbItem(
@@ -291,6 +292,7 @@ fun buildXoraCategoryItems(
                 artPath = favoriteGame?.heroImagePath ?: favoriteGame?.boxArtPath,
                 logoPath = favoriteGame?.logoImagePath,
                 playTimeMs = favoriteGame?.playTimeMs ?: 0L,
+                platformLabel = favoriteGame?.platform?.displayName,
                 icon = XmbIcon.Favorite,
             )
         }

@@ -57,33 +57,50 @@ import kotlin.math.roundToInt
 /**
  * 1080p home XMB (Figma HOME - GAME, node 545:1974).
  *
- * Active tab: center X = 430, top = 280, contain-fit inside 178×136.
- * Inactive icons: contain-fit inside 128×92.
- * Column items share that same 430 center: focused item is vertically
- * centered on y=428 so every hovered row sits on one plane. Neighbor
- * above = 105, neighbor below = 788, further items stack with 112px gap.
+ * Active tab is centered on (430, 280) and contain-fits a 178×136 box.
+ * Inactive tabs contain-fit 128×92 on that same 280 center line.
+ * Column items share x=430. The focused recents plate’s TOP is 428 so it
+ * sits below the tab; every hovered item is then centered on that plate’s
+ * mid-line so trophy / device / folder land on the same plane. Neighbour
+ * above top = 105, neighbour below top = 788, further items stack 112px.
  */
 private const val TAB_CENTER_X = 430f
-private const val TAB_TOP = 280f
+private const val TAB_CENTER_Y = 280f
 private const val TAB_BOX_W = 178f
 private const val TAB_BOX_H = 136f
 private const val INACTIVE_BOX_W = 128f
 private const val INACTIVE_BOX_H = 92f
 private const val CAT_PITCH = 290f
 
-private const val ITEM_FOCUS_Y = 428f
-private const val ITEM_ABOVE_Y = 105f
-private const val ITEM_BELOW_Y = 788f
+private const val ITEM_FOCUS_TOP = 428f
+private const val ITEM_ABOVE_FRAME_TOP = 105f
+private const val ITEM_BELOW_FRAME_TOP = 788f
 private const val ITEM_STACK_GAP = 112f
-
-private const val INACTIVE_ALPHA = 0.5f
 private const val PLATE_W_FOCUS = 462f
 private const val PLATE_H_FOCUS = 248f
+
+/** Shared hover plane: the vertical center of a 248px plate whose top is 428. */
+private const val ITEM_FOCUS_Y = ITEM_FOCUS_TOP + PLATE_H_FOCUS / 2f
+
+/** Neighbour frames are inactive-sized, so their center lines are half a box down. */
+private const val ITEM_ABOVE_Y = ITEM_ABOVE_FRAME_TOP + INACTIVE_BOX_H / 2f
+private const val ITEM_BELOW_Y = ITEM_BELOW_FRAME_TOP + INACTIVE_BOX_H / 2f
+
+/** Dim, but still readable as #EBEBEB on the WAVE cyan. 0.5 vanished on-device. */
+private const val INACTIVE_ALPHA = 0.75f
 private const val PLATE_W = 280f
 private const val PLATE_H = 150f
 private const val PLATE_RADIUS = 30f
 private const val PLATE_BORDER = 4f
 private const val TITLE_GAP = 46f
+
+/**
+ * Left edge of the hover title, rule and subtitle. Anchored off the widest focused
+ * frame (the recents plate) so the fixed-width [RULE_WIDTH] rule always ends on the
+ * board's 56px right margin; keying it to the focused frame instead would swing this
+ * by ~169px and leave the rule ragged whenever a glyph rather than a plate is focused.
+ */
+private const val HOVER_TITLE_X = TAB_CENTER_X + PLATE_W_FOCUS / 2f + TITLE_GAP
 private const val TITLE_SIZE = 48f
 private const val SUBTITLE_SIZE = 40f
 private const val RULE_WIDTH = 1157f
@@ -180,7 +197,9 @@ internal fun XmbCross(
             val boxH = lerp(INACTIVE_BOX_H, TAB_BOX_H, closeness)
             val (visW, visH) = category.toXmbIcon().intrinsicDesignSize().fitInBox(boxW, boxH)
             val left = TAB_CENTER_X + delta * CAT_PITCH - visW / 2f
-            val top = TAB_TOP
+            // Centered in the frame on both axes, so a tab grows about its middle
+            // as it gains focus instead of hanging off a shared top edge.
+            val top = TAB_CENTER_Y - visH / 2f
             val intro = rememberIntroAppear(
                 reveal = introReveal,
                 delayMs = (abs(index - xmb.categoryIndex) * 26).coerceAtMost(180),
@@ -232,7 +251,7 @@ internal fun XmbCross(
                 fontSize = with(density) { du(TITLE_SIZE * 0.4f).toSp() },
                 fillColor = Color.White,
                 modifier = Modifier.graphicsLayer {
-                    translationX = pxX(hoverTitleX(PLATE_W_FOCUS))
+                    translationX = pxX(HOVER_TITLE_X)
                     translationY = pxY(ITEM_FOCUS_Y) + emptyIntro.dropPx
                     alpha = enterAlpha * emptyIntro.alpha
                 },
@@ -305,7 +324,6 @@ internal fun XmbCross(
                 )
                 val title = hoverTitle(focusItem)
                 val subtitle = hoverSubtitle(focusItem, xmb)
-                val titleX = hoverTitleX(focusSlot.width)
                 val titleTop = ruleY - TITLE_TO_RULE
                 AnimatedContent(
                     targetState = Triple(focusItem.id, title, subtitle),
@@ -321,7 +339,7 @@ internal fun XmbCross(
                     label = "xmbFocusDetail",
                     modifier = Modifier
                         .offset(
-                            x = (originX + titleX * unit).dp,
+                            x = (originX + HOVER_TITLE_X * unit).dp,
                             y = (originY + titleTop * unit).dp,
                         )
                         .graphicsLayer {
@@ -508,28 +526,29 @@ private fun XmbHoverLine(
     )
 }
 
-private fun hoverTitle(item: XoraXmbItem): String = when (item.action) {
-    is XoraXmbAction.LaunchContinueOrFavorite -> "Recently Played"
-    is XoraXmbAction.DrillAllGames -> "Device"
-    is XoraXmbAction.PickHomeFolderImage -> "Folder_IMG"
+private fun isRecentsItem(item: XoraXmbItem): Boolean =
+    item.id == "continue" ||
+        item.id == "favorite" ||
+        item.action is XoraXmbAction.LaunchContinueOrFavorite
+
+private fun hoverTitle(item: XoraXmbItem): String = when {
+    isRecentsItem(item) -> "Recently Played"
+    item.id == "all_games" || item.action is XoraXmbAction.DrillAllGames -> "Device"
+    item.id == "home_folder" || item.action is XoraXmbAction.PickHomeFolderImage -> "Folder_IMG"
     else -> item.title
 }
 
 private fun hoverSubtitle(item: XoraXmbItem, xmb: XoraXmbUiState): String = when {
-    item.action is XoraXmbAction.LaunchContinueOrFavorite ->
+    isRecentsItem(item) ->
         item.platformLabel?.takeIf { it.isNotBlank() } ?: "PlayStation Portable"
-    item.action is XoraXmbAction.DrillAllGames -> "View Games"
-    item.action is XoraXmbAction.PickHomeFolderImage -> "Customize"
+    item.id == "all_games" || item.action is XoraXmbAction.DrillAllGames -> "View Games"
+    item.id == "home_folder" || item.action is XoraXmbAction.PickHomeFolderImage -> "Customize"
     item.action is XoraXmbAction.LaunchGame -> "Playtime: ${formatXmbPlaytime(item.playTimeMs)}"
     !item.subtitle.isNullOrBlank() -> item.subtitle
     else -> xmb.category.label
 }
 
-private fun hoverTitleX(focusedWidth: Float): Float =
-    TAB_CENTER_X + focusedWidth / 2f + TITLE_GAP
-
-private fun isGamePlate(item: XoraXmbItem): Boolean =
-    item.action is XoraXmbAction.LaunchContinueOrFavorite
+private fun isGamePlate(item: XoraXmbItem): Boolean = isRecentsItem(item)
 
 private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Float> {
     if (isGamePlate(item)) {
@@ -549,13 +568,14 @@ private fun layoutColumn(
     val focus = focusIndex.coerceIn(0, n - 1)
     val sizes = items.mapIndexed { i, item -> itemDesignSize(item, i == focus) }
     val tops = FloatArray(n)
-    // Hovered/active item is vertically centered on 428 so every focused glyph
-    // (trophy, recents plate, device, folder) shares the same horizontal plane.
+    // Hovered item is centered on the recents-plate mid-line (552) so a 248px
+    // plate still starts at y=428 (below the tab) and every other glyph shares
+    // that same horizontal plane when it becomes the active row.
     tops[focus] = ITEM_FOCUS_Y - sizes[focus].second / 2f
     for (i in focus - 1 downTo 0) {
         tops[i] =
             if (i == focus - 1) {
-                ITEM_ABOVE_Y
+                ITEM_ABOVE_Y - sizes[i].second / 2f
             } else {
                 tops[i + 1] - sizes[i].second - ITEM_STACK_GAP
             }
@@ -563,7 +583,7 @@ private fun layoutColumn(
     for (i in focus + 1 until n) {
         tops[i] =
             if (i == focus + 1) {
-                ITEM_BELOW_Y
+                ITEM_BELOW_Y - sizes[i].second / 2f
             } else {
                 tops[i - 1] + sizes[i - 1].second + ITEM_STACK_GAP
             }
