@@ -31,12 +31,15 @@ When a Figma URL is in the prompt, extract `fileKey` and `node-id` (`1-2` → `1
 | HOME - PHOTOS | `XoraPhotoViewerPane.kt` |
 | Now Playing | `XoraNowPlayingPane.kt` |
 
-Home XMB — do not regress current-build numbers unless the Make prototype is being implemented as a layout change:
+Home XMB — current-build numbers (Make `src/App.tsx` adapted into Compose):
 
-- Active tab center **(430, 280)**, contain-fit **178×136**
-- Inactive tabs **128×92** on the same 280 center line, pitch **290**
-- Column x **430**; focused recents plate **top = 428**
-- Neighbour above top **105**, below top **788**, stack gap **112**
+- Active tab center **(430, 282)**, contain-fit **178×106**
+- Inactive tabs **128×123** on the same 282 center line, pitch **310**
+- Column x **430**; focused recents plate **top = 420.5**, 462×248
+- Hover title x **715** (plate-right + 54); subtitle gap below the rule **35**
+- Neighbour above center **105**, below center **785**, stack gap **63**
+- Recents hover copy: **game title** + subtitle **Recently Played**
+- Kept vs Make: south-east glyph shadows, `INACTIVE_ALPHA` 0.75, seven-tab order
 - Categories: Profiles, Settings, Games, **Photos**, **Videos**, Music, XOrA Network
 - Photos / Videos / Music device albums use Folder_Photo / Folder_Video / Folder_Music
 

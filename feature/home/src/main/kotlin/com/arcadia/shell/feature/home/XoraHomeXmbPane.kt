@@ -816,7 +816,7 @@ private fun XoraXmbPillChrome(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .heightIn(max = paneMaxHeight - 24.dp)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(start = 20.dp, top = 21.dp, end = 16.dp, bottom = 12.dp)
                 .graphicsLayer {
                     alpha = introAlpha
                     translationX = -slidePx

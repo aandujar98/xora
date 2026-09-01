@@ -55,36 +55,49 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * 1080p home XMB (Figma HOME - GAME, node 545:1974).
+ * 1080p home XMB, adapted from Figma Make `src/App.tsx` (1920×1080).
  *
- * Active tab is centered on (430, 280) and contain-fits a 178×136 box.
- * Inactive tabs contain-fit 128×92 on that same 280 center line.
- * Column items share x=430. The focused recents plate’s TOP is 428 so it
- * sits below the tab; every hovered item is then centered on that plate’s
- * mid-line so trophy / device / folder land on the same plane. Neighbour
- * above top = 105, neighbour below top = 788, further items stack 112px.
+ * Active tab is centered on (430, 282) and contain-fits a 178×106 box
+ * (Make controller: left 341, top 229, 178×106). Inactive tabs contain-fit
+ * 128×123 on that same center line so the music glyph (112×123) is not
+ * height-squashed; pitch is 310 (Make gaps ~292–342).
+ * Column items share x=430. The focused recents plate’s TOP is 420.5
+ * (Make 420.49, 462×248). Hover copy sits at plate-right + 54 → x=715.
+ * Neighbour above center = 105 (Make trophy 60+90/2), neighbour below
+ * center = 785 (Make device 750+69/2), further items stack 63px
+ * (Make folder top 882 after device bottom 819).
+ *
+ * Kept from the current build (not Make): seven-tab order including Profiles
+ * and Videos, south-east [XoraForegroundShadow] (not a 0 0 6px glow), and
+ * INACTIVE_ALPHA 0.75 (Make 0.5 vanished on-device).
  */
 private const val TAB_CENTER_X = 430f
-private const val TAB_CENTER_Y = 280f
+private const val TAB_CENTER_Y = 282f
 private const val TAB_BOX_W = 178f
-private const val TAB_BOX_H = 136f
+private const val TAB_BOX_H = 106f
 private const val INACTIVE_BOX_W = 128f
-private const val INACTIVE_BOX_H = 92f
-private const val CAT_PITCH = 290f
+private const val INACTIVE_BOX_H = 123f
+private const val CAT_PITCH = 310f
 
-private const val ITEM_FOCUS_TOP = 428f
-private const val ITEM_ABOVE_FRAME_TOP = 105f
-private const val ITEM_BELOW_FRAME_TOP = 788f
-private const val ITEM_STACK_GAP = 112f
+/**
+ * Focused column glyphs keep the pre-Make 178×136 tab frame × 1.25 so shrinking
+ * the category tab box to the Make controller (178×106) does not shrink
+ * Settings / Device / Trophy / folders. Game plates and cover-art rows are
+ * excluded: those are sized by their artwork.
+ */
+private const val GLYPH_FOCUS_SCALE = 1.25f
+private const val GLYPH_BOX_W_FOCUS = 178f * GLYPH_FOCUS_SCALE
+private const val GLYPH_BOX_H_FOCUS = 136f * GLYPH_FOCUS_SCALE
+
+private const val ITEM_FOCUS_TOP = 420.5f
+private const val ITEM_ABOVE_Y = 105f
+private const val ITEM_BELOW_Y = 785f
+private const val ITEM_STACK_GAP = 63f
 private const val PLATE_W_FOCUS = 462f
 private const val PLATE_H_FOCUS = 248f
 
-/** Shared hover plane: the vertical center of a 248px plate whose top is 428. */
+/** Shared hover plane: the vertical center of a 248px plate whose top is 420.5. */
 private const val ITEM_FOCUS_Y = ITEM_FOCUS_TOP + PLATE_H_FOCUS / 2f
-
-/** Neighbour frames are inactive-sized, so their center lines are half a box down. */
-private const val ITEM_ABOVE_Y = ITEM_ABOVE_FRAME_TOP + INACTIVE_BOX_H / 2f
-private const val ITEM_BELOW_Y = ITEM_BELOW_FRAME_TOP + INACTIVE_BOX_H / 2f
 
 /** Dim, but still readable as #EBEBEB on the WAVE cyan. 0.5 vanished on-device. */
 private const val INACTIVE_ALPHA = 0.75f
@@ -92,7 +105,7 @@ private const val PLATE_W = 280f
 private const val PLATE_H = 150f
 private const val PLATE_RADIUS = 30f
 private const val PLATE_BORDER = 4f
-private const val TITLE_GAP = 46f
+private const val TITLE_GAP = 54f
 
 /**
  * Left edge of the hover title, rule and subtitle. Anchored off the widest focused
@@ -106,7 +119,7 @@ private const val SUBTITLE_SIZE = 40f
 private const val RULE_WIDTH = 1157f
 private const val RULE_THICKNESS = 4f
 private const val TITLE_TO_RULE = 90f
-private const val RULE_TO_SUBTITLE = 16f
+private const val RULE_TO_SUBTITLE = 35f
 private const val XMB_SCROLL_MS = 340
 private const val VISIBLE_ITEM_RADIUS = 5
 private val PlateEmptyFill = Color(0xFF3A3A3A)
@@ -538,15 +551,13 @@ private fun isRecentsItem(item: XoraXmbItem): Boolean =
         item.action is XoraXmbAction.LaunchContinueOrFavorite
 
 private fun hoverTitle(item: XoraXmbItem): String = when {
-    isRecentsItem(item) -> "Recently Played"
     item.id == "all_games" || item.action is XoraXmbAction.DrillAllGames -> "Device"
     item.id == "home_folder" || item.action is XoraXmbAction.PickHomeFolderImage -> "Folder_IMG"
     else -> item.title
 }
 
 private fun hoverSubtitle(item: XoraXmbItem, xmb: XoraXmbUiState): String = when {
-    isRecentsItem(item) ->
-        item.platformLabel?.takeIf { it.isNotBlank() } ?: "PlayStation Portable"
+    isRecentsItem(item) -> "Recently Played"
     item.id == "all_games" || item.action is XoraXmbAction.DrillAllGames -> "View Games"
     item.id == "home_folder" || item.action is XoraXmbAction.PickHomeFolderImage -> "Customize"
     item.action is XoraXmbAction.LaunchGame -> "Playtime: ${formatXmbPlaytime(item.playTimeMs)}"
@@ -556,12 +567,30 @@ private fun hoverSubtitle(item: XoraXmbItem, xmb: XoraXmbUiState): String = when
 
 private fun isGamePlate(item: XoraXmbItem): Boolean = isRecentsItem(item)
 
+/**
+ * True when the row paints artwork rather than a vector glyph, mirroring the branch order in
+ * [XmbColumnGlyph]: every folder shell (Folder_IMG and the Photo / Video / Music content
+ * folders) keeps its glyph even once a still is picked, so folders count as glyphs.
+ */
+private fun hasCoverArt(item: XoraXmbItem): Boolean =
+    !item.icon.isFolderGlyph() && !item.artPath.isNullOrBlank()
+
 private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Float> {
     if (isGamePlate(item)) {
         return if (focused) PLATE_W_FOCUS to PLATE_H_FOCUS else PLATE_W to PLATE_H
     }
-    val boxW = if (focused) TAB_BOX_W else INACTIVE_BOX_W
-    val boxH = if (focused) TAB_BOX_H else INACTIVE_BOX_H
+    val boxW: Float
+    val boxH: Float
+    if (!focused) {
+        boxW = INACTIVE_BOX_W
+        boxH = INACTIVE_BOX_H
+    } else if (hasCoverArt(item)) {
+        boxW = TAB_BOX_W
+        boxH = TAB_BOX_H
+    } else {
+        boxW = GLYPH_BOX_W_FOCUS
+        boxH = GLYPH_BOX_H_FOCUS
+    }
     return item.icon.intrinsicDesignSize().fitInBox(boxW, boxH)
 }
 
@@ -574,8 +603,8 @@ private fun layoutColumn(
     val focus = focusIndex.coerceIn(0, n - 1)
     val sizes = items.mapIndexed { i, item -> itemDesignSize(item, i == focus) }
     val tops = FloatArray(n)
-    // Hovered item is centered on the recents-plate mid-line (552) so a 248px
-    // plate still starts at y=428 (below the tab) and every other glyph shares
+    // Hovered item is centered on the recents-plate mid-line (544.5) so a 248px
+    // plate still starts at y=420.5 (below the tab) and every other glyph shares
     // that same horizontal plane when it becomes the active row.
     tops[focus] = ITEM_FOCUS_Y - sizes[focus].second / 2f
     for (i in focus - 1 downTo 0) {
