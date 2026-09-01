@@ -438,6 +438,9 @@ data class PhotosUiState(
     val isLoading: Boolean = false,
     /** Null until the rung has been opened once and access was checked. */
     val access: PhotoAccess? = null,
+    /** MediaStore bucket id when opened from a Folder_Photo row; null is the full library. */
+    val albumFilter: String? = null,
+    val albumTitle: String? = null,
     /** MediaStore ids the user favourited (persisted in preferences, never in the files). */
     val favoriteIds: Set<String> = emptySet(),
     val loadError: String? = null,

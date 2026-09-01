@@ -405,7 +405,14 @@ private fun PhotoTray(
                 TrayButton("Try again", unit) { onCommand(PhotoPaneCommand.Retry) }
             }
             state.photos.isEmpty() && state.access != null -> TrayMessage(unit) {
-                TrayTitle("No photos found", unit)
+                TrayTitle(
+                    if (!state.albumTitle.isNullOrBlank()) {
+                        "No photos in ${state.albumTitle}"
+                    } else {
+                        "No photos found"
+                    },
+                    unit,
+                )
                 TrayText(
                     if (state.access == PhotoAccess.Partial) {
                         "XOrA has limited photo access and none of the selected photos are " +
@@ -426,7 +433,13 @@ private fun PhotoTray(
         Column(modifier = Modifier.align(Alignment.BottomStart).padding((26f * unit).dp)) {
             if (state.photos.isNotEmpty()) {
                 Text(
-                    text = "Photo: ${state.focusedIndex + 1}/${state.photos.size}",
+                    text = buildString {
+                        if (!state.albumTitle.isNullOrBlank()) {
+                            append(state.albumTitle)
+                            append(" · ")
+                        }
+                        append("Photo: ${state.focusedIndex + 1}/${state.photos.size}")
+                    },
                     style = photoBodyStyle(unit),
                     color = PhotoInk,
                 )

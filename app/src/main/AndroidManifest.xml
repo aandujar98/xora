@@ -36,6 +36,7 @@
       enables Android 14+ limited-photo ("select photos") access.
     -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
     <!-- Android 13+: status-bar delivery when SORA is not in the foreground. -->

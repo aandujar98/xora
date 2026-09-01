@@ -35,6 +35,17 @@ data class DevicePhoto(
     val album: String,
     /** User caption when the row carries one; most photos have none. */
     val caption: String? = null,
+    /** MediaStore bucket id this picture belongs to; empty when the provider omits it. */
+    val bucketId: String = "",
+)
+
+/** A Camera / Screenshots-style album of photos or videos on this device. */
+data class DeviceMediaFolder(
+    val id: String,
+    val title: String,
+    val itemCount: Int,
+    /** Most recent item in the folder, used as the Folder_IMG window cover. */
+    val coverUri: String?,
 )
 
 /** How much of the photo library the shell may read. */
@@ -95,6 +106,16 @@ class PhotoLibrary @Inject constructor(
             ?: emptyList()
     }
 
+    /**
+     * Camera / Screenshots-style albums, newest first. Capped so the Photos column stays
+     * a short XMB list rather than a dump of every bucket on the device.
+     */
+    suspend fun folders(limit: Int = FOLDER_LIMIT): List<DeviceMediaFolder> =
+        withContext(Dispatchers.IO) {
+            if (access() == PhotoAccess.Denied) return@withContext emptyList()
+            queryFolders(limit)
+        }
+
     private fun queryPhotos(includeCaption: Boolean, limit: Int): List<DevicePhoto>? {
         val projection = buildList {
             add(MediaStore.Images.Media._ID)
@@ -104,6 +125,7 @@ class PhotoLibrary @Inject constructor(
             add(MediaStore.Images.Media.WIDTH)
             add(MediaStore.Images.Media.HEIGHT)
             add(MediaStore.Images.Media.MIME_TYPE)
+            add(MediaStore.Images.Media.BUCKET_ID)
             add(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
             if (includeCaption) add(MediaStore.Images.Media.DESCRIPTION)
         }.toTypedArray()
@@ -123,6 +145,7 @@ class PhotoLibrary @Inject constructor(
                 val widthCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
                 val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
                 val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+                val bucketIdCol = cursor.getColumnIndex(MediaStore.Images.Media.BUCKET_ID)
                 val bucketCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
                 val captionCol = if (includeCaption) {
                     cursor.getColumnIndex(MediaStore.Images.Media.DESCRIPTION)
@@ -153,6 +176,11 @@ class PhotoLibrary @Inject constructor(
                                     cursor.getString(captionCol)?.takeIf { it.isNotBlank() }
                                 } else {
                                     null
+                                },
+                                bucketId = if (bucketIdCol >= 0) {
+                                    cursor.getString(bucketIdCol).orEmpty()
+                                } else {
+                                    ""
                                 },
                             ),
                         )
@@ -197,11 +225,69 @@ class PhotoLibrary @Inject constructor(
 
     data class DeleteOutcome(val deleted: Boolean, val recoverySender: IntentSender?)
 
+    private fun queryFolders(limit: Int): List<DeviceMediaFolder> {
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.BUCKET_ID,
+            MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+        )
+        val seen = LinkedHashMap<String, FolderAcc>()
+        runCatching {
+            context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                null,
+                null,
+                "${MediaStore.Images.Media.DATE_TAKEN} DESC, ${MediaStore.Images.Media.DATE_ADDED} DESC",
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val bucketIdCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                var scanned = 0
+                while (cursor.moveToNext() && scanned < PHOTO_LIMIT) {
+                    scanned++
+                    val bucketId = cursor.getString(bucketIdCol)?.takeIf { it.isNotBlank() }
+                        ?: continue
+                    val existing = seen[bucketId]
+                    if (existing != null) {
+                        existing.count++
+                    } else if (seen.size < limit) {
+                        val id = cursor.getLong(idCol)
+                        seen[bucketId] = FolderAcc(
+                            title = cursor.getString(nameCol)?.takeIf { it.isNotBlank() }
+                                ?: "Photos",
+                            coverUri = ContentUris.withAppendedId(
+                                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                                id,
+                            ).toString(),
+                            count = 1,
+                        )
+                    }
+                }
+            }
+        }
+        return seen.map { (id, acc) ->
+            DeviceMediaFolder(
+                id = id,
+                title = acc.title,
+                itemCount = acc.count,
+                coverUri = acc.coverUri,
+            )
+        }
+    }
+
+    private class FolderAcc(
+        val title: String,
+        val coverUri: String,
+        var count: Int,
+    )
+
     private fun granted(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
     private companion object {
         /** Browse cap — the gallery pages 10 at a time, so thousands of rows are never useful. */
         const val PHOTO_LIMIT = 4000
+        const val FOLDER_LIMIT = 32
     }
 }

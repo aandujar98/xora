@@ -71,10 +71,12 @@ import com.arcadia.shell.launcher.music.MusicLibrary
 import com.arcadia.shell.launcher.music.MusicSource
 import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.launcher.music.NowPlayingController
+import com.arcadia.shell.launcher.photos.DeviceMediaFolder
 import com.arcadia.shell.launcher.photos.DevicePhoto
 import com.arcadia.shell.launcher.photos.PhotoAccess
 import com.arcadia.shell.launcher.photos.PhotoEditor
 import com.arcadia.shell.launcher.photos.PhotoLibrary
+import com.arcadia.shell.launcher.videos.VideoLibrary
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
@@ -217,6 +219,7 @@ class HomeViewModel @Inject constructor(
     private val musicLibrary: MusicLibrary,
     private val musicArtRepository: MusicArtRepository,
     private val photoLibrary: PhotoLibrary,
+    private val videoLibrary: VideoLibrary,
     private val photoEditor: PhotoEditor,
     private val nowPlayingController: NowPlayingController,
     private val conversationRepository: ConversationRepository,
@@ -783,7 +786,16 @@ class HomeViewModel @Inject constructor(
         val readyPlatformIds: Set<String> = emptySet(),
         val spotifyLinked: Boolean = false,
         val music: MusicUiState = MusicUiState(),
+        val photoFolders: List<DeviceMediaFolder> = emptyList(),
+        val videoFolders: List<DeviceMediaFolder> = emptyList(),
     )
+
+    private data class MediaFolders(
+        val photos: List<DeviceMediaFolder> = emptyList(),
+        val videos: List<DeviceMediaFolder> = emptyList(),
+    )
+
+    private val mediaFolders = MutableStateFlow(MediaFolders())
 
     /** Music browse rungs; the Now Playing state is owned by the shared controller. */
     private val musicUi = MutableStateFlow(MusicUiState())
@@ -816,13 +828,16 @@ class HomeViewModel @Inject constructor(
         platformArtStore.bannerByPlatformId,
         spotifyTokenStore.linked,
         musicFlow,
-    ) { scraped, custom, spotifyLinked, music ->
+        mediaFolders,
+    ) { scraped, custom, spotifyLinked, music, folders ->
         PlatformChrome(
             // A banner the player picked themselves always beats the scraped system media.
             artByPlatformId = scraped + custom,
             readyPlatformIds = xoraEmulatedPlatformIds,
             spotifyLinked = spotifyLinked,
             music = music,
+            photoFolders = folders.photos,
+            videoFolders = folders.videos,
         )
     }
 
@@ -1916,6 +1931,9 @@ class HomeViewModel @Inject constructor(
                 },
                 nowPlayingArtPath = platformChrome.music.nowPlayingArtPath,
                 homeFolderImagePath = chrome.settings.homeFolderImagePath,
+                photoFolders = platformChrome.photoFolders,
+                videoFolders = platformChrome.videoFolders,
+                musicFolders = platformChrome.music.albums,
             )
             XoraXmbDepth.Systems -> buildXoraSystemItems(
                 summaries = summaries,
@@ -2868,6 +2886,7 @@ class HomeViewModel @Inject constructor(
         )
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
+        onXoraCategoryLanded(XoraXmbCategory.entries[coerced])
     }
 
     fun selectXoraItem(index: Int) {
@@ -2915,8 +2934,10 @@ class HomeViewModel @Inject constructor(
             XoraXmbAction.ResetGame,
             -> Unit
             XoraXmbAction.OpenPhotos -> openPhotosRung()
-            XoraXmbAction.VideosStub ->
-                emit(HomeEvent.ShowMessage("Videos — coming soon."))
+            is XoraXmbAction.OpenPhotoFolder ->
+                openPhotosRung(folderId = action.folderId, folderTitle = item.title)
+            XoraXmbAction.VideosStub -> activateVideos()
+            is XoraXmbAction.OpenVideoFolder -> activateVideos(folderTitle = item.title)
             XoraXmbAction.OpenNowPlaying -> {
                 if (!nowPlayingController.state.value.hasTrack) {
                     emit(HomeEvent.ShowMessage("Nothing playing yet — pick a song from Music."))
@@ -3293,13 +3314,15 @@ class HomeViewModel @Inject constructor(
      * Slides into the Photos gallery and loads the device library. MediaStore is queried per
      * open, like Music, so the shell never pays for an image scan it may not show.
      */
-    private fun openPhotosRung() {
+    private fun openPhotosRung(folderId: String? = null, folderTitle: String? = null) {
         xoraDepth.value = XoraXmbDepth.Photos
         xoraItemIndex.value = 0
         val access = photoLibrary.access()
         photosUi.update {
             it.copy(
                 access = access,
+                albumFilter = folderId,
+                albumTitle = folderTitle,
                 isLoading = access != PhotoAccess.Denied,
                 loadError = null,
                 optionsOpen = false,
@@ -3315,10 +3338,65 @@ class HomeViewModel @Inject constructor(
         loadPhotos()
     }
 
+    private fun onXoraCategoryLanded(category: XoraXmbCategory) {
+        when (category) {
+            XoraXmbCategory.Media, XoraXmbCategory.Videos -> refreshMediaFolders()
+            XoraXmbCategory.Music -> loadMusicAlbumsForColumn()
+            else -> Unit
+        }
+    }
+
+    private fun refreshMediaFolders() {
+        viewModelScope.launch {
+            val photos = runCatching { photoLibrary.folders() }.getOrDefault(emptyList())
+            val videos = runCatching { videoLibrary.folders() }.getOrDefault(emptyList())
+            mediaFolders.value = MediaFolders(photos = photos, videos = videos)
+        }
+    }
+
+    private fun loadMusicAlbumsForColumn() {
+        viewModelScope.launch {
+            val hasAccess = musicLibrary.hasAudioAccess()
+            val folderPath = preferences.settings.first().musicLibraryPath
+            if (!hasAccess && folderPath.isNullOrBlank() && !spotifyTokenStore.isLinked()) {
+                return@launch
+            }
+            val playlists = spotifyPlaylistAlbums()
+            val albums = musicLibrary.albums()
+            musicUi.update {
+                it.copy(
+                    albums = playlists + albums,
+                    hasAudioAccess = hasAccess,
+                )
+            }
+            fillMissingAlbumArt(albums)
+        }
+    }
+
+    private fun activateVideos(folderTitle: String? = null) {
+        val access = videoLibrary.access()
+        if (access == PhotoAccess.Denied) {
+            emit(HomeEvent.RequestImageAccess(videoLibrary.requiredPermissions()))
+            return
+        }
+        refreshMediaFolders()
+        val label = folderTitle?.takeIf { it.isNotBlank() } ?: "Videos"
+        emit(HomeEvent.ShowMessage("$label — video player coming soon."))
+    }
+
     private fun loadPhotos(keepFocusId: String? = null) {
         viewModelScope.launch {
+            val folderId = photosUi.value.albumFilter
             val result = runCatching { photoLibrary.photos() }
-            result.onSuccess { photos ->
+            result.onSuccess { all ->
+                val photos = if (folderId.isNullOrBlank()) {
+                    all
+                } else {
+                    all.filter { photo ->
+                        photo.bucketId == folderId ||
+                            (photo.bucketId.isBlank() && photo.album == folderId)
+                    }
+                }
                 photosUi.update { ui ->
                     val kept = keepFocusId?.let { id -> photos.indexOfFirst { it.id == id } }
                         ?.takeIf { it >= 0 }
@@ -3340,17 +3418,25 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** Re-checks photo access once the permission dialog is answered, then loads. */
+    /** Re-checks visual access once the permission dialog is answered, then loads. */
     fun onImageAccessResult() {
-        val access = photoLibrary.access()
-        photosUi.update { it.copy(access = access) }
-        if (access == PhotoAccess.Denied) {
-            emit(HomeEvent.ShowMessage("Photos needs access to your photo library."))
-            return
-        }
+        refreshMediaFolders()
+        val photoAccess = photoLibrary.access()
+        photosUi.update { it.copy(access = photoAccess) }
         if (xoraDepth.value == XoraXmbDepth.Photos) {
+            if (photoAccess == PhotoAccess.Denied) {
+                emit(HomeEvent.ShowMessage("Photos needs access to your photo library."))
+                return
+            }
             photosUi.update { it.copy(isLoading = true) }
             loadPhotos()
+            return
+        }
+        val category = XoraXmbCategory.entries.getOrElse(xoraCategoryIndex.value) {
+            XoraXmbCategory.Games
+        }
+        if (category == XoraXmbCategory.Videos && videoLibrary.access() == PhotoAccess.Denied) {
+            emit(HomeEvent.ShowMessage("Videos needs access to your video library."))
         }
     }
 
@@ -4214,6 +4300,8 @@ class HomeViewModel @Inject constructor(
         val depth = xoraDepth.value
         if (depth == XoraXmbDepth.MusicAlbums || depth == XoraXmbDepth.MusicTracks) {
             openMusicRung(depth, musicUi.value.drilledAlbumId)
+        } else {
+            loadMusicAlbumsForColumn()
         }
     }
 
@@ -4330,6 +4418,7 @@ class HomeViewModel @Inject constructor(
         )
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
+        onXoraCategoryLanded(XoraXmbCategory.entries[next])
     }
 
     private fun moveXoraItem(delta: Int) {

@@ -4,7 +4,9 @@ import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.datastore.label
 import com.arcadia.shell.launcher.music.MusicAlbum
+import com.arcadia.shell.launcher.music.MusicSource
 import com.arcadia.shell.launcher.music.MusicTrack
+import com.arcadia.shell.launcher.photos.DeviceMediaFolder
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.PlatformSummary
 
@@ -14,6 +16,7 @@ enum class XoraXmbCategory {
     Settings,
     Games,
     Media,
+    Videos,
     Music,
     Network,
     ;
@@ -23,7 +26,8 @@ enum class XoraXmbCategory {
             Profiles -> "Profiles"
             Settings -> "Settings"
             Games -> "Games"
-            Media -> "Media"
+            Media -> "Photos"
+            Videos -> "Videos"
             Music -> "Music"
             Network -> "XOrA Network"
         }
@@ -104,7 +108,11 @@ sealed interface XoraXmbAction {
     data object ResetGame : XoraXmbAction
     /** Media → Photos — the device photo gallery. */
     data object OpenPhotos : XoraXmbAction
+    /** Photos column — an album / Camera / Screenshots folder. */
+    data class OpenPhotoFolder(val folderId: String) : XoraXmbAction
     data object VideosStub : XoraXmbAction
+    /** Videos column — an album of videos stored in a folder. */
+    data class OpenVideoFolder(val folderId: String) : XoraXmbAction
     /** Music → Now Playing page. */
     data object OpenNowPlaying : XoraXmbAction
     /** Music → Playlist → album / playlist cards. */
@@ -218,6 +226,12 @@ fun buildXoraCategoryItems(
     nowPlayingArtPath: String? = null,
     /** Gallery still cropped into the Games column Folder_IMG window. */
     homeFolderImagePath: String? = null,
+    /** Camera / Screenshots albums listed under Photos. */
+    photoFolders: List<DeviceMediaFolder> = emptyList(),
+    /** Video albums listed under Videos. */
+    videoFolders: List<DeviceMediaFolder> = emptyList(),
+    /** On-device albums listed under Music as Folder_Music rows. */
+    musicFolders: List<MusicAlbum> = emptyList(),
 ): List<XoraXmbItem> = when (category) {
     XoraXmbCategory.Profiles -> listOf(
         XoraXmbItem(
@@ -408,53 +422,70 @@ fun buildXoraCategoryItems(
             }
         }
     }
-    XoraXmbCategory.Media -> listOf(
-        XoraXmbItem(
-            id = "photos",
-            title = "Photos",
-            subtitle = "Pictures & screenshots on this device",
-            action = XoraXmbAction.OpenPhotos,
-            icon = XmbIcon.Photo,
-        ),
-        XoraXmbItem(
-            id = "videos",
-            title = "Videos",
-            subtitle = "Coming soon",
-            action = XoraXmbAction.VideosStub,
-            icon = XmbIcon.Video,
-        ),
-    )
-    XoraXmbCategory.Music -> listOf(
-        XoraXmbItem(
-            id = "now",
-            title = "Now Playing",
-            subtitle = nowPlayingLabel ?: "Nothing playing yet",
-            action = XoraXmbAction.OpenNowPlaying,
-            artPath = nowPlayingArtPath,
-            icon = XmbIcon.NowPlaying,
-        ),
-        XoraXmbItem(
-            id = "playlist",
-            title = "Playlist",
-            subtitle = "Albums & playlists",
-            action = XoraXmbAction.DrillMusicAlbums,
-            icon = XmbIcon.Playlist,
-        ),
-        XoraXmbItem(
-            id = "all_music",
-            title = "All music",
-            subtitle = "Every song on this device",
-            action = XoraXmbAction.DrillAllSongs,
-            icon = XmbIcon.Music,
-        ),
-        XoraXmbItem(
-            id = "dsp",
-            title = "Link DSP Accounts",
-            subtitle = "Spotify, Apple Music & YouTube Music",
-            action = XoraXmbAction.DrillDspAccounts,
-            icon = XmbIcon.Dsp,
-        ),
-    )
+    XoraXmbCategory.Media -> buildList {
+        add(
+            XoraXmbItem(
+                id = "photos",
+                title = "Photos",
+                subtitle = "Pictures & screenshots on this device",
+                action = XoraXmbAction.OpenPhotos,
+                icon = XmbIcon.Photo,
+            ),
+        )
+        addAll(photoFolderItems(photoFolders))
+    }
+    XoraXmbCategory.Videos -> buildList {
+        add(
+            XoraXmbItem(
+                id = "videos",
+                title = "Videos",
+                subtitle = "Clips on this device",
+                action = XoraXmbAction.VideosStub,
+                icon = XmbIcon.Video,
+            ),
+        )
+        addAll(videoFolderItems(videoFolders))
+    }
+    XoraXmbCategory.Music -> buildList {
+        add(
+            XoraXmbItem(
+                id = "now",
+                title = "Now Playing",
+                subtitle = nowPlayingLabel ?: "Nothing playing yet",
+                action = XoraXmbAction.OpenNowPlaying,
+                artPath = nowPlayingArtPath,
+                icon = XmbIcon.NowPlaying,
+            ),
+        )
+        add(
+            XoraXmbItem(
+                id = "playlist",
+                title = "Playlist",
+                subtitle = "Albums & playlists",
+                action = XoraXmbAction.DrillMusicAlbums,
+                icon = XmbIcon.Playlist,
+            ),
+        )
+        add(
+            XoraXmbItem(
+                id = "all_music",
+                title = "All music",
+                subtitle = "Every song on this device",
+                action = XoraXmbAction.DrillAllSongs,
+                icon = XmbIcon.Music,
+            ),
+        )
+        add(
+            XoraXmbItem(
+                id = "dsp",
+                title = "Link DSP Accounts",
+                subtitle = "Spotify, Apple Music & YouTube Music",
+                action = XoraXmbAction.DrillDspAccounts,
+                icon = XmbIcon.Dsp,
+            ),
+        )
+        addAll(musicFolderItems(musicFolders))
+    }
     XoraXmbCategory.Network -> listOf(
         XoraXmbItem(
             id = "dashboard",
@@ -490,7 +521,13 @@ fun buildXoraMusicAlbumItems(albums: List<MusicAlbum>): List<XoraXmbItem> =
             action = XoraXmbAction.DrillMusicAlbum(album.id),
             artPath = album.artUri,
             gameCount = album.trackCount,
-            icon = if (album.isPlaylist) XmbIcon.Playlist else XmbIcon.Music,
+            icon = if (album.isPlaylist) {
+                XmbIcon.Playlist
+            } else if (album.source == MusicSource.Device) {
+                XmbIcon.FolderMusic
+            } else {
+                XmbIcon.Music
+            },
         )
     }
 
@@ -573,6 +610,53 @@ fun buildXoraRomItems(games: List<Game>): List<XoraXmbItem> =
             icon = XmbIcon.Games,
         )
     }
+
+private const val MEDIA_FOLDER_CAP = 32
+
+private fun mediaCountLabel(count: Int, singular: String, plural: String): String =
+    "$count ${if (count == 1) singular else plural}"
+
+private fun photoFolderItems(folders: List<DeviceMediaFolder>): List<XoraXmbItem> =
+    folders.take(MEDIA_FOLDER_CAP).map { folder ->
+        XoraXmbItem(
+            id = "photo_folder_${folder.id}",
+            title = folder.title,
+            subtitle = mediaCountLabel(folder.itemCount, "photo", "photos"),
+            action = XoraXmbAction.OpenPhotoFolder(folder.id),
+            artPath = folder.coverUri,
+            gameCount = folder.itemCount,
+            icon = XmbIcon.FolderPhoto,
+        )
+    }
+
+private fun videoFolderItems(folders: List<DeviceMediaFolder>): List<XoraXmbItem> =
+    folders.take(MEDIA_FOLDER_CAP).map { folder ->
+        XoraXmbItem(
+            id = "video_folder_${folder.id}",
+            title = folder.title,
+            subtitle = mediaCountLabel(folder.itemCount, "video", "videos"),
+            action = XoraXmbAction.OpenVideoFolder(folder.id),
+            artPath = folder.coverUri,
+            gameCount = folder.itemCount,
+            icon = XmbIcon.FolderVideo,
+        )
+    }
+
+private fun musicFolderItems(albums: List<MusicAlbum>): List<XoraXmbItem> =
+    albums
+        .filter { !it.isPlaylist && it.source == MusicSource.Device }
+        .take(MEDIA_FOLDER_CAP)
+        .map { album ->
+            XoraXmbItem(
+                id = "music_folder_${album.id}",
+                title = album.title,
+                subtitle = album.artist,
+                action = XoraXmbAction.DrillMusicAlbum(album.id),
+                artPath = album.artUri,
+                gameCount = album.trackCount,
+                icon = XmbIcon.FolderMusic,
+            )
+        }
 
 /** Games → XOrA Emulator — global prefs applied on the next (and live) emulator session. */
 fun buildXoraEmulatorItems(

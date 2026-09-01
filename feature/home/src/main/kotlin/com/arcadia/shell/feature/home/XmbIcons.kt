@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.feature.home.component.ArtworkImage
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** How much wider than the glyph box the XOrA wordmark is allowed to run. */
@@ -76,6 +78,12 @@ enum class XmbIcon {
     Continue,
     Favorite,
     Folder,
+    /** Folder shell with the Photo glyph in the window — image albums under Photos. */
+    FolderPhoto,
+    /** Folder shell with the Video glyph in the window — video albums under Videos. */
+    FolderVideo,
+    /** Folder shell with the Music glyph in the window — on-device albums under Music. */
+    FolderMusic,
     /** Handheld / Device glyph — Games column entry into the full library. */
     Device,
     Photo,
@@ -107,8 +115,24 @@ fun XoraXmbCategory.toXmbIcon(): XmbIcon = when (this) {
     XoraXmbCategory.Settings -> XmbIcon.Settings
     XoraXmbCategory.Games -> XmbIcon.Games
     XoraXmbCategory.Media -> XmbIcon.Media
+    XoraXmbCategory.Videos -> XmbIcon.Video
     XoraXmbCategory.Music -> XmbIcon.Music
     XoraXmbCategory.Network -> XmbIcon.Network
+}
+
+/** Folder_IMG and the Photos / Videos / Music content-folder variants. */
+fun XmbIcon.isFolderGlyph(): Boolean =
+    this == XmbIcon.Folder ||
+        this == XmbIcon.FolderPhoto ||
+        this == XmbIcon.FolderVideo ||
+        this == XmbIcon.FolderMusic
+
+/** Glyph drawn in the folder window when no cover art is attached. */
+fun XmbIcon.folderWindowIcon(): XmbIcon? = when (this) {
+    XmbIcon.FolderPhoto -> XmbIcon.Photo
+    XmbIcon.FolderVideo -> XmbIcon.Video
+    XmbIcon.FolderMusic -> XmbIcon.Music
+    else -> null
 }
 
 /** Filled Figma glyphs (and the XOrA wordmark) drawn from vector drawables instead of strokes. */
@@ -121,7 +145,8 @@ fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
     XmbIcon.Network -> R.drawable.xmb_figma_network
     XmbIcon.Trophy -> R.drawable.xmb_figma_trophy
     XmbIcon.Device -> R.drawable.xmb_figma_device
-    XmbIcon.Folder -> R.drawable.xmb_figma_folder
+    XmbIcon.Folder, XmbIcon.FolderPhoto, XmbIcon.FolderVideo, XmbIcon.FolderMusic ->
+        R.drawable.xmb_figma_folder
     XmbIcon.Xora -> R.drawable.ic_xora_logo
     else -> null
 }
@@ -136,7 +161,8 @@ fun XmbIcon.intrinsicDesignSize(): Pair<Float, Float> = when (this) {
     XmbIcon.Network -> 92.20f to 92.20f
     XmbIcon.Trophy -> 130f to 120f
     XmbIcon.Device -> 151f to 99f
-    XmbIcon.Folder -> 153.69f to 108.61f
+    XmbIcon.Folder, XmbIcon.FolderPhoto, XmbIcon.FolderVideo, XmbIcon.FolderMusic ->
+        153.69f to 108.61f
     XmbIcon.Xora -> 90f * XORA_MARK_WIDTH_SCALE to 90f
     else -> 90f to 90f
 }
@@ -287,7 +313,8 @@ private const val FOLDER_WINDOW_BOTTOM = 0.853f
 
 /**
  * Folder_IMG: the Figma folder glyph with a checker in its window, or a gallery image cropped
- * into that same window when the user has attached one.
+ * into that same window when the user has attached one. Content folders (Photos / Videos / Music)
+ * draw the matching glyph in the window when no cover is set.
  */
 @Composable
 fun XmbFolderImgIcon(
@@ -295,6 +322,7 @@ fun XmbFolderImgIcon(
     modifier: Modifier = Modifier,
     width: Dp,
     height: Dp,
+    windowIcon: XmbIcon? = null,
     castShadow: Boolean = true,
     shadowOffsetX: Dp = XoraForegroundShadow.OffsetX,
     shadowOffsetY: Dp = XoraForegroundShadow.OffsetY,
@@ -331,6 +359,7 @@ fun XmbFolderImgIcon(
                     bottom = height * (1f - FOLDER_WINDOW_BOTTOM),
                 )
                 .clip(RoundedCornerShape(width * 0.04f)),
+            contentAlignment = Alignment.Center,
         ) {
             if (!artPath.isNullOrBlank()) {
                 ArtworkImage(
@@ -342,6 +371,27 @@ fun XmbFolderImgIcon(
                     decodeMaxEdgePx = 256,
                     modifier = Modifier.fillMaxSize(),
                 )
+            } else if (windowIcon != null) {
+                val (designW, designH) = windowIcon.intrinsicDesignSize()
+                val innerW = width * (FOLDER_WINDOW_RIGHT - FOLDER_WINDOW_LEFT)
+                val innerH = height * (FOLDER_WINDOW_BOTTOM - FOLDER_WINDOW_TOP)
+                val scale = min(innerW.value / designW, innerH.value / designH) * 0.78f
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF3A3A3A)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    XmbVectorIcon(
+                        icon = windowIcon,
+                        width = (designW * scale).dp,
+                        height = (designH * scale).dp,
+                        glass = false,
+                        outlined = false,
+                        castShadow = false,
+                        strokeWidth = 0.dp,
+                    )
+                }
             } else {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val cells = 8
@@ -582,7 +632,11 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Emulator -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
         XmbIcon.Continue -> drawPlay(tint, stroke)
         XmbIcon.Favorite -> drawStar(tint, stroke)
-        XmbIcon.Folder -> drawFolder(tint, stroke)
+        XmbIcon.Folder,
+        XmbIcon.FolderPhoto,
+        XmbIcon.FolderVideo,
+        XmbIcon.FolderMusic,
+        -> drawFolder(tint, stroke)
         XmbIcon.Device -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
         XmbIcon.Photo -> drawFigmaGlyph(FigmaGlyph.PHOTO, tint)
         XmbIcon.Video -> drawFigmaGlyph(FigmaGlyph.VIDEO, tint)

@@ -303,7 +303,18 @@ private fun BrowseCard(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        if (item.artPath != null) {
+        if (item.icon.isFolderGlyph()) {
+            val (designW, designH) = item.icon.intrinsicDesignSize()
+            val scale = min(width.value / designW, height.value / designH) * 0.88f
+            XmbFolderImgIcon(
+                artPath = item.artPath,
+                windowIcon = item.icon.folderWindowIcon(),
+                width = (designW * scale).dp,
+                height = (designH * scale).dp,
+                castShadow = false,
+                strokeWidth = (XmbGlyphStrokeDesignPx * unit).dp,
+            )
+        } else if (item.artPath != null) {
             ArtworkImage(
                 path = item.artPath,
                 contentDescription = item.title,

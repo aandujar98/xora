@@ -403,8 +403,9 @@ private fun XmbColumnGlyph(
             height = height,
             unit = unit,
         )
-        item.icon == XmbIcon.Folder -> XmbFolderImgIcon(
+        item.icon.isFolderGlyph() -> XmbFolderImgIcon(
             artPath = item.artPath,
+            windowIcon = item.icon.folderWindowIcon(),
             width = width,
             height = height,
             shadowOffsetX = shadowOffset,
