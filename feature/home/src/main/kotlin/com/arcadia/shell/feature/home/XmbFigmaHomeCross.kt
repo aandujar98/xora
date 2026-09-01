@@ -31,9 +31,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -45,38 +45,50 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/** Figma HOME - GAME (node 545:1974) on a 1920×1080 artboard. */
-private const val CAT_TOP = 229f
-private const val CAT_CENTER_X = 608f
+/**
+ * 1080p home XMB (Figma HOME - GAME, node 545:1974).
+ *
+ * Active tab: center X = 430, top = 280, contain-fit inside 178×136.
+ * Inactive icons: contain-fit inside 128×92.
+ * Column items share that same 430 center: focused top = 428, neighbor
+ * above = 105, neighbor below = 788, further items stack with 112px gap.
+ */
+private const val TAB_CENTER_X = 430f
+private const val TAB_TOP = 280f
+private const val TAB_BOX_W = 178f
+private const val TAB_BOX_H = 136f
+private const val INACTIVE_BOX_W = 128f
+private const val INACTIVE_BOX_H = 92f
 private const val CAT_PITCH = 290f
-private const val CAT_ROW_HEIGHT = 106f
-private const val ABOVE_GAP = 85f
-private const val BELOW_GAP = 85f
-private const val STACK_GAP = 64f
-private const val INACTIVE_SCALE = 0.8f
+
+private const val ITEM_FOCUS_Y = 428f
+private const val ITEM_ABOVE_Y = 105f
+private const val ITEM_BELOW_Y = 788f
+private const val ITEM_STACK_GAP = 112f
+
 private const val INACTIVE_ALPHA = 0.5f
-private const val PLATE_LEFT = 207f
 private const val PLATE_W_FOCUS = 462f
 private const val PLATE_H_FOCUS = 248f
 private const val PLATE_W = 280f
 private const val PLATE_H = 150f
 private const val PLATE_RADIUS = 30f
 private const val PLATE_BORDER = 4f
-private const val TITLE_X = 715f
+private const val TITLE_GAP = 46f
 private const val TITLE_SIZE = 48f
 private const val SUBTITLE_SIZE = 40f
 private const val RULE_WIDTH = 1157f
 private const val RULE_THICKNESS = 4f
 private const val TITLE_TO_RULE = 90f
 private const val RULE_TO_SUBTITLE = 16f
-private const val SHADOW_ELEVATION = 15f
 private const val XMB_SCROLL_MS = 340
 private const val VISIBLE_ITEM_RADIUS = 5
 private val PlateEmptyFill = Color(0xFF3A3A3A)
@@ -147,6 +159,8 @@ internal fun XmbCross(
         fun pxX(x: Float) = with(density) { (originX + x * unit).dp.toPx() }
         fun pxY(y: Float) = with(density) { (originY + y * unit).dp.toPx() }
         fun du(v: Float) = (v * unit).dp
+        val shadowOffset = du(XoraForegroundShadow.DesignOffset)
+        val shadowBlur = du(XoraForegroundShadow.DesignBlur)
 
         val categories = XoraXmbCategory.entries
         val items = xmb.items
@@ -154,21 +168,17 @@ internal fun XmbCross(
         val catScroll = categoryScroll.value
         val rowScroll = itemScroll.value
         val enterAlpha = listEnterAlpha.value
-        val focusedCategory = categories.getOrElse(xmb.categoryIndex) { XoraXmbCategory.Games }
-        val catRowHeight = categoryDesignSize(focusedCategory).second
 
         categories.forEachIndexed { index, category ->
             val delta = index - catScroll
             val distance = abs(delta)
             val closeness = (1f - distance).coerceIn(0f, 1f)
-            val scale = lerp(INACTIVE_SCALE, 1f, closeness)
             val alpha = lerp(INACTIVE_ALPHA, if (atRoot) 1f else 0.45f, closeness)
-            val (fullW, fullH) = categoryDesignSize(category)
-            val visW = fullW * scale
-            val visH = fullH * scale
-            val centerX = CAT_CENTER_X + delta * CAT_PITCH
-            val left = centerX - visW / 2f
-            val top = CAT_TOP + (CAT_ROW_HEIGHT - visH) / 2f
+            val boxW = lerp(INACTIVE_BOX_W, TAB_BOX_W, closeness)
+            val boxH = lerp(INACTIVE_BOX_H, TAB_BOX_H, closeness)
+            val (visW, visH) = category.toXmbIcon().intrinsicDesignSize().fitInBox(boxW, boxH)
+            val left = TAB_CENTER_X + delta * CAT_PITCH - visW / 2f
+            val top = TAB_TOP
             val intro = rememberIntroAppear(
                 reveal = introReveal,
                 delayMs = (abs(index - xmb.categoryIndex) * 26).coerceAtMost(180),
@@ -200,6 +210,10 @@ internal fun XmbCross(
                     height = du(visH),
                     glass = icon.vectorDrawableRes() == null,
                     outlined = icon.vectorDrawableRes() == null,
+                    shadowOffsetX = shadowOffset,
+                    shadowOffsetY = shadowOffset,
+                    shadowBlur = shadowBlur,
+                    shadowAlpha = XoraForegroundShadow.Alpha,
                 )
             }
         }
@@ -215,20 +229,18 @@ internal fun XmbCross(
                 fontSize = with(density) { du(TITLE_SIZE * 0.4f).toSp() },
                 fillColor = Color.White,
                 modifier = Modifier.graphicsLayer {
-                    translationX = pxX(TITLE_X)
-                    translationY = pxY(CAT_TOP + catRowHeight + BELOW_GAP) + emptyIntro.dropPx
+                    translationX = pxX(hoverTitleX(PLATE_W_FOCUS))
+                    translationY = pxY(ITEM_FOCUS_Y) + emptyIntro.dropPx
                     alpha = enterAlpha * emptyIntro.alpha
                 },
             )
         } else {
             val i0 = rowScroll.toInt().coerceIn(0, items.lastIndex)
             val frac = (rowScroll - i0).coerceIn(0f, 1f)
-            val layoutA = layoutColumn(items, i0, CAT_TOP, catRowHeight)
+            val layoutA = layoutColumn(items, i0)
             val layoutB = layoutColumn(
                 items,
                 (i0 + 1).coerceAtMost(items.lastIndex),
-                CAT_TOP,
-                catRowHeight,
             )
             val slots = if (frac <= 0f || i0 == items.lastIndex) {
                 layoutA
@@ -288,10 +300,12 @@ internal fun XmbCross(
                     delayMs = 90,
                     reduceMotion = reduceMotion,
                 )
+                val title = hoverTitle(focusItem)
                 val subtitle = hoverSubtitle(focusItem, xmb)
+                val titleX = hoverTitleX(focusSlot.width)
                 val titleTop = ruleY - TITLE_TO_RULE
                 AnimatedContent(
-                    targetState = Triple(focusItem.id, focusItem.title, subtitle),
+                    targetState = Triple(focusItem.id, title, subtitle),
                     transitionSpec = {
                         (
                             fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
@@ -304,17 +318,17 @@ internal fun XmbCross(
                     label = "xmbFocusDetail",
                     modifier = Modifier
                         .offset(
-                            x = (originX + TITLE_X * unit).dp,
+                            x = (originX + titleX * unit).dp,
                             y = (originY + titleTop * unit).dp,
                         )
                         .graphicsLayer {
                             alpha = enterAlpha * detailIntro.alpha
                             translationY = detailIntro.dropPx
                         },
-                ) { (_, title, line) ->
+                ) { (_, headline, line) ->
                     Column {
                         XmbHoverLine(
-                            text = title,
+                            text = headline,
                             sizeDesignUnits = TITLE_SIZE,
                             unit = unit,
                         )
@@ -323,7 +337,11 @@ internal fun XmbCross(
                                 .padding(top = ((TITLE_TO_RULE - TITLE_SIZE) * unit).dp)
                                 .width((RULE_WIDTH * unit).dp)
                                 .height((RULE_THICKNESS * unit).dp)
-                                .shadow((SHADOW_ELEVATION * unit).dp)
+                                .xmbAssetShadow(
+                                    unit = unit,
+                                    shape = RectangleShape,
+                                    alpha = XoraForegroundShadow.Alpha,
+                                )
                                 .background(Color.White),
                         )
                         XmbHoverLine(
@@ -347,6 +365,8 @@ private fun XmbColumnGlyph(
     height: Dp,
     unit: Float,
 ) {
+    val shadowOffset = (XoraForegroundShadow.DesignOffset * unit).dp
+    val shadowBlur = (XoraForegroundShadow.DesignBlur * unit).dp
     when {
         isGamePlate(item) -> XmbGamePlate(
             title = item.title,
@@ -360,13 +380,21 @@ private fun XmbColumnGlyph(
             artPath = item.artPath,
             width = width,
             height = height,
+            shadowOffsetX = shadowOffset,
+            shadowOffsetY = shadowOffset,
+            shadowBlur = shadowBlur,
+            shadowAlpha = XoraForegroundShadow.Alpha,
         )
         !item.artPath.isNullOrBlank() -> {
             val shape = RoundedCornerShape((12f * unit).dp)
             Box(
                 modifier = Modifier
                     .requiredSize(width, height)
-                    .shadow((SHADOW_ELEVATION * unit).dp, shape)
+                    .xmbAssetShadow(
+                        unit = unit,
+                        shape = shape,
+                        alpha = XoraForegroundShadow.Alpha,
+                    )
                     .clip(shape)
                     .border(
                         width = if (selected) (2f * unit).dp else 0.dp,
@@ -393,6 +421,10 @@ private fun XmbColumnGlyph(
                 height = height,
                 glass = icon.vectorDrawableRes() == null,
                 outlined = icon.vectorDrawableRes() == null,
+                shadowOffsetX = shadowOffset,
+                shadowOffsetY = shadowOffset,
+                shadowBlur = shadowBlur,
+                shadowAlpha = XoraForegroundShadow.Alpha,
             )
         }
     }
@@ -411,7 +443,11 @@ private fun XmbGamePlate(
     Box(
         modifier = Modifier
             .requiredSize(width, height)
-            .shadow(elevation = (SHADOW_ELEVATION * unit).dp, shape = shape)
+            .xmbAssetShadow(
+                unit = unit,
+                shape = shape,
+                alpha = XoraForegroundShadow.Alpha,
+            )
             .clip(shape)
             .background(PlateEmptyFill)
             .border(
@@ -442,7 +478,10 @@ private fun XmbHoverLine(
     unit: Float,
     modifier: Modifier = Modifier,
 ) {
-    val fontSize = with(LocalDensity.current) { (sizeDesignUnits * unit).dp.toSp() }
+    val density = LocalDensity.current
+    val fontSize = with(density) { (sizeDesignUnits * unit).dp.toSp() }
+    val shadowPx = with(density) { (XoraForegroundShadow.DesignOffset * unit).dp.toPx() }
+    val blurPx = with(density) { (XoraForegroundShadow.DesignBlur * unit).dp.toPx() }
     Text(
         text = text,
         maxLines = 1,
@@ -453,9 +492,9 @@ private fun XmbHoverLine(
             lineHeight = fontSize,
             fontWeight = FontWeight.SemiBold,
             shadow = Shadow(
-                color = Color.Black.copy(alpha = 0.5f),
-                offset = Offset(10f * unit, 10f * unit),
-                blurRadius = 15f * unit,
+                color = Color.Black.copy(alpha = XoraForegroundShadow.Alpha),
+                offset = Offset(shadowPx, shadowPx),
+                blurRadius = blurPx,
             ),
         ),
         color = HoverInk,
@@ -463,84 +502,68 @@ private fun XmbHoverLine(
     )
 }
 
+private fun hoverTitle(item: XoraXmbItem): String = when (item.action) {
+    is XoraXmbAction.LaunchContinueOrFavorite -> "Recently Played"
+    is XoraXmbAction.DrillAllGames -> "Device"
+    is XoraXmbAction.PickHomeFolderImage -> "Folder_IMG"
+    else -> item.title
+}
+
 private fun hoverSubtitle(item: XoraXmbItem, xmb: XoraXmbUiState): String = when {
-    item.action is XoraXmbAction.LaunchContinueOrFavorite -> "Recently Played"
+    item.action is XoraXmbAction.LaunchContinueOrFavorite ->
+        item.platformLabel?.takeIf { it.isNotBlank() } ?: "PlayStation Portable"
+    item.action is XoraXmbAction.DrillAllGames -> "View Games"
+    item.action is XoraXmbAction.PickHomeFolderImage -> "Customize"
     item.action is XoraXmbAction.LaunchGame -> "Playtime: ${formatXmbPlaytime(item.playTimeMs)}"
     !item.subtitle.isNullOrBlank() -> item.subtitle
     else -> xmb.category.label
 }
 
+private fun hoverTitleX(focusedWidth: Float): Float =
+    TAB_CENTER_X + focusedWidth / 2f + TITLE_GAP
+
 private fun isGamePlate(item: XoraXmbItem): Boolean =
     item.action is XoraXmbAction.LaunchContinueOrFavorite
-
-private fun categoryDesignSize(category: XoraXmbCategory): Pair<Float, Float> = when (category) {
-    XoraXmbCategory.Profiles -> 90f to 90f
-    XoraXmbCategory.Settings -> 90f to 90f
-    XoraXmbCategory.Games -> 178f to 106f
-    XoraXmbCategory.Media -> 128f to 90f
-    XoraXmbCategory.Music -> 90f to 90f
-    XoraXmbCategory.Network -> 90f to 90f
-}
 
 private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Float> {
     if (isGamePlate(item)) {
         return if (focused) PLATE_W_FOCUS to PLATE_H_FOCUS else PLATE_W to PLATE_H
     }
-    val (w, h) = when (item.icon) {
-        XmbIcon.Trophy -> 100f to 90f
-        XmbIcon.Device -> 121f to 68f
-        XmbIcon.Folder -> 154f to 109f
-        else -> 90f to 90f
-    }
-    val scale = if (focused) 1f else INACTIVE_SCALE
-    return w * scale to h * scale
-}
-
-private fun itemLeft(item: XoraXmbItem, width: Float): Float {
-    if (isGamePlate(item)) return PLATE_LEFT
-    val fullW = when (item.icon) {
-        XmbIcon.Trophy -> 100f
-        XmbIcon.Device -> 121f
-        XmbIcon.Folder -> 154f
-        else -> 90f
-    }
-    val unscaledLeft = when (item.icon) {
-        XmbIcon.Trophy -> 480f
-        XmbIcon.Device -> 369f
-        XmbIcon.Folder -> 353f
-        else -> CAT_CENTER_X - fullW / 2f
-    }
-    val center = unscaledLeft + fullW / 2f
-    return center - width / 2f
+    val boxW = if (focused) TAB_BOX_W else INACTIVE_BOX_W
+    val boxH = if (focused) TAB_BOX_H else INACTIVE_BOX_H
+    return item.icon.intrinsicDesignSize().fitInBox(boxW, boxH)
 }
 
 private fun layoutColumn(
     items: List<XoraXmbItem>,
     focusIndex: Int,
-    catTop: Float,
-    catHeight: Float,
 ): List<XmbSlot> {
     val n = items.size
     if (n == 0) return emptyList()
     val focus = focusIndex.coerceIn(0, n - 1)
     val sizes = items.mapIndexed { i, item -> itemDesignSize(item, i == focus) }
     val tops = FloatArray(n)
-    val catBottom = catTop + catHeight
-    tops[focus] = catBottom + BELOW_GAP
-    for (i in focus + 1 until n) {
-        tops[i] = tops[i - 1] + sizes[i - 1].second + STACK_GAP
+    tops[focus] = ITEM_FOCUS_Y
+    for (i in focus - 1 downTo 0) {
+        tops[i] =
+            if (i == focus - 1) {
+                ITEM_ABOVE_Y
+            } else {
+                tops[i + 1] - sizes[i].second - ITEM_STACK_GAP
+            }
     }
-    if (focus > 0) {
-        var bottom = catTop - ABOVE_GAP
-        for (i in focus - 1 downTo 0) {
-            tops[i] = bottom - sizes[i].second
-            bottom = tops[i] - STACK_GAP
-        }
+    for (i in focus + 1 until n) {
+        tops[i] =
+            if (i == focus + 1) {
+                ITEM_BELOW_Y
+            } else {
+                tops[i - 1] + sizes[i - 1].second + ITEM_STACK_GAP
+            }
     }
     return items.indices.map { i ->
         val (w, h) = sizes[i]
         XmbSlot(
-            left = itemLeft(items[i], w),
+            left = TAB_CENTER_X - w / 2f,
             top = tops[i],
             width = w,
             height = h,
@@ -560,6 +583,13 @@ private fun lerpSlots(a: List<XmbSlot>, b: List<XmbSlot>, t: Float): List<XmbSlo
             alpha = lerp(a[i].alpha, b[i].alpha, t),
         )
     }
+}
+
+private fun Pair<Float, Float>.fitInBox(boxW: Float, boxH: Float): Pair<Float, Float> {
+    val srcW = first.coerceAtLeast(1f)
+    val srcH = second.coerceAtLeast(1f)
+    val scale = min(boxW / srcW, boxH / srcH)
+    return srcW * scale to srcH * scale
 }
 
 private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)

@@ -11,34 +11,47 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Soft hover drop shadow for XMB foreground assets (icons, box art, plates).
- *
- * Glyphs rasterize a shape-following blur; plates use [xoraForegroundShadow] with a lighter halo
- * so capsules do not sit in a dark fog.
+ * XMB drop shadow: 10px right, 10px down, 15px blur (1080p design units), 50% opacity
+ * (25% when the parent icon is already faded to 50%).
  */
 object XoraForegroundShadow {
-    val OffsetX: Dp = 2.dp
-    val OffsetY: Dp = 3.dp
+    const val DesignOffset = 10f
+    const val DesignBlur = 15f
+    val OffsetX: Dp = DesignOffset.dp
+    val OffsetY: Dp = DesignOffset.dp
     val Spread: Dp = 0.dp
-    /** Glyph silhouette blur — wide enough to read as a halo, tight enough to follow the shape. */
-    val Blur: Dp = 12.dp
-    const val Alpha: Float = 0.40f
-    val PlateBlur: Dp = 16.dp
-    const val PlateAlpha: Float = 0.22f
+    val Blur: Dp = DesignBlur.dp
+    const val Alpha: Float = 0.50f
+    const val InactiveAlpha: Float = 0.25f
+    val PlateBlur: Dp = DesignBlur.dp
+    const val PlateAlpha: Float = Alpha
     val Ink: Color = Color.Black
 }
 
-/** Shape-based drop shadow for plates / pills (not vector glyphs). */
-fun Modifier.xoraForegroundShadow(shape: Shape): Modifier = dropShadow(shape) {
-    radius = XoraForegroundShadow.PlateBlur.toPx()
+fun Modifier.xoraForegroundShadow(
+    shape: Shape,
+    alpha: Float = XoraForegroundShadow.Alpha,
+    offset: Dp = XoraForegroundShadow.OffsetX,
+    blur: Dp = XoraForegroundShadow.Blur,
+): Modifier = dropShadow(shape) {
+    radius = blur.toPx()
     spread = XoraForegroundShadow.Spread.toPx()
-    offset = Offset(
-        XoraForegroundShadow.OffsetX.toPx(),
-        XoraForegroundShadow.OffsetY.toPx(),
-    )
+    this.offset = Offset(offset.toPx(), offset.toPx())
     color = XoraForegroundShadow.Ink
-    alpha = XoraForegroundShadow.PlateAlpha
+    this.alpha = alpha
 }
+
+/** 1080p-scaled XMB shadow (10 / 10 / 15) so it stays pixel-true at any density. */
+fun Modifier.xmbAssetShadow(
+    unit: Float,
+    shape: Shape,
+    alpha: Float = XoraForegroundShadow.Alpha,
+): Modifier = xoraForegroundShadow(
+    shape = shape,
+    alpha = alpha,
+    offset = (XoraForegroundShadow.DesignOffset * unit).dp,
+    blur = (XoraForegroundShadow.DesignBlur * unit).dp,
+)
 
 /**
  * Offset silhouette for callers that still draw a shadow in-canvas.

@@ -121,6 +121,21 @@ fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
     else -> null
 }
 
+/** Native viewport of each Figma glyph, used to contain-fit into the 178×136 / 128×92 boxes. */
+fun XmbIcon.intrinsicDesignSize(): Pair<Float, Float> = when (this) {
+    XmbIcon.Settings -> 118.25f to 86.59f
+    XmbIcon.Games, XmbIcon.GamePad, XmbIcon.Emulator -> 209f to 137f
+    XmbIcon.Media, XmbIcon.Photo -> 107.68f to 92.24f
+    XmbIcon.Music, XmbIcon.NowPlaying -> 111.16f to 122.19f
+    XmbIcon.Video -> 128.56f to 86.20f
+    XmbIcon.Network -> 92.20f to 92.20f
+    XmbIcon.Trophy -> 130f to 120f
+    XmbIcon.Device -> 151f to 99f
+    XmbIcon.Folder -> 153.69f to 108.61f
+    XmbIcon.Xora -> 90f * XORA_MARK_WIDTH_SCALE to 90f
+    else -> 90f to 90f
+}
+
 @Composable
 fun XmbVectorIcon(
     icon: XmbIcon,
@@ -135,6 +150,10 @@ fun XmbVectorIcon(
     castShadow: Boolean = true,
     /** PS3-style frosted glass body (white→ice-blue gradient + top gloss) instead of flat tint. */
     glass: Boolean = false,
+    shadowOffsetX: Dp = XoraForegroundShadow.OffsetX,
+    shadowOffsetY: Dp = XoraForegroundShadow.OffsetY,
+    shadowBlur: Dp = XoraForegroundShadow.Blur,
+    shadowAlpha: Float = XoraForegroundShadow.Alpha,
 ) {
     val vectorRes = icon.vectorDrawableRes()
     val density = LocalDensity.current
@@ -148,6 +167,7 @@ fun XmbVectorIcon(
         icon,
         shadowWidth,
         shadowHeight,
+        shadowBlur,
         glass,
         castShadow,
         density.density,
@@ -164,6 +184,7 @@ fun XmbVectorIcon(
                 shadowWidth,
                 shadowHeight,
                 glass,
+                shadowBlur,
             )
         }
     }
@@ -181,12 +202,12 @@ fun XmbVectorIcon(
             Canvas(
                 modifier = Modifier
                     .requiredSize(shadowW, shadowH)
-                    .align(Alignment.Center)
+                    .align(Alignment.TopStart)
                     .graphicsLayer {
                         clip = false
-                        translationX = shadow.drawX + XoraForegroundShadow.OffsetX.toPx()
-                        translationY = shadow.drawY + XoraForegroundShadow.OffsetY.toPx()
-                        alpha = XoraForegroundShadow.Alpha
+                        translationX = shadow.drawX + shadowOffsetX.toPx()
+                        translationY = shadow.drawY + shadowOffsetY.toPx()
+                        alpha = shadowAlpha
                     },
             ) {
                 drawImage(image = shadow.image)
@@ -252,6 +273,10 @@ fun XmbFolderImgIcon(
     width: Dp,
     height: Dp,
     castShadow: Boolean = true,
+    shadowOffsetX: Dp = XoraForegroundShadow.OffsetX,
+    shadowOffsetY: Dp = XoraForegroundShadow.OffsetY,
+    shadowBlur: Dp = XoraForegroundShadow.Blur,
+    shadowAlpha: Float = XoraForegroundShadow.Alpha,
 ) {
     Box(
         modifier = modifier
@@ -265,6 +290,10 @@ fun XmbFolderImgIcon(
             glass = false,
             outlined = false,
             castShadow = castShadow,
+            shadowOffsetX = shadowOffsetX,
+            shadowOffsetY = shadowOffsetY,
+            shadowBlur = shadowBlur,
+            shadowAlpha = shadowAlpha,
             modifier = Modifier.fillMaxSize(),
         )
         Box(
@@ -328,10 +357,11 @@ private fun rasterizeXmbGlyphShadow(
     width: Dp,
     height: Dp,
     glass: Boolean,
+    blur: Dp,
 ): XmbGlyphShadow {
     val widthPx = with(density) { width.toPx() }
     val heightPx = with(density) { height.toPx() }
-    val blurPx = with(density) { XoraForegroundShadow.Blur.toPx() }
+    val blurPx = with(density) { blur.toPx() }.coerceAtLeast(1f)
     val padPx = blurPx * 2f
     val bmpW = (widthPx + padPx * 2f).roundToInt().coerceAtLeast(1)
     val bmpH = (heightPx + padPx * 2f).roundToInt().coerceAtLeast(1)
@@ -387,12 +417,12 @@ private fun rasterizeXmbGlyphShadow(
         },
     )
     alpha.recycle()
-    // extractAlpha grows the bitmap by the blur and reports where the result lines up with the
-    // source. The shadow canvas is centre-aligned on the glyph slot, so correct for both.
+    // Align the unblurred glyph with the icon box (top-start), then the caller adds the 10×10
+    // design-unit offset. extra[] is where extractAlpha wants the blurred plate drawn vs [src].
     return XmbGlyphShadow(
         image = tinted.asImageBitmap(),
-        drawX = (tinted.width - bmpW) / 2f + extra[0],
-        drawY = (tinted.height - bmpH) / 2f + extra[1],
+        drawX = extra[0] - padPx,
+        drawY = extra[1] - padPx,
     )
 }
 

@@ -55,8 +55,9 @@ import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.liquidGlass
-import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.launcher.photos.DevicePhoto
 import com.arcadia.shell.launcher.photos.PhotoAccess
@@ -175,7 +176,11 @@ private fun PhotoInfoPanel(state: PhotosUiState, unit: Float, originX: Float, or
         modifier = Modifier
             .offset(x = (originX + INFO_LEFT * unit).dp, y = (originY + INFO_TOP * unit).dp)
             .size(width = (INFO_WIDTH * unit).dp, height = (INFO_HEIGHT * unit).dp)
-            .xoraForegroundShadow(RoundedCornerShape((INFO_RADIUS * unit).dp))
+            .xmbAssetShadow(
+                unit = unit,
+                shape = RoundedCornerShape((INFO_RADIUS * unit).dp),
+                alpha = XoraForegroundShadow.Alpha,
+            )
             .liquidGlass(
                 shape = RoundedCornerShape((INFO_RADIUS * unit).dp),
                 tone = GlassTone.OverMedia,
@@ -371,7 +376,7 @@ private fun PhotoTray(
         modifier = Modifier
             .offset(x = (originX + TRAY_LEFT * unit).dp, y = (originY + TRAY_TOP * unit).dp)
             .size(width = (TRAY_WIDTH * unit).dp, height = (TRAY_HEIGHT * unit).dp)
-            .xoraForegroundShadow(trayShape)
+            .xmbAssetShadow(unit = unit, shape = trayShape, alpha = XoraForegroundShadow.Alpha)
             .liquidGlass(
                 shape = trayShape,
                 tone = GlassTone.OverMedia,
@@ -585,7 +590,7 @@ private fun PhotoOptionsPopup(
             .offset(x = (originX + OPTIONS_LEFT * unit).dp, y = (originY + OPTIONS_TOP * unit).dp)
             .width((OPTIONS_WIDTH * unit).dp)
             .heightIn(min = (OPTIONS_HEIGHT * unit).dp)
-            .xoraForegroundShadow(shape)
+            .xmbAssetShadow(unit = unit, shape = shape, alpha = XoraForegroundShadow.Alpha)
             .liquidGlass(
                 shape = shape,
                 tone = GlassTone.OverMedia,
@@ -909,7 +914,7 @@ private fun PhotoDeleteConfirm(
             verticalArrangement = Arrangement.spacedBy((14f * unit).dp),
             modifier = Modifier
                 .width((520f * unit).dp)
-                .xoraForegroundShadow(shape)
+                .xmbAssetShadow(unit = unit, shape = shape, alpha = XoraForegroundShadow.Alpha)
                 .liquidGlass(shape = shape, tone = GlassTone.OverMedia, intensity = GlassIntensity.Strong)
                 .border(1.5.dp, CardEdge, shape)
                 .padding((28f * unit).dp),

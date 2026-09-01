@@ -31,11 +31,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -49,7 +49,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.xmbAssetShadow
+import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.xmb.drawableResForPlatformId
@@ -80,7 +83,6 @@ private const val CHECK_DIAMETER = 42f
 private const val CHECK_GAP = 24f
 private const val ARROW_CENTER_X = 96f
 private const val ARROW_SIZE = 32f
-private const val SHADOW_ELEVATION = 15f
 private const val VISIBLE_CARD_RADIUS = 5f
 
 
@@ -236,7 +238,11 @@ fun XoraCardBrowsePane(
                         width = (RULE_WIDTH * unit).dp,
                         height = (RULE_THICKNESS * unit).dp,
                     )
-                    .shadow((SHADOW_ELEVATION * unit).dp)
+                    .xmbAssetShadow(
+                        unit = unit,
+                        shape = RectangleShape,
+                        alpha = XoraForegroundShadow.Alpha,
+                    )
                     .background(Color.White),
             )
 
@@ -286,7 +292,7 @@ private fun BrowseCard(
     Box(
         modifier = modifier
             .size(width = width, height = height)
-            .shadow(elevation = (SHADOW_ELEVATION * unit).dp, shape = shape)
+            .xmbAssetShadow(unit = unit, shape = shape, alpha = XoraForegroundShadow.Alpha)
             .clip(shape)
             .background(CardFill)
             .border(width = (CARD_BORDER * unit).dp, color = Color.White, shape = shape)
@@ -349,7 +355,10 @@ private fun BrowseHeadline(
     fontFamily: FontFamily,
     modifier: Modifier = Modifier,
 ) {
-    val fontSize = with(LocalDensity.current) { (sizeDesignUnits * unit).dp.toSp() }
+    val density = LocalDensity.current
+    val fontSize = with(density) { (sizeDesignUnits * unit).dp.toSp() }
+    val shadowPx = with(density) { (XoraForegroundShadow.DesignOffset * unit).dp.toPx() }
+    val blurPx = with(density) { (XoraForegroundShadow.DesignBlur * unit).dp.toPx() }
     Text(
         text = text,
         maxLines = 1,
@@ -360,9 +369,9 @@ private fun BrowseHeadline(
             lineHeight = fontSize,
             fontWeight = FontWeight.SemiBold,
             shadow = Shadow(
-                color = Color.Black.copy(alpha = 0.5f),
-                offset = Offset(10f * unit, 10f * unit),
-                blurRadius = 15f * unit,
+                color = Color.Black.copy(alpha = XoraForegroundShadow.Alpha),
+                offset = Offset(shadowPx, shadowPx),
+                blurRadius = blurPx,
             ),
         ),
         color = PlatformTitleInk,
@@ -381,7 +390,7 @@ private fun ReadyCheck(diameter: Dp, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .size(diameter)
-            .shadow(elevation = diameter * 0.2f, shape = CircleShape)
+            .xoraForegroundShadow(CircleShape)
             .clip(CircleShape)
             .background(ReadyGreen)
             .border(width = diameter * 0.095f, color = Color.White, shape = CircleShape)

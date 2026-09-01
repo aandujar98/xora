@@ -42,7 +42,6 @@ import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -63,9 +62,11 @@ import coil3.request.crossfade
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
+import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.supportsGlassBlurEffect
+import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.designsystem.xoraSecondaryTextStyle
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.SocialPresence
@@ -83,8 +84,6 @@ private const val MODAL_RADIUS = 50f
 private const val MODAL_BORDER = 2f
 private const val MODAL_GLOW_SPREAD = 8f
 private const val MODAL_GLOW_BLUR = 20f
-private const val MODAL_SHADOW_BLUR = 8f
-private const val MODAL_SHADOW_DROP = 3f
 
 private const val HEADER_TOP = 34f
 private const val AVATAR_SIZE = 130f
@@ -217,12 +216,7 @@ fun ConversationWindow(
                         width = (DESIGN_WIDTH * unit).dp,
                         height = (DESIGN_HEIGHT * unit).dp,
                     )
-                    .dropShadow(shape) {
-                        radius = (MODAL_SHADOW_BLUR * unit).dp.toPx()
-                        offset = Offset(0f, (MODAL_SHADOW_DROP * unit).dp.toPx())
-                        color = Color.Black
-                        alpha = 0.16f
-                    }
+                    .xmbAssetShadow(unit = unit, shape = shape, alpha = XoraForegroundShadow.Alpha)
                     .liquidGlass(
                         shape = shape,
                         tone = GlassTone.OverMedia,

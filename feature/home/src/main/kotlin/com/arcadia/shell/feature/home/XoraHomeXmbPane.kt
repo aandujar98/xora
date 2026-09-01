@@ -72,7 +72,6 @@ import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
-import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.launchBackdropScale
 import com.arcadia.shell.designsystem.motionMillis
