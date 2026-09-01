@@ -213,8 +213,9 @@ fun XmbVectorIcon(
                     .requiredSize(shadowW, shadowH)
                     .graphicsLayer {
                         clip = false
-                        // extra[] lines the blurred plate up with the glyph; then sit it
-                        // exactly 10 design-px right and 10 design-px down.
+                        // Center the isotropic blur on the glyph, then sit it 10px south-east.
+                        // extractAlpha's offsetXY is the full growth of the plate (NW of the
+                        // source); using it here put every drop shadow above-left of the icon.
                         translationX = shadow.drawX + shadowOffsetX.toPx()
                         translationY = shadow.drawY + shadowOffsetY.toPx()
                         alpha = shadowAlpha
@@ -388,8 +389,9 @@ private fun rasterizeXmbGlyphShadow(
     val heightPx = with(density) { height.toPx() }
     val blurPx = with(density) { blur.toPx() }.coerceAtLeast(1f)
     val strokePx = with(density) { strokeWidth.toPx() }.coerceAtLeast(0f)
-    // Icon-sized source: extractAlpha grows the result by the blur, and extra[] is the
-    // offset that lines that result back up with this bitmap — then the caller adds 10×10.
+    // Icon-sized source: extractAlpha grows the result by the blur on every side.
+    // We re-center by half that growth (not offsetXY) so the caller's +10/+10 is a
+    // true south-east drop.
     val bmpW = widthPx.roundToInt().coerceAtLeast(1)
     val bmpH = heightPx.roundToInt().coerceAtLeast(1)
     val src = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
@@ -443,10 +445,11 @@ private fun rasterizeXmbGlyphShadow(
         isFilterBitmap = true
         maskFilter = BlurMaskFilter(blurPx, BlurMaskFilter.Blur.NORMAL)
     }
-    val extra = IntArray(2)
-    val alpha = src.extractAlpha(blurPaint, extra)
+    val alpha = src.extractAlpha(blurPaint, null)
     src.recycle()
-    val tinted = Bitmap.createBitmap(alpha.width, alpha.height, Bitmap.Config.ARGB_8888)
+    val alphaW = alpha.width
+    val alphaH = alpha.height
+    val tinted = Bitmap.createBitmap(alphaW, alphaH, Bitmap.Config.ARGB_8888)
     android.graphics.Canvas(tinted).drawBitmap(
         alpha,
         0f,
@@ -456,10 +459,13 @@ private fun rasterizeXmbGlyphShadow(
         },
     )
     alpha.recycle()
+    // A NORMAL blur grows evenly, so backing off by half the extra width/height parks
+    // the silhouette on the glyph. offsetXY reports the full growth and would yank
+    // that plate north-west by the same half again.
     return XmbGlyphShadow(
         image = tinted.asImageBitmap(),
-        drawX = extra[0].toFloat(),
-        drawY = extra[1].toFloat(),
+        drawX = -(alphaW - bmpW) / 2f,
+        drawY = -(alphaH - bmpH) / 2f,
     )
 }
 
