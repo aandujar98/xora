@@ -345,6 +345,10 @@ sealed interface HomeEvent {
     data class OpenScrapeMenu(val gameId: String) : HomeEvent
     /** Best-effort: reorder the shell task to the front when Guide opens. */
     data object BringShellToFront : HomeEvent
+    /** Open system settings so XOrA can install the downloaded APK. */
+    data object RequestUnknownAppSources : HomeEvent
+    /** Launch the package installer for a FileProvider APK URI. */
+    data class InstallApk(val uri: android.net.Uri) : HomeEvent
 }
 
 /**

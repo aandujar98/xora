@@ -92,6 +92,8 @@ sealed interface XoraXmbAction {
     data object OpenProfile : XoraXmbAction
     data object GuestModeStub : XoraXmbAction
     data class OpenSettingsCategory(val category: StartSettingsCategory) : XoraXmbAction
+    /** Fetch the newest GitHub Releases APK and open the system installer. */
+    data object InstallLatestUpdate : XoraXmbAction
     data object OpenRaLibrary : XoraXmbAction
     data object LaunchContinueOrFavorite : XoraXmbAction
     data object DrillAllGames : XoraXmbAction
@@ -299,6 +301,13 @@ fun buildXoraCategoryItems(
             subtitle = "Banners & sounds",
             action = XoraXmbAction.OpenSettingsCategory(StartSettingsCategory.Notifications),
             icon = XmbIcon.Notifications,
+        ),
+        XoraXmbItem(
+            id = "set_update",
+            title = "Update",
+            subtitle = "Install latest GitHub build",
+            action = XoraXmbAction.InstallLatestUpdate,
+            icon = XmbIcon.General,
         ),
     )
     XoraXmbCategory.Games -> {

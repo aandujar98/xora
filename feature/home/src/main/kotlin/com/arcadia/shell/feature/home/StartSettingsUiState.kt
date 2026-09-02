@@ -125,6 +125,7 @@ sealed interface StartSettingsAction {
     data object EditHome : StartSettingsAction
     data object EditProfile : StartSettingsAction
     data object ScanEmulators : StartSettingsAction
+    data object InstallLatestUpdate : StartSettingsAction
     data object OpenAllSettings : StartSettingsAction
     data object Reboot : StartSettingsAction
     data object PowerDown : StartSettingsAction
@@ -532,6 +533,12 @@ fun buildStartSettingsRows(
             title = "Scan for emulators",
             subtitle = "Detect Cemu, Eden, Dolphin, RetroArch cores…",
             action = StartSettingsAction.ScanEmulators,
+        ),
+        StartSettingsRow.Action(
+            id = "update",
+            title = "Update",
+            subtitle = "Install latest GitHub build",
+            action = StartSettingsAction.InstallLatestUpdate,
         ),
         StartSettingsRow.Action(
             id = "all_settings",

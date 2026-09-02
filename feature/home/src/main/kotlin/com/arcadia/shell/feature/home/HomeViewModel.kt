@@ -231,6 +231,7 @@ class HomeViewModel @Inject constructor(
     private val gameCompanionController: GameCompanionController,
     private val xoraNetwork: XoraNetworkRepository,
     val gamepadDispatcher: GamepadDispatcher,
+    private val githubReleaseUpdater: GithubReleaseUpdater,
 ) : ViewModel() {
 
     /** Companion bottom-screen session, non-null only while a qualifying game is running. */
@@ -2909,6 +2910,7 @@ class HomeViewModel @Inject constructor(
             XoraXmbAction.GuestModeStub ->
                 emit(HomeEvent.ShowMessage("Guest Mode — coming soon."))
             is XoraXmbAction.OpenSettingsCategory -> openStartSettings(action.category)
+            XoraXmbAction.InstallLatestUpdate -> installLatestGithubBuild()
             XoraXmbAction.OpenRaLibrary -> openRaLibrary()
             XoraXmbAction.LaunchContinueOrFavorite -> launchContinueOrFavorite()
             XoraXmbAction.DrillAllGames -> {
@@ -6536,8 +6538,59 @@ class HomeViewModel @Inject constructor(
                     ),
                 )
             }
+            StartSettingsAction.InstallLatestUpdate -> installLatestGithubBuild()
             StartSettingsAction.Reboot -> requestDevicePower(reboot = true)
             StartSettingsAction.PowerDown -> requestDevicePower(reboot = false)
+        }
+    }
+
+    private fun installLatestGithubBuild() {
+        if (githubReleaseUpdater.isBusy) {
+            emit(HomeEvent.ShowMessage("Update already downloading…"))
+            return
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 26 &&
+            !appContext.packageManager.canRequestPackageInstalls()
+        ) {
+            emit(HomeEvent.RequestUnknownAppSources)
+            emit(
+                HomeEvent.ShowMessage(
+                    "Allow XOrA to install apps, then press Update again.",
+                ),
+            )
+            return
+        }
+        viewModelScope.launch {
+            emit(HomeEvent.ShowMessage("Fetching latest XOrA from GitHub…"))
+            val installed = runCatching {
+                appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+            }.getOrNull()
+            val result = githubReleaseUpdater.downloadLatest(installed)
+            result.fold(
+                onSuccess = { update ->
+                    when (update) {
+                        is GithubUpdateResult.AlreadyCurrent ->
+                            emit(HomeEvent.ShowMessage("Already on the latest build (${update.versionName})."))
+                        is GithubUpdateResult.Downloaded -> {
+                            val uri = FileProvider.getUriForFile(
+                                appContext,
+                                "${appContext.packageName}.files",
+                                update.apk,
+                            )
+                            emit(HomeEvent.ShowMessage("Installing XOrA ${update.versionName}…"))
+                            emit(HomeEvent.InstallApk(uri))
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    emit(
+                        HomeEvent.ShowError(
+                            error.message?.takeIf { it.isNotBlank() }
+                                ?: "Could not download the latest build.",
+                        ),
+                    )
+                },
+            )
         }
     }
 

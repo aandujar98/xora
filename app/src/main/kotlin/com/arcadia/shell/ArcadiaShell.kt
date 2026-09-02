@@ -2,7 +2,9 @@ package com.arcadia.shell
 
 import android.app.Activity
 import android.app.ActivityManager
+import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
@@ -338,6 +340,38 @@ fun ArcadiaShell(
                 is HomeEvent.OpenGameOptions -> optionsGameId = event.gameId
                 is HomeEvent.OpenScrapeMenu -> scrapeMenuGameId = event.gameId
                 HomeEvent.BringShellToFront -> bringShellToFront(context)
+                HomeEvent.RequestUnknownAppSources -> {
+                    val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    runCatching { context.startActivity(intent) }
+                        .onFailure {
+                            snackbarHostState.showSnackbar("Open system settings and allow XOrA to install apps.")
+                        }
+                }
+                is HomeEvent.InstallApk -> {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(event.uri, "application/vnd.android.package-archive")
+                        addFlags(
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_ACTIVITY_NEW_TASK,
+                        )
+                    }
+                    context.packageManager.queryIntentActivities(intent, 0).forEach { resolve ->
+                        context.grantUriPermission(
+                            resolve.activityInfo.packageName,
+                            event.uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        )
+                    }
+                    runCatching { context.startActivity(intent) }
+                        .onFailure {
+                            snackbarHostState.showSnackbar(
+                                it.message ?: "Could not open the package installer.",
+                            )
+                        }
+                }
             }
         }
     }
