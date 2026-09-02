@@ -166,9 +166,10 @@ private val ProfileCardRadius = 24.dp
 private val ProfileCardPadStart = 22.dp
 private val ProfileCardPadEnd = 22.dp
 private val ProfileCardPadTop = 20.dp
-private val ProfileCardPadBottom = 14.dp
-private val ProfileHeaderH = 96.dp
-private val ProfileIdentityStart = 128.dp
+private val ProfileCardPadBottom = 22.dp
+private val ProfileHeaderH = 122.dp
+private val ProfileIdentityStart = 88.dp
+private val ProfileIdentityTop = 50.dp
 private val StatusBubbleW = 318.dp
 private val StatusBubbleEndInset = 20.dp
 private val RecentlyEarnedBadgeSlots = 6
@@ -178,7 +179,7 @@ private val RecentlyEarnedLabelGap = 25.dp
 private val FavoriteLabelGap = 30.dp
 private val HeaderToRecentGap = 21.dp
 private val RecentToFavoriteGap = 15.dp
-private val FavoriteToFooterGap = 25.dp
+private val FavoriteToFooterGap = 32.dp
 private val PresenceDotSize = 12.dp
 private val TrophyGlyphW = 24.dp
 private val TrophyGlyphH = TrophyGlyphW * (120f / 130f)
@@ -594,7 +595,7 @@ private fun ProfileCardHeader(
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(start = ProfileIdentityStart, top = 28.dp)
+                .padding(start = ProfileIdentityStart, top = ProfileIdentityTop)
                 .graphicsLayer { clip = false },
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.Start,
@@ -1229,7 +1230,7 @@ private fun ProfileCardFooter(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(32.dp),
+            .height(36.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         WifiGlyph(
