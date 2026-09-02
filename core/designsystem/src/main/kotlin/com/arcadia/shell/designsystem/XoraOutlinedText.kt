@@ -37,7 +37,7 @@ fun XoraOutlinedText(
     fillColor: Color = Color.White,
     fillBrush: Brush? = null,
     outlineColor: Color = Color.Black,
-    outlineWidth: Dp = XoraOutlineWidth.forSize(fontSize),
+    outlineWidth: Dp = 3.dp,
     letterSpacing: TextUnit = TextUnit.Unspecified,
     shadow: Shadow? = null,
     textAlign: TextAlign? = null,
@@ -47,8 +47,9 @@ fun XoraOutlinedText(
 ) {
     val scale = xoraTextScale()
     val scaledSize = fontSize * scale
-    val scaledOutline = outlineWidth * scale
-    val outlinePx = with(LocalDensity.current) { scaledOutline.toPx() }
+    // Stroke is centered on the glyph; double the width so a 3px outline sits fully outside
+    // after the fill layer covers the inner half.
+    val outlinePx = with(LocalDensity.current) { outlineWidth.toPx() } * 2f
     val base = TextStyle(
         fontFamily = fontFamily,
         fontWeight = fontWeight,
@@ -122,6 +123,7 @@ fun XoraTitleText(
         fontWeight = fontWeight,
         fontSize = fontSize,
         fillColor = fillColor,
+        outlineWidth = 3.dp,
         letterSpacing = XoraFonts.TitleLetterSpacing,
         textAlign = textAlign,
         maxLines = maxLines,

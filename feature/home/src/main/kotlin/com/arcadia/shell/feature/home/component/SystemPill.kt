@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +45,7 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -62,19 +64,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
@@ -86,6 +95,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -155,9 +165,12 @@ private val StatusBubbleFillBrush = Brush.verticalGradient(
 
 private val CardStroke = 3.dp
 private val CardAssetShadowDp = 4.dp
+private val CardShadowInk = Color(0xFF000000)
 private val Game0Aspect = 462f / 248f
-private val Game0Radius = 30.dp
 private val Game0Border = 4.dp
+private val FavoritePlateW = 118.dp
+private val FavoritePlateH = FavoritePlateW / Game0Aspect
+private val FavoritePlateRadius = 10.dp
 private val ProfileCardWidth = 380.dp
 
 private fun vibrantFillBrush(accent: Color): Brush =
@@ -175,9 +188,9 @@ private const val ProfileBubbleSelectedScale = 0.9f
 /** Selected drop shadow: X4 Y4 B4 S0. Idle chrome stays 10 / 10 / 15. */
 private val ProfileBubbleSelectedShadow = 4.dp
 
-/** Horizontal coin-flip as the bubble settles into the expanded header. */
-private const val ProfileBubbleFlipDeg = 360f
-private const val ProfileBubbleFlipMs = 560
+/** Two horizontal coin-flips as the bubble settles into the expanded header. */
+private const val ProfileBubbleFlipDeg = 720f
+private const val ProfileBubbleFlipMs = 500
 
 /** Stronger ease-out so the last degrees of the flip settle instead of hitting a wall. */
 private val ProfileBubbleEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
@@ -186,7 +199,8 @@ private val ProfileBubbleEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
 private val ProfileBubbleSelectedInsetStart = 16.dp
 private val ProfileBubbleSelectedInsetTop = 20.dp
 
-private val ProfileBubbleEchoLags = floatArrayOf(0.06f, 0.12f, 0.18f, 0.24f, 0.30f)
+/** Dense lagged copies for a hazy motion trail. */
+private val ProfileBubbleEchoLags = FloatArray(12) { i -> 0.022f * (i + 1) }
 
 /**
  * Figma Make top-right bubble: inner 188.044 over Ellipse56 182.495, rotated 165°,
@@ -304,7 +318,7 @@ fun SystemPill(
             ),
         ) {
             val cardShape = RoundedCornerShape(30.dp)
-            val cardScroll = rememberScrollState()
+            val pickerScroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .padding(top = 8.dp)
@@ -328,11 +342,18 @@ fun SystemPill(
             ) {
                 Column(
                     modifier = Modifier
-                        .weight(1f, fill = false)
-                        .verticalScroll(cardScroll)
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .then(
+                            if (systemProfile.favoritePickerOpen) {
+                                Modifier
+                                    .weight(1f, fill = false)
+                                    .verticalScroll(pickerScroll)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                         .fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                 if (systemProfile.favoritePickerOpen) {
                     FavoritePickerPanel(
@@ -430,21 +451,48 @@ private fun ProfileSelectBubble(
         contentAlignment = Alignment.TopEnd,
     ) {
         if (moving) {
+            val echoCount = ProfileBubbleEchoLags.size
             ProfileBubbleEchoLags.forEachIndexed { index, lag ->
                 val echoProgress = (progress - lag).coerceIn(0f, 1f)
-                val echoAlpha = (0.20f - index * 0.032f).coerceAtLeast(0.04f)
+                val fade = (0.55f * (1f - index / echoCount.toFloat())).coerceAtLeast(0.08f)
+                val blurPx = 5f + index * 2.4f
+                val echoSize = profileBubbleSize(echoProgress)
                 Box(
                     modifier = Modifier
                         .profileBubblePlacement(echoProgress)
-                        .requiredSize(profileBubbleSize(echoProgress))
+                        .requiredSize(echoSize * (1.16f + index * 0.035f))
                         .graphicsLayer {
                             rotationY = ProfileBubbleFlipDeg * echoProgress
                             cameraDistance = 16f * density
-                            transformOrigin = TransformOrigin.Center
+                            alpha = fade * 0.65f
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                renderEffect = BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                            }
                             clip = false
                         }
-                        .background(Color.White.copy(alpha = echoAlpha * 0.18f), CircleShape)
-                        .border(1.5.dp, Color.White.copy(alpha = echoAlpha * 0.72f), CircleShape),
+                        .background(Color.White.copy(alpha = 0.55f), CircleShape),
+                )
+                ProfileAvatar(
+                    displayName = profile.displayName,
+                    presetId = profile.avatarPresetId,
+                    size = echoSize,
+                    imageModel = avatarImageModel,
+                    borderColor = Color.White.copy(alpha = 0.35f),
+                    modifier = Modifier
+                        .profileBubblePlacement(echoProgress)
+                        .graphicsLayer {
+                            rotationY = ProfileBubbleFlipDeg * echoProgress
+                            cameraDistance = 16f * density
+                            alpha = fade
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                renderEffect = BlurEffect(
+                                    blurPx * 0.7f,
+                                    blurPx * 0.7f,
+                                    TileMode.Clamp,
+                                )
+                            }
+                            clip = false
+                        },
                 )
             }
         }
@@ -589,7 +637,7 @@ private fun ProfileCardHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                TrophyMiniGlyph(modifier = Modifier.size(22.dp))
+                TrophyMiniGlyph()
                 CardTitleText(
                     text = "POINTS",
                     fontSize = 18.sp,
@@ -643,31 +691,46 @@ private fun CardTitleText(
 private fun cardAssetShadow(): Shadow {
     val px = with(LocalDensity.current) { CardAssetShadowDp.toPx() }
     return Shadow(
-        color = Color.Black.copy(alpha = 0.50f),
+        color = CardShadowInk,
         offset = Offset(px, px),
         blurRadius = px,
     )
 }
 
-/** Tail under the status bubble, pointing down toward the avatar on the left. */
-@Composable
-private fun BubbleTail(modifier: Modifier = Modifier) {
-    val density = LocalDensity.current
-    val strokePx = with(density) { CardStroke.toPx() }
-    Canvas(modifier = modifier.size(width = 18.dp, height = 10.dp)) {
-        val path = Path().apply {
-            moveTo(size.width * 0.15f, 0f)
-            lineTo(size.width, 0f)
-            lineTo(0f, size.height)
-            close()
-        }
-        drawPath(path, brush = StatusBubbleFillBrush)
-        drawPath(
-            path,
-            color = Color.Black,
-            style = Stroke(width = strokePx, join = StrokeJoin.Round),
+private val StatusTailWidth = 18.dp
+private val StatusTailHeight = 10.dp
+private val StatusBubbleCorner = 16.dp
+private val StatusTailStart = 14.dp
+
+private fun speechBubblePath(
+    size: Size,
+    tailW: Float,
+    tailH: Float,
+    corner: Float,
+    tailLeft: Float,
+): Path {
+    val bodyH = (size.height - tailH).coerceAtLeast(corner * 2f)
+    val radius = corner.coerceAtMost(minOf(size.width, bodyH) / 2f)
+    val body = Path().apply {
+        addRoundRect(
+            RoundRect(
+                left = 0f,
+                top = 0f,
+                right = size.width,
+                bottom = bodyH,
+                radiusX = radius,
+                radiusY = radius,
+            ),
         )
     }
+    val tail = Path().apply {
+        val attachY = bodyH - 0.5f
+        moveTo(tailLeft + tailW * 0.18f, attachY)
+        lineTo(tailLeft + tailW, attachY)
+        lineTo(tailLeft, bodyH + tailH)
+        close()
+    }
+    return Path().apply { op(body, tail, PathOperation.Union) }
 }
 
 @Composable
@@ -683,99 +746,119 @@ private fun StatusBubble(
     onSave: () -> Unit,
     onClear: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val density = LocalDensity.current
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     val statusSize = 24.sp * xoraTextScale()
+    val tailW = with(density) { StatusTailWidth.toPx() }
+    val tailH = with(density) { StatusTailHeight.toPx() }
+    val corner = with(density) { StatusBubbleCorner.toPx() }
+    val tailLeft = with(density) { StatusTailStart.toPx() }
+    val strokePx = with(density) { CardStroke.toPx() }
+    val bubbleShape = remember(tailW, tailH, corner, tailLeft) {
+        GenericShape { size, _ ->
+            addPath(speechBubblePath(size, tailW, tailH, corner, tailLeft))
+        }
+    }
     LaunchedEffect(selected) {
         if (selected) {
             delay(16)
             bringIntoViewRequester.bringIntoView()
         }
     }
-    Column(horizontalAlignment = Alignment.Start) {
-        Column(
-            modifier = Modifier
-                .bringIntoViewRequester(bringIntoViewRequester)
-                .xoraForegroundShadow(
-                    shape = shape,
-                    offset = CardAssetShadowDp,
-                    blur = CardAssetShadowDp,
-                )
-                .border(CardStroke, Color.Black, shape)
-                .clip(shape)
-                .background(StatusBubbleFillBrush, shape)
-                .then(
-                    if (selected) {
-                        Modifier.border(2.dp, FocusRing, shape)
-                    } else {
-                        Modifier
-                    },
-                )
-                .clickable {
-                    onSelect()
-                    if (!editing) onActivate()
+    Column(
+        modifier = Modifier
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .padding(CardStroke)
+            .xoraForegroundShadow(
+                shape = bubbleShape,
+                offset = CardAssetShadowDp,
+                blur = CardAssetShadowDp,
+            )
+            .drawBehind {
+                val path = speechBubblePath(size, tailW, tailH, corner, tailLeft)
+                if (selected) {
+                    drawPath(
+                        path,
+                        color = FocusRing,
+                        style = Stroke(width = (strokePx + 2.dp.toPx()) * 2f, join = StrokeJoin.Round),
+                    )
                 }
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (editing) {
-                BasicTextField(
-                    value = draft,
-                    onValueChange = onDraftChange,
-                    singleLine = true,
-                    textStyle = TextStyle(
-                        fontFamily = XoraFonts.XmbLabel,
-                        fontSize = statusSize,
-                        color = BubbleInk,
-                    ),
-                    cursorBrush = SolidColor(BubbleInk),
-                    modifier = Modifier.widthIn(min = 160.dp),
-                    decorationBox = { inner ->
-                        Box {
-                            if (draft.isBlank()) {
-                                Text(
-                                    text = "Custom status…",
-                                    style = TextStyle(
-                                        fontFamily = XoraFonts.XmbLabel,
-                                        fontSize = statusSize,
-                                        color = BubbleInk.copy(alpha = 0.5f),
-                                    ),
-                                )
-                            }
-                            inner()
-                        }
-                    },
+                drawPath(
+                    path,
+                    color = Color.Black,
+                    style = Stroke(width = strokePx * 2f, join = StrokeJoin.Round),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = onSave) {
-                        Text("Save", color = BubbleInk, fontWeight = FontWeight.Bold)
-                    }
-                    if (isCustom || draft.isNotBlank()) {
-                        TextButton(onClick = onClear) {
-                            Text("Clear", color = BubbleInk.copy(alpha = 0.7f))
-                        }
-                    }
-                }
-            } else {
-                Text(
-                    text = text,
-                    style = TextStyle(
-                        fontFamily = XoraFonts.XmbLabel,
-                        fontSize = statusSize,
-                        color = BubbleInk,
-                    ),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                drawPath(path, brush = StatusBubbleFillBrush)
             }
+            .clip(bubbleShape)
+            .clickable {
+                onSelect()
+                if (!editing) onActivate()
+            }
+            .padding(
+                start = 14.dp,
+                end = 14.dp,
+                top = 8.dp,
+                bottom = 8.dp + StatusTailHeight,
+            ),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (editing) {
+            BasicTextField(
+                value = draft,
+                onValueChange = onDraftChange,
+                singleLine = true,
+                textStyle = TextStyle(
+                    fontFamily = XoraFonts.XmbLabel,
+                    fontSize = statusSize,
+                    color = BubbleInk,
+                ),
+                cursorBrush = SolidColor(BubbleInk),
+                modifier = Modifier.widthIn(min = 160.dp),
+                decorationBox = { inner ->
+                    Box {
+                        if (draft.isBlank()) {
+                            Text(
+                                text = "Custom status…",
+                                style = TextStyle(
+                                    fontFamily = XoraFonts.XmbLabel,
+                                    fontSize = statusSize,
+                                    color = BubbleInk.copy(alpha = 0.5f),
+                                ),
+                            )
+                        }
+                        inner()
+                    }
+                },
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onSave) {
+                    Text("Save", color = BubbleInk, fontWeight = FontWeight.Bold)
+                }
+                if (isCustom || draft.isNotBlank()) {
+                    TextButton(onClick = onClear) {
+                        Text("Clear", color = BubbleInk.copy(alpha = 0.7f))
+                    }
+                }
+            }
+        } else {
+            Text(
+                text = text,
+                style = TextStyle(
+                    fontFamily = XoraFonts.XmbLabel,
+                    fontSize = statusSize,
+                    color = BubbleInk,
+                ),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        BubbleTail(modifier = Modifier.padding(start = 14.dp))
     }
 }
 
 @Composable
 private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         CardSectionLabel("RECENTLY EARNED")
         if (unlocks.isEmpty()) {
             Text(
@@ -789,9 +872,9 @@ private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(scroll),
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                unlocks.take(8).forEach { unlock ->
+                unlocks.take(6).forEach { unlock ->
                     AchievementBadge(unlock = unlock)
                 }
             }
@@ -805,7 +888,7 @@ private fun AchievementBadge(unlock: RaRecentUnlock) {
     val shape = RoundedCornerShape(10.dp)
     Box(
         modifier = Modifier
-            .size(56.dp)
+            .size(40.dp)
             .clip(shape)
             .background(Color.Black.copy(alpha = 0.25f))
             .border(2.dp, BadgeBorder, shape),
@@ -838,27 +921,27 @@ private fun FavoriteGameSection(
             bringIntoViewRequester.bringIntoView()
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        val artShape = RoundedCornerShape(Game0Radius)
-        Column(
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        val artShape = RoundedCornerShape(FavoritePlateRadius)
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .bringIntoViewRequester(bringIntoViewRequester)
                 .then(
                     if (selected) {
-                        Modifier.border(2.dp, FocusRing, RoundedCornerShape(14.dp))
+                        Modifier.border(2.dp, FocusRing, RoundedCornerShape(12.dp))
                     } else {
                         Modifier
                     },
                 )
                 .clickable(onClick = onClick)
                 .padding(2.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(Game0Aspect)
+                    .size(width = FavoritePlateW, height = FavoritePlateH)
                     .xoraForegroundShadow(
                         shape = artShape,
                         offset = CardAssetShadowDp,
@@ -886,40 +969,45 @@ private fun FavoriteGameSection(
             }
 
             val titleScale = xoraTextScale()
-            Text(
-                text = favorite?.title ?: "Add favorite",
-                style = TextStyle(
-                    fontFamily = XoraFonts.XmbLabel,
-                    fontSize = 32.sp * titleScale,
-                    color = Color.White,
-                    shadow = cardAssetShadow(),
-                ),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (favorite == null) {
-                CardTitleText(
-                    text = "PICK FROM YOUR LIST",
-                    fontSize = 18.sp,
-                    fillBrush = DullFillBrush,
-                    maxLines = 1,
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = favorite?.title ?: "Add favorite",
+                    style = TextStyle(
+                        fontFamily = XoraFonts.XmbLabel,
+                        fontSize = 32.sp * titleScale,
+                        color = Color.White,
+                        shadow = cardAssetShadow(),
+                    ),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
-            } else {
-                val (amount, unit) = playtimeParts(favorite.playTimeMs)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                if (favorite == null) {
                     CardTitleText(
-                        text = amount,
-                        fontSize = 28.sp,
-                        fillBrush = PlaytimeFillBrush,
-                    )
-                    CardTitleText(
-                        text = unit,
+                        text = "PICK FROM YOUR LIST",
                         fontSize = 18.sp,
                         fillBrush = DullFillBrush,
+                        maxLines = 1,
                     )
+                } else {
+                    val (amount, unit) = playtimeParts(favorite.playTimeMs)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        CardTitleText(
+                            text = amount,
+                            fontSize = 28.sp,
+                            fillBrush = PlaytimeFillBrush,
+                        )
+                        CardTitleText(
+                            text = unit,
+                            fontSize = 18.sp,
+                            fillBrush = DullFillBrush,
+                        )
+                    }
                 }
             }
         }
@@ -1180,69 +1268,42 @@ private fun PresenceDot(color: Color, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun TrophyMiniGlyph(modifier: Modifier = Modifier.size(22.dp)) {
-    val density = LocalDensity.current
-    val strokePx = with(density) { CardStroke.toPx() }
-    val shadowPx = with(density) { CardAssetShadowDp.toPx() }
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val cup = Path().apply {
-            moveTo(w * 0.28f, h * 0.12f)
-            lineTo(w * 0.72f, h * 0.12f)
-            quadraticTo(w * 0.78f, h * 0.38f, w * 0.58f, h * 0.55f)
-            lineTo(w * 0.42f, h * 0.55f)
-            quadraticTo(w * 0.22f, h * 0.38f, w * 0.28f, h * 0.12f)
-            close()
-        }
-        val stemLeft = Offset(w * 0.44f, h * 0.55f)
-        val stemSize = Size(w * 0.12f, h * 0.18f)
-        val baseLeft = Offset(w * 0.30f, h * 0.78f)
-        val baseSize = Size(w * 0.40f, h * 0.14f)
-        val corners = CornerRadius(w * 0.04f)
-        translate(shadowPx, shadowPx) {
-            drawPath(cup, color = Color.Black.copy(alpha = 0.50f))
-            drawRoundRect(
-                color = Color.Black.copy(alpha = 0.50f),
-                topLeft = stemLeft,
-                size = stemSize,
-                cornerRadius = corners,
-            )
-            drawRoundRect(
-                color = Color.Black.copy(alpha = 0.50f),
-                topLeft = baseLeft,
-                size = baseSize,
-                cornerRadius = corners,
+private fun TrophyMiniGlyph(modifier: Modifier = Modifier) {
+    val painter = painterResource(R.drawable.xmb_figma_trophy)
+    val stroke = CardStroke
+    val dirs = listOf(
+        -1 to 0, 1 to 0, 0 to -1, 0 to 1,
+        -1 to -1, 1 to -1, -1 to 1, 1 to 1,
+    )
+    Box(
+        modifier = modifier
+            .size(width = 26.dp, height = 24.dp)
+            .xoraForegroundShadow(
+                shape = RoundedCornerShape(4.dp),
+                offset = CardAssetShadowDp,
+                blur = CardAssetShadowDp,
+            ),
+    ) {
+        dirs.forEach { (dx, dy) ->
+            Image(
+                painter = painter,
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(CardShadowInk),
+                modifier = Modifier
+                    .matchParentSize()
+                    .offset(stroke * dx, stroke * dy),
             )
         }
-        drawPath(cup, brush = DullFillBrush)
-        drawRoundRect(
-            brush = DullFillBrush,
-            topLeft = stemLeft,
-            size = stemSize,
-            cornerRadius = corners,
-        )
-        drawRoundRect(
-            brush = DullFillBrush,
-            topLeft = baseLeft,
-            size = baseSize,
-            cornerRadius = corners,
-        )
-        val stroke = Stroke(width = strokePx, join = StrokeJoin.Round)
-        drawPath(cup, color = Color.Black, style = stroke)
-        drawRoundRect(
-            color = Color.Black,
-            topLeft = stemLeft,
-            size = stemSize,
-            cornerRadius = corners,
-            style = stroke,
-        )
-        drawRoundRect(
-            color = Color.Black,
-            topLeft = baseLeft,
-            size = baseSize,
-            cornerRadius = corners,
-            style = stroke,
+        Image(
+            painter = painter,
+            contentDescription = null,
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(brush = DullFillBrush, blendMode = BlendMode.SrcIn)
+                },
         )
     }
 }
