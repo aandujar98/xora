@@ -116,6 +116,7 @@ import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.supportsGlassBlurEffect
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.designsystem.xoraModalGlass
+import com.arcadia.shell.designsystem.xoraTextScale
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.SystemFavoriteGame
 import com.arcadia.shell.feature.home.SystemPanelRow
@@ -180,7 +181,6 @@ private val ProfileIdentityTop = 60.dp
 private val StatusBubbleW = 350.dp
 private val StatusBubbleEndInset = 8.dp
 private val StatusBubbleTextSize = 24.sp
-private val StatusBubbleTextStroke = 1.dp
 private val RecentlyEarnedBadgeSlots = 6
 private val RecentlyEarnedBadgeSize = 60.dp
 private val RecentlyEarnedBadgeGap = 12.dp
@@ -971,14 +971,14 @@ private fun StatusBubble(
                 }
             }
         } else {
-            XoraOutlinedText(
+            Text(
                 text = text,
-                fontFamily = XoraFonts.XmbLabel,
-                fontSize = statusSize,
-                fillColor = BubbleInk,
-                outlineColor = BubbleInk,
-                outlineWidth = StatusBubbleTextStroke,
-                letterSpacing = 0.sp,
+                style = TextStyle(
+                    fontFamily = XoraFonts.XmbLabel,
+                    fontSize = statusSize * xoraTextScale(),
+                    color = BubbleInk,
+                    letterSpacing = 0.sp,
+                ),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )

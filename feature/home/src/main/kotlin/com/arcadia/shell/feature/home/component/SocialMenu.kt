@@ -413,15 +413,15 @@ private fun NotificationsPill(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        XoraOutlinedText(
+        Text(
             text = label,
-            fontFamily = XoraFonts.XmbLabel,
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp,
-            fillColor = NotificationInk,
-            outlineColor = NotificationInk,
-            outlineWidth = 1.dp,
-            letterSpacing = 0.sp,
+            style = TextStyle(
+                fontFamily = XoraFonts.XmbLabel,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp * xoraTextScale(),
+                color = NotificationInk,
+                letterSpacing = 0.sp,
+            ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
