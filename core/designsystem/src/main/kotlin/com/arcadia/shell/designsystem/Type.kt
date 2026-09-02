@@ -24,8 +24,8 @@ fun xoraTextScale(): Float = LocalXoraTextScale.current
  * XOrA type ramp.
  *
  * - [XoraFonts.Title] — XOIREQE: titles, menu names, primary labels
- * - [XoraFonts.Secondary] — FOT-NewRodin Pro: bios, subtitles, info, secondary copy
- * - [XoraFonts.XmbLabel] — FOT-NewRodin Pro: XMB hover labels and card NewRodin copy
+ * - [XoraFonts.Secondary] — FOT-NewRodin Pro DB: bios, subtitles, info, secondary copy
+ * - [XoraFonts.XmbLabel] — FOT-NewRodin Pro DB: XMB hover labels and card NewRodin copy
  */
 object XoraFonts {
     val Title: FontFamily = FontFamily(
@@ -37,14 +37,14 @@ object XoraFonts {
     )
 
     val Secondary: FontFamily = FontFamily(
-        Font(R.font.fot_newrodin_pro_eb, FontWeight.Normal),
-        Font(R.font.fot_newrodin_pro_eb, FontWeight.Medium),
-        Font(R.font.fot_newrodin_pro_eb, FontWeight.SemiBold),
-        Font(R.font.fot_newrodin_pro_eb, FontWeight.Bold),
-        Font(R.font.fot_newrodin_pro_eb, FontWeight.ExtraBold),
+        Font(R.font.fot_newrodin_pro_db, FontWeight.Normal),
+        Font(R.font.fot_newrodin_pro_db, FontWeight.Medium),
+        Font(R.font.fot_newrodin_pro_db, FontWeight.SemiBold),
+        Font(R.font.fot_newrodin_pro_db, FontWeight.Bold),
+        Font(R.font.fot_newrodin_pro_db, FontWeight.ExtraBold),
     )
 
-    /** FOT-NewRodin Pro — PSP / Figma hover face (same cut as [Secondary]). */
+    /** FOT-NewRodin Pro DB — PSP / Figma hover face (same cut as [Secondary]). */
     val XmbLabel: FontFamily = Secondary
 
     /** Slight tracking for XOIREQE primary / menu text. */
