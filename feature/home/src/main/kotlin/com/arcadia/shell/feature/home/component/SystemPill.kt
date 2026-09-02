@@ -21,7 +21,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,7 +33,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -71,7 +69,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -83,7 +80,6 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
@@ -163,11 +159,13 @@ private val CardStroke = 3.dp
 private val CardAssetShadowDp = 4.dp
 private val CardShadowInk = Color(0xFF000000)
 private val Game0Aspect = 462f / 248f
-private val Game0Border = 4.dp
-private val FavoritePlateW = 118.dp
+private val Game0Border = 3.dp
+private val FavoritePlateW = 177.dp
 private val FavoritePlateH = FavoritePlateW / Game0Aspect
 private val FavoritePlateRadius = 10.dp
 private val ProfileCardWidth = 380.dp
+private val RecentlyEarnedBadgeSlots = 6
+private val RecentlyEarnedBadgeGap = 8.dp
 
 private fun vibrantFillBrush(accent: Color): Brush =
     Brush.verticalGradient(listOf(lerp(accent, Color.White, 0.42f), accent))
@@ -195,8 +193,11 @@ private val ProfileBubbleEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
 private val ProfileBubbleSelectedInsetStart = 16.dp
 private val ProfileBubbleSelectedInsetTop = 20.dp
 
-/** Dense lagged copies for a hazy motion trail. */
-private val ProfileBubbleEchoLags = FloatArray(12) { i -> 0.022f * (i + 1) }
+/**
+ * Afterimage samples along the coin-flip path. Each echo is the source disc (or smaller) —
+ * never larger — so the trail reads as a feathered tail instead of expanding blobs.
+ */
+private val ProfileBubbleEchoLags = FloatArray(16) { i -> 0.014f * (i + 1) }
 
 /**
  * Figma Make top-right bubble: inner 188.044 over Ellipse56 182.495, rotated 165°,
@@ -437,44 +438,25 @@ private fun ProfileSelectBubble(
             val echoCount = ProfileBubbleEchoLags.size
             ProfileBubbleEchoLags.forEachIndexed { index, lag ->
                 val echoProgress = (progress - lag).coerceIn(0f, 1f)
-                val fade = (0.55f * (1f - index / echoCount.toFloat())).coerceAtLeast(0.08f)
-                val blurPx = 5f + index * 2.4f
-                val echoSize = profileBubbleSize(echoProgress)
-                Box(
-                    modifier = Modifier
-                        .profileBubblePlacement(echoProgress)
-                        .requiredSize(echoSize * (1.16f + index * 0.035f))
-                        .graphicsLayer {
-                            rotationY = ProfileBubbleFlipDeg * echoProgress
-                            cameraDistance = 16f * density
-                            alpha = fade * 0.65f
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                renderEffect = BlurEffect(blurPx, blurPx, TileMode.Clamp)
-                            }
-                            clip = false
-                        }
-                        .background(Color.White.copy(alpha = 0.55f), CircleShape),
-                )
+                val t = index / (echoCount - 1f).coerceAtLeast(1f)
+                val fade = (0.40f * (1f - t)).coerceAtLeast(0.04f)
+                val taper = 1f - 0.10f * t
+                val echoSize = profileBubbleSize(echoProgress) * taper
                 ProfileAvatar(
                     displayName = profile.displayName,
                     presetId = profile.avatarPresetId,
                     size = echoSize,
                     imageModel = avatarImageModel,
-                    borderColor = Color.White.copy(alpha = 0.35f),
+                    borderColor = Color.Transparent,
                     modifier = Modifier
                         .profileBubblePlacement(echoProgress)
                         .graphicsLayer {
                             rotationY = ProfileBubbleFlipDeg * echoProgress
                             cameraDistance = 16f * density
                             alpha = fade
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                renderEffect = BlurEffect(
-                                    blurPx * 0.7f,
-                                    blurPx * 0.7f,
-                                    TileMode.Clamp,
-                                )
-                            }
-                            clip = false
+                            transformOrigin = TransformOrigin.Center
+                            clip = true
+                            compositingStrategy = CompositingStrategy.Offscreen
                         },
                 )
             }
@@ -618,7 +600,7 @@ private fun ProfileCardHeader(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 TrophyMiniGlyph()
                 CardTitleText(
@@ -630,6 +612,7 @@ private fun ProfileCardHeader(
                     text = formatPoints(raScore),
                     fontSize = 28.sp,
                     fillBrush = vibrantFillBrush(ScoreAmber),
+                    letterSpacing = 0.sp,
                 )
             }
         }
@@ -653,6 +636,7 @@ private fun CardTitleText(
     fillBrush: Brush,
     modifier: Modifier = Modifier,
     maxLines: Int = 1,
+    letterSpacing: androidx.compose.ui.unit.TextUnit = XoraFonts.TitleLetterSpacing,
 ) {
     XoraOutlinedText(
         text = text,
@@ -663,7 +647,7 @@ private fun CardTitleText(
         fillBrush = fillBrush,
         outlineColor = OutlineInk,
         outlineWidth = CardStroke,
-        letterSpacing = XoraFonts.TitleLetterSpacing,
+        letterSpacing = letterSpacing,
         shadow = cardAssetShadow(),
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
@@ -850,15 +834,25 @@ private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
                 color = Color.White.copy(alpha = 0.55f),
             )
         } else {
-            val scroll = rememberScrollState()
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(scroll),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(RecentlyEarnedBadgeGap),
             ) {
-                unlocks.take(6).forEach { unlock ->
-                    AchievementBadge(unlock = unlock)
+                val shown = unlocks.take(RecentlyEarnedBadgeSlots)
+                shown.forEach { unlock ->
+                    AchievementBadge(
+                        unlock = unlock,
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f),
+                    )
+                }
+                repeat(RecentlyEarnedBadgeSlots - shown.size) {
+                    Spacer(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f),
+                    )
                 }
             }
         }
@@ -866,12 +860,14 @@ private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
 }
 
 @Composable
-private fun AchievementBadge(unlock: RaRecentUnlock) {
+private fun AchievementBadge(
+    unlock: RaRecentUnlock,
+    modifier: Modifier = Modifier,
+) {
     val platformContext = LocalPlatformContext.current
     val shape = RoundedCornerShape(10.dp)
     Box(
-        modifier = Modifier
-            .size(40.dp)
+        modifier = modifier
             .clip(shape)
             .background(Color.Black.copy(alpha = 0.25f))
             .border(2.dp, BadgeBorder, shape),
@@ -922,17 +918,27 @@ private fun FavoriteGameSection(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            val density = LocalDensity.current
+            val strokePx = with(density) { Game0Border.toPx() }
+            val cornerPx = with(density) { FavoritePlateRadius.toPx() }
             Box(
                 modifier = Modifier
+                    .padding(Game0Border)
                     .size(width = FavoritePlateW, height = FavoritePlateH)
                     .xoraForegroundShadow(
                         shape = artShape,
                         offset = CardAssetShadowDp,
                         blur = CardAssetShadowDp,
                     )
+                    .drawBehind {
+                        drawRoundRect(
+                            brush = ChromeStrokeBrush,
+                            cornerRadius = CornerRadius(cornerPx, cornerPx),
+                            style = Stroke(width = strokePx * 2f, join = StrokeJoin.Round),
+                        )
+                    }
                     .clip(artShape)
-                    .background(Color.Black.copy(alpha = 0.3f))
-                    .border(Game0Border, Color.White, artShape),
+                    .background(Color.Black.copy(alpha = 0.3f)),
                 contentAlignment = Alignment.Center,
             ) {
                 if (favorite != null && favorite.imageIconUrl.isNotBlank()) {
@@ -1258,20 +1264,25 @@ private fun TrophyMiniGlyph(modifier: Modifier = Modifier) {
         -1 to 0, 1 to 0, 0 to -1, 0 to 1,
         -1 to -1, 1 to -1, -1 to 1, 1 to 1,
     )
+    val glyphW = 28.dp
+    val glyphH = glyphW * (120f / 130f)
     Box(
         modifier = modifier
-            .size(width = 26.dp, height = 24.dp)
+            .padding(CardStroke)
+            .size(width = glyphW, height = glyphH)
             .xoraForegroundShadow(
                 shape = RoundedCornerShape(4.dp),
                 offset = CardAssetShadowDp,
                 blur = CardAssetShadowDp,
-            ),
+            )
+            .graphicsLayer { clip = false },
     ) {
         dirs.forEach { (dx, dy) ->
             Image(
                 painter = painter,
                 contentDescription = null,
                 colorFilter = ColorFilter.tint(CardShadowInk),
+                contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .matchParentSize()
                     .offset(stroke * dx, stroke * dy),
@@ -1280,6 +1291,7 @@ private fun TrophyMiniGlyph(modifier: Modifier = Modifier) {
         Image(
             painter = painter,
             contentDescription = null,
+            contentScale = ContentScale.Fit,
             modifier = Modifier
                 .matchParentSize()
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
@@ -1399,8 +1411,8 @@ private fun xoraPresenceColor(systemProfile: SystemProfileCardState): Color {
 }
 
 private fun formatPoints(score: Int?): String {
-    if (score == null) return "—"
-    return "%,d".format(Locale.US, score)
+    if (score == null) return "0"
+    return score.coerceAtLeast(0).toString()
 }
 
 private fun playtimeParts(playTimeMs: Long): Pair<String, String> {
