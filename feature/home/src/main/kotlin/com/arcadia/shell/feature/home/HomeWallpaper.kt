@@ -52,6 +52,7 @@ fun HomeWallpaper(
     customPath: String?,
     modifier: Modifier = Modifier,
     @Suppress("UNUSED_PARAMETER") dim: Boolean = false,
+    dimBlendMode: BlendMode = BlendMode.Hardlight,
 ) {
     val shellTheme = LocalShellTheme.current
     val layer = remember(
@@ -71,7 +72,7 @@ fun HomeWallpaper(
     }
     val fade = arcadiaTween<Float>(ArcadiaMotion.ThemeCrossfade)
 
-    // Offscreen so Hard Light samples the wallpaper, not whatever sits behind this box.
+    // Offscreen so DIM samples the wallpaper, not whatever sits behind this box.
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -89,7 +90,7 @@ fun HomeWallpaper(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // Releases/DIM — always 10% Hard Light; wallpaper itself stays full opacity.
+        // Releases/DIM — 10% over the wallpaper; Game Select passes Multiply.
         Image(
             painter = painterResource(R.drawable.wallpaper_dim),
             contentDescription = null,
@@ -98,7 +99,7 @@ fun HomeWallpaper(
                 .fillMaxSize()
                 .graphicsLayer {
                     alpha = 0.10f
-                    blendMode = BlendMode.Hardlight
+                    blendMode = dimBlendMode
                 },
         )
     }

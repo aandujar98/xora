@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -160,6 +161,7 @@ fun HeroPane(
                 HomeWallpaper(
                     customPath = homeWallpaperPath,
                     dim = false,
+                    dimBlendMode = BlendMode.Multiply,
                     modifier = Modifier
                         .fillMaxSize()
                         .arcadiaHazeSource(zIndex = 0f)
