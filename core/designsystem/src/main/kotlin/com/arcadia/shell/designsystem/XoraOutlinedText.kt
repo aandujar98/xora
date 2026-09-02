@@ -5,7 +5,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -33,9 +35,11 @@ fun XoraOutlinedText(
     fontWeight: FontWeight = FontWeight.Normal,
     fontSize: TextUnit = 16.sp,
     fillColor: Color = Color.White,
+    fillBrush: Brush? = null,
     outlineColor: Color = Color.Black,
     outlineWidth: Dp = XoraOutlineWidth.forSize(fontSize),
     letterSpacing: TextUnit = TextUnit.Unspecified,
+    shadow: Shadow? = null,
     textAlign: TextAlign? = null,
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
@@ -82,10 +86,19 @@ fun XoraOutlinedText(
             overflow = overflow,
             softWrap = softWrap,
             textAlign = textAlign,
-            style = base.copy(
-                color = fillColor,
-                drawStyle = Fill,
-            ),
+            style = if (fillBrush != null) {
+                base.copy(
+                    brush = fillBrush,
+                    drawStyle = Fill,
+                    shadow = shadow,
+                )
+            } else {
+                base.copy(
+                    color = fillColor,
+                    drawStyle = Fill,
+                    shadow = shadow,
+                )
+            },
         )
     }
 }

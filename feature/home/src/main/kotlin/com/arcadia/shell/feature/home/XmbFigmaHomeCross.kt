@@ -39,7 +39,9 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -70,7 +72,7 @@ import kotlin.math.roundToInt
  * Kept from the current build (not Make): seven-tab order including Profiles
  * and Videos, south-east [XoraForegroundShadow] (not a 0 0 6px glow), and
  * INACTIVE_ALPHA 0.60 (Make 0.5 vanished on-device; 0.75 still read as full). Hover copy is white
- * M PLUS Rounded Light (New Rodin analog; bundled FOT-NewRodin is ExtraBold-only).
+ * FOT-NewRodin Pro.
  */
 private const val TAB_CENTER_X = 430f
 private const val TAB_CENTER_Y = 282f
@@ -123,8 +125,10 @@ private const val TITLE_SIZE = 48f
 private const val SUBTITLE_SIZE = 40f
 private const val RULE_WIDTH = 1157f
 private const val RULE_THICKNESS = 4f
-private const val TITLE_TO_RULE = 90f
-private const val RULE_TO_SUBTITLE = 35f
+/** Design file LINE y=543 minus TITLE top 453.49 on a plate whose center is 544.49. */
+private const val TITLE_TO_RULE = 91f
+/** Design file PLAYTIME top 568.49 minus LINE y=543. */
+private const val RULE_TO_SUBTITLE = 25f
 private const val XMB_SCROLL_MS = 340
 private const val VISIBLE_ITEM_RADIUS = 5
 private val PlateEmptyFill = Color(0xFF3A3A3A)
@@ -375,7 +379,7 @@ internal fun XmbCross(
                             text = headline,
                             sizeDesignUnits = TITLE_SIZE,
                             unit = unit,
-                            fontWeight = FontWeight.Medium,
+                            fontWeight = FontWeight.Normal,
                         )
                         Box(
                             modifier = Modifier
@@ -393,7 +397,7 @@ internal fun XmbCross(
                             text = line,
                             sizeDesignUnits = SUBTITLE_SIZE,
                             unit = unit,
-                            fontWeight = FontWeight.Light,
+                            fontWeight = FontWeight.Normal,
                             modifier = Modifier.padding(top = (RULE_TO_SUBTITLE * unit).dp),
                         )
                     }
@@ -542,6 +546,11 @@ private fun XmbHoverLine(
             fontSize = fontSize,
             lineHeight = fontSize,
             fontWeight = fontWeight,
+            platformStyle = PlatformTextStyle(includeFontPadding = false),
+            lineHeightStyle = LineHeightStyle(
+                alignment = LineHeightStyle.Alignment.Center,
+                trim = LineHeightStyle.Trim.Both,
+            ),
             shadow = Shadow(
                 color = Color.Black.copy(alpha = XoraForegroundShadow.Alpha),
                 offset = Offset(shadowPx, shadowPx),
