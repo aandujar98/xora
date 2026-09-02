@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,6 +56,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -111,7 +113,6 @@ private val NotificationRed = Color(0xFFFF3B30)
 /** LT card chrome — same tokens as the RT profile card. */
 private val OutlineInk = Color.Black
 private val CountBlue = Color(0xFF3FA3F0)
-private val RowSelectedEdge = Color(0xFF7FD4F5)
 private val AvatarRingGold = Color(0xFFF5C542)
 private val DullFillTop = Color.White
 private val DullFillBottom = Color(0xFFA1A1A1)
@@ -129,9 +130,27 @@ private val CardAssetShadowDp = 4.dp
 private val CardShadowInk = Color(0xFF000000)
 private val FriendBarNeighborDim = 0.75f
 private val FriendBarRestDim = 0.50f
+private val FriendBarGap = 2.dp
+private val FriendBarSelectedVPad = 8.dp
+private val FriendBarRestVPad = 4.dp
+private val FriendBarSelectedAvatar = 38.dp
+private val FriendBarRestAvatar = 34.dp
+private val NotificationInk = Color(0xFF474747)
+private val NotificationPillFill = Brush.verticalGradient(
+    listOf(Color.White, Color(0xFFB0B0B0)),
+)
 
 private fun vibrantFillBrush(accent: Color): Brush =
     Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(accent, Color.White, 0.42f), accent))
+
+@Composable
+private fun FriendBarStack(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(FriendBarGap),
+        modifier = Modifier.fillMaxWidth(),
+        content = content,
+    )
+}
 
 private fun friendBarDim(index: Int, focusedIndex: Int?): Float = when {
     focusedIndex == null || focusedIndex < 0 -> 1f
@@ -179,6 +198,7 @@ fun SocialMenuPanel(
     Column(
         modifier = modifier
             .heightIn(max = maxHeight)
+            .graphicsLayer { clip = false }
             .xoraModalGlass(cardShape)
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .fillMaxWidth(),
@@ -322,7 +342,7 @@ private fun PinnedFriendsHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            CardSectionLabel("PINNED FRIENDS")
+            CardSectionLabel("PINNED FRIENDS", fontSize = 14.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CardTitleText(
                     text = "${social.circleSlotsFilled}",
@@ -357,7 +377,10 @@ private fun NotificationsPill(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(percent = 50)
+    val density = LocalDensity.current
+    val strokePx = with(density) { 1.5.dp.toPx() }
+    val focusPx = with(density) { 2.5.dp.toPx() }
     Row(
         modifier = Modifier
             .padding(CardStroke)
@@ -366,36 +389,58 @@ private fun NotificationsPill(
                 offset = CardAssetShadowDp,
                 blur = CardAssetShadowDp,
             )
-            .clip(shape)
-            .background(Color.White.copy(alpha = 0.16f))
-            .then(
-                if (selected) Modifier.border(2.dp, FocusRing, shape) else Modifier,
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        CardTitleText(
-            text = label.uppercase(),
-            fontSize = 18.sp,
-            fillBrush = DullFillBrush,
-        )
-        if (badgeCount > 0) {
-            Box(
-                modifier = Modifier
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .background(NotificationRed),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = if (badgeCount > 9) "9+" else badgeCount.toString(),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
+            .drawBehind {
+                val corner = CornerRadius(size.height / 2f, size.height / 2f)
+                drawRoundRect(
+                    brush = NotificationPillFill,
+                    cornerRadius = corner,
                 )
+                drawRoundRect(
+                    color = Color.Black,
+                    style = Stroke(width = strokePx, join = StrokeJoin.Round),
+                    cornerRadius = corner,
+                )
+                if (selected) {
+                    drawRoundRect(
+                        color = FocusRing,
+                        style = Stroke(width = focusPx, join = StrokeJoin.Round),
+                        cornerRadius = corner,
+                    )
+                }
             }
+            .clickable(onClick = onClick)
+            .padding(start = 12.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        XoraOutlinedText(
+            text = label,
+            fontFamily = XoraFonts.XmbLabel,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+            fillColor = NotificationInk,
+            outlineColor = NotificationInk,
+            outlineWidth = 1.dp,
+            letterSpacing = 0.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(NotificationRed),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = if (badgeCount > 9) "9+" else badgeCount.toString(),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = XoraFonts.XmbLabel,
+                    fontSize = 9.sp,
+                ),
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
         }
     }
 }
@@ -629,10 +674,13 @@ private fun SocialTabSearchBar(
 
 /** Blocky outlined section label, shared with the RT profile card. */
 @Composable
-private fun CardSectionLabel(text: String) {
+private fun CardSectionLabel(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit = 14.sp,
+) {
     CardTitleText(
         text = text,
-        fontSize = 18.sp,
+        fontSize = fontSize,
         fillBrush = DullFillBrush,
     )
 }
@@ -815,32 +863,34 @@ private fun DiscordTabContent(
                 val hover = rememberFriendBarHover(
                     rowIndices.indexOfFirst { it >= 0 && it == selectedRowIndex },
                 )
-                friends.forEachIndexed { visualIndex, friend ->
-                    val pin = CirclePin(CirclePinSource.Discord, friend.userId)
-                    val inCircle = pin.key in social.circlePinKeys
-                    val rowIndex = rowIndices[visualIndex]
-                    val dim by animateFloatAsState(
-                        targetValue = friendBarDim(visualIndex, hover.focusedIndex),
-                        label = "discordFriendDim$visualIndex",
-                    )
-                    DiscordFriendRow(
-                        friend = friend,
-                        selected = rowIndex >= 0 && rowIndex == selectedRowIndex,
-                        dimAlpha = dim,
-                        onHoverChange = { hovering -> hover.onHover(visualIndex, hovering) },
-                        trailingHint = when {
-                            social.managingCircle && inCircle -> "Unpin"
-                            social.managingCircle && !inCircle ->
-                                if (social.circleSlotsFilled >= CIRCLE_FRIEND_LIMIT) "Full" else "Pin"
-                            else -> null
-                        },
-                        hasUnread = social.conversations.discordConversations.any {
-                            it.title.equals(friend.displayName, ignoreCase = true)
-                        },
-                        onClick = {
-                            if (rowIndex >= 0) onActivateRow(rowIndex)
-                        },
-                    )
+                FriendBarStack {
+                    friends.forEachIndexed { visualIndex, friend ->
+                        val pin = CirclePin(CirclePinSource.Discord, friend.userId)
+                        val inCircle = pin.key in social.circlePinKeys
+                        val rowIndex = rowIndices[visualIndex]
+                        val dim by animateFloatAsState(
+                            targetValue = friendBarDim(visualIndex, hover.focusedIndex),
+                            label = "discordFriendDim$visualIndex",
+                        )
+                        DiscordFriendRow(
+                            friend = friend,
+                            selected = rowIndex >= 0 && rowIndex == selectedRowIndex,
+                            dimAlpha = dim,
+                            onHoverChange = { hovering -> hover.onHover(visualIndex, hovering) },
+                            trailingHint = when {
+                                social.managingCircle && inCircle -> "Unpin"
+                                social.managingCircle && !inCircle ->
+                                    if (social.circleSlotsFilled >= CIRCLE_FRIEND_LIMIT) "Full" else "Pin"
+                                else -> null
+                            },
+                            hasUnread = social.conversations.discordConversations.any {
+                                it.title.equals(friend.displayName, ignoreCase = true)
+                            },
+                            onClick = {
+                                if (rowIndex >= 0) onActivateRow(rowIndex)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -1169,6 +1219,7 @@ private fun SteamTabContent(
                     val hover = rememberFriendBarHover(
                         rowIndices.indexOfFirst { it >= 0 && it == selectedRowIndex },
                     )
+                    FriendBarStack {
                     friendsToShow.forEachIndexed { visualIndex, friend ->
                         val pin = CirclePin(CirclePinSource.Steam, friend.steamId)
                         val inCircle = pin.key in social.circlePinKeys
@@ -1200,6 +1251,7 @@ private fun SteamTabContent(
                                 if (rowIndex >= 0) onActivateRow(rowIndex)
                             },
                         )
+                    }
                     }
                 }
             }
@@ -1298,34 +1350,36 @@ private fun XoraNetworkTabContent(
                 val hover = rememberFriendBarHover(
                     rowIndices.indexOfFirst { it >= 0 && it == selectedRowIndex },
                 )
-                friends.forEachIndexed { visualIndex, friend ->
-                    val pin = CirclePin(CirclePinSource.XoraNetwork, friend.username)
-                    val inCircle = pin.key in social.circlePinKeys
-                    val rowIndex = rowIndices[visualIndex]
-                    val dim by animateFloatAsState(
-                        targetValue = friendBarDim(visualIndex, hover.focusedIndex),
-                        label = "xoraFriendDim$visualIndex",
-                    )
-                    XoraFriendRow(
-                        friend = friend,
-                        selected = rowIndex >= 0 && rowIndex == selectedRowIndex,
-                        dimAlpha = dim,
-                        onHoverChange = { hovering -> hover.onHover(visualIndex, hovering) },
-                        trailingHint = when {
-                            social.managingCircle && inCircle -> "Unpin"
-                            social.managingCircle && !inCircle ->
-                                if (social.circleSlotsFilled >= CIRCLE_FRIEND_LIMIT) "Full" else "Pin"
-                            else -> null
-                        },
-                        hasUnread = network.notifications.any { item ->
-                            !item.read &&
-                                item.isMessage &&
-                                item.fromUsername.equals(friend.username, ignoreCase = true)
-                        },
-                        onClick = {
-                            if (rowIndex >= 0) onActivateRow(rowIndex)
-                        },
-                    )
+                FriendBarStack {
+                    friends.forEachIndexed { visualIndex, friend ->
+                        val pin = CirclePin(CirclePinSource.XoraNetwork, friend.username)
+                        val inCircle = pin.key in social.circlePinKeys
+                        val rowIndex = rowIndices[visualIndex]
+                        val dim by animateFloatAsState(
+                            targetValue = friendBarDim(visualIndex, hover.focusedIndex),
+                            label = "xoraFriendDim$visualIndex",
+                        )
+                        XoraFriendRow(
+                            friend = friend,
+                            selected = rowIndex >= 0 && rowIndex == selectedRowIndex,
+                            dimAlpha = dim,
+                            onHoverChange = { hovering -> hover.onHover(visualIndex, hovering) },
+                            trailingHint = when {
+                                social.managingCircle && inCircle -> "Unpin"
+                                social.managingCircle && !inCircle ->
+                                    if (social.circleSlotsFilled >= CIRCLE_FRIEND_LIMIT) "Full" else "Pin"
+                                else -> null
+                            },
+                            hasUnread = network.notifications.any { item ->
+                                !item.read &&
+                                    item.isMessage &&
+                                    item.fromUsername.equals(friend.username, ignoreCase = true)
+                            },
+                            onClick = {
+                                if (rowIndex >= 0) onActivateRow(rowIndex)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -1727,44 +1781,40 @@ private fun FriendListRow(
         else -> PlaytimeFillBrush
     }
 
+    val vPad = if (selected) FriendBarSelectedVPad else FriendBarRestVPad
+    val avatarSize = if (selected) FriendBarSelectedAvatar else FriendBarRestAvatar
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .alpha(dimAlpha)
             .bringIntoViewRequester(bringIntoViewRequester)
-            .padding(CardStroke)
+            .padding(horizontal = CardStroke, vertical = 1.dp)
             .xoraForegroundShadow(
                 shape = shape,
                 offset = CardAssetShadowDp,
                 blur = CardAssetShadowDp,
             )
             .drawBehind {
-                val corner = size.height / 2f
-                if (selected) {
-                    drawRoundRect(
-                        color = RowSelectedEdge,
-                        style = Stroke(width = strokePx, join = StrokeJoin.Round),
-                        cornerRadius = CornerRadius(corner, corner),
-                    )
-                }
+                val corner = CornerRadius(size.height / 2f, size.height / 2f)
+                drawRoundRect(
+                    brush = ChromeStrokeBrush,
+                    style = Stroke(width = strokePx, join = StrokeJoin.Round),
+                    cornerRadius = corner,
+                )
             }
-            .clip(shape)
-            .background(
-                if (selected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f),
-            )
             .clickable(
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
             )
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = vPad),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         PresenceAvatar(
             displayName = displayName,
             presetId = "preset_0",
-            size = 38.dp,
+            size = avatarSize,
             imageModel = avatarUrl,
             presence = presence,
             selected = false,
