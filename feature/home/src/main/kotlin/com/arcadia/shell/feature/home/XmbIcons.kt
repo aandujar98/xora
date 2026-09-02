@@ -309,9 +309,9 @@ fun XmbVectorIcon(
 }
 
 /** Inner window of [R.drawable.xmb_figma_folder] where cover art / the checker sits. */
-private const val FOLDER_WINDOW_LEFT = 0.208f
+private const val FOLDER_WINDOW_LEFT = 0.060f
 private const val FOLDER_WINDOW_TOP = 0.284f
-private const val FOLDER_WINDOW_RIGHT = 0.799f
+private const val FOLDER_WINDOW_RIGHT = 0.947f
 private const val FOLDER_WINDOW_BOTTOM = 0.853f
 
 /**

@@ -89,6 +89,8 @@ fun hintsForPage(
     xmbDepth: XoraXmbDepth? = null,
 ): List<Pair<String, String>> = when (page) {
     HomePage.Home -> when {
+        homeHub?.vitaShortcutTrayOpen == true && homeHub.vitaShortcutLaunch != null ->
+            VitaShortcutLaunchHints
         homeHub?.vitaShortcutTrayOpen == true && homeHub.shortcutsEditMode ->
             VitaShortcutTrayEditHints
         homeHub?.vitaShortcutTrayOpen == true -> VitaShortcutTrayHints
@@ -201,6 +203,13 @@ val XoraRomBrowseHints: List<Pair<String, String>> = listOf(
 )
 
 /** Vita bubble tray over Home XMB. */
+val VitaShortcutLaunchHints: List<Pair<String, String>> = listOf(
+    "A" to "Launch",
+    "B" to "Back",
+    "LT" to "Circle",
+    "RT" to "Profile / Alerts",
+)
+
 val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
     "L/R" to "Shortcut",
     "U/D" to "Page",

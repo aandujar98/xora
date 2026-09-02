@@ -412,6 +412,7 @@ fun HomeScreen(
                             onToggleAccountPanel = onToggleAccountPanel,
                             onToggleSystemPanel = onToggleSystemPanel,
                                 onOpenNotifications = onOpenNotifications,
+                            activeNotificationPresent = state.activeNotificationPresent,
                             onToggleAchievementsPanel = onToggleAchievementsPanel,
                             onSelectSocialTab = onSelectSocialTab,
                             onSelectAccountRow = onSelectAccountRow,
@@ -683,9 +684,19 @@ fun HomePageContent(
                                 shortcuts = state.homeHub.shortcuts,
                                 selectedIndex = state.homeHub.shortcutIndex,
                                 editMode = state.homeHub.shortcutsEditMode,
+                                departingIndex = state.homeHub.vitaShortcutDepartingIndex,
                                 onSelect = onSelectHomeShortcut,
                                 onActivate = onActivateHomeShortcut,
                                 onAddSlot = onAddHomeShortcut,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            VitaShortcutLaunchPage(
+                                visible = trayOpen && state.homeHub.vitaShortcutLaunch != null,
+                                launch = state.homeHub.vitaShortcutLaunch,
+                                homeWallpaperPath = state.homeHub.wallpaperPath,
+                                onConfirm = {
+                                    onActivateHomeShortcut(state.homeHub.shortcutIndex)
+                                },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         },

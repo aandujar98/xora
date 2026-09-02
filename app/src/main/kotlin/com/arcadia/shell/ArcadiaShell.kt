@@ -969,6 +969,7 @@ private fun PaneForRole(
                         onToggleSystemPanel = homeViewModel::toggleSystemPanel,
                         onOpenNotifications = homeViewModel::openNotificationHistory,
                         notificationUnreadCount = state.notificationUnreadCount,
+                        activeNotificationPresent = state.activeNotificationPresent,
                         onToggleAchievementsPanel = homeViewModel::toggleAchievementsPanel,
                         onSelectSocialTab = homeViewModel::selectSocialMenuTab,
                         onSelectAccountRow = homeViewModel::selectAccountPanelRow,

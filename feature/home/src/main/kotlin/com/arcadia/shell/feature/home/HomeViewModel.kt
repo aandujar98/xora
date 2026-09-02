@@ -259,6 +259,8 @@ class HomeViewModel @Inject constructor(
     private val vitaShortcutTrayOpen = MutableStateFlow(false)
     /** Restrict add-shortcut sheet to apps/ROMs and skip tile-size when pinning from the tray. */
     private val vitaShortcutPinMode = MutableStateFlow(false)
+    private val vitaShortcutLaunch = MutableStateFlow<VitaShortcutLaunchUi?>(null)
+    private val vitaShortcutDepartingIndex = MutableStateFlow<Int?>(null)
     private val themesOpen = MutableStateFlow(false)
     /** Which Themes sheet tab to show when [themesOpen] becomes true. */
     private val themesSheetTab = MutableStateFlow(ThemesSheetTab.Customize)
@@ -634,15 +636,23 @@ class HomeViewModel @Inject constructor(
             shortcutGridColumns,
             shortcutGridRows,
             shortcutCustomizeChrome,
-            vitaShortcutTrayOpen,
-            vitaShortcutPinMode,
-        ) { columns, rows, chrome, trayOpen, pinMode ->
+            combine(
+                vitaShortcutTrayOpen,
+                vitaShortcutPinMode,
+                vitaShortcutLaunch,
+                vitaShortcutDepartingIndex,
+            ) { open, pin, launch, departing ->
+                VitaTrayChrome(open, pin, launch, departing)
+            },
+        ) { columns, rows, chrome, tray ->
             HomeHubLayout(
                 columns = columns,
                 rows = rows,
                 customizeChrome = chrome,
-                vitaShortcutTrayOpen = trayOpen,
-                vitaShortcutPinMode = pinMode,
+                vitaShortcutTrayOpen = tray.open,
+                vitaShortcutPinMode = tray.pin,
+                vitaShortcutLaunch = tray.launch,
+                vitaShortcutDepartingIndex = tray.departingIndex,
             )
         },
     ) { core, layout ->
@@ -656,6 +666,8 @@ class HomeViewModel @Inject constructor(
             customizeChrome = layout.customizeChrome,
             vitaShortcutTrayOpen = layout.vitaShortcutTrayOpen,
             vitaShortcutPinMode = layout.vitaShortcutPinMode,
+            vitaShortcutLaunch = layout.vitaShortcutLaunch,
+            vitaShortcutDepartingIndex = layout.vitaShortcutDepartingIndex,
         )
     }
 
@@ -672,6 +684,15 @@ class HomeViewModel @Inject constructor(
         val customizeChrome: ShortcutCustomizeChrome,
         val vitaShortcutTrayOpen: Boolean,
         val vitaShortcutPinMode: Boolean,
+        val vitaShortcutLaunch: VitaShortcutLaunchUi?,
+        val vitaShortcutDepartingIndex: Int?,
+    )
+
+    private data class VitaTrayChrome(
+        val open: Boolean,
+        val pin: Boolean,
+        val launch: VitaShortcutLaunchUi?,
+        val departingIndex: Int?,
     )
 
     private data class HomeHubNav(
@@ -684,6 +705,8 @@ class HomeViewModel @Inject constructor(
         val customizeChrome: ShortcutCustomizeChrome,
         val vitaShortcutTrayOpen: Boolean,
         val vitaShortcutPinMode: Boolean,
+        val vitaShortcutLaunch: VitaShortcutLaunchUi?,
+        val vitaShortcutDepartingIndex: Int?,
     )
 
     private val addShortcutChromeFlow = combine(
@@ -884,9 +907,23 @@ class HomeViewModel @Inject constructor(
         notificationHistorySelectedIndex,
         shellNotifications.history,
         shellNotifications.unreadCount,
-        combine(pendingNetplayInvite, netplayInvitePromptOpen, ::Pair),
+        combine(
+            pendingNetplayInvite,
+            netplayInvitePromptOpen,
+            shellNotifications.active,
+        ) { invite, prompt, active ->
+            Triple(invite, prompt, active != null)
+        },
     ) { open, selected, history, unread, invite ->
-        NotificationChrome(open, selected, history, unread, invite.first, invite.second)
+        NotificationChrome(
+            open,
+            selected,
+            history,
+            unread,
+            invite.first,
+            invite.second,
+            invite.third,
+        )
     }
 
     private data class NotificationChrome(
@@ -896,6 +933,7 @@ class HomeViewModel @Inject constructor(
         val unreadCount: Int,
         val pendingInvite: NetplayInvitePrompt?,
         val invitePromptOpen: Boolean,
+        val activePresent: Boolean,
     )
 
     private data class WakeChrome(
@@ -961,6 +999,7 @@ class HomeViewModel @Inject constructor(
             notificationUnreadCount = aux.notif.unreadCount,
             notificationHistorySelectedIndex = aux.notif.selectedIndex
                 .coerceIn(0, if (aux.notif.history.isEmpty()) 0 else aux.notif.history.size),
+            activeNotificationPresent = aux.notif.activePresent,
             pendingNetplayInvite = aux.notif.pendingInvite,
             netplayInvitePromptOpen = aux.notif.invitePromptOpen,
             systemProfile = aux.systemProfile,
@@ -2028,6 +2067,8 @@ class HomeViewModel @Inject constructor(
                 shortcuts = theme.shortcuts,
                 vitaShortcutTrayOpen = theme.nav.vitaShortcutTrayOpen,
                 vitaShortcutPinMode = theme.nav.vitaShortcutPinMode,
+                vitaShortcutLaunch = theme.nav.vitaShortcutLaunch,
+                vitaShortcutDepartingIndex = theme.nav.vitaShortcutDepartingIndex,
                 wallpaperPath = theme.wallpaperPath,
                 customBgmPath = theme.customBgmPath,
                 continueGame = continueGame,
@@ -2779,6 +2820,8 @@ class HomeViewModel @Inject constructor(
 
     fun closeVitaShortcutTray() {
         noteUserActivity()
+        vitaShortcutLaunch.value = null
+        vitaShortcutDepartingIndex.value = null
         vitaShortcutTrayOpen.value = false
         vitaShortcutPinMode.value = false
         homeShortcutsEditMode.value = false
@@ -2786,8 +2829,77 @@ class HomeViewModel @Inject constructor(
         if (addShortcutOpen.value) dismissAddShortcutChooser()
     }
 
+    fun prepareVitaShortcutLaunch(index: Int? = null) {
+        noteUserActivity()
+        val hub = uiState.value.homeHub
+        if (index != null) selectHomeShortcut(index)
+        val shortcut = hub.shortcuts.getOrNull(homeShortcutIndex.value) ?: return
+        viewModelScope.launch {
+            vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
+            vitaShortcutDepartingIndex.value = null
+        }
+    }
+
+    private fun beginVitaShortcutDepart(index: Int, shortcut: HomeShortcut) {
+        vitaShortcutDepartingIndex.value = index
+        viewModelScope.launch {
+            delay(720)
+            if (vitaShortcutDepartingIndex.value != index) return@launch
+            vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
+            vitaShortcutDepartingIndex.value = null
+        }
+    }
+
+    fun confirmVitaShortcutLaunch() {
+        val preview = vitaShortcutLaunch.value ?: return
+        vitaShortcutLaunch.value = null
+        openHomeShortcut(preview.shortcut)
+    }
+
+    fun cancelVitaShortcutLaunch() {
+        noteUserActivity()
+        vitaShortcutLaunch.value = null
+        vitaShortcutDepartingIndex.value = null
+    }
+
+    private suspend fun resolveVitaShortcutLaunch(shortcut: HomeShortcut): VitaShortcutLaunchUi {
+        val game = when (shortcut.kind) {
+            HomeShortcutKind.Game -> libraryRepository.observeGames().first()
+                .firstOrNull { it.id == shortcut.target }
+            HomeShortcutKind.AndroidApp -> libraryRepository.observeGames().first()
+                .firstOrNull { it.isAndroidApp && it.fileName == shortcut.target }
+                ?: libraryRepository.observeGames().first()
+                    .firstOrNull { it.isAndroidApp && it.id.contains(shortcut.target) }
+            else -> null
+        }
+        val wallpaper = game?.heroImagePath
+            ?: game?.boxArtPath
+            ?: shortcut.artPath
+            ?: shortcut.target.takeIf {
+                shortcut.kind == HomeShortcutKind.Picture || shortcut.kind == HomeShortcutKind.Gif
+            }
+        val icon = shortcut.artPath
+            ?: game?.boxArtPath
+            ?: game?.heroImagePath
+            ?: shortcut.target.takeIf { shortcut.kind == HomeShortcutKind.AndroidApp }
+                ?.let { "${InstalledAppSync.ICON_SCHEME}$it" }
+        return VitaShortcutLaunchUi(
+            shortcut = shortcut,
+            wallpaperPath = wallpaper,
+            iconPath = icon,
+        )
+    }
+
     private fun onVitaShortcutTrayNavAction(action: NavAction, state: HomeUiState) {
         val hub = state.homeHub
+        if (hub.vitaShortcutLaunch != null) {
+            when (action) {
+                NavAction.Confirm -> confirmVitaShortcutLaunch()
+                NavAction.Cancel -> cancelVitaShortcutLaunch()
+                else -> Unit
+            }
+            return
+        }
         when (action) {
             NavAction.Left -> moveVitaShortcutFocusHorizontal(-1, hub)
             NavAction.Right -> moveVitaShortcutFocusHorizontal(1, hub)
@@ -4666,6 +4778,14 @@ class HomeViewModel @Inject constructor(
         val shortcut = shortcuts.getOrNull(i) ?: return
         if (hub.shortcutsEditMode) {
             removeHomeShortcut(shortcut.id)
+            return
+        }
+        if (hub.vitaShortcutTrayOpen) {
+            if (hub.vitaShortcutLaunch != null) {
+                confirmVitaShortcutLaunch()
+            } else if (hub.vitaShortcutDepartingIndex == null) {
+                beginVitaShortcutDepart(i, shortcut)
+            }
             return
         }
         openHomeShortcut(shortcut)

@@ -2,12 +2,19 @@ package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.TransformOrigin
+import com.arcadia.shell.designsystem.supportsGlassBlurEffect
+import kotlin.math.exp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,6 +104,13 @@ private val BubbleFill = Color(0x4D0E2230)
 /** A page holds three staggered rows, matching the bubble grid in the design. */
 private val VITA_TRAY_ROW_CAPACITIES = intArrayOf(3, 4, 3)
 internal const val VITA_TRAY_PAGE_SIZE = 10
+private const val VitaBubbleFlipDeg = 720f
+private const val VitaBubbleDepartMs = 720
+private val VitaBubbleDepartEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
+private val VitaBubbleEchoLags = FloatArray(24) { i ->
+    val t = (i + 1f) / 24f
+    t * t * 0.22f
+}
 
 /**
  * PS Vita LiveArea-style shortcut field: staggered bubbles over the live wallpaper (no tray
@@ -109,6 +124,7 @@ fun VitaShortcutTray(
     shortcuts: List<HomeShortcut>,
     selectedIndex: Int,
     editMode: Boolean,
+    departingIndex: Int? = null,
     onSelect: (Int) -> Unit,
     onActivate: (Int) -> Unit,
     onAddSlot: () -> Unit,
@@ -182,6 +198,7 @@ fun VitaShortcutTray(
                             VitaBubble(
                                 slot = slots[slotIndex],
                                 selected = slotIndex == focus,
+                                departing = slotIndex == departingIndex,
                                 diameter = bubbleDiameter,
                                 glass = glass,
                                 offsetProvider = {
@@ -205,7 +222,7 @@ fun VitaShortcutTray(
                     // Drawn after every bubble so the focused name always reads over its neighbours.
                     rows.forEachIndexed { rowIndex, row ->
                         val focusColumn = row.indexOf(focus)
-                        if (focusColumn < 0) return@forEachIndexed
+                        if (focusColumn < 0 || departingIndex == focus) return@forEachIndexed
                         val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
                         val columnShift = (focusColumn - ((row.size - 1) / 2f)) * COLUMN_PITCH
                         val pillCentre = rowShift + (BUBBLE_DIAMETER / 2f) + NAME_PILL_GAP +
@@ -240,6 +257,7 @@ fun VitaShortcutTray(
 private fun VitaBubble(
     slot: VitaShortcutSlot,
     selected: Boolean,
+    departing: Boolean,
     diameter: Dp,
     glass: ImageBitmap,
     offsetProvider: () -> Offset,
@@ -247,6 +265,15 @@ private fun VitaBubble(
     modifier: Modifier = Modifier,
 ) {
     val ringWidth = diameter * (SELECTION_RING_WIDTH / BUBBLE_DIAMETER)
+    val depart by animateFloatAsState(
+        targetValue = if (departing) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = VitaBubbleDepartMs,
+            easing = VitaBubbleDepartEasing,
+        ),
+        label = "vitaBubbleDepart",
+    )
+    val canBlur = supportsGlassBlurEffect()
     Box(
         modifier = modifier
             .size(diameter + ringWidth)
@@ -254,6 +281,7 @@ private fun VitaBubble(
                 val shift = offsetProvider()
                 translationX = shift.x
                 translationY = shift.y
+                clip = false
             }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -262,9 +290,52 @@ private fun VitaBubble(
             ),
         contentAlignment = Alignment.Center,
     ) {
+        if (depart > 0.02f) {
+            val echoCount = VitaBubbleEchoLags.size
+            for (index in echoCount - 1 downTo 0) {
+                val lag = VitaBubbleEchoLags[index]
+                val echoT = (depart - lag).coerceIn(0f, 1f)
+                val trailT = index / (echoCount - 1f).coerceAtLeast(1f)
+                val fade = (exp(-3.4f * trailT * trailT) * 0.28f * (1f - echoT * 0.35f))
+                    .coerceAtLeast(0.02f)
+                val echoScale = 1f + 2.1f * echoT
+                Box(
+                    modifier = Modifier
+                        .size(diameter)
+                        .graphicsLayer {
+                            rotationY = VitaBubbleFlipDeg * echoT
+                            scaleX = echoScale * 1.12f
+                            scaleY = echoScale
+                            alpha = fade
+                            cameraDistance = 8f * density
+                            transformOrigin = TransformOrigin.Center
+                            clip = false
+                            compositingStrategy = CompositingStrategy.Offscreen
+                            if (canBlur) {
+                                renderEffect = BlurEffect(
+                                    4f + 10f * trailT,
+                                    4f + 10f * trailT,
+                                    TileMode.Decal,
+                                )
+                            }
+                        }
+                        .clip(CircleShape)
+                        .background(Color.White),
+                )
+            }
+        }
         Box(
             modifier = Modifier
                 .size(diameter)
+                .graphicsLayer {
+                    rotationY = VitaBubbleFlipDeg * depart
+                    scaleX = 1f + 2.2f * depart
+                    scaleY = 1f + 2.2f * depart
+                    alpha = 1f - depart
+                    cameraDistance = 8f * density
+                    transformOrigin = TransformOrigin.Center
+                    clip = false
+                }
                 .drawBehind {
                     if (!selected) return@drawBehind
                     val haloRadius = size.minDimension * 0.68f
@@ -336,7 +407,7 @@ private fun VitaBubble(
             }
         }
 
-        if (selected) {
+        if (selected && depart < 0.2f) {
             Box(
                 modifier = Modifier
                     .size(diameter + ringWidth)

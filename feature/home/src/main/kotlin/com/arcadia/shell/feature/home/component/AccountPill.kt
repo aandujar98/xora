@@ -81,6 +81,7 @@ fun AccountPill(
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
     onClearNotifications: () -> Unit = {},
+    hideCollapsedChrome: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
@@ -118,7 +119,7 @@ fun AccountPill(
         ) {
             // Collapsed LT chrome hides while the panel is open; Back / LT restores it.
             AnimatedVisibility(
-                visible = !expanded,
+                visible = !expanded && !hideCollapsedChrome,
                 enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
                     animationSpec = arcadiaTween(ArcadiaMotion.Medium),
                     initialScale = 0.92f,

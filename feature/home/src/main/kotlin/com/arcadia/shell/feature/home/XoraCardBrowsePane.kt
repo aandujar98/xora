@@ -330,11 +330,11 @@ private fun BrowseCard(
     ) {
         if (item.icon.isFolderGlyph()) {
             val (designW, designH) = item.icon.intrinsicDesignSize()
-            val scale = min(width.value / designW, height.value / designH) * 0.88f
+            val scale = width.value / designW
             XmbFolderImgIcon(
                 artPath = item.artPath,
                 windowIcon = item.icon.folderWindowIcon(),
-                width = (designW * scale).dp,
+                width = width,
                 height = (designH * scale).dp,
                 castShadow = false,
                 strokeWidth = (XmbGlyphStrokeDesignPx * unit).dp,

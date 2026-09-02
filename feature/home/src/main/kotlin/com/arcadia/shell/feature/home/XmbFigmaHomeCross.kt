@@ -647,6 +647,11 @@ private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Flo
     if (isGamePlate(item)) {
         return if (focused) PLATE_W_FOCUS to PLATE_H_FOCUS else PLATE_W to PLATE_H
     }
+    if (item.icon.isFolderGlyph()) {
+        val (iw, ih) = item.icon.intrinsicDesignSize()
+        val targetW = if (focused) PLATE_W_FOCUS else PLATE_W
+        return targetW to (targetW * (ih / iw))
+    }
     if (item.isMusicCoverArt()) {
         val edge = if (focused) MUSIC_COVER_FOCUS else MUSIC_COVER_REST
         return edge to edge

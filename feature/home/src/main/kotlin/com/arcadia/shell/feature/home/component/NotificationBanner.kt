@@ -60,9 +60,9 @@ import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.toCopy
 
-/** Matches collapsed LT: 16dp start + 12dp top + 48dp avatar + 6dp pad × 2 + 8dp gap. */
-private val BannerBelowLtTop = 80.dp
-private val BannerStart = 16.dp
+/** Same slot as the collapsed Friends pill so the toast can replace it. */
+private val BannerTop = 21.dp
+private val BannerStart = 20.dp
 private val BannerShape = ArcadiaGlass.PillShape
 private val CardEdge = Color.White.copy(alpha = 0.25f)
 
@@ -84,7 +84,7 @@ fun BoxScope.NotificationBannerHost(
         visible = active != null && !ltExpanded,
         modifier = modifier
             .align(Alignment.TopStart)
-            .padding(top = BannerBelowLtTop, start = BannerStart, end = 20.dp),
+            .padding(top = BannerTop, start = BannerStart, end = 20.dp),
         enter = if (reduceMotion) {
             fadeIn()
         } else {

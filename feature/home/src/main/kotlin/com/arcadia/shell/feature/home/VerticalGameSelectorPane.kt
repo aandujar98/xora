@@ -284,6 +284,7 @@ fun VerticalGameSelectorPane(
                 profileAvatarModel = state.profileAvatarModel,
                 accountRows = state.accountPanelRows,
                 selectedRowIndex = state.accountPanelSelectedIndex,
+                hideCollapsedChrome = state.activeNotificationPresent,
                 onToggle = onToggleAccountPanel,
                 onSelectTab = onSelectSocialTab,
                 onSelectRow = onSelectAccountRow,

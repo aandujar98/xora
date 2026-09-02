@@ -107,6 +107,10 @@ data class HomeHubUiState(
      * and skips the tile-size step — used by the Vita bubble tray.
      */
     val vitaShortcutPinMode: Boolean = false,
+    /** Isolated confirm page after a Vita bubble flips into the game. */
+    val vitaShortcutLaunch: VitaShortcutLaunchUi? = null,
+    /** Bubble currently flipping into the launch page. */
+    val vitaShortcutDepartingIndex: Int? = null,
     /** Absolute path to custom wallpaper, or null for the bundled default. */
     val wallpaperPath: String? = null,
     /** Absolute path to custom BGM, or null for the bundled default. */
@@ -125,6 +129,13 @@ data class HomeHubUiState(
     val pendingShortcutSpan: ShortcutSpan = ShortcutSpan.Default,
     /** Non-null while picking a library game or Android app to pin. */
     val shortcutTargetPicker: ShortcutTargetPickerUiState? = null,
+)
+
+/** Isolated Vita shortcut launch page — wallpaper + one game icon + title. */
+data class VitaShortcutLaunchUi(
+    val shortcut: HomeShortcut,
+    val wallpaperPath: String?,
+    val iconPath: String?,
 )
 
 /** Idle trailer overlay for the hero pane. */
@@ -258,6 +269,8 @@ data class HomeUiState(
         emptyList(),
     val notificationUnreadCount: Int = 0,
     val notificationHistorySelectedIndex: Int = 0,
+    /** True while a toast is occupying the Friends pill slot. */
+    val activeNotificationPresent: Boolean = false,
     /** RT profile card chrome (status, favorite game, pickers). */
     val systemProfile: SystemProfileCardState = SystemProfileCardState(),
     val achievementsPanelExpanded: Boolean = false,

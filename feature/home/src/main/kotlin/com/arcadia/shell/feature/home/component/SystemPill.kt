@@ -197,7 +197,7 @@ private fun vibrantFillBrush(accent: Color): Brush =
     Brush.verticalGradient(listOf(lerp(accent, Color.White, 0.42f), accent))
 
 /** Collapsed RT chrome is the profile picture alone, tucked into the corner. */
-private val CollapsedAvatarSize = 88.dp
+private val CollapsedAvatarSize = 96.8.dp
 
 /** Figma crops the disc on both screen edges; this clears the pane padding to get there. */
 private val CollapsedAvatarBleed = 24.dp
