@@ -57,17 +57,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -86,6 +92,7 @@ import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.SystemFavoriteGame
 import com.arcadia.shell.feature.home.SystemPanelRow
 import com.arcadia.shell.feature.home.SystemProfileCardState
@@ -120,6 +127,13 @@ private val CollapsedAvatarSize = 88.dp
 
 /** Figma crops the disc on both screen edges; this clears the pane padding to get there. */
 private val CollapsedAvatarBleed = 24.dp
+
+/**
+ * Figma Make top-right bubble: inner 188.044 over Ellipse56 182.495, rotated 165°,
+ * mix-blend soft-light. Same PNG as the Vita tray glass ([R.drawable.vita_bubble_glass]).
+ */
+private const val UserBubbleOverAvatar = 188.044f / 182.495f
+private const val UserBubbleRotationDeg = 165f
 
 @Composable
 fun SystemPill(
@@ -215,7 +229,9 @@ fun SystemPill(
             exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
         ) {
             // Just the avatar, pushed past the pane padding so it tucks into the screen corner;
-            // status readouts live in the expanded card footer.
+            // status readouts live in the expanded card footer. Soap-bubble overlay matches
+            // Figma Make (165° + soft-light) and must not steal the avatar's click target.
+            val userBubbleGlass = ImageBitmap.imageResource(R.drawable.vita_bubble_glass)
             ProfileAvatar(
                 displayName = profile.displayName,
                 presetId = profile.avatarPresetId,
@@ -225,7 +241,26 @@ fun SystemPill(
                 onClick = onToggle,
                 modifier = Modifier
                     .offset(x = CollapsedAvatarBleed, y = -CollapsedAvatarBleed)
-                    .xoraForegroundShadow(CircleShape),
+                    .xoraForegroundShadow(CircleShape)
+                    .graphicsLayer { clip = false }
+                    .drawWithContent {
+                        drawContent()
+                        withTransform({
+                            rotate(UserBubbleRotationDeg)
+                            val factor = (size.minDimension * UserBubbleOverAvatar) /
+                                userBubbleGlass.width
+                            scale(factor, factor)
+                        }) {
+                            drawImage(
+                                image = userBubbleGlass,
+                                topLeft = Offset(
+                                    (size.width - userBubbleGlass.width) / 2f,
+                                    (size.height - userBubbleGlass.height) / 2f,
+                                ),
+                                blendMode = BlendMode.Softlight,
+                            )
+                        }
+                    },
             )
         }
 

@@ -25,6 +25,8 @@ fun xoraTextScale(): Float = LocalXoraTextScale.current
  *
  * - [XoraFonts.Title] — XOIREQE: titles, menu names, primary labels
  * - [XoraFonts.Secondary] — FOT-NewRodin Pro EB: bios, subtitles, info, secondary copy
+ * - [XoraFonts.XmbLabel] — M PLUS Rounded 1c Light: XMB hover labels (New Rodin analog;
+ *   the bundled FOT-NewRodin cut is ExtraBold-only and cannot thin)
  */
 object XoraFonts {
     val Title: FontFamily = FontFamily(
@@ -41,6 +43,13 @@ object XoraFonts {
         Font(R.font.fot_newrodin_pro_eb_extract, FontWeight.SemiBold),
         Font(R.font.fot_newrodin_pro_eb_extract, FontWeight.Bold),
         Font(R.font.fot_newrodin_pro_eb_extract, FontWeight.ExtraBold),
+    )
+
+    /** Light rounded gothic — Figma Make hover / PS3 New Rodin Regular stand-in. */
+    val XmbLabel: FontFamily = FontFamily(
+        Font(R.font.mplus_rounded_1c_light, FontWeight.Light),
+        Font(R.font.mplus_rounded_1c_light, FontWeight.Normal),
+        Font(R.font.mplus_rounded_1c_light, FontWeight.Medium),
     )
 
     /** Slight tracking for XOIREQE primary / menu text. */

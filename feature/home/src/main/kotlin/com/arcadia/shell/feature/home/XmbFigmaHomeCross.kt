@@ -69,7 +69,8 @@ import kotlin.math.roundToInt
  *
  * Kept from the current build (not Make): seven-tab order including Profiles
  * and Videos, south-east [XoraForegroundShadow] (not a 0 0 6px glow), and
- * INACTIVE_ALPHA 0.75 (Make 0.5 vanished on-device).
+ * INACTIVE_ALPHA 0.75 (Make 0.5 vanished on-device). Hover copy is white
+ * M PLUS Rounded Light (New Rodin analog; bundled FOT-NewRodin is ExtraBold-only).
  */
 private const val TAB_CENTER_X = 430f
 private const val TAB_CENTER_Y = 282f
@@ -123,7 +124,7 @@ private const val RULE_TO_SUBTITLE = 35f
 private const val XMB_SCROLL_MS = 340
 private const val VISIBLE_ITEM_RADIUS = 5
 private val PlateEmptyFill = Color(0xFF3A3A3A)
-private val HoverInk = Color(0xFFEBEBEB)
+private val HoverInk = Color.White
 
 private data class XmbSlot(
     val left: Float,
@@ -370,6 +371,7 @@ internal fun XmbCross(
                             text = headline,
                             sizeDesignUnits = TITLE_SIZE,
                             unit = unit,
+                            fontWeight = FontWeight.Medium,
                         )
                         Box(
                             modifier = Modifier
@@ -387,6 +389,7 @@ internal fun XmbCross(
                             text = line,
                             sizeDesignUnits = SUBTITLE_SIZE,
                             unit = unit,
+                            fontWeight = FontWeight.Light,
                             modifier = Modifier.padding(top = (RULE_TO_SUBTITLE * unit).dp),
                         )
                     }
@@ -519,6 +522,7 @@ private fun XmbHoverLine(
     text: String,
     sizeDesignUnits: Float,
     unit: Float,
+    fontWeight: FontWeight,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -530,10 +534,10 @@ private fun XmbHoverLine(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         style = MaterialTheme.typography.headlineMedium.copy(
-            fontFamily = XoraFonts.Secondary,
+            fontFamily = XoraFonts.XmbLabel,
             fontSize = fontSize,
             lineHeight = fontSize,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = fontWeight,
             shadow = Shadow(
                 color = Color.Black.copy(alpha = XoraForegroundShadow.Alpha),
                 offset = Offset(shadowPx, shadowPx),
