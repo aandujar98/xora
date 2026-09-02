@@ -66,6 +66,9 @@ private const val CARD_WIDTH = 280f
 private const val CARD_HEIGHT = 150f
 private const val CARD_WIDTH_FOCUS = 462f
 private const val CARD_HEIGHT_FOCUS = 248f
+/** Music albums / tracks: 1×1, same height rhythm as the game cards. */
+private const val MUSIC_CARD = 150f
+private const val MUSIC_CARD_FOCUS = 248f
 private const val CARD_CENTER_X = 407f
 private const val CARD_PITCH = 166f
 private const val CARD_FOCUS_PITCH = 240f
@@ -172,8 +175,13 @@ fun XoraCardBrowsePane(
             val delta = index - scroll.value
             if (abs(delta) > VISIBLE_CARD_RADIUS) return@forEach
             val closeness = (1f - abs(delta)).coerceIn(0f, 1f)
-            val width = CARD_WIDTH + ((CARD_WIDTH_FOCUS - CARD_WIDTH) * closeness)
-            val height = CARD_HEIGHT + ((CARD_HEIGHT_FOCUS - CARD_HEIGHT) * closeness)
+            val square = mode == CardBrowseMode.MusicAlbums || mode == CardBrowseMode.MusicTracks
+            val restW = if (square) MUSIC_CARD else CARD_WIDTH
+            val restH = if (square) MUSIC_CARD else CARD_HEIGHT
+            val focusW = if (square) MUSIC_CARD_FOCUS else CARD_WIDTH_FOCUS
+            val focusH = if (square) MUSIC_CARD_FOCUS else CARD_HEIGHT_FOCUS
+            val width = restW + ((focusW - restW) * closeness)
+            val height = restH + ((focusH - restH) * closeness)
             val centreY = ROW_CENTER_Y + cardOffsetFor(delta)
 
             BrowseCard(

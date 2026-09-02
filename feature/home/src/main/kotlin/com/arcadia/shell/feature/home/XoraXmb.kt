@@ -88,6 +88,21 @@ data class XoraXmbItem(
     val icon: XmbIcon = XmbIcon.System,
 )
 
+/** Album / track / Now Playing art uses a 1×1 plate, not the landscape game card. */
+fun XoraXmbItem.isMusicCoverArt(): Boolean {
+    if (artPath.isNullOrBlank()) return false
+    return when (action) {
+        is XoraXmbAction.OpenNowPlaying,
+        is XoraXmbAction.PlayMusicTrack,
+        is XoraXmbAction.DrillMusicAlbum,
+        -> true
+        else -> id == "now" ||
+            id.startsWith("album_") ||
+            id.startsWith("track_") ||
+            id.startsWith("music_folder_")
+    }
+}
+
 sealed interface XoraXmbAction {
     data object OpenProfile : XoraXmbAction
     data object GuestModeStub : XoraXmbAction

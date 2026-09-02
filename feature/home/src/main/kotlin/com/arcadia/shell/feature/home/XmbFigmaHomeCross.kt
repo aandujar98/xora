@@ -111,6 +111,9 @@ private const val ITEM_FOCUS_Y = ITEM_FOCUS_TOP + PLATE_H_FOCUS / 2f
 private const val INACTIVE_ALPHA = 0.60f
 private const val PLATE_W = 280f
 private const val PLATE_H = 150f
+/** Music covers are square so they don't borrow the landscape game plate. */
+private const val MUSIC_COVER_FOCUS = 178f
+private const val MUSIC_COVER_REST = 128f
 private const val PLATE_RADIUS = 30f
 private const val PLATE_BORDER = 4f
 private const val TITLE_GAP = 54f
@@ -439,6 +442,34 @@ private fun XmbColumnGlyph(
     val shadowBlur = (XoraForegroundShadow.DesignBlur * unit).dp
     val glyphStroke = (XmbGlyphStrokeDesignPx * unit).dp
     when {
+        item.isMusicCoverArt() -> {
+            val shape = RoundedCornerShape((12f * unit).dp)
+            Box(
+                modifier = Modifier
+                    .requiredSize(width, height)
+                    .xmbAssetShadow(
+                        unit = unit,
+                        shape = shape,
+                        alpha = XoraForegroundShadow.Alpha,
+                    )
+                    .clip(shape)
+                    .border(
+                        width = if (selected) (2f * unit).dp else 0.dp,
+                        color = if (selected) Color.White else Color.Transparent,
+                        shape = shape,
+                    ),
+            ) {
+                ArtworkImage(
+                    path = item.artPath,
+                    contentDescription = item.title,
+                    fallbackText = item.title.take(1),
+                    contentScale = ContentScale.Crop,
+                    cacheInMemory = true,
+                    decodeMaxEdgePx = 256,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
         isGamePlate(item) -> XmbGamePlate(
             title = item.title,
             artPath = item.artPath,
@@ -615,6 +646,10 @@ private fun hasCoverArt(item: XoraXmbItem): Boolean =
 private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Float> {
     if (isGamePlate(item)) {
         return if (focused) PLATE_W_FOCUS to PLATE_H_FOCUS else PLATE_W to PLATE_H
+    }
+    if (item.isMusicCoverArt()) {
+        val edge = if (focused) MUSIC_COVER_FOCUS else MUSIC_COVER_REST
+        return edge to edge
     }
     val boxW: Float
     val boxH: Float
