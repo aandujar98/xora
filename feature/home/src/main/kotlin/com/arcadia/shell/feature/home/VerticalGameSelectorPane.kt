@@ -176,7 +176,6 @@ fun VerticalGameSelectorPane(
 
                 SoftHeroBackdrop(
                     game = state.selectedGame,
-                    dimForTrailer = fullBackgroundTrailer,
                     scrimAlpha = 1f - launchProgress,
                     modifier = Modifier
                         .fillMaxSize()
@@ -399,17 +398,18 @@ private data class VerticalSelectorMetrics(
 @Composable
 private fun SoftHeroBackdrop(
     game: Game?,
-    dimForTrailer: Boolean,
     modifier: Modifier = Modifier,
     scrimAlpha: Float = 1f,
 ) {
     val reduceMotion = rememberReduceMotion()
-    val target = if (dimForTrailer) "" else game?.heroImagePath ?: game?.boxArtPath ?: ""
+    val target = game?.heroImagePath ?: game?.boxArtPath ?: ""
     var committed by remember { mutableStateOf(target) }
     LaunchedEffect(target, reduceMotion) {
         if (target == committed) return@LaunchedEffect
-        committed = ""
-        if (target.isBlank()) return@LaunchedEffect
+        if (target.isBlank()) {
+            committed = ""
+            return@LaunchedEffect
+        }
         if (!reduceMotion) delay(XMB_FOCUS_SETTLE_MS)
         committed = target
     }
@@ -428,7 +428,7 @@ private fun SoftHeroBackdrop(
                     contentDescription = null,
                     fallbackText = "",
                     contentScale = ContentScale.Crop,
-                    cacheInMemory = false,
+                    cacheInMemory = true,
                     decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
                     modifier = Modifier.fillMaxSize(),
                 )

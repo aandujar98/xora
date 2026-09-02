@@ -111,6 +111,8 @@ private const val ITEM_FOCUS_Y = ITEM_FOCUS_TOP + PLATE_H_FOCUS / 2f
 private const val INACTIVE_ALPHA = 0.60f
 private const val PLATE_W = 280f
 private const val PLATE_H = 150f
+/** Content folders share Game Icon width, then shrink 25% so the shell does not overpower plates. */
+private const val FOLDER_SIZE_SCALE = 0.75f
 /** Music covers are square so they don't borrow the landscape game plate. */
 private const val MUSIC_COVER_FOCUS = 178f
 private const val MUSIC_COVER_REST = 128f
@@ -649,7 +651,7 @@ private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Flo
     }
     if (item.icon.isFolderGlyph()) {
         val (iw, ih) = item.icon.intrinsicDesignSize()
-        val targetW = if (focused) PLATE_W_FOCUS else PLATE_W
+        val targetW = (if (focused) PLATE_W_FOCUS else PLATE_W) * FOLDER_SIZE_SCALE
         return targetW to (targetW * (ih / iw))
     }
     if (item.isMusicCoverArt()) {

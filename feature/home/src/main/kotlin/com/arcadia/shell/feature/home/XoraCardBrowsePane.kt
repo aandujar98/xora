@@ -66,6 +66,8 @@ private const val CARD_WIDTH = 280f
 private const val CARD_HEIGHT = 150f
 private const val CARD_WIDTH_FOCUS = 462f
 private const val CARD_HEIGHT_FOCUS = 248f
+/** Same 25% shrink as the XMB folder glyphs. */
+private const val FOLDER_SIZE_SCALE = 0.75f
 /** Music albums / tracks: 1×1, same height rhythm as the game cards. */
 private const val MUSIC_CARD = 150f
 private const val MUSIC_CARD_FOCUS = 248f
@@ -330,11 +332,11 @@ private fun BrowseCard(
     ) {
         if (item.icon.isFolderGlyph()) {
             val (designW, designH) = item.icon.intrinsicDesignSize()
-            val scale = width.value / designW
+            val scale = (width.value / designW) * FOLDER_SIZE_SCALE
             XmbFolderImgIcon(
                 artPath = item.artPath,
                 windowIcon = item.icon.folderWindowIcon(),
-                width = width,
+                width = (designW * scale).dp,
                 height = (designH * scale).dp,
                 castShadow = false,
                 strokeWidth = (XmbGlyphStrokeDesignPx * unit).dp,

@@ -690,14 +690,16 @@ private fun XoraRomHeroBackdrop(
     scrimAlpha: Float = 1f,
 ) {
     val reduceMotion = rememberReduceMotion()
-    // Vanish immediately, then wait out the focus settle so a held d-pad does not strobe
-    // every ROM's hero art. Wallpaper stays visible in the gap.
+    // Wait out the focus settle so a held d-pad does not strobe every ROM's hero.
+    // Keep the last art on screen while scrolling — clearing it first is the flicker.
     val target = artPath.orEmpty()
     var committed by remember { mutableStateOf(target) }
     LaunchedEffect(target, reduceMotion) {
         if (target == committed) return@LaunchedEffect
-        committed = ""
-        if (target.isBlank()) return@LaunchedEffect
+        if (target.isBlank()) {
+            committed = ""
+            return@LaunchedEffect
+        }
         if (!reduceMotion) delay(XMB_FOCUS_SETTLE_MS)
         committed = target
     }
@@ -719,7 +721,7 @@ private fun XoraRomHeroBackdrop(
                     contentDescription = null,
                     fallbackText = "",
                     contentScale = ContentScale.Crop,
-                    cacheInMemory = false,
+                    cacheInMemory = true,
                     decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
                     modifier = Modifier.fillMaxSize(),
                 )

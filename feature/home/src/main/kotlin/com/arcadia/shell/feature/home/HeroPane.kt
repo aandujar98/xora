@@ -325,15 +325,13 @@ private fun HeroContent(
         // Only paint scraped art when it exists — ArtworkImage's empty fallback is an opaque tile
         // that would hide the home wallpaper underneath.
         val artPath = game.heroImagePath ?: game.boxArtPath
-        if (!fullBackgroundTrailer && !artPath.isNullOrBlank()) {
+        if (!artPath.isNullOrBlank()) {
             ArtworkImage(
                 path = artPath,
                 contentDescription = null,
                 fallbackText = "",
                 contentScale = ContentScale.Crop,
-                // One hero is on screen at a time and it is the largest bitmap the app decodes, so it
-                // is kept out of the memory cache to leave that budget for grid thumbnails.
-                cacheInMemory = false,
+                cacheInMemory = true,
                 decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
                 modifier = Modifier
                     .fillMaxSize()
@@ -344,7 +342,7 @@ private fun HeroContent(
             )
         }
 
-        // Full-background trailer replaces artwork, then the scrim/metadata draw on top.
+        // Trailer fades over the hero once the first frame is ready.
         if (fullBackgroundTrailer) {
             HeroTrailerLayer(
                 state = trailer,
