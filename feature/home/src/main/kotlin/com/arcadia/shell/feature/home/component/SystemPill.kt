@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -114,7 +113,6 @@ import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.designsystem.xoraModalGlass
-import com.arcadia.shell.designsystem.xoraTextScale
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.SystemFavoriteGame
 import com.arcadia.shell.feature.home.SystemPanelRow
@@ -126,6 +124,7 @@ import com.arcadia.shell.retroachievements.RaRecentUnlock
 import com.arcadia.shell.xoranetwork.xoraAppearanceLabel
 import kotlinx.coroutines.delay
 import java.text.DateFormat
+import java.text.NumberFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -135,7 +134,7 @@ private val OnlineGreen = Color(0xFF37D6A0)
 private val AwayAmber = Color(0xFFFFC24B)
 private val BusyRose = Color(0xFFFF5C6C)
 private val FocusRing = Color(0xFF4AE39A)
-private val BadgeBorder = Color(0xFFF0A030)
+private val BadgeBorder = Color(0xFFFECF67)
 
 /** Frosted plate rim — thicker glass edge on the profile modal. */
 private val OutlineInk = Color.Black
@@ -158,22 +157,31 @@ private val StatusBubbleFillBrush = Brush.verticalGradient(
 private val CardStroke = 3.dp
 private val CardAssetShadowDp = 4.dp
 private val CardShadowInk = Color(0xFF000000)
-private val Game0Aspect = 462f / 248f
 private val Game0Border = 3.dp
-private val FavoritePlateW = 177.dp
-private val FavoritePlateH = FavoritePlateW / Game0Aspect
-private val FavoritePlateRadius = 10.dp
-private val ProfileCardWidth = 380.dp
+private val FavoritePlateW = 210.dp
+private val FavoritePlateH = 108.dp
+private val FavoritePlateRadius = 12.dp
+private val ProfileCardWidth = 464.dp
+private val ProfileCardRadius = 24.dp
+private val ProfileCardPadStart = 22.dp
+private val ProfileCardPadEnd = 22.dp
+private val ProfileCardPadTop = 20.dp
+private val ProfileCardPadBottom = 14.dp
+private val ProfileHeaderH = 96.dp
+private val ProfileIdentityStart = 128.dp
+private val StatusBubbleW = 318.dp
+private val StatusBubbleEndInset = 20.dp
 private val RecentlyEarnedBadgeSlots = 6
-private val RecentlyEarnedBadgeGap = 8.dp
-private val PresenceDotSize = 16.dp
-private val TrophyGlyphW = 28.dp
+private val RecentlyEarnedBadgeSize = 60.dp
+private val RecentlyEarnedBadgeGap = 12.dp
+private val RecentlyEarnedLabelGap = 25.dp
+private val FavoriteLabelGap = 30.dp
+private val HeaderToRecentGap = 21.dp
+private val RecentToFavoriteGap = 15.dp
+private val FavoriteToFooterGap = 25.dp
+private val PresenceDotSize = 12.dp
+private val TrophyGlyphW = 24.dp
 private val TrophyGlyphH = TrophyGlyphW * (120f / 130f)
-/** Extra pad so the 8-direction outer stroke never meets a parent clip. */
-private val TrophyHalo = CardStroke + 3.dp
-private val TrophySlotW = TrophyGlyphW + TrophyHalo * 2
-private val TrophySlotH = TrophyGlyphH + TrophyHalo * 2
-private val ProfileRailW = TrophySlotW
 
 private fun vibrantFillBrush(accent: Color): Brush =
     Brush.verticalGradient(listOf(lerp(accent, Color.White, 0.42f), accent))
@@ -184,8 +192,8 @@ private val CollapsedAvatarSize = 88.dp
 /** Figma crops the disc on both screen edges; this clears the pane padding to get there. */
 private val CollapsedAvatarBleed = 24.dp
 
-/** Selected rest scale — 10% smaller than the idle corner disc. */
-private const val ProfileBubbleSelectedScale = 0.9f
+/** Expanded header disc — Figma node 363:1927. */
+private val ProfileAvatarSelectedSize = 96.dp
 
 /** Selected drop shadow: X4 Y4 B4 S0. Idle chrome stays 10 / 10 / 15. */
 private val ProfileBubbleSelectedShadow = 4.dp
@@ -199,8 +207,8 @@ private const val ProfileBubbleFlipMs = 600
 private val ProfileBubbleEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
 
 /** Card inner padding the selected bubble must land in (header top-left). */
-private val ProfileBubbleSelectedInsetStart = 16.dp
-private val ProfileBubbleSelectedInsetTop = 20.dp
+private val ProfileBubbleSelectedInsetStart = 22.dp
+private val ProfileBubbleSelectedInsetTop = 19.dp
 
 /**
  * Afterimage samples along the coin-flip path. Each echo is a white disc at or below the
@@ -309,7 +317,7 @@ fun SystemPill(
     }
 
     Column(
-        modifier = modifier.widthIn(max = if (expanded) 380.dp else 300.dp),
+        modifier = modifier.widthIn(max = if (expanded) ProfileCardWidth else 300.dp),
         horizontalAlignment = Alignment.End,
     ) {
         Box {
@@ -324,11 +332,10 @@ fun SystemPill(
                 animationSpec = arcadiaTween<IntSize>(ArcadiaMotion.Fast),
             ),
         ) {
-            val cardShape = RoundedCornerShape(30.dp)
+            val cardShape = RoundedCornerShape(ProfileCardRadius)
             val pickerScroll = rememberScrollState()
             Column(
                 modifier = Modifier
-                    .padding(top = 8.dp)
                     .width(ProfileCardWidth)
                     .heightIn(max = maxPanelHeight)
                     .xoraModalGlass(cardShape)
@@ -345,9 +352,13 @@ fun SystemPill(
                                 Modifier
                             },
                         )
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .padding(
+                            start = ProfileCardPadStart,
+                            end = ProfileCardPadEnd,
+                            top = ProfileCardPadTop,
+                            bottom = ProfileCardPadBottom,
+                        )
                         .fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                 if (systemProfile.favoritePickerOpen) {
                     FavoritePickerPanel(
@@ -381,7 +392,11 @@ fun SystemPill(
                         onClearCustomStatus = onClearCustomStatus,
                     )
 
+                    Spacer(modifier = Modifier.height(HeaderToRecentGap))
+
                     RecentlyEarnedStrip(unlocks = recentAchievements)
+
+                    Spacer(modifier = Modifier.height(RecentToFavoriteGap))
 
                     FavoriteGameSection(
                         favorite = systemProfile.favorite,
@@ -394,6 +409,8 @@ fun SystemPill(
                             }
                         },
                     )
+
+                    Spacer(modifier = Modifier.height(FavoriteToFooterGap))
                 }
 
                 ProfileCardFooter(
@@ -470,13 +487,13 @@ private fun ProfileSelectBubble(
             }
         }
 
-        val scale = 1f - (1f - ProfileBubbleSelectedScale) * progress
+        val scaleProgress = progress
         val shadow = XoraForegroundShadow.DesignOffset +
             (ProfileBubbleSelectedShadow.value - XoraForegroundShadow.DesignOffset) * progress
         ProfileAvatar(
             displayName = profile.displayName,
             presetId = profile.avatarPresetId,
-            size = (CollapsedAvatarSize.value * scale).dp,
+            size = profileBubbleSize(scaleProgress),
             imageModel = avatarImageModel,
             borderColor = Color.White.copy(alpha = 0.9f),
             onClick = onClick,
@@ -523,12 +540,13 @@ private fun ProfileSelectBubble(
 }
 
 private fun profileBubbleSize(progress: Float): Dp {
-    val scale = 1f - (1f - ProfileBubbleSelectedScale) * progress
-    return (CollapsedAvatarSize.value * scale).dp
+    val start = CollapsedAvatarSize.value
+    val end = ProfileAvatarSelectedSize.value
+    return (start + (end - start) * progress).dp
 }
 
 private fun Modifier.profileBubblePlacement(progress: Float): Modifier {
-    val selectedSize = CollapsedAvatarSize.value * ProfileBubbleSelectedScale
+    val selectedSize = ProfileAvatarSelectedSize.value
     val endX = -(ProfileCardWidth.value - ProfileBubbleSelectedInsetStart.value - selectedSize)
     val startX = CollapsedAvatarBleed.value
     val x = startX + (endX - startX) * progress
@@ -551,95 +569,69 @@ private fun ProfileCardHeader(
     onSaveCustomStatus: () -> Unit,
     onClearCustomStatus: () -> Unit,
 ) {
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
+            .height(ProfileHeaderH)
             .graphicsLayer { clip = false },
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top,
     ) {
-        Spacer(
-            modifier = Modifier.size(
-                (CollapsedAvatarSize.value * ProfileBubbleSelectedScale).dp,
-            ),
+        StatusBubble(
+            text = systemProfile.statusLine,
+            selected = statusSelected,
+            editing = systemProfile.statusEditorOpen,
+            draft = systemProfile.statusDraft,
+            isCustom = systemProfile.isCustomStatus,
+            onSelect = onSelectStatus,
+            onActivate = onActivateStatus,
+            onDraftChange = onStatusDraftChange,
+            onSave = onSaveCustomStatus,
+            onClear = onClearCustomStatus,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .width(StatusBubbleW)
+                .padding(end = StatusBubbleEndInset),
         )
         Column(
             modifier = Modifier
-                .weight(1f)
+                .align(Alignment.TopStart)
+                .padding(start = ProfileIdentityStart, top = 28.dp)
                 .graphicsLayer { clip = false },
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.Start,
         ) {
-            StatusBubble(
-                text = systemProfile.statusLine,
-                selected = statusSelected,
-                editing = systemProfile.statusEditorOpen,
-                draft = systemProfile.statusDraft,
-                isCustom = systemProfile.isCustomStatus,
-                onSelect = onSelectStatus,
-                onActivate = onActivateStatus,
-                onDraftChange = onStatusDraftChange,
-                onSave = onSaveCustomStatus,
-                onClear = onClearCustomStatus,
-            )
-
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(
-                    modifier = Modifier.width(ProfileRailW),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    PresenceDot(color = xoraPresenceColor(systemProfile))
-                }
+                PresenceDot(color = xoraPresenceColor(systemProfile))
                 CardTitleText(
                     text = displayName,
-                    fontSize = 28.sp,
+                    fontSize = 20.sp,
                     fillBrush = vibrantFillBrush(usernameAccent),
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .clickable(onClick = onEditProfile),
+                    modifier = Modifier.clickable(onClick = onEditProfile),
                 )
             }
 
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { clip = false },
+                modifier = Modifier.graphicsLayer { clip = false },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(ProfileRailW)
-                        .graphicsLayer { clip = false },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    TrophyMiniGlyph()
-                }
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .graphicsLayer { clip = false },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    CardTitleText(
-                        text = "POINTS",
-                        fontSize = 14.sp,
-                        fillBrush = DullFillBrush,
-                        letterSpacing = 0.sp,
-                    )
-                    CardTitleText(
-                        text = formatPoints(raScore),
-                        fontSize = 28.sp,
-                        fillBrush = vibrantFillBrush(ScoreAmber),
-                        letterSpacing = 0.sp,
-                        overflow = TextOverflow.Visible,
-                        softWrap = false,
-                    )
-                }
+                TrophyMiniGlyph()
+                CardTitleText(
+                    text = "POINTS",
+                    fontSize = 14.sp,
+                    fillBrush = DullFillBrush,
+                    letterSpacing = 0.sp,
+                )
+                CardTitleText(
+                    text = formatPoints(raScore),
+                    fontSize = 18.sp,
+                    fillBrush = vibrantFillBrush(ScoreAmber),
+                    letterSpacing = 0.sp,
+                    overflow = TextOverflow.Visible,
+                    softWrap = false,
+                )
             }
         }
     }
@@ -650,7 +642,7 @@ private fun ProfileCardHeader(
 private fun CardSectionLabel(text: String) {
     CardTitleText(
         text = text,
-        fontSize = 18.sp,
+        fontSize = 14.sp,
         fillBrush = DullFillBrush,
     )
 }
@@ -693,10 +685,10 @@ private fun cardAssetShadow(): Shadow {
     )
 }
 
-private val StatusTailWidth = 18.dp
-private val StatusTailHeight = 10.dp
+private val StatusTailWidth = 14.dp
+private val StatusTailHeight = 8.dp
 private val StatusBubbleCorner = 16.dp
-private val StatusTailStart = 14.dp
+private val StatusTailStart = 12.dp
 
 private fun speechBubblePath(
     size: Size,
@@ -741,10 +733,11 @@ private fun StatusBubble(
     onDraftChange: (String) -> Unit,
     onSave: () -> Unit,
     onClear: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
-    val statusSize = 24.sp * xoraTextScale()
+    val statusSize = 12.sp
     val tailW = with(density) { StatusTailWidth.toPx() }
     val tailH = with(density) { StatusTailHeight.toPx() }
     val corner = with(density) { StatusBubbleCorner.toPx() }
@@ -762,7 +755,7 @@ private fun StatusBubble(
         }
     }
     Column(
-        modifier = Modifier
+        modifier = modifier
             .bringIntoViewRequester(bringIntoViewRequester)
             .padding(CardStroke)
             .xoraForegroundShadow(
@@ -792,12 +785,12 @@ private fun StatusBubble(
                 if (!editing) onActivate()
             }
             .padding(
-                start = 14.dp,
-                end = 14.dp,
-                top = 8.dp,
-                bottom = 8.dp + StatusTailHeight,
+                start = 12.dp,
+                end = 12.dp,
+                top = 4.dp,
+                bottom = 4.dp + StatusTailHeight,
             ),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (editing) {
             BasicTextField(
@@ -854,7 +847,7 @@ private fun StatusBubble(
 
 @Composable
 private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(RecentlyEarnedLabelGap)) {
         CardSectionLabel("RECENTLY EARNED")
         if (unlocks.isEmpty()) {
             Text(
@@ -871,17 +864,11 @@ private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
                 shown.forEach { unlock ->
                     AchievementBadge(
                         unlock = unlock,
-                        modifier = Modifier
-                            .weight(1f)
-                            .aspectRatio(1f),
+                        modifier = Modifier.size(RecentlyEarnedBadgeSize),
                     )
                 }
                 repeat(RecentlyEarnedBadgeSlots - shown.size) {
-                    Spacer(
-                        modifier = Modifier
-                            .weight(1f)
-                            .aspectRatio(1f),
-                    )
+                    Spacer(modifier = Modifier.size(RecentlyEarnedBadgeSize))
                 }
             }
         }
@@ -894,7 +881,7 @@ private fun AchievementBadge(
     modifier: Modifier = Modifier,
 ) {
     val platformContext = LocalPlatformContext.current
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(8.dp)
     Box(
         modifier = modifier
             .clip(shape)
@@ -929,12 +916,13 @@ private fun FavoriteGameSection(
             bringIntoViewRequester.bringIntoView()
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FavoriteLabelGap)) {
         CardSectionLabel("FAVORITE GAME")
         val artShape = RoundedCornerShape(FavoritePlateRadius)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(FavoritePlateH)
                 .bringIntoViewRequester(bringIntoViewRequester)
                 .then(
                     if (selected) {
@@ -943,17 +931,15 @@ private fun FavoriteGameSection(
                         Modifier
                     },
                 )
-                .clickable(onClick = onClick)
-                .padding(2.dp),
+                .clickable(onClick = onClick),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val density = LocalDensity.current
             val strokePx = with(density) { Game0Border.toPx() }
             val cornerPx = with(density) { FavoritePlateRadius.toPx() }
             Box(
                 modifier = Modifier
-                    .padding(Game0Border)
                     .size(width = FavoritePlateW, height = FavoritePlateH)
                     .xoraForegroundShadow(
                         shape = artShape,
@@ -987,16 +973,15 @@ private fun FavoriteGameSection(
                 }
             }
 
-            val titleScale = xoraTextScale()
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
                     text = favorite?.title ?: "Add favorite",
                     style = TextStyle(
                         fontFamily = XoraFonts.XmbLabel,
-                        fontSize = 32.sp * titleScale,
+                        fontSize = 18.sp,
                         color = Color.White,
                         shadow = cardAssetShadow(),
                     ),
@@ -1006,7 +991,7 @@ private fun FavoriteGameSection(
                 if (favorite == null) {
                     CardTitleText(
                         text = "PICK FROM YOUR LIST",
-                        fontSize = 18.sp,
+                        fontSize = 14.sp,
                         fillBrush = DullFillBrush,
                         maxLines = 1,
                     )
@@ -1016,15 +1001,19 @@ private fun FavoriteGameSection(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        ClockMiniGlyph(
+                            tint = PlaytimeFillTop,
+                            modifier = Modifier.size(20.dp),
+                        )
                         CardTitleText(
                             text = amount,
-                            fontSize = 28.sp,
+                            fontSize = 20.sp,
                             fillBrush = PlaytimeFillBrush,
                         )
                         CardTitleText(
                             text = unit,
-                            fontSize = 18.sp,
-                            fillBrush = DullFillBrush,
+                            fontSize = 14.sp,
+                            fillBrush = PlaytimeFillBrush,
                         )
                     }
                 }
@@ -1230,7 +1219,7 @@ private fun ProfileCardFooter(
     batteryPercent: Int,
     charging: Boolean,
 ) {
-    val footerSize = 16.sp * xoraTextScale()
+    val footerSize = 14.sp
     val footerStyle = TextStyle(
         fontFamily = XoraFonts.XmbLabel,
         fontSize = footerSize,
@@ -1238,17 +1227,20 @@ private fun ProfileCardFooter(
         shadow = cardAssetShadow(),
     )
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(32.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = dateText, style = footerStyle)
-        Text(text = timeText, style = footerStyle)
         WifiGlyph(
             connected = wifiConnected,
             tint = FooterInk,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(18.dp),
         )
+        Spacer(modifier = Modifier.weight(1f))
+        Text(text = timeText, style = footerStyle)
+        Text(text = "  |  ", style = footerStyle)
+        Text(text = dateText, style = footerStyle)
         Spacer(modifier = Modifier.weight(1f))
         BatteryGlyph(
             percent = batteryPercent,
@@ -1256,6 +1248,7 @@ private fun ProfileCardFooter(
             tint = FooterInk,
             modifier = Modifier.size(width = 26.dp, height = 15.dp),
         )
+        Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
             style = footerStyle,
@@ -1296,7 +1289,7 @@ private fun TrophyMiniGlyph(modifier: Modifier = Modifier) {
     )
     Box(
         modifier = modifier
-            .size(width = TrophySlotW, height = TrophySlotH)
+            .size(width = TrophyGlyphW, height = TrophyGlyphH)
             .graphicsLayer { clip = false }
             .xoraForegroundShadow(
                 shape = RoundedCornerShape(4.dp),
@@ -1443,8 +1436,8 @@ private fun xoraPresenceColor(systemProfile: SystemProfileCardState): Color {
 }
 
 private fun formatPoints(score: Int?): String {
-    if (score == null) return "0"
-    return score.coerceAtLeast(0).toString()
+    val n = (score ?: 0).coerceAtLeast(0)
+    return NumberFormat.getIntegerInstance(Locale.US).format(n)
 }
 
 private fun playtimeParts(playTimeMs: Long): Pair<String, String> {
