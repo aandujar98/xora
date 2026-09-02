@@ -166,6 +166,14 @@ private val FavoritePlateRadius = 10.dp
 private val ProfileCardWidth = 380.dp
 private val RecentlyEarnedBadgeSlots = 6
 private val RecentlyEarnedBadgeGap = 8.dp
+private val PresenceDotSize = 16.dp
+private val TrophyGlyphW = 28.dp
+private val TrophyGlyphH = TrophyGlyphW * (120f / 130f)
+/** Extra pad so the 8-direction outer stroke never meets a parent clip. */
+private val TrophyHalo = CardStroke + 3.dp
+private val TrophySlotW = TrophyGlyphW + TrophyHalo * 2
+private val TrophySlotH = TrophyGlyphH + TrophyHalo * 2
+private val ProfileRailW = TrophySlotW
 
 private fun vibrantFillBrush(accent: Color): Brush =
     Brush.verticalGradient(listOf(lerp(accent, Color.White, 0.42f), accent))
@@ -184,7 +192,8 @@ private val ProfileBubbleSelectedShadow = 4.dp
 
 /** Two horizontal coin-flips as the bubble settles into the expanded header. */
 private const val ProfileBubbleFlipDeg = 720f
-private const val ProfileBubbleFlipMs = 500
+/** 20% longer than the original 500ms settle, same end easing. */
+private const val ProfileBubbleFlipMs = 600
 
 /** Stronger ease-out so the last degrees of the flip settle instead of hitting a wall. */
 private val ProfileBubbleEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
@@ -194,10 +203,11 @@ private val ProfileBubbleSelectedInsetStart = 16.dp
 private val ProfileBubbleSelectedInsetTop = 20.dp
 
 /**
- * Afterimage samples along the coin-flip path. Each echo is the source disc (or smaller) —
- * never larger — so the trail reads as a feathered tail instead of expanding blobs.
+ * Afterimage samples along the coin-flip path. Each echo is a white disc at or below the
+ * source size so the trail reads as a feathered tail instead of expanding blobs.
  */
-private val ProfileBubbleEchoLags = FloatArray(16) { i -> 0.014f * (i + 1) }
+private val ProfileBubbleEchoLags = FloatArray(20) { i -> 0.014f * (i + 1) }
+private val ProfileBubbleEchoInk = Color.White
 
 /**
  * Figma Make top-right bubble: inner 188.044 over Ellipse56 182.495, rotated 165°,
@@ -439,17 +449,13 @@ private fun ProfileSelectBubble(
             ProfileBubbleEchoLags.forEachIndexed { index, lag ->
                 val echoProgress = (progress - lag).coerceIn(0f, 1f)
                 val t = index / (echoCount - 1f).coerceAtLeast(1f)
-                val fade = (0.40f * (1f - t)).coerceAtLeast(0.04f)
+                val fade = (0.45f * (1f - t)).coerceAtLeast(0.05f)
                 val taper = 1f - 0.10f * t
                 val echoSize = profileBubbleSize(echoProgress) * taper
-                ProfileAvatar(
-                    displayName = profile.displayName,
-                    presetId = profile.avatarPresetId,
-                    size = echoSize,
-                    imageModel = avatarImageModel,
-                    borderColor = Color.Transparent,
+                Box(
                     modifier = Modifier
                         .profileBubblePlacement(echoProgress)
+                        .size(echoSize)
                         .graphicsLayer {
                             rotationY = ProfileBubbleFlipDeg * echoProgress
                             cameraDistance = 16f * density
@@ -457,7 +463,9 @@ private fun ProfileSelectBubble(
                             transformOrigin = TransformOrigin.Center
                             clip = true
                             compositingStrategy = CompositingStrategy.Offscreen
-                        },
+                        }
+                        .clip(CircleShape)
+                        .background(ProfileBubbleEchoInk),
                 )
             }
         }
@@ -544,7 +552,9 @@ private fun ProfileCardHeader(
     onClearCustomStatus: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer { clip = false },
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -554,7 +564,9 @@ private fun ProfileCardHeader(
             ),
         )
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .graphicsLayer { clip = false },
             verticalArrangement = Arrangement.spacedBy(6.dp),
             horizontalAlignment = Alignment.Start,
         ) {
@@ -575,8 +587,12 @@ private fun ProfileCardHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                val presenceColor = xoraPresenceColor(systemProfile)
-                PresenceDot(color = presenceColor)
+                Box(
+                    modifier = Modifier.width(ProfileRailW),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PresenceDot(color = xoraPresenceColor(systemProfile))
+                }
                 CardTitleText(
                     text = displayName,
                     fontSize = 28.sp,
@@ -586,34 +602,44 @@ private fun ProfileCardHeader(
                         .clickable(onClick = onEditProfile),
                 )
             }
-            if (systemProfile.xoraNetworkSignedIn) {
-                val presenceLabel = xoraAppearanceLabel(
-                    systemProfile.xoraPresenceMode,
-                    systemProfile.xoraNetworkOnline,
-                ).uppercase()
-                CardTitleText(
-                    text = "$presenceLabel · XOrA NETWORK",
-                    fontSize = 18.sp,
-                    fillBrush = DullFillBrush,
-                )
-            }
 
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { clip = false },
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TrophyMiniGlyph()
-                CardTitleText(
-                    text = "POINTS",
-                    fontSize = 18.sp,
-                    fillBrush = DullFillBrush,
-                )
-                CardTitleText(
-                    text = formatPoints(raScore),
-                    fontSize = 28.sp,
-                    fillBrush = vibrantFillBrush(ScoreAmber),
-                    letterSpacing = 0.sp,
-                )
+                Box(
+                    modifier = Modifier
+                        .width(ProfileRailW)
+                        .graphicsLayer { clip = false },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    TrophyMiniGlyph()
+                }
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .graphicsLayer { clip = false },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    CardTitleText(
+                        text = "POINTS",
+                        fontSize = 14.sp,
+                        fillBrush = DullFillBrush,
+                        letterSpacing = 0.sp,
+                    )
+                    CardTitleText(
+                        text = formatPoints(raScore),
+                        fontSize = 28.sp,
+                        fillBrush = vibrantFillBrush(ScoreAmber),
+                        letterSpacing = 0.sp,
+                        overflow = TextOverflow.Visible,
+                        softWrap = false,
+                    )
+                }
             }
         }
     }
@@ -637,6 +663,8 @@ private fun CardTitleText(
     modifier: Modifier = Modifier,
     maxLines: Int = 1,
     letterSpacing: androidx.compose.ui.unit.TextUnit = XoraFonts.TitleLetterSpacing,
+    overflow: TextOverflow = TextOverflow.Ellipsis,
+    softWrap: Boolean = true,
 ) {
     XoraOutlinedText(
         text = text,
@@ -650,7 +678,8 @@ private fun CardTitleText(
         letterSpacing = letterSpacing,
         shadow = cardAssetShadow(),
         maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
+        overflow = overflow,
+        softWrap = softWrap,
     )
 }
 
@@ -901,6 +930,7 @@ private fun FavoriteGameSection(
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        CardSectionLabel("FAVORITE GAME")
         val artShape = RoundedCornerShape(FavoritePlateRadius)
         Row(
             modifier = Modifier
@@ -1239,7 +1269,7 @@ private fun PresenceDot(color: Color, modifier: Modifier = Modifier) {
     val strokePx = with(density) { CardStroke.toPx() }
     Canvas(
         modifier = modifier
-            .size(16.dp)
+            .size(PresenceDotSize)
             .xoraForegroundShadow(
                 shape = CircleShape,
                 offset = CardAssetShadowDp,
@@ -1264,18 +1294,16 @@ private fun TrophyMiniGlyph(modifier: Modifier = Modifier) {
         -1 to 0, 1 to 0, 0 to -1, 0 to 1,
         -1 to -1, 1 to -1, -1 to 1, 1 to 1,
     )
-    val glyphW = 28.dp
-    val glyphH = glyphW * (120f / 130f)
     Box(
         modifier = modifier
-            .padding(CardStroke)
-            .size(width = glyphW, height = glyphH)
+            .size(width = TrophySlotW, height = TrophySlotH)
+            .graphicsLayer { clip = false }
             .xoraForegroundShadow(
                 shape = RoundedCornerShape(4.dp),
                 offset = CardAssetShadowDp,
                 blur = CardAssetShadowDp,
-            )
-            .graphicsLayer { clip = false },
+            ),
+        contentAlignment = Alignment.Center,
     ) {
         dirs.forEach { (dx, dy) ->
             Image(
@@ -1284,8 +1312,9 @@ private fun TrophyMiniGlyph(modifier: Modifier = Modifier) {
                 colorFilter = ColorFilter.tint(CardShadowInk),
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .matchParentSize()
-                    .offset(stroke * dx, stroke * dy),
+                    .size(width = TrophyGlyphW, height = TrophyGlyphH)
+                    .offset(stroke * dx, stroke * dy)
+                    .graphicsLayer { clip = false },
             )
         }
         Image(
@@ -1293,8 +1322,11 @@ private fun TrophyMiniGlyph(modifier: Modifier = Modifier) {
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = Modifier
-                .matchParentSize()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .size(width = TrophyGlyphW, height = TrophyGlyphH)
+                .graphicsLayer {
+                    clip = false
+                    compositingStrategy = CompositingStrategy.Offscreen
+                }
                 .drawWithContent {
                     drawContent()
                     drawRect(brush = DullFillBrush, blendMode = BlendMode.SrcIn)
