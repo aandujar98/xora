@@ -63,6 +63,7 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraForegroundShadow
+import com.arcadia.shell.designsystem.XoraModalGlass
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.supportsGlassBlurEffect
@@ -220,9 +221,11 @@ fun ConversationWindow(
                     .liquidGlass(
                         shape = shape,
                         tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Subtle,
-                        blurRadius = 5.dp,
+                        intensity = GlassIntensity.Strong,
+                        blurRadius = XoraModalGlass.Blur,
+                        hazeFrost = Color.Black.copy(alpha = 0.38f),
                     )
+                    .background(XoraModalGlass.Scrim, shape)
                     .drawBehind { drawModalBlooms() }
                     // Swallows the tap so clicking inside the window never dismisses it.
                     .clickable(

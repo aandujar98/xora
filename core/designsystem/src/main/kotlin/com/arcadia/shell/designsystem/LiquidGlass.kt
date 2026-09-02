@@ -140,6 +140,40 @@ enum class GlassIntensity {
     Strong,
 }
 
+/**
+ * Shared chrome for Friends / Profile / Achievement (and matching) modals:
+ * darker tinted glass, Haze blur of whatever sits *directly* under the plate,
+ * 30dp corners by default, and the X4 Y4 B4 S0 50% drop shadow.
+ */
+object XoraModalGlass {
+    val Shape: Shape = RoundedCornerShape(30.dp)
+    val Blur: Dp = 18.dp
+    val Scrim: Color = Color.Black.copy(alpha = 0.24f)
+    val Edge: Color = Color.White.copy(alpha = 0.38f)
+    val EdgeWidth: Dp = 2.5.dp
+    val Shadow: Dp = 4.dp
+}
+
+fun Modifier.xoraModalGlass(
+    shape: Shape = XoraModalGlass.Shape,
+    shimmer: Boolean = true,
+): Modifier = this
+    .xoraForegroundShadow(
+        shape = shape,
+        offset = XoraModalGlass.Shadow,
+        blur = XoraModalGlass.Shadow,
+    )
+    .liquidGlass(
+        shape = shape,
+        tone = GlassTone.OverMedia,
+        intensity = GlassIntensity.Strong,
+        blurRadius = XoraModalGlass.Blur,
+        shimmer = shimmer,
+        hazeFrost = Color.Black.copy(alpha = 0.38f),
+    )
+    .background(XoraModalGlass.Scrim, shape)
+    .border(XoraModalGlass.EdgeWidth, XoraModalGlass.Edge, shape)
+
 @Composable
 fun rememberGlassTokens(tone: GlassTone = GlassTone.Surface): ArcadiaGlassTokens {
     val theme = LocalArcadiaGlass.current
@@ -189,6 +223,7 @@ fun Modifier.liquidGlass(
     intensity: GlassIntensity = GlassIntensity.Standard,
     blurRadius: Dp = ArcadiaGlass.DefaultBlur,
     shimmer: Boolean = false,
+    hazeFrost: Color? = null,
 ): Modifier = composed {
     val tokens = rememberGlassTokens(tone)
     val hazeState = LocalArcadiaHaze.current
@@ -214,12 +249,17 @@ fun Modifier.liquidGlass(
         alpha = (plateTint.alpha * (2f - opacityBoost)).coerceIn(0.04f, 0.55f),
     )
 
-    val hazeStyle = remember(tone, blurRadius, intensity) {
-        clearHazeStyle(
+    val hazeStyle = remember(tone, blurRadius, intensity, hazeFrost) {
+        val base = clearHazeStyle(
             tone = tone,
             blurRadius = blurRadius,
             intensity = intensity,
         )
+        if (hazeFrost != null) {
+            base.copy(tints = listOf(HazeTint(hazeFrost)))
+        } else {
+            base
+        }
     }
 
     // Sheen used to pulse on a vsync infinite transition. Dual 1080p AMOLED (AYN Thor)

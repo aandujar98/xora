@@ -73,6 +73,7 @@ import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
+import com.arcadia.shell.designsystem.arcadiaHazeSource
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.launchBackdropScale
 import com.arcadia.shell.designsystem.motionMillis
@@ -206,7 +207,8 @@ fun XoraHomeXmbPane(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clipToBounds(),
+                .clipToBounds()
+                .arcadiaHazeSource(zIndex = 0f),
         ) {
             HomeWallpaper(
                 customPath = state.homeHub.wallpaperPath,
@@ -259,6 +261,13 @@ fun XoraHomeXmbPane(
                         scaleY = recedeScale
                     },
             ) {
+                // Wallpaper + XMB are Haze sources so Friends/Profile/RA plates blur only
+                // the pixels sitting under the modal, not the rest of the chrome.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .arcadiaHazeSource(zIndex = 1f),
+                ) {
                 if (!fullTrailer) {
                     // PS5-style ambient dust between the wallpaper and the menu chrome.
                     XmbStarFieldLayer(
@@ -334,6 +343,7 @@ fun XoraHomeXmbPane(
                         onActivateItem = onActivateItem,
                         modifier = Modifier.fillMaxSize(),
                     )
+                }
                 }
                 }
 

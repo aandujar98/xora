@@ -78,6 +78,7 @@ import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.feature.home.AchievementsUiState
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaGameLookup
@@ -166,14 +167,7 @@ fun AchievementsPill(
             Column(
                 modifier = Modifier
                     .padding(top = 8.dp)
-                    .xoraForegroundShadow(CardShape)
-                    .liquidGlass(
-                        shape = CardShape,
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                        shimmer = true,
-                    )
-                    .border(1.5.dp, CardEdge, CardShape)
+                    .xoraModalGlass(CardShape)
                     .clickable(onClick = onToggle)
                     .padding(vertical = 10.dp)
                     .fillMaxWidth()

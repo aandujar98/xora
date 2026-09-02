@@ -110,16 +110,14 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.designsystem.ArcadiaMotion
-import com.arcadia.shell.designsystem.GlassIntensity
-import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.arcadiaTween
-import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.designsystem.xoraTextScale
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.SystemFavoriteGame
@@ -144,8 +142,6 @@ private val FocusRing = Color(0xFF4AE39A)
 private val BadgeBorder = Color(0xFFF0A030)
 
 /** Frosted plate rim — thicker glass edge on the profile modal. */
-private val CardEdge = Color.White.copy(alpha = 0.38f)
-private val CardScrim = Color.Black.copy(alpha = 0.16f)
 private val OutlineInk = Color.Black
 private val BubbleInk = Color(0xFF474747)
 private val FooterInk = Color.White.copy(alpha = 0.50f)
@@ -324,20 +320,7 @@ fun SystemPill(
                     .padding(top = 8.dp)
                     .width(ProfileCardWidth)
                     .heightIn(max = maxPanelHeight)
-                    .xoraForegroundShadow(
-                        shape = cardShape,
-                        offset = CardAssetShadowDp,
-                        blur = CardAssetShadowDp,
-                    )
-                    .liquidGlass(
-                        shape = cardShape,
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                        blurRadius = 14.dp,
-                        shimmer = true,
-                    )
-                    .background(CardScrim, cardShape)
-                    .border(2.5.dp, CardEdge, cardShape)
+                    .xoraModalGlass(cardShape)
                     .fillMaxWidth(),
             ) {
                 Column(
@@ -691,7 +674,7 @@ private fun CardTitleText(
 private fun cardAssetShadow(): Shadow {
     val px = with(LocalDensity.current) { CardAssetShadowDp.toPx() }
     return Shadow(
-        color = CardShadowInk,
+        color = CardShadowInk.copy(alpha = 0.50f),
         offset = Offset(px, px),
         blurRadius = px,
     )

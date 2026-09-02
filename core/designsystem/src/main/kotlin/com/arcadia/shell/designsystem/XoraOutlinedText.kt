@@ -37,6 +37,7 @@ fun XoraOutlinedText(
     fillColor: Color = Color.White,
     fillBrush: Brush? = null,
     outlineColor: Color = Color.Black,
+    outlineBrush: Brush? = null,
     outlineWidth: Dp = 3.dp,
     letterSpacing: TextUnit = TextUnit.Unspecified,
     shadow: Shadow? = null,
@@ -72,14 +73,25 @@ fun XoraOutlinedText(
             overflow = overflow,
             softWrap = softWrap,
             textAlign = textAlign,
-            style = base.copy(
-                color = outlineColor,
-                drawStyle = Stroke(
-                    width = outlinePx,
-                    join = StrokeJoin.Round,
-                    miter = 4f,
-                ),
-            ),
+            style = if (outlineBrush != null) {
+                base.copy(
+                    brush = outlineBrush,
+                    drawStyle = Stroke(
+                        width = outlinePx,
+                        join = StrokeJoin.Round,
+                        miter = 4f,
+                    ),
+                )
+            } else {
+                base.copy(
+                    color = outlineColor,
+                    drawStyle = Stroke(
+                        width = outlinePx,
+                        join = StrokeJoin.Round,
+                        miter = 4f,
+                    ),
+                )
+            },
         )
         Text(
             text = text,
