@@ -201,6 +201,8 @@ fun XmbVectorIcon(
         shadowWidth,
         shadowHeight,
         shadowBlur,
+        shadowOffsetX,
+        shadowOffsetY,
         strokeWidth,
         glass,
         castShadow,
@@ -219,6 +221,8 @@ fun XmbVectorIcon(
                 shadowHeight,
                 glass,
                 shadowBlur,
+                shadowOffsetX,
+                shadowOffsetY,
                 strokeWidth,
             )
         }
@@ -239,11 +243,10 @@ fun XmbVectorIcon(
                     .requiredSize(shadowW, shadowH)
                     .graphicsLayer {
                         clip = false
-                        // Center the isotropic blur on the glyph, then sit it 10px south-east.
-                        // extractAlpha's offsetXY is the full growth of the plate (NW of the
-                        // source); using it here put every drop shadow above-left of the icon.
-                        translationX = shadow.drawX + shadowOffsetX.toPx()
-                        translationY = shadow.drawY + shadowOffsetY.toPx()
+                        // SE offset is baked into the raster so we never add a negative
+                        // extractAlpha inset on top of it (that parked every shadow NW).
+                        translationX = shadow.drawX
+                        translationY = shadow.drawY
                         alpha = shadowAlpha
                     },
             ) {
@@ -423,6 +426,10 @@ private data class XmbGlyphShadow(
 /**
  * Blur the glyph's own alpha so the drop shadow follows the icon, not the square slot.
  * [Bitmap.extractAlpha] runs the mask filter in software, where it actually applies.
+ *
+ * The south-east drop is painted into this bitmap. Callers must draw it at [XmbGlyphShadow.drawX]
+ * / [XmbGlyphShadow.drawY] with no extra offset: adding extractAlpha's negative inset on top of
+ * a +10/+10 translation is what made every previous pass read as north-west.
  */
 private fun rasterizeXmbGlyphShadow(
     density: Density,
@@ -433,15 +440,16 @@ private fun rasterizeXmbGlyphShadow(
     height: Dp,
     glass: Boolean,
     blur: Dp,
+    offsetX: Dp,
+    offsetY: Dp,
     strokeWidth: Dp,
 ): XmbGlyphShadow {
     val widthPx = with(density) { width.toPx() }
     val heightPx = with(density) { height.toPx() }
     val blurPx = with(density) { blur.toPx() }.coerceAtLeast(1f)
+    val seX = with(density) { offsetX.toPx() }.coerceAtLeast(0f)
+    val seY = with(density) { offsetY.toPx() }.coerceAtLeast(0f)
     val strokePx = with(density) { strokeWidth.toPx() }.coerceAtLeast(0f)
-    // Icon-sized source: extractAlpha grows the result by the blur on every side.
-    // We re-center by half that growth (not offsetXY) so the caller's +10/+10 is a
-    // true south-east drop.
     val bmpW = widthPx.roundToInt().coerceAtLeast(1)
     val bmpH = heightPx.roundToInt().coerceAtLeast(1)
     val src = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
@@ -497,25 +505,25 @@ private fun rasterizeXmbGlyphShadow(
     }
     val alpha = src.extractAlpha(blurPaint, null)
     src.recycle()
-    val alphaW = alpha.width
-    val alphaH = alpha.height
-    val tinted = Bitmap.createBitmap(alphaW, alphaH, Bitmap.Config.ARGB_8888)
+    // Ignore extractAlpha's offsetXY / plate growth. Those values are negative (NW of
+    // the source). Compositing the blur at +seX/+seY with the dest origin on the glyph
+    // is the only placement that cannot read as a north-west drop.
+    val destW = (seX.roundToInt() + alpha.width).coerceAtLeast(1)
+    val destH = (seY.roundToInt() + alpha.height).coerceAtLeast(1)
+    val tinted = Bitmap.createBitmap(destW, destH, Bitmap.Config.ARGB_8888)
     android.graphics.Canvas(tinted).drawBitmap(
         alpha,
-        0f,
-        0f,
+        seX,
+        seY,
         android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             color = android.graphics.Color.BLACK
         },
     )
     alpha.recycle()
-    // A NORMAL blur grows evenly, so backing off by half the extra width/height parks
-    // the silhouette on the glyph. offsetXY reports the full growth and would yank
-    // that plate north-west by the same half again.
     return XmbGlyphShadow(
         image = tinted.asImageBitmap(),
-        drawX = -(alphaW - bmpW) / 2f,
-        drawY = -(alphaH - bmpH) / 2f,
+        drawX = 0f,
+        drawY = 0f,
     )
 }
 
