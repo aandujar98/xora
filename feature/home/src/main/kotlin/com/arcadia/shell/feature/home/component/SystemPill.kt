@@ -9,6 +9,7 @@ import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -76,6 +78,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -88,9 +91,11 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.SystemFavoriteGame
@@ -127,6 +132,22 @@ private val CollapsedAvatarSize = 88.dp
 
 /** Figma crops the disc on both screen edges; this clears the pane padding to get there. */
 private val CollapsedAvatarBleed = 24.dp
+
+/** Selected rest scale — 10% smaller than the idle corner disc. */
+private const val ProfileBubbleSelectedScale = 0.9f
+
+/** Selected drop shadow: X4 Y4 B4 S0. Idle chrome stays 10 / 10 / 15. */
+private val ProfileBubbleSelectedShadow = 4.dp
+
+/** One full in-plane twirl as the bubble settles into the expanded header. */
+private const val ProfileBubbleTwirlDeg = 360f
+private const val ProfileBubbleTwirlMs = 480
+
+/** Card inner padding the selected bubble must land in (header top-right). */
+private val ProfileBubbleSelectedInsetEnd = 18.dp
+private val ProfileBubbleSelectedInsetTop = 24.dp
+
+private val ProfileBubbleEchoLags = floatArrayOf(0.10f, 0.20f, 0.30f)
 
 /**
  * Figma Make top-right bubble: inner 188.044 over Ellipse56 182.495, rotated 165°,
@@ -217,54 +238,22 @@ fun SystemPill(
     )
     val displayName = (raUsername?.takeIf { it.isNotBlank() } ?: profile.displayName)
         .uppercase(Locale.getDefault())
+    val editSelected = expanded &&
+        systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.EditProfile
+    val onEditProfile = {
+        val idx = systemRows.indexOfFirst { it is SystemPanelRow.EditProfile }
+        if (idx >= 0) {
+            onSelectRow(idx)
+            onActivateRow(idx)
+        }
+    }
 
     Column(
         modifier = modifier.widthIn(max = if (expanded) 380.dp else 300.dp),
         horizontalAlignment = Alignment.End,
     ) {
-        // Collapsed status chrome hides while the card is open; RT / B restores it.
-        AnimatedVisibility(
-            visible = !expanded,
-            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
-            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
-        ) {
-            // Just the avatar, pushed past the pane padding so it tucks into the screen corner;
-            // status readouts live in the expanded card footer. Soap-bubble overlay matches
-            // Figma Make (165° + soft-light) and must not steal the avatar's click target.
-            val userBubbleGlass = ImageBitmap.imageResource(R.drawable.vita_bubble_glass)
-            ProfileAvatar(
-                displayName = profile.displayName,
-                presetId = profile.avatarPresetId,
-                size = CollapsedAvatarSize,
-                imageModel = avatarImageModel,
-                borderColor = Color.White.copy(alpha = 0.9f),
-                onClick = onToggle,
-                modifier = Modifier
-                    .offset(x = CollapsedAvatarBleed, y = -CollapsedAvatarBleed)
-                    .xoraForegroundShadow(CircleShape)
-                    .graphicsLayer { clip = false }
-                    .drawWithContent {
-                        drawContent()
-                        withTransform({
-                            rotate(UserBubbleRotationDeg)
-                            val factor = (size.minDimension * UserBubbleOverAvatar) /
-                                userBubbleGlass.width
-                            scale(factor, factor)
-                        }) {
-                            drawImage(
-                                image = userBubbleGlass,
-                                topLeft = Offset(
-                                    (size.width - userBubbleGlass.width) / 2f,
-                                    (size.height - userBubbleGlass.height) / 2f,
-                                ),
-                                blendMode = BlendMode.Softlight,
-                            )
-                        }
-                    },
-            )
-        }
-
-        AnimatedVisibility(
+        Box {
+        androidx.compose.animation.AnimatedVisibility(
             visible = expanded,
             enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + expandVertically(
                 expandFrom = Alignment.Top,
@@ -312,12 +301,9 @@ fun SystemPill(
                     ProfileCardHeader(
                         displayName = displayName,
                         usernameAccent = usernameAccent,
-                        profile = profile,
-                        avatarImageModel = avatarImageModel,
                         raScore = raScore,
                         systemProfile = systemProfile,
                         statusSelected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.Status,
-                        editSelected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.EditProfile,
                         onSelectStatus = {
                             val idx = systemRows.indexOfFirst { it is SystemPanelRow.Status }
                             if (idx >= 0) onSelectRow(idx)
@@ -329,13 +315,7 @@ fun SystemPill(
                                 onActivateRow(idx)
                             }
                         },
-                        onEditProfile = {
-                            val idx = systemRows.indexOfFirst { it is SystemPanelRow.EditProfile }
-                            if (idx >= 0) {
-                                onSelectRow(idx)
-                                onActivateRow(idx)
-                            }
-                        },
+                        onEditProfile = onEditProfile,
                         onStatusDraftChange = onStatusDraftChange,
                         onSaveCustomStatus = onSaveCustomStatus,
                         onClearCustomStatus = onClearCustomStatus,
@@ -366,19 +346,129 @@ fun SystemPill(
                 }
             }
         }
+
+            ProfileSelectBubble(
+                expanded = expanded,
+                editSelected = editSelected,
+                profile = profile,
+                avatarImageModel = avatarImageModel,
+                onClick = if (expanded) onEditProfile else onToggle,
+                modifier = Modifier.align(Alignment.TopEnd),
+            )
+        }
     }
+}
+
+@Composable
+private fun ProfileSelectBubble(
+    expanded: Boolean,
+    editSelected: Boolean,
+    profile: LocalProfile,
+    avatarImageModel: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val reduceMotion = rememberReduceMotion()
+    val progress by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = arcadiaTween(ProfileBubbleTwirlMs),
+        label = "profileBubbleSelect",
+    )
+    val userBubbleGlass = ImageBitmap.imageResource(R.drawable.vita_bubble_glass)
+    val moving = !reduceMotion && progress > 0.02f && progress < 0.98f
+
+    Box(
+        modifier = modifier.graphicsLayer { clip = false },
+        contentAlignment = Alignment.TopEnd,
+    ) {
+        if (moving) {
+            ProfileBubbleEchoLags.forEachIndexed { index, lag ->
+                val echoProgress = (progress - lag).coerceIn(0f, 1f)
+                val echoAlpha = (0.32f - index * 0.08f).coerceAtLeast(0.08f)
+                Box(
+                    modifier = Modifier
+                        .profileBubblePlacement(echoProgress)
+                        .requiredSize(profileBubbleSize(echoProgress))
+                        .graphicsLayer {
+                            rotationZ = ProfileBubbleTwirlDeg * echoProgress
+                            clip = false
+                        }
+                        .background(Color.White.copy(alpha = echoAlpha * 0.35f), CircleShape)
+                        .border(1.5.dp, Color.White.copy(alpha = echoAlpha), CircleShape),
+                )
+            }
+        }
+
+        val scale = 1f - (1f - ProfileBubbleSelectedScale) * progress
+        val shadow = XoraForegroundShadow.DesignOffset +
+            (ProfileBubbleSelectedShadow.value - XoraForegroundShadow.DesignOffset) * progress
+        ProfileAvatar(
+            displayName = profile.displayName,
+            presetId = profile.avatarPresetId,
+            size = (CollapsedAvatarSize.value * scale).dp,
+            imageModel = avatarImageModel,
+            borderColor = Color.White.copy(alpha = 0.9f),
+            onClick = onClick,
+            modifier = Modifier
+                .profileBubblePlacement(progress)
+                .then(
+                    if (editSelected) {
+                        Modifier.border(2.5.dp, FocusRing, CircleShape)
+                    } else {
+                        Modifier
+                    },
+                )
+                .xoraForegroundShadow(
+                    shape = CircleShape,
+                    offset = shadow.dp,
+                    blur = shadow.dp,
+                )
+                .graphicsLayer {
+                    rotationZ = ProfileBubbleTwirlDeg * progress
+                    clip = false
+                }
+                .drawWithContent {
+                    drawContent()
+                    withTransform({
+                        rotate(UserBubbleRotationDeg)
+                        val factor = (size.minDimension * UserBubbleOverAvatar) /
+                            userBubbleGlass.width
+                        scale(factor, factor)
+                    }) {
+                        drawImage(
+                            image = userBubbleGlass,
+                            topLeft = Offset(
+                                (size.width - userBubbleGlass.width) / 2f,
+                                (size.height - userBubbleGlass.height) / 2f,
+                            ),
+                            blendMode = BlendMode.Softlight,
+                        )
+                    }
+                },
+        )
+    }
+}
+
+private fun profileBubbleSize(progress: Float): Dp {
+    val scale = 1f - (1f - ProfileBubbleSelectedScale) * progress
+    return (CollapsedAvatarSize.value * scale).dp
+}
+
+private fun Modifier.profileBubblePlacement(progress: Float): Modifier {
+    val x = CollapsedAvatarBleed.value +
+        (ProfileBubbleSelectedInsetEnd.value * -1f - CollapsedAvatarBleed.value) * progress
+    val y = -CollapsedAvatarBleed.value +
+        (ProfileBubbleSelectedInsetTop.value + CollapsedAvatarBleed.value) * progress
+    return offset(x = x.dp, y = y.dp)
 }
 
 @Composable
 private fun ProfileCardHeader(
     displayName: String,
     usernameAccent: Color,
-    profile: LocalProfile,
-    avatarImageModel: String?,
     raScore: Int?,
     systemProfile: SystemProfileCardState,
     statusSelected: Boolean,
-    editSelected: Boolean,
     onSelectStatus: () -> Unit,
     onActivateStatus: () -> Unit,
     onEditProfile: () -> Unit,
@@ -391,23 +481,6 @@ private fun ProfileCardHeader(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        ProfileAvatar(
-            displayName = profile.displayName,
-            presetId = profile.avatarPresetId,
-            size = 78.dp,
-            imageModel = avatarImageModel,
-            borderColor = Color.White.copy(alpha = 0.85f),
-            onClick = onEditProfile,
-            modifier = Modifier
-                .then(
-                    if (editSelected) {
-                        Modifier.border(2.5.dp, FocusRing, CircleShape)
-                    } else {
-                        Modifier
-                    },
-                ),
-        )
-
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -495,6 +568,11 @@ private fun ProfileCardHeader(
                 )
             }
         }
+        Spacer(
+            modifier = Modifier.size(
+                (CollapsedAvatarSize.value * ProfileBubbleSelectedScale).dp,
+            ),
+        )
     }
 }
 
