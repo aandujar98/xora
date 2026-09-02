@@ -86,7 +86,7 @@ private const val ARROW_SIZE = 32f
 private const val VISIBLE_CARD_RADIUS = 5f
 
 
-private val PlatformTitleInk = Color(0xFFEBEBEB)
+private val PlatformTitleInk = Color.White
 private val CardFill = Color(0xFF101B24)
 private val ReadyGreen = Color(0xFF4DDB3A)
 

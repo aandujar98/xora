@@ -218,8 +218,8 @@ fun VerticalGameSelectorPane(
                             .background(
                                 Brush.radialGradient(
                                     colors = listOf(
-                                        Color.White.copy(alpha = 0.28f),
-                                        Color.White.copy(alpha = 0.08f),
+                                        Color.White.copy(alpha = 0.10f),
+                                        Color.White.copy(alpha = 0.03f),
                                         Color.Transparent,
                                     ),
                                     center = washCenter,
@@ -415,9 +415,9 @@ private fun SoftHeroBackdrop(
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0.0f to Color.Black.copy(alpha = 0.12f),
+                            0.0f to Color.Black.copy(alpha = 0.10f),
                             0.45f to Color.Transparent,
-                            1.0f to Color.Black.copy(alpha = 0.18f),
+                            1.0f to Color.Black.copy(alpha = 0.10f),
                         ),
                     ),
                 ),
@@ -548,7 +548,7 @@ private fun VerticalDetailPane(
                                 letterSpacing = (-0.5).sp,
                             ),
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = Color.White,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.widthIn(max = 560.dp),
@@ -576,12 +576,11 @@ private fun VerticalDetailPane(
 
 @Composable
 private fun PlaytimePill(playTimeMs: Long) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
     Text(
         text = "Playtime: ${formatPlaytime(playTimeMs)}",
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.SemiBold,
-        color = glass.content,
+        color = Color.White,
         modifier = Modifier
             .liquidGlass(
                 shape = ArcadiaGlass.PillShape,
@@ -666,7 +665,7 @@ private fun VerticalEmptyNotice(isScanning: Boolean, modifier: Modifier = Modifi
                 "No games here yet. Run a scan from Settings, or press Start."
             },
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(24.dp),
         )

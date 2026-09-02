@@ -7,7 +7,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -15,10 +15,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
@@ -49,7 +51,7 @@ import java.io.File
 fun HomeWallpaper(
     customPath: String?,
     modifier: Modifier = Modifier,
-    dim: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") dim: Boolean = false,
 ) {
     val shellTheme = LocalShellTheme.current
     val layer = remember(
@@ -69,7 +71,12 @@ fun HomeWallpaper(
     }
     val fade = arcadiaTween<Float>(ArcadiaMotion.ThemeCrossfade)
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // Offscreen so Hard Light samples the wallpaper, not whatever sits behind this box.
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
+    ) {
         AnimatedContent(
             targetState = layer,
             transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) },
@@ -82,20 +89,18 @@ fun HomeWallpaper(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        if (dim) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.15f),
-                                Color.Black.copy(alpha = 0.45f),
-                            ),
-                        ),
-                    ),
-            )
-        }
+        // Releases/DIM — always 10% Hard Light; wallpaper itself stays full opacity.
+        Image(
+            painter = painterResource(R.drawable.wallpaper_dim),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = 0.10f
+                    blendMode = BlendMode.Hardlight
+                },
+        )
     }
 }
 

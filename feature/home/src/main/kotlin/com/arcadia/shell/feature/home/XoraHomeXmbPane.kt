@@ -734,9 +734,9 @@ private fun XoraRomHeroBackdrop(
                         .graphicsLayer { alpha = scrimAlpha }
                         .background(
                             Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.55f),
-                                0.45f to Color.Black.copy(alpha = 0.32f),
-                                1f to Color.Black.copy(alpha = 0.78f),
+                                0f to Color.Black.copy(alpha = 0.10f),
+                                0.45f to Color.Black.copy(alpha = 0.04f),
+                                1f to Color.Black.copy(alpha = 0.10f),
                             ),
                         ),
                 )
@@ -746,9 +746,9 @@ private fun XoraRomHeroBackdrop(
                         .graphicsLayer { alpha = scrimAlpha }
                         .background(
                             Brush.horizontalGradient(
-                                0f to Color.Black.copy(alpha = 0.58f),
-                                0.4f to Color.Black.copy(alpha = 0.12f),
-                                1f to Color.Black.copy(alpha = 0.42f),
+                                0f to Color.Black.copy(alpha = 0.10f),
+                                0.4f to Color.Black.copy(alpha = 0.02f),
+                                1f to Color.Black.copy(alpha = 0.08f),
                             ),
                         ),
                 )

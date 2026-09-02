@@ -139,7 +139,7 @@ fun NotificationBanner(
 
     Row(
         modifier = modifier
-            .widthIn(min = 280.dp, max = 420.dp)
+            .widthIn(min = 220.dp, max = 300.dp)
             .xoraForegroundShadow(BannerShape)
             .liquidGlass(
                 shape = BannerShape,
@@ -153,9 +153,9 @@ fun NotificationBanner(
                 onDismiss()
             })
             .semantics { contentDescription = accessibility }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         BannerAvatar(
             url = content.avatarUrl,
@@ -171,12 +171,12 @@ fun NotificationBanner(
                 Image(
                     painter = painterResource(content.categoryIconRes),
                     contentDescription = null,
-                    modifier = Modifier.size(14.dp),
+                    modifier = Modifier.size(12.dp),
                     colorFilter = ColorFilter.tint(glass.content),
                 )
                 Text(
                     text = content.category,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = glass.content,
                     maxLines = 1,
@@ -185,12 +185,12 @@ fun NotificationBanner(
             }
             Text(
                 text = content.body,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
                 color = glass.content,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
+                modifier = Modifier.padding(top = 1.dp),
             )
             if (content.subtitle.isNotBlank()) {
                 Text(
@@ -221,7 +221,7 @@ fun NotificationBanner(
             painter = painterResource(R.drawable.ic_banner_sora_mark),
             contentDescription = "XOrA",
             modifier = Modifier
-                .size(22.dp)
+                .size(18.dp)
                 .align(Alignment.CenterVertically),
         )
     }
@@ -236,7 +236,7 @@ private fun BannerAvatar(
     val context = LocalContext.current
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(36.dp)
             .clip(CircleShape)
             .background(accent.copy(alpha = 0.18f)),
         contentAlignment = Alignment.Center,
@@ -250,7 +250,7 @@ private fun BannerAvatar(
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(36.dp)
                     .clip(CircleShape),
             )
         } else {
