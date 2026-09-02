@@ -58,9 +58,9 @@ import kotlin.math.roundToInt
  * 1080p home XMB, adapted from Figma Make `src/App.tsx` (1920×1080).
  *
  * Active tab is centered on (430, 282) and contain-fits a 178×106 box
- * (Make controller: left 341, top 229, 178×106). Inactive tabs contain-fit
- * 128×123 on that same center line so the music glyph (112×123) is not
- * height-squashed; pitch is 310 (Make gaps ~292–342).
+ * scaled 1.25 (Make controller: left 341, top 229, 178×106). Inactive tabs
+ * contain-fit 128×123 on that same center line so the music glyph (112×123)
+ * is not height-squashed; pitch is 310 (Make gaps ~292–342).
  * Column items share x=430. The focused recents plate’s TOP is 420.5
  * (Make 420.49, 462×248). Hover copy sits at plate-right + 54 → x=715.
  * Neighbour above center = 105 (Make trophy 60+90/2), neighbour below
@@ -69,13 +69,17 @@ import kotlin.math.roundToInt
  *
  * Kept from the current build (not Make): seven-tab order including Profiles
  * and Videos, south-east [XoraForegroundShadow] (not a 0 0 6px glow), and
- * INACTIVE_ALPHA 0.75 (Make 0.5 vanished on-device). Hover copy is white
+ * INACTIVE_ALPHA 0.60 (Make 0.5 vanished on-device; 0.75 still read as full). Hover copy is white
  * M PLUS Rounded Light (New Rodin analog; bundled FOT-NewRodin is ExtraBold-only).
  */
 private const val TAB_CENTER_X = 430f
 private const val TAB_CENTER_Y = 282f
 private const val TAB_BOX_W = 178f
 private const val TAB_BOX_H = 106f
+/** Active category glyph is 25% larger than the Make 178×106 controller frame. */
+private const val TAB_ACTIVE_SCALE = 1.25f
+private const val TAB_ACTIVE_W = TAB_BOX_W * TAB_ACTIVE_SCALE
+private const val TAB_ACTIVE_H = TAB_BOX_H * TAB_ACTIVE_SCALE
 private const val INACTIVE_BOX_W = 128f
 private const val INACTIVE_BOX_H = 123f
 private const val CAT_PITCH = 310f
@@ -101,7 +105,7 @@ private const val PLATE_H_FOCUS = 248f
 private const val ITEM_FOCUS_Y = ITEM_FOCUS_TOP + PLATE_H_FOCUS / 2f
 
 /** Dim, but still readable as #EBEBEB on the WAVE cyan. 0.5 vanished on-device. */
-private const val INACTIVE_ALPHA = 0.75f
+private const val INACTIVE_ALPHA = 0.60f
 private const val PLATE_W = 280f
 private const val PLATE_H = 150f
 private const val PLATE_RADIUS = 30f
@@ -207,8 +211,8 @@ internal fun XmbCross(
             val distance = abs(delta)
             val closeness = (1f - distance).coerceIn(0f, 1f)
             val alpha = lerp(INACTIVE_ALPHA, if (atRoot) 1f else 0.45f, closeness)
-            val boxW = lerp(INACTIVE_BOX_W, TAB_BOX_W, closeness)
-            val boxH = lerp(INACTIVE_BOX_H, TAB_BOX_H, closeness)
+            val boxW = lerp(INACTIVE_BOX_W, TAB_ACTIVE_W, closeness)
+            val boxH = lerp(INACTIVE_BOX_H, TAB_ACTIVE_H, closeness)
             val (visW, visH) = category.toXmbIcon().intrinsicDesignSize().fitInBox(boxW, boxH)
             val left = TAB_CENTER_X + delta * CAT_PITCH - visW / 2f
             // Centered in the frame on both axes, so a tab grows about its middle
