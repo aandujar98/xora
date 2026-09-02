@@ -79,7 +79,6 @@ import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
-import com.arcadia.shell.designsystem.XoraModalGlass
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.feature.home.AchievementsUiState
@@ -93,8 +92,8 @@ import com.arcadia.shell.retroachievements.RaProfile
 private val CollapsedBarShape = RoundedCornerShape(20.dp)
 private val DividerColor = Color.White.copy(alpha = 0.28f)
 
-// Expanded card uses the same 30dp tinted-glass plate as Friends / other modals.
-private val CardShape = XoraModalGlass.Shape
+// 30% of the 30dp modal corner — same glass, a tighter rectangle.
+private val CardShape = RoundedCornerShape(9.dp)
 private val CardEdge = Color.White.copy(alpha = 0.25f)
 private val CardInk = Color.White
 private val EarnedBadgeEdge = Color(0xFFEFBD17)

@@ -1,7 +1,10 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -40,6 +43,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -58,7 +62,9 @@ import com.arcadia.shell.designsystem.LiquidGlassSurface
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.launchBackdropScale
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xoraChromeSplitDoors
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
@@ -72,6 +78,7 @@ import com.arcadia.shell.feature.home.component.xmb.XmbGameTile
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import kotlinx.coroutines.delay
 
 /**
  * Full-bleed single-screen vertical XMB.
@@ -393,19 +400,36 @@ private fun SoftHeroBackdrop(
     modifier: Modifier = Modifier,
     scrimAlpha: Float = 1f,
 ) {
+    val reduceMotion = rememberReduceMotion()
+    val target = if (dimForTrailer) "" else game?.heroImagePath ?: game?.boxArtPath ?: ""
+    var committed by remember { mutableStateOf(target) }
+    LaunchedEffect(target, reduceMotion) {
+        if (target == committed) return@LaunchedEffect
+        committed = ""
+        if (target.isBlank()) return@LaunchedEffect
+        if (!reduceMotion) delay(XMB_FOCUS_SETTLE_MS)
+        committed = target
+    }
     Box(modifier = modifier) {
-        val artPath = game?.heroImagePath ?: game?.boxArtPath
-        // Skip the opaque empty fallback so the home wallpaper underneath stays visible.
-        if (!artPath.isNullOrBlank() && !dimForTrailer) {
-            ArtworkImage(
-                path = artPath,
-                contentDescription = null,
-                fallbackText = "",
-                contentScale = ContentScale.Crop,
-                cacheInMemory = false,
-                decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
-                modifier = Modifier.fillMaxSize(),
-            )
+        Crossfade(
+            targetState = committed,
+            animationSpec = tween(
+                durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                easing = FastOutSlowInEasing,
+            ),
+            label = "verticalRomHero",
+        ) { artPath ->
+            if (artPath.isNotBlank()) {
+                ArtworkImage(
+                    path = artPath,
+                    contentDescription = null,
+                    fallbackText = "",
+                    contentScale = ContentScale.Crop,
+                    cacheInMemory = false,
+                    decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
         // Light legibility wash over full-opacity ROM art — never dims the artwork itself.
         Box(
@@ -508,6 +532,8 @@ private fun VerticalDetailPane(
 ) {
     val enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
     val exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
+    val settledId = rememberXmbSettledFocus(game?.id)
+    val settledGame = game.takeIf { it?.id == settledId }
 
     Box(modifier = modifier) {
         Column(
@@ -519,12 +545,13 @@ private fun VerticalDetailPane(
             Spacer(modifier = Modifier.weight(0.22f))
 
             AnimatedContent(
-                targetState = game?.id to (game?.logoImagePath to game?.title),
+                targetState = settledGame?.id to (settledGame?.logoImagePath to settledGame?.title),
                 transitionSpec = { enter togetherWith exit },
                 label = "verticalFocusedTitle",
                 modifier = Modifier.fillMaxWidth(),
             ) { (_, logoAndTitle) ->
                 val (logoPath, title) = logoAndTitle
+                if (title.isNullOrBlank() && logoPath.isNullOrBlank()) return@AnimatedContent
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (!logoPath.isNullOrBlank()) {
                         ArtworkImage(
@@ -546,6 +573,11 @@ private fun VerticalDetailPane(
                                 fontSize = 36.sp,
                                 lineHeight = 42.sp,
                                 letterSpacing = (-0.5).sp,
+                                shadow = Shadow(
+                                    color = Color.Black.copy(alpha = XoraForegroundShadow.TitleAlpha),
+                                    offset = Offset(2f, 2f),
+                                    blurRadius = 6f,
+                                ),
                             ),
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -554,8 +586,8 @@ private fun VerticalDetailPane(
                             modifier = Modifier.widthIn(max = 560.dp),
                         )
                     }
-                    if (game != null) {
-                        PlaytimePill(playTimeMs = game.playTimeMs)
+                    if (settledGame != null) {
+                        PlaytimePill(playTimeMs = settledGame.playTimeMs)
                     }
                 }
             }

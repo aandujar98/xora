@@ -696,14 +696,15 @@ private fun XoraRomHeroBackdrop(
     scrimAlpha: Float = 1f,
 ) {
     val reduceMotion = rememberReduceMotion()
-    // Settle before committing: hero art is decoded with the memory cache off, so a held d-pad
-    // would otherwise start a full-screen decode per row and strobe the backdrop. Waiting for the
-    // selection to land means every fade that does run is a fade between two real images.
+    // Vanish immediately, then wait out the focus settle so a held d-pad does not strobe
+    // every ROM's hero art. Wallpaper stays visible in the gap.
     val target = artPath.orEmpty()
     var committed by remember { mutableStateOf(target) }
     LaunchedEffect(target, reduceMotion) {
         if (target == committed) return@LaunchedEffect
-        if (!reduceMotion) delay(HERO_SETTLE_MS)
+        committed = ""
+        if (target.isBlank()) return@LaunchedEffect
+        if (!reduceMotion) delay(XMB_FOCUS_SETTLE_MS)
         committed = target
     }
     // Crossfade (not AnimatedContent): empty ↔ art and art ↔ art always fade,
@@ -926,9 +927,6 @@ private fun XoraXmbPillChrome(
         }
     }
 }
-
-/** How long the ROM selection must hold still before the hero backdrop swaps to it. */
-private const val HERO_SETTLE_MS = 140L
 
 /** Drill in / out slide between XMB rungs (PSP / PS3 shell feel). */
 private const val XMB_DEPTH_SLIDE_MS = 300

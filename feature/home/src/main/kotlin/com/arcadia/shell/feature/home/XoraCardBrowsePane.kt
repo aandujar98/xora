@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -156,6 +157,7 @@ fun XoraCardBrowsePane(
         fun designY(y: Float): Dp = (originY + (y * unit)).dp
 
         val focused = items.getOrNull(selectedIndex)
+        val settledId = rememberXmbSettledFocus(focused?.id)
 
         BackHintArrow(
             size = (ARROW_SIZE * unit).dp,
@@ -176,6 +178,7 @@ fun XoraCardBrowsePane(
 
             BrowseCard(
                 item = items[index],
+                focused = index == selectedIndex,
                 unit = unit,
                 width = (width * unit).dp,
                 height = (height * unit).dp,
@@ -189,7 +192,7 @@ fun XoraCardBrowsePane(
             )
         }
 
-        if (focused != null) {
+        if (focused != null && settledId == focused.id) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy((CHECK_GAP * unit).dp),
@@ -241,7 +244,7 @@ fun XoraCardBrowsePane(
                     .xmbAssetShadow(
                         unit = unit,
                         shape = RectangleShape,
-                        alpha = XoraForegroundShadow.Alpha,
+                        alpha = XoraForegroundShadow.TitleAlpha,
                     )
                     .background(Color.White),
             )
@@ -282,6 +285,7 @@ private fun cardOffsetFor(delta: Float): Float {
 @Composable
 private fun BrowseCard(
     item: XoraXmbItem,
+    focused: Boolean,
     unit: Float,
     width: Dp,
     height: Dp,
@@ -290,8 +294,21 @@ private fun BrowseCard(
 ) {
     val shape = RoundedCornerShape((CARD_RADIUS * unit).dp)
     Box(
-        modifier = modifier
-            .size(width = width, height = height)
+        modifier = modifier.size(width = width, height = height),
+        contentAlignment = Alignment.Center,
+    ) {
+    XmbHoverGlow(
+        enabled = focused,
+        modifier = Modifier
+            .matchParentSize()
+            .graphicsLayer {
+                scaleX = 1.5f
+                scaleY = 1.5f
+            },
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
             .xmbAssetShadow(unit = unit, shape = shape, alpha = XoraForegroundShadow.Alpha)
             .clip(shape)
             .background(CardFill)
@@ -326,6 +343,7 @@ private fun BrowseCard(
         } else {
             BrowseCardFallback(item = item, unit = unit, height = height)
         }
+    }
     }
 }
 
@@ -380,7 +398,7 @@ private fun BrowseHeadline(
             lineHeight = fontSize,
             fontWeight = FontWeight.SemiBold,
             shadow = Shadow(
-                color = Color.Black.copy(alpha = XoraForegroundShadow.Alpha),
+                color = Color.Black.copy(alpha = XoraForegroundShadow.TitleAlpha),
                 offset = Offset(shadowPx, shadowPx),
                 blurRadius = blurPx,
             ),

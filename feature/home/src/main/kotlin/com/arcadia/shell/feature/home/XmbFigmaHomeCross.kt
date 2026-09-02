@@ -1,6 +1,7 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -229,6 +230,7 @@ internal fun XmbCross(
             )
             val pad = XoraForegroundShadow.DesignExtent
             val icon = category.toXmbIcon()
+            val hovered = atRoot && index == xmb.categoryIndex
 
             Box(
                 modifier = Modifier
@@ -249,6 +251,10 @@ internal fun XmbCross(
                     ) { onSelectCategory(index) },
                 contentAlignment = Alignment.Center,
             ) {
+                XmbHoverGlow(
+                    enabled = hovered,
+                    modifier = Modifier.requiredSize(du(visW * 1.55f), du(visH * 1.55f)),
+                )
                 XmbVectorIcon(
                     icon = icon,
                     width = du(visW),
@@ -330,6 +336,13 @@ internal fun XmbCross(
                             if (selected) onActivateItem() else onSelectItem(index)
                         },
                 ) {
+                XmbHoverGlow(
+                    enabled = !atRoot && selected,
+                    modifier = Modifier.requiredSize(
+                        du(slot.width * 1.55f),
+                        du(slot.height * 1.55f),
+                    ),
+                )
                     XmbColumnGlyph(
                         item = item,
                         selected = selected,
@@ -352,18 +365,11 @@ internal fun XmbCross(
                 val title = hoverTitle(focusItem)
                 val subtitle = hoverSubtitle(focusItem, xmb)
                 val titleTop = ruleY - TITLE_TO_RULE
-                AnimatedContent(
-                    targetState = Triple(focusItem.id, title, subtitle),
-                    transitionSpec = {
-                        (
-                            fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
-                                slideInHorizontally(
-                                    tween(XMB_SCROLL_MS, easing = FastOutSlowInEasing),
-                                ) { it / 5 }
-                            ) togetherWith fadeOut(tween(110, easing = FastOutSlowInEasing))
-                    },
-                    contentKey = { it.first },
-                    label = "xmbFocusDetail",
+                val settledId = rememberXmbSettledFocus(focusItem.id)
+                AnimatedVisibility(
+                    visible = settledId == focusItem.id,
+                    enter = fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)),
+                    exit = fadeOut(tween(110, easing = FastOutSlowInEasing)),
                     modifier = Modifier
                         .offset(
                             x = (originX + HOVER_TITLE_X * unit).dp,
@@ -373,33 +379,47 @@ internal fun XmbCross(
                             alpha = enterAlpha * detailIntro.alpha
                             translationY = detailIntro.dropPx
                         },
-                ) { (_, headline, line) ->
-                    Column {
-                        XmbHoverLine(
-                            text = headline,
-                            sizeDesignUnits = TITLE_SIZE,
-                            unit = unit,
-                            fontWeight = FontWeight.Normal,
-                        )
-                        Box(
-                            modifier = Modifier
-                                .padding(top = ((TITLE_TO_RULE - TITLE_SIZE) * unit).dp)
-                                .width((RULE_WIDTH * unit).dp)
-                                .height((RULE_THICKNESS * unit).dp)
-                                .xmbAssetShadow(
-                                    unit = unit,
-                                    shape = RectangleShape,
-                                    alpha = XoraForegroundShadow.Alpha,
-                                )
-                                .background(Color.White),
-                        )
-                        XmbHoverLine(
-                            text = line,
-                            sizeDesignUnits = SUBTITLE_SIZE,
-                            unit = unit,
-                            fontWeight = FontWeight.Normal,
-                            modifier = Modifier.padding(top = (RULE_TO_SUBTITLE * unit).dp),
-                        )
+                ) {
+                    AnimatedContent(
+                        targetState = Triple(focusItem.id, title, subtitle),
+                        transitionSpec = {
+                            (
+                                fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
+                                    slideInHorizontally(
+                                        tween(XMB_SCROLL_MS, easing = FastOutSlowInEasing),
+                                    ) { it / 5 }
+                                ) togetherWith fadeOut(tween(110, easing = FastOutSlowInEasing))
+                        },
+                        contentKey = { it.first },
+                        label = "xmbFocusDetail",
+                    ) { (_, headline, line) ->
+                        Column {
+                            XmbHoverLine(
+                                text = headline,
+                                sizeDesignUnits = TITLE_SIZE,
+                                unit = unit,
+                                fontWeight = FontWeight.Normal,
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = ((TITLE_TO_RULE - TITLE_SIZE) * unit).dp)
+                                    .width((RULE_WIDTH * unit).dp)
+                                    .height((RULE_THICKNESS * unit).dp)
+                                    .xmbAssetShadow(
+                                        unit = unit,
+                                        shape = RectangleShape,
+                                        alpha = XoraForegroundShadow.TitleAlpha,
+                                    )
+                                    .background(Color.White),
+                            )
+                            XmbHoverLine(
+                                text = line,
+                                sizeDesignUnits = SUBTITLE_SIZE,
+                                unit = unit,
+                                fontWeight = FontWeight.Normal,
+                                modifier = Modifier.padding(top = (RULE_TO_SUBTITLE * unit).dp),
+                            )
+                        }
                     }
                 }
             }
@@ -552,7 +572,7 @@ private fun XmbHoverLine(
                 trim = LineHeightStyle.Trim.Both,
             ),
             shadow = Shadow(
-                color = Color.Black.copy(alpha = XoraForegroundShadow.Alpha),
+                color = Color.Black.copy(alpha = XoraForegroundShadow.TitleAlpha),
                 offset = Offset(shadowPx, shadowPx),
                 blurRadius = blurPx,
             ),

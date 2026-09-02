@@ -168,6 +168,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
@@ -184,6 +185,7 @@ import javax.inject.Inject
  * second physical display. That is what makes hero art on one screen track grid movement on the
  * other with no synchronisation code of its own.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
@@ -1208,10 +1210,13 @@ class HomeViewModel @Inject constructor(
             }
         }
             .distinctUntilChanged()
-            .onEach { path ->
-                if (!path.isNullOrBlank()) gameSoundBitePlayer.play(path)
-                else gameSoundBitePlayer.stop()
+            .transformLatest { path ->
+                gameSoundBitePlayer.stop()
+                if (path.isNullOrBlank()) return@transformLatest
+                delay(XMB_FOCUS_SETTLE_MS)
+                emit(path)
             }
+            .onEach { path -> gameSoundBitePlayer.play(path) }
             .launchIn(viewModelScope)
 
         // Track library browsing for Discord status bridge / future Social SDK presence.

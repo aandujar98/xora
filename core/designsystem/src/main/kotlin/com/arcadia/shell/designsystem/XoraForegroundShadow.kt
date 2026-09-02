@@ -24,6 +24,8 @@ object XoraForegroundShadow {
     val Spread: Dp = 0.dp
     val Blur: Dp = DesignBlur.dp
     const val Alpha: Float = 0.50f
+    /** Hover title / rule line shadow — darker so white copy holds on bright wallpaper. */
+    const val TitleAlpha: Float = 0.65f
     const val InactiveAlpha: Float = 0.25f
     val PlateBlur: Dp = DesignBlur.dp
     const val PlateAlpha: Float = Alpha
