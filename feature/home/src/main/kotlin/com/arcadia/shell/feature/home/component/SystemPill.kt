@@ -68,6 +68,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -79,6 +80,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
@@ -111,6 +113,7 @@ import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.supportsGlassBlurEffect
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.feature.home.R
@@ -128,6 +131,10 @@ import java.text.NumberFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.sin
 
 private val ScoreAmber = Color(0xFFFFA22B)
 private val OnlineGreen = Color(0xFF37D6A0)
@@ -212,11 +219,21 @@ private val ProfileBubbleSelectedInsetStart = 22.dp
 private val ProfileBubbleSelectedInsetTop = 19.dp
 
 /**
- * Afterimage samples along the coin-flip path. Each echo is a white disc at or below the
- * source size so the trail reads as a feathered tail instead of expanding blobs.
+ * Afterimage samples along the travel path. Soft, un-rotated discs so the trail stays a
+ * uniform feathered ribbon instead of a jagged stack of spinning coins.
  */
-private val ProfileBubbleEchoLags = FloatArray(20) { i -> 0.014f * (i + 1) }
+private const val ProfileBubbleEchoCount = 28
+private const val ProfileBubbleEchoSpan = 0.24f
+private val ProfileBubbleEchoLags = FloatArray(ProfileBubbleEchoCount) { i ->
+    val t = (i + 1f) / ProfileBubbleEchoCount
+    t * t * ProfileBubbleEchoSpan
+}
 private val ProfileBubbleEchoInk = Color.White
+
+/** Slim bubble depth as a fraction of diameter — keeps the flip from collapsing to a line. */
+private const val ProfileBubbleThickness = 0.24f
+private const val ProfileBubbleAnimCamera = 8f
+private const val ProfileBubbleRestCamera = 16f
 
 /**
  * Figma Make top-right bubble: inner 188.044 over Ellipse56 182.495, rotated 165°,
@@ -457,6 +474,24 @@ private fun ProfileSelectBubble(
     )
     val userBubbleGlass = ImageBitmap.imageResource(R.drawable.vita_bubble_glass)
     val moving = !reduceMotion && progress > 0.02f && progress < 0.98f
+    val canBlurTrail = supportsGlassBlurEffect()
+    val spinDeg = ProfileBubbleFlipDeg * progress
+    val spinRad = Math.toRadians(spinDeg.toDouble())
+    val spinSin = sin(spinRad).toFloat()
+    val absCos = abs(cos(spinRad)).toFloat()
+    val volumeScaleX = if (moving) {
+        absCos * (1f - ProfileBubbleThickness) + ProfileBubbleThickness
+    } else {
+        1f
+    }
+    val faceAlpha = if (moving) {
+        ((absCos - 0.06f) / 0.22f).coerceIn(0.22f, 1f)
+    } else {
+        1f
+    }
+    val bubbleSize = profileBubbleSize(progress)
+    val shadow = XoraForegroundShadow.DesignOffset +
+        (ProfileBubbleSelectedShadow.value - XoraForegroundShadow.DesignOffset) * progress
 
     Box(
         modifier = modifier.graphicsLayer { clip = false },
@@ -464,80 +499,182 @@ private fun ProfileSelectBubble(
     ) {
         if (moving) {
             val echoCount = ProfileBubbleEchoLags.size
-            ProfileBubbleEchoLags.forEachIndexed { index, lag ->
+            for (index in echoCount - 1 downTo 0) {
+                val lag = ProfileBubbleEchoLags[index]
                 val echoProgress = (progress - lag).coerceIn(0f, 1f)
-                val t = index / (echoCount - 1f).coerceAtLeast(1f)
-                val fade = (0.45f * (1f - t)).coerceAtLeast(0.05f)
-                val taper = 1f - 0.10f * t
-                val echoSize = profileBubbleSize(echoProgress) * taper
-                Box(
-                    modifier = Modifier
-                        .profileBubblePlacement(echoProgress)
-                        .size(echoSize)
-                        .graphicsLayer {
-                            rotationY = ProfileBubbleFlipDeg * echoProgress
-                            cameraDistance = 16f * density
-                            alpha = fade
-                            transformOrigin = TransformOrigin.Center
-                            clip = true
-                            compositingStrategy = CompositingStrategy.Offscreen
-                        }
-                        .clip(CircleShape)
-                        .background(ProfileBubbleEchoInk),
+                val trailT = index / (echoCount - 1f).coerceAtLeast(1f)
+                ProfileBubbleEcho(
+                    progress = echoProgress,
+                    trailT = trailT,
+                    canBlur = canBlurTrail,
                 )
             }
         }
 
-        val scaleProgress = progress
-        val shadow = XoraForegroundShadow.DesignOffset +
-            (ProfileBubbleSelectedShadow.value - XoraForegroundShadow.DesignOffset) * progress
-        ProfileAvatar(
-            displayName = profile.displayName,
-            presetId = profile.avatarPresetId,
-            size = profileBubbleSize(scaleProgress),
-            imageModel = avatarImageModel,
-            borderColor = Color.White.copy(alpha = 0.9f),
-            onClick = onClick,
+        Box(
             modifier = Modifier
                 .profileBubblePlacement(progress)
-                .then(
-                    if (editSelected) {
-                        Modifier.border(2.5.dp, FocusRing, CircleShape)
-                    } else {
-                        Modifier
-                    },
+                .size(bubbleSize)
+                .graphicsLayer { clip = false },
+        ) {
+            if (moving) {
+                ProfileBubbleVolumeShell(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = volumeScaleX
+                            cameraDistance = ProfileBubbleAnimCamera * density
+                            transformOrigin = TransformOrigin.Center
+                            clip = false
+                        },
                 )
-                .xoraForegroundShadow(
-                    shape = CircleShape,
-                    offset = shadow.dp,
-                    blur = shadow.dp,
-                )
-                .graphicsLayer {
-                    rotationY = ProfileBubbleFlipDeg * progress
-                    cameraDistance = 16f * density
-                    transformOrigin = TransformOrigin.Center
-                    clip = false
-                }
-                .drawWithContent {
-                    drawContent()
-                    withTransform({
-                        rotate(UserBubbleRotationDeg)
-                        val factor = (size.minDimension * UserBubbleOverAvatar) /
-                            userBubbleGlass.width
-                        scale(factor, factor)
-                    }) {
-                        drawImage(
-                            image = userBubbleGlass,
-                            topLeft = Offset(
-                                (size.width - userBubbleGlass.width) / 2f,
-                                (size.height - userBubbleGlass.height) / 2f,
-                            ),
-                            blendMode = BlendMode.Softlight,
-                        )
+            }
+            ProfileAvatar(
+                displayName = profile.displayName,
+                presetId = profile.avatarPresetId,
+                size = bubbleSize,
+                imageModel = avatarImageModel,
+                borderColor = Color.White.copy(alpha = 0.9f),
+                onClick = onClick,
+                modifier = Modifier
+                    .then(
+                        if (editSelected) {
+                            Modifier.border(2.5.dp, FocusRing, CircleShape)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .xoraForegroundShadow(
+                        shape = CircleShape,
+                        offset = shadow.dp,
+                        blur = shadow.dp,
+                    )
+                    .graphicsLayer {
+                        rotationY = spinDeg
+                        cameraDistance = (if (moving) {
+                            ProfileBubbleAnimCamera
+                        } else {
+                            ProfileBubbleRestCamera
+                        }) * density
+                        alpha = faceAlpha
+                        transformOrigin = TransformOrigin.Center
+                        clip = false
                     }
-                },
-        )
+                    .drawWithContent {
+                        drawContent()
+                        if (moving) {
+                            val w = size.width
+                            val h = size.height
+                            val recede = spinSin
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    0.40f to Color.Transparent,
+                                    1.00f to Color.Black.copy(alpha = 0.22f * abs(recede)),
+                                    center = Offset(w * (0.50f - 0.16f * recede), h * 0.52f),
+                                    radius = size.minDimension * 0.62f,
+                                ),
+                            )
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    0.00f to Color.White.copy(alpha = 0.40f),
+                                    0.50f to Color.White.copy(alpha = 0.08f),
+                                    1.00f to Color.Transparent,
+                                    center = Offset(
+                                        w * (0.30f + 0.22f * recede),
+                                        h * 0.28f,
+                                    ),
+                                    radius = size.minDimension * 0.34f,
+                                ),
+                            )
+                        }
+                        withTransform({
+                            rotate(UserBubbleRotationDeg)
+                            val factor = (size.minDimension * UserBubbleOverAvatar) /
+                                userBubbleGlass.width
+                            scale(factor, factor)
+                        }) {
+                            drawImage(
+                                image = userBubbleGlass,
+                                topLeft = Offset(
+                                    (size.width - userBubbleGlass.width) / 2f,
+                                    (size.height - userBubbleGlass.height) / 2f,
+                                ),
+                                blendMode = BlendMode.Softlight,
+                            )
+                        }
+                    },
+            )
+        }
     }
+}
+
+@Composable
+private fun ProfileBubbleEcho(
+    progress: Float,
+    trailT: Float,
+    canBlur: Boolean,
+) {
+    val density = LocalDensity.current
+    val fade = (exp(-3.4f * trailT * trailT) * 0.30f).coerceAtLeast(0.02f)
+    val taper = 1f - 0.06f * trailT
+    val echoSize = profileBubbleSize(progress) * taper
+    val blurPx = with(density) { (3.dp + 8.dp * trailT).toPx() }
+    Box(
+        modifier = Modifier
+            .profileBubblePlacement(progress)
+            .size(echoSize)
+            .graphicsLayer {
+                // Stretch along the mostly-horizontal flight path so discs melt
+                // into one ribbon instead of a dotted, jagged coin stack.
+                scaleX = 1.22f
+                scaleY = 0.98f
+                clip = false
+                compositingStrategy = CompositingStrategy.Offscreen
+                if (canBlur) {
+                    renderEffect = BlurEffect(blurPx, blurPx, TileMode.Decal)
+                }
+            }
+            .drawBehind {
+                val radius = size.minDimension * 0.5f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.00f to ProfileBubbleEchoInk.copy(alpha = fade),
+                            0.38f to ProfileBubbleEchoInk.copy(alpha = fade * 0.50f),
+                            0.70f to ProfileBubbleEchoInk.copy(alpha = fade * 0.14f),
+                            1.00f to Color.Transparent,
+                        ),
+                        center = center,
+                        radius = radius,
+                    ),
+                    radius = radius,
+                )
+            },
+    )
+}
+
+@Composable
+private fun ProfileBubbleVolumeShell(modifier: Modifier = Modifier) {
+    val density = LocalDensity.current
+    val strokePx = with(density) { CardStroke.toPx() }
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .drawBehind {
+                drawCircle(brush = StatusBubbleFillBrush)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0.00f to Color.White.copy(alpha = 0.55f),
+                        0.55f to Color.White.copy(alpha = 0.14f),
+                        1.00f to Color.White.copy(alpha = 0.04f),
+                    ),
+                )
+                drawCircle(
+                    brush = ChromeStrokeBrush,
+                    style = Stroke(width = strokePx, join = StrokeJoin.Round),
+                )
+            },
+    )
 }
 
 private fun profileBubbleSize(progress: Float): Dp {
