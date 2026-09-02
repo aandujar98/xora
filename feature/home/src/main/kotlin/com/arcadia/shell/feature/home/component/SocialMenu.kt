@@ -368,7 +368,6 @@ private fun NotificationsPill(
             )
             .clip(shape)
             .background(Color.White.copy(alpha = 0.16f))
-            .border(CardStroke, Color.Black, shape)
             .then(
                 if (selected) Modifier.border(2.dp, FocusRing, shape) else Modifier,
             )
@@ -491,7 +490,6 @@ private fun EmptyCircleSlot(selected: Boolean) {
             .size(54.dp)
             .clip(CircleShape)
             .background(Color.White.copy(alpha = 0.06f))
-            .border(CardStroke, Color.Black, CircleShape)
             .then(
                 if (selected) Modifier.border(2.dp, FocusRing, CircleShape) else Modifier,
             ),
@@ -531,7 +529,6 @@ private fun SocialTabSearchBar(
                     blur = CardAssetShadowDp,
                 )
                 .background(Color.White.copy(alpha = 0.07f), RoundedCornerShape(22.dp))
-                .border(CardStroke, Color.Black, RoundedCornerShape(22.dp))
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -589,7 +586,6 @@ private fun SocialTabSearchBar(
                     )
                     .clip(RoundedCornerShape(22.dp))
                     .background(Color.White.copy(alpha = 0.08f))
-                    .border(CardStroke, Color.Black, RoundedCornerShape(22.dp))
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -665,23 +661,24 @@ private fun CardTitleText(
     )
 }
 
-/** FOT-NewRodin Pro with chrome fill + 1px outer chrome stroke. */
+/** FOT-NewRodin Pro with a chrome fill — unstroked, so it reads flat like the reference. */
 @Composable
 private fun ChromeCaptionText(
     text: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
 ) {
-    XoraOutlinedText(
+    Text(
         text = text,
         modifier = modifier,
-        fontFamily = XoraFonts.XmbLabel,
-        fontWeight = FontWeight.Bold,
-        fontSize = fontSize,
-        fillBrush = ChromeStrokeBrush,
-        outlineBrush = ChromeStrokeBrush,
-        outlineWidth = 1.dp,
-        shadow = cardAssetShadow(),
+        style = TextStyle(
+            fontFamily = XoraFonts.XmbLabel,
+            fontWeight = FontWeight.Bold,
+            // XoraOutlinedText scaled internally; match it now that this draws its own Text.
+            fontSize = fontSize * xoraTextScale(),
+            brush = ChromeStrokeBrush,
+            shadow = cardAssetShadow(),
+        ),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )
@@ -1743,11 +1740,6 @@ private fun FriendListRow(
             )
             .drawBehind {
                 val corner = size.height / 2f
-                drawRoundRect(
-                    color = Color.Black,
-                    style = Stroke(width = strokePx * 2f, join = StrokeJoin.Round),
-                    cornerRadius = CornerRadius(corner, corner),
-                )
                 if (selected) {
                     drawRoundRect(
                         color = RowSelectedEdge,
@@ -1844,7 +1836,6 @@ private fun SpeechBubbleIcon(
     hasUnread: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val strokePx = with(LocalDensity.current) { CardStroke.toPx() }
     val bubbleShape = RoundedCornerShape(10.dp)
     Box(
         modifier = modifier
@@ -1861,12 +1852,6 @@ private fun SpeechBubbleIcon(
             val tint = Color.White.copy(alpha = if (hasUnread) 0.95f else 0.8f)
             val corner = CornerRadius(size.minDimension * 0.34f, size.minDimension * 0.34f)
             drawRoundRect(
-                color = Color.Black,
-                size = Size(size.width, bubbleHeight),
-                cornerRadius = corner,
-                style = Stroke(width = strokePx * 2f, join = StrokeJoin.Round),
-            )
-            drawRoundRect(
                 color = tint,
                 size = Size(size.width, bubbleHeight),
                 cornerRadius = corner,
@@ -1877,11 +1862,6 @@ private fun SpeechBubbleIcon(
                 lineTo(size.width * 0.44f, bubbleHeight - 1f)
                 close()
             }
-            drawPath(
-                tailPath,
-                color = Color.Black,
-                style = Stroke(width = strokePx * 2f, join = StrokeJoin.Round),
-            )
             drawPath(tailPath, color = tint)
             val dotR = size.minDimension * 0.075f
             val cy = bubbleHeight / 2f
@@ -2013,8 +1993,7 @@ fun PresenceAvatar(
                 offset = CardAssetShadowDp,
                 blur = CardAssetShadowDp,
             )
-            .size(size + 8.dp)
-            .border(CardStroke, Color.Black, CircleShape),
+            .size(size + 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         if (selected) {
