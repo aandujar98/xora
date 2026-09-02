@@ -174,11 +174,13 @@ private val ProfileCardPadStart = 22.dp
 private val ProfileCardPadEnd = 22.dp
 private val ProfileCardPadTop = 20.dp
 private val ProfileCardPadBottom = 22.dp
-private val ProfileHeaderH = 122.dp
+private val ProfileHeaderH = 140.dp
 private val ProfileIdentityStart = 88.dp
-private val ProfileIdentityTop = 50.dp
-private val StatusBubbleW = 318.dp
-private val StatusBubbleEndInset = 20.dp
+private val ProfileIdentityTop = 60.dp
+private val StatusBubbleW = 350.dp
+private val StatusBubbleEndInset = 8.dp
+private val StatusBubbleTextSize = 24.sp
+private val StatusBubbleTextStroke = 1.dp
 private val RecentlyEarnedBadgeSlots = 6
 private val RecentlyEarnedBadgeSize = 60.dp
 private val RecentlyEarnedBadgeGap = 12.dp
@@ -875,7 +877,7 @@ private fun StatusBubble(
 ) {
     val density = LocalDensity.current
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
-    val statusSize = 12.sp
+    val statusSize = StatusBubbleTextSize
     val tailW = with(density) { StatusTailWidth.toPx() }
     val tailH = with(density) { StatusTailHeight.toPx() }
     val corner = with(density) { StatusBubbleCorner.toPx() }
@@ -925,8 +927,8 @@ private fun StatusBubble(
             .padding(
                 start = 12.dp,
                 end = 12.dp,
-                top = 4.dp,
-                bottom = 4.dp + StatusTailHeight,
+                top = 8.dp,
+                bottom = 6.dp + StatusTailHeight,
             ),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -969,13 +971,14 @@ private fun StatusBubble(
                 }
             }
         } else {
-            Text(
+            XoraOutlinedText(
                 text = text,
-                style = TextStyle(
-                    fontFamily = XoraFonts.XmbLabel,
-                    fontSize = statusSize,
-                    color = BubbleInk,
-                ),
+                fontFamily = XoraFonts.XmbLabel,
+                fontSize = statusSize,
+                fillColor = BubbleInk,
+                outlineColor = BubbleInk,
+                outlineWidth = StatusBubbleTextStroke,
+                letterSpacing = 0.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
