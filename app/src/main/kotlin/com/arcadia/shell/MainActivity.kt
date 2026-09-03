@@ -28,6 +28,7 @@ import com.arcadia.shell.datastore.resolveDarkTheme
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.display.DisplayRefresh
 import com.arcadia.shell.display.ImmersiveMode
+import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.HomeViewModel
 import com.arcadia.shell.home.ShellViewModel
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
@@ -60,6 +61,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyXoraScreenOrientation()
         enableEdgeToEdge()
         ImmersiveMode.apply(window)
         DisplayRefresh.preferSixtyHertz(window)

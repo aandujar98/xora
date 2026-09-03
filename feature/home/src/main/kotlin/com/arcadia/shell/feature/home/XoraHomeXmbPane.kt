@@ -217,6 +217,46 @@ fun XoraHomeXmbPane(
     XoraAspectLetterbox(
         mode = state.xoraEmulator.aspectMode,
         modifier = modifier.fillMaxSize(),
+        hud = {
+            if (showPillChrome) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = chromeAlpha },
+                ) {
+                    XoraXmbPillChrome(
+                        state = state,
+                        onToggleAccountPanel = onToggleAccountPanel,
+                        onToggleSystemPanel = onToggleSystemPanel,
+                        onToggleAchievementsPanel = onToggleAchievementsPanel,
+                        onSelectSocialTab = onSelectSocialTab,
+                        onSelectAccountRow = onSelectAccountRow,
+                        onActivateAccountRow = onActivateAccountRow,
+                        onSelectSystemRow = onSelectSystemRow,
+                        onActivateSystemRow = onActivateSystemRow,
+                        onOpenNotifications = onOpenNotifications,
+                        onSystemStatusDraftChange = onSystemStatusDraftChange,
+                        onSaveCustomStatus = onSaveCustomStatus,
+                        onClearCustomStatus = onClearCustomStatus,
+                        onSaveProfile = onSaveProfile,
+                        onSelectAvatarPreset = onSelectAvatarPreset,
+                        onRequestLocalAvatar = onRequestLocalAvatar,
+                        onUseRaAvatar = onUseRaAvatar,
+                        onUseDiscordAvatar = onUseDiscordAvatar,
+                        onUseXoraAvatar = onUseXoraAvatar,
+                        onXoraPresenceMode = onXoraPresenceMode,
+                        onClearAvatar = onClearAvatar,
+                        onClearNotifications = onClearNotifications,
+                        onFriendSearchChange = onFriendSearchChange,
+                        onReplyDraftChange = onReplyDraftChange,
+                        onSelectAchievementsTab = onSelectAchievementsTab,
+                        onLoginRetroAchievements = onLoginRetroAchievements,
+                        onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
+                        onSignOutRetroAchievements = onSignOutRetroAchievements,
+                    )
+                }
+            }
+        },
     ) {
     Box(
         modifier = Modifier
@@ -418,38 +458,6 @@ fun XoraHomeXmbPane(
                 )
             }
 
-            if (showPillChrome) {
-                XoraXmbPillChrome(
-                    state = state,
-                    onToggleAccountPanel = onToggleAccountPanel,
-                    onToggleSystemPanel = onToggleSystemPanel,
-                    onToggleAchievementsPanel = onToggleAchievementsPanel,
-                    onSelectSocialTab = onSelectSocialTab,
-                    onSelectAccountRow = onSelectAccountRow,
-                    onActivateAccountRow = onActivateAccountRow,
-                    onSelectSystemRow = onSelectSystemRow,
-                    onActivateSystemRow = onActivateSystemRow,
-                    onOpenNotifications = onOpenNotifications,
-                    onSystemStatusDraftChange = onSystemStatusDraftChange,
-                    onSaveCustomStatus = onSaveCustomStatus,
-                    onClearCustomStatus = onClearCustomStatus,
-                    onSaveProfile = onSaveProfile,
-                    onSelectAvatarPreset = onSelectAvatarPreset,
-                    onRequestLocalAvatar = onRequestLocalAvatar,
-                    onUseRaAvatar = onUseRaAvatar,
-                    onUseDiscordAvatar = onUseDiscordAvatar,
-                    onUseXoraAvatar = onUseXoraAvatar,
-                    onXoraPresenceMode = onXoraPresenceMode,
-                    onClearAvatar = onClearAvatar,
-                    onClearNotifications = onClearNotifications,
-                    onFriendSearchChange = onFriendSearchChange,
-                    onReplyDraftChange = onReplyDraftChange,
-                    onSelectAchievementsTab = onSelectAchievementsTab,
-                    onLoginRetroAchievements = onLoginRetroAchievements,
-                    onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                    onSignOutRetroAchievements = onSignOutRetroAchievements,
-                )
-            }
         }
     }
     }
@@ -527,6 +535,46 @@ fun XoraXmbHeroDetail(
     XoraAspectLetterbox(
         mode = state.xoraEmulator.aspectMode,
         modifier = modifier.fillMaxSize(),
+        hud = {
+            if (showPillChrome) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = chromeAlpha },
+                ) {
+                    XoraXmbPillChrome(
+                        state = state,
+                        onToggleAccountPanel = onToggleAccountPanel,
+                        onToggleSystemPanel = onToggleSystemPanel,
+                        onToggleAchievementsPanel = onToggleAchievementsPanel,
+                        onSelectSocialTab = onSelectSocialTab,
+                        onSelectAccountRow = onSelectAccountRow,
+                        onActivateAccountRow = onActivateAccountRow,
+                        onSelectSystemRow = onSelectSystemRow,
+                        onActivateSystemRow = onActivateSystemRow,
+                        onOpenNotifications = onOpenNotifications,
+                        onSystemStatusDraftChange = onSystemStatusDraftChange,
+                        onSaveCustomStatus = onSaveCustomStatus,
+                        onClearCustomStatus = onClearCustomStatus,
+                        onSaveProfile = onSaveProfile,
+                        onSelectAvatarPreset = onSelectAvatarPreset,
+                        onRequestLocalAvatar = onRequestLocalAvatar,
+                        onUseRaAvatar = onUseRaAvatar,
+                        onUseDiscordAvatar = onUseDiscordAvatar,
+                        onUseXoraAvatar = onUseXoraAvatar,
+                        onXoraPresenceMode = onXoraPresenceMode,
+                        onClearAvatar = onClearAvatar,
+                        onClearNotifications = onClearNotifications,
+                        onFriendSearchChange = onFriendSearchChange,
+                        onReplyDraftChange = onReplyDraftChange,
+                        onSelectAchievementsTab = onSelectAchievementsTab,
+                        onLoginRetroAchievements = onLoginRetroAchievements,
+                        onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
+                        onSignOutRetroAchievements = onSignOutRetroAchievements,
+                    )
+                }
+            }
+        },
     ) {
     Box(
         modifier = Modifier
@@ -641,39 +689,6 @@ fun XoraXmbHeroDetail(
                         )
                     }
                 }
-            }
-
-            if (showPillChrome) {
-                XoraXmbPillChrome(
-                    state = state,
-                    onToggleAccountPanel = onToggleAccountPanel,
-                    onToggleSystemPanel = onToggleSystemPanel,
-                    onToggleAchievementsPanel = onToggleAchievementsPanel,
-                    onSelectSocialTab = onSelectSocialTab,
-                    onSelectAccountRow = onSelectAccountRow,
-                    onActivateAccountRow = onActivateAccountRow,
-                    onSelectSystemRow = onSelectSystemRow,
-                    onActivateSystemRow = onActivateSystemRow,
-                    onOpenNotifications = onOpenNotifications,
-                    onSystemStatusDraftChange = onSystemStatusDraftChange,
-                    onSaveCustomStatus = onSaveCustomStatus,
-                    onClearCustomStatus = onClearCustomStatus,
-                    onSaveProfile = onSaveProfile,
-                    onSelectAvatarPreset = onSelectAvatarPreset,
-                    onRequestLocalAvatar = onRequestLocalAvatar,
-                    onUseRaAvatar = onUseRaAvatar,
-                    onUseDiscordAvatar = onUseDiscordAvatar,
-                    onUseXoraAvatar = onUseXoraAvatar,
-                    onXoraPresenceMode = onXoraPresenceMode,
-                    onClearAvatar = onClearAvatar,
-                    onClearNotifications = onClearNotifications,
-                    onFriendSearchChange = onFriendSearchChange,
-                    onReplyDraftChange = onReplyDraftChange,
-                    onSelectAchievementsTab = onSelectAchievementsTab,
-                    onLoginRetroAchievements = onLoginRetroAchievements,
-                    onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                    onSignOutRetroAchievements = onSignOutRetroAchievements,
-                )
             }
         }
     }

@@ -99,6 +99,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.times
 import coil3.compose.AsyncImage
@@ -334,10 +335,12 @@ fun SystemPill(
         }
     }
 
-    Column(
-        modifier = modifier.widthIn(max = if (expanded) ProfileCardWidth else 300.dp),
-        horizontalAlignment = Alignment.End,
-    ) {
+    BoxWithConstraints(modifier = modifier) {
+        val cardWidth = min(ProfileCardWidth, maxWidth)
+        Column(
+            modifier = Modifier.widthIn(max = if (expanded) cardWidth else min(300.dp, maxWidth)),
+            horizontalAlignment = Alignment.End,
+        ) {
         Box {
         androidx.compose.animation.AnimatedVisibility(
             visible = expanded,
@@ -358,7 +361,7 @@ fun SystemPill(
             val footerReserve = 18.dp + FavoriteToFooterGap + ProfileCardPadBottom
             Column(
                 modifier = Modifier
-                    .width(ProfileCardWidth)
+                    .width(cardWidth)
                     .then(
                         if (picking) {
                             Modifier.heightIn(
@@ -478,9 +481,11 @@ fun SystemPill(
                     editSelected = editSelected,
                     profile = profile,
                     avatarImageModel = avatarImageModel,
+                    cardWidth = cardWidth,
                     onClick = if (expanded) onEditProfile else onToggle,
                 )
             }
+        }
         }
     }
 }
@@ -493,6 +498,7 @@ private fun ProfileSelectBubble(
     avatarImageModel: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    cardWidth: Dp = ProfileCardWidth,
 ) {
     val reduceMotion = rememberReduceMotion()
     val progress by animateFloatAsState(
@@ -538,13 +544,14 @@ private fun ProfileSelectBubble(
                     progress = echoProgress,
                     trailT = trailT,
                     canBlur = canBlurTrail,
+                    cardWidth = cardWidth,
                 )
             }
         }
 
         Box(
             modifier = Modifier
-                .profileBubblePlacement(progress)
+                .profileBubblePlacement(progress, cardWidth)
                 .size(bubbleSize)
                 .graphicsLayer { clip = false },
         ) {
@@ -644,6 +651,7 @@ private fun ProfileBubbleEcho(
     progress: Float,
     trailT: Float,
     canBlur: Boolean,
+    cardWidth: Dp = ProfileCardWidth,
 ) {
     val fade = (exp(-3.4f * trailT * trailT) * 0.28f * (1f - progress * 0.18f))
         .coerceAtLeast(0.03f)
@@ -651,7 +659,7 @@ private fun ProfileBubbleEcho(
     val echoSize = profileBubbleSize(progress) * taper
     Box(
         modifier = Modifier
-            .profileBubblePlacement(progress)
+            .profileBubblePlacement(progress, cardWidth)
             .size(echoSize)
             .graphicsLayer {
                 rotationY = ProfileBubbleFlipDeg * progress
@@ -703,9 +711,9 @@ private fun profileBubbleSize(progress: Float): Dp {
     return (start + (end - start) * progress).dp
 }
 
-private fun Modifier.profileBubblePlacement(progress: Float): Modifier {
+private fun Modifier.profileBubblePlacement(progress: Float, cardWidth: Dp = ProfileCardWidth): Modifier {
     val selectedSize = ProfileAvatarSelectedSize.value
-    val endX = -(ProfileCardWidth.value - ProfileBubbleSelectedInsetStart.value - selectedSize)
+    val endX = -(cardWidth.value - ProfileBubbleSelectedInsetStart.value - selectedSize)
     val startX = CollapsedAvatarBleed.value
     val x = startX + (endX - startX) * progress
     val y = -CollapsedAvatarBleed.value +

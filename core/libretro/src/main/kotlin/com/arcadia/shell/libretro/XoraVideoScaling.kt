@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -92,10 +93,18 @@ fun computeXoraLauncherRect(
     }
 }
 
+/**
+ * Letterboxes [content] (XMB, wallpaper, in-game frame) to [mode].
+ *
+ * [hud] is laid out in the physical panel, not the letterboxed plate. LT Social and RT Profile
+ * have to stay on the real corners — putting them inside a 1:1 plate on a 16:9 (or an OEM
+ * landscape-locked square panel like RG Rotate) crops or hides those windows.
+ */
 @Composable
 fun XoraAspectLetterbox(
     mode: XoraAspectMode,
     modifier: Modifier = Modifier,
+    hud: @Composable BoxScope.() -> Unit = {},
     content: @Composable BoxScope.() -> Unit,
 ) {
     BoxWithConstraints(
@@ -107,8 +116,14 @@ fun XoraAspectLetterbox(
         val boxW = with(density) { (rect[2] - rect[0]).coerceAtLeast(1).toDp() }
         val boxH = with(density) { (rect[3] - rect[1]).coerceAtLeast(1).toDp() }
         Box(
-            modifier = Modifier.size(DpSize(boxW, boxH)),
+            modifier = Modifier
+                .size(DpSize(boxW, boxH))
+                .clipToBounds(),
             content = content,
+        )
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            content = hud,
         )
     }
 }

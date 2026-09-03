@@ -77,6 +77,7 @@ import com.arcadia.shell.display.DisplayRefresh
 import com.arcadia.shell.display.DisplayTopologyMonitor
 import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.SecondaryDisplayPane
+import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.EmulatorMenuAction
 import com.arcadia.shell.feature.home.EmulatorSaveSlotUi
 import com.arcadia.shell.feature.home.LocalInGameXmbController
@@ -304,6 +305,7 @@ class XoraLibretroActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyXoraScreenOrientation()
         // Reinforce theme animations (some OEMs ignore windowAnimationStyle on NEW_TASK).
         @Suppress("DEPRECATION")
         overridePendingTransition(

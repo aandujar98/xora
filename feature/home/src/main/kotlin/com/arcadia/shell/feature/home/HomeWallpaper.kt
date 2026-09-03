@@ -1,8 +1,5 @@
 package com.arcadia.shell.feature.home
 
-import android.view.LayoutInflater
-import android.view.ViewGroup
-import android.widget.FrameLayout
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,8 +8,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
@@ -24,12 +19,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
@@ -40,6 +29,7 @@ import coil3.size.Size
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.ShellThemeBackdrop
+import com.arcadia.shell.designsystem.XoraLoopingVideo
 import com.arcadia.shell.designsystem.ShellWallpaperStyle
 import com.arcadia.shell.designsystem.arcadiaTween
 import java.io.File
@@ -212,7 +202,12 @@ private fun WallpaperLayerContent(
     }
 }
 
-/** [uri] is already fully qualified (`file://…` for picked media, `asset:///…` for theme packs). */
+/**
+ * [uri] is already fully qualified (`file://…` for picked media, `asset:///…` for theme packs).
+ *
+ * Thin alias over [XoraLoopingVideo]; the player itself lives in the design system so onboarding
+ * can show the same theme loop without a second copy of the lifecycle handling.
+ */
 @Composable
 internal fun LoopingWallpaperVideo(
     uri: String,
@@ -221,102 +216,12 @@ internal fun LoopingWallpaperVideo(
     alignment: Alignment = Alignment.Center,
     pan: Boolean = false,
 ) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val player = remember(uri) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(uri))
-            repeatMode = Player.REPEAT_MODE_ONE
-            volume = 0f
-            setPlaybackSpeed(speed.coerceIn(0.25f, 2f))
-            prepare()
-            playWhenReady = true
-        }
-    }
-
-    // Speed is applied outside the player factory so a rate change never restarts the loop.
-    LaunchedEffect(player, speed) {
-        player.setPlaybackSpeed(speed.coerceIn(0.25f, 2f))
-    }
-
-    DisposableEffect(player, lifecycleOwner) {
-        // Watch BOTH lifecycles: the local owner (Activity) and the whole process. A secondary
-        // display Presentation stays RESUMED from show() to dismiss(), so on dual-screen devices
-        // this player used to keep decoding video all night while the device slept — fans + battery.
-        // Process ON_STOP (screen off / another app owning every screen) now always pauses it.
-        var localResumed =
-            lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
-        var processStarted = androidx.lifecycle.ProcessLifecycleOwner.get()
-            .lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
-        fun syncPlayback() {
-            val shouldPlay = localResumed && processStarted
-            player.playWhenReady = shouldPlay
-            if (!shouldPlay) player.pause()
-        }
-        val localObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
-                androidx.lifecycle.Lifecycle.Event.ON_STOP,
-                -> {
-                    localResumed = false
-                    syncPlayback()
-                }
-                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
-                    localResumed = true
-                    syncPlayback()
-                }
-                else -> Unit
-            }
-        }
-        val processObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
-                    processStarted = false
-                    syncPlayback()
-                }
-                androidx.lifecycle.Lifecycle.Event.ON_START -> {
-                    processStarted = true
-                    syncPlayback()
-                }
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(localObserver)
-        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(processObserver)
-        syncPlayback()
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(localObserver)
-            androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.removeObserver(processObserver)
-            player.release()
-        }
-    }
-
-    val videoModifier = if (pan) {
-        modifier.graphicsLayer {
-            scaleX = 1.24f
-            scaleY = 1.24f
-            val bias = alignment as? BiasAlignment
-            translationX = -(bias?.horizontalBias ?: 0f) * size.width * 0.12f
-            translationY = -(bias?.verticalBias ?: 0f) * size.height * 0.12f
-        }
-    } else {
-        modifier
-    }
-
-    AndroidView(
-        factory = { ctx ->
-            (LayoutInflater.from(ctx).inflate(R.layout.xora_backdrop_player, null) as PlayerView)
-                .apply {
-                    this.player = player
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                    )
-                }
-        },
-        update = { it.player = player },
-        onRelease = { view -> view.player = null },
-        modifier = videoModifier,
+    XoraLoopingVideo(
+        uri = uri,
+        modifier = modifier,
+        speed = speed,
+        alignment = alignment,
+        pan = pan,
     )
 }
 
