@@ -217,13 +217,6 @@ fun NotificationBanner(
             }
         }
 
-        Image(
-            painter = painterResource(R.drawable.ic_banner_sora_mark),
-            contentDescription = "XOrA",
-            modifier = Modifier
-                .size(18.dp)
-                .align(Alignment.CenterVertically),
-        )
     }
 }
 
