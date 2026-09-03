@@ -165,6 +165,7 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .imePadding(),
+        userScrollEnabled = true,
         contentPadding = PaddingValues(horizontal = 32.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {

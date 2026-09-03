@@ -120,6 +120,7 @@ fun hintsForPage(
 val XoraXmbHints: List<Pair<String, String>> = listOf(
     "L/R" to "Category",
     "U/D" to "Item",
+    "Swipe" to "Move",
     "LB/RB" to "Category",
     "A" to "Select",
     "B" to "Back",
@@ -363,6 +364,7 @@ val SystemMenuHints: List<Pair<String, String>> = listOf(
 val StartSettingsHints: List<Pair<String, String>> = listOf(
     "U/D" to "Move",
     "L/R" to "Category",
+    "Swipe" to "Scroll",
     "LB/RB" to "Category",
     "A" to "Activate",
     "B" to "Close",

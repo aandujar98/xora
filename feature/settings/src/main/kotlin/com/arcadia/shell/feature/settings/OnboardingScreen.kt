@@ -71,6 +71,8 @@ import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.xoraModalGlass
+import com.arcadia.shell.designsystem.xoraSwipeNavigate
+import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import kotlin.math.roundToInt
@@ -134,7 +136,24 @@ fun OnboardingScreen(
         )
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .xoraSwipeNavigate(
+                    vertical = false,
+                    onSwipe = { direction ->
+                        when (direction) {
+                            XoraSwipeDirection.Left -> {
+                                if (!state.isLast) viewModel.next()
+                            }
+                            XoraSwipeDirection.Right -> {
+                                if (state.canGoBack) viewModel.back()
+                            }
+                            else -> Unit
+                        }
+                    },
+                ),
+        ) {
         // Same looping wallpaper the themed home shell shows, so first run already looks like XOrA.
         DefaultThemeBackdrop(modifier = Modifier.fillMaxSize())
         Box(
@@ -767,6 +786,7 @@ private fun OnboardingHints(state: OnboardingUiState) {
         add("A" to if (state.isLast) "Finish" else if (optional) "Continue" else "Next")
         if (state.canGoBack) add("B" to "Back")
         add("D-pad" to "Focus")
+        add("Swipe" to "Steps")
         if (optional) {
             add("Skip" to "Optional")
         }

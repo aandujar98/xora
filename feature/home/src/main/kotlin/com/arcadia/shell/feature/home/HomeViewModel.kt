@@ -2655,6 +2655,12 @@ class HomeViewModel @Inject constructor(
         return resolved
     }
 
+    /** Touch flicks land here so swipe and the pad share one routing table. */
+    fun onTouchNav(action: NavAction) {
+        noteUserActivity()
+        onNavAction(action)
+    }
+
     private fun onNavAction(action: NavAction) {
         val state = uiState.value
 
@@ -6660,10 +6666,17 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun moveStartSettingsRow(delta: Int) {
-        val size = uiState.value.startSettings.rows.size
-        if (size == 0) return
-        startSettingsRowIndex.update { current ->
-            (current + delta).coerceIn(0, size - 1)
+        val rows = uiState.value.startSettings.rows
+        if (rows.isEmpty()) return
+        var next = startSettingsRowIndex.value
+        repeat(rows.size) {
+            next = (next + delta).coerceIn(0, rows.lastIndex)
+            if (rows[next] !is StartSettingsRow.Header) {
+                startSettingsRowIndex.value = next
+                return
+            }
+            if (next == 0 && delta < 0) return
+            if (next == rows.lastIndex && delta > 0) return
         }
     }
 
@@ -8386,6 +8399,15 @@ class HomeViewModel @Inject constructor(
 
     fun revealHomeAfterBoot() {
         homeIntroReveal.value = true
+    }
+
+    /** First-run Finish: play the boot clip, then reveal the XMB. */
+    fun playBootIntroAfterOnboarding() {
+        pendingColdStartWelcome = false
+        if (welcomeBackOpen.value || bootIntroOpen.value) return
+        homeIntroReveal.value = false
+        bootIntroSkip.value = false
+        bootIntroOpen.value = true
     }
 
     fun dismissBootIntro() {

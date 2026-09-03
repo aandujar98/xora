@@ -45,8 +45,11 @@ import com.arcadia.shell.datastore.resolveDarkTheme
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.SkyBackground
+import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.rememberLaunchCinematic
+import com.arcadia.shell.designsystem.xoraSwipeNavigate
+import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.display.SecondaryDisplayPane
 import com.arcadia.shell.feature.home.ChooseEmulatorSheet
 import com.arcadia.shell.feature.home.GameCompanionPane
@@ -106,6 +109,7 @@ fun ArcadiaShell(
     val state by homeViewModel.uiState.collectAsStateWithLifecycle()
     val gameCompanion by homeViewModel.gameCompanion.collectAsStateWithLifecycle()
     var route by rememberSaveable { mutableStateOf(ShellRoute.Home) }
+    var pendingBootAfterOnboarding by remember { mutableStateOf(false) }
     var optionsGameId by rememberSaveable { mutableStateOf<String?>(null) }
     var scrapeMenuGameId by rememberSaveable { mutableStateOf<String?>(null) }
     var musicCustomizeId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -345,11 +349,20 @@ fun ArcadiaShell(
         )
     }
 
-    // Drop a queued wake greeting / boot clip if onboarding or Settings owns the shell.
-    LaunchedEffect(state.welcomeBackOpen, state.bootIntroOpen, route, shellState.showOnboarding) {
-        if (shellState.showOnboarding || route != ShellRoute.Home) {
+    // Drop a queued wake greeting / boot clip if Settings owns the shell. Onboarding Finish
+    // starts the boot clip on the way to Home, so do not cancel it just because the prefs
+    // flag has not flipped yet.
+    LaunchedEffect(state.welcomeBackOpen, state.bootIntroOpen, route) {
+        if (route != ShellRoute.Home) {
             if (state.welcomeBackOpen) homeViewModel.dismissWelcomeBack()
             if (state.bootIntroOpen) homeViewModel.dismissBootIntro()
+        }
+    }
+
+    LaunchedEffect(pendingBootAfterOnboarding, shellState.showOnboarding, route) {
+        if (pendingBootAfterOnboarding && !shellState.showOnboarding && route == ShellRoute.Home) {
+            pendingBootAfterOnboarding = false
+            homeViewModel.playBootIntroAfterOnboarding()
         }
     }
 
@@ -455,6 +468,7 @@ fun ArcadiaShell(
         OnboardingScreen(
             brandIcon = painterResource(R.mipmap.ic_launcher_foreground),
             onFinished = {
+                pendingBootAfterOnboarding = true
                 onOnboardingFinished()
                 route = ShellRoute.Home
             },
@@ -470,8 +484,19 @@ fun ArcadiaShell(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         val contentModifier = Modifier.fillMaxSize().padding(padding)
+        val swipeEnabled = route == ShellRoute.Home &&
+            !state.bootIntroOpen &&
+            !state.welcomeBackOpen &&
+            !state.isLaunching
+        val swipeModifier = if (swipeEnabled) {
+            Modifier.xoraSwipeNavigate { direction ->
+                homeViewModel.onTouchNav(direction.toNavAction())
+            }
+        } else {
+            Modifier
+        }
 
-        Box(modifier = contentModifier) {
+        Box(modifier = contentModifier.then(swipeModifier)) {
             // Keep Home mounted under Setup so the dim settings plate can show wallpaper through.
             if (shellState.useDualLayout) {
                 PaneForRole(
@@ -680,7 +705,17 @@ fun ArcadiaShell(
                         modifier = Modifier.fillMaxSize(),
                     )
 
-                    ShellRoute.Home -> Box(modifier = Modifier.fillMaxSize()) {
+                    ShellRoute.Home -> Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .xoraSwipeNavigate(
+                                enabled = !state.bootIntroOpen &&
+                                    !state.welcomeBackOpen &&
+                                    !state.isLaunching,
+                            ) { direction ->
+                                homeViewModel.onTouchNav(direction.toNavAction())
+                            },
+                    ) {
                         val companion = gameCompanion
                         if (companion != null) {
                             // A game owns the primary screen, so this pane becomes its companion.
@@ -1203,4 +1238,11 @@ private fun PaneForRole(
             }
         }
     }
+}
+
+private fun XoraSwipeDirection.toNavAction(): NavAction = when (this) {
+    XoraSwipeDirection.Left -> NavAction.Left
+    XoraSwipeDirection.Right -> NavAction.Right
+    XoraSwipeDirection.Up -> NavAction.Up
+    XoraSwipeDirection.Down -> NavAction.Down
 }

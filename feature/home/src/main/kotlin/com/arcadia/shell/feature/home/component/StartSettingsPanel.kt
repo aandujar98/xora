@@ -28,12 +28,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -104,27 +106,23 @@ fun StartSettingsPanel(
         ),
         modifier = modifier.fillMaxSize(),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.48f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
                 modifier = Modifier
-                    .widthIn(max = 560.dp)
-                    .fillMaxWidth(0.78f)
-                    .fillMaxHeight(0.72f)
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.48f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = {},
+                        onClick = onDismiss,
                     ),
+            )
+            Row(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth(0.78f)
+                    .fillMaxHeight(0.72f),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -161,12 +159,18 @@ fun StartSettingsPanel(
                             .weight(1f),
                     ) { category ->
                         val rows = if (category == state.category) state.rows else emptyList()
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState()),
+                        val listState = rememberLazyListState()
+                        LaunchedEffect(state.selectedRowIndex, category, rows.size) {
+                            if (category != state.category || rows.isEmpty()) return@LaunchedEffect
+                            listState.animateScrollToItem(
+                                state.selectedRowIndex.coerceIn(0, rows.lastIndex),
+                            )
+                        }
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
                         ) {
-                            rows.forEachIndexed { index, row ->
+                            itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
                                 if (index > 0 && row !is StartSettingsRow.Header) {
                                     Box(
                                         modifier = Modifier
