@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -180,36 +181,43 @@ fun XoraCardBrowsePane(
             ),
         )
 
-        // Far cards first so the enlarged focus card layers over its neighbours.
-        items.indices.sortedByDescending { abs(it - scroll.value) }.forEach { index ->
-            val delta = index - scroll.value
-            if (abs(delta) > VISIBLE_CARD_RADIUS) return@forEach
-            val closeness = (1f - abs(delta)).coerceIn(0f, 1f)
-            val square = mode == CardBrowseMode.MusicAlbums || mode == CardBrowseMode.MusicTracks
-            val restW = if (square) MUSIC_CARD else CARD_WIDTH
-            val restH = if (square) MUSIC_CARD else CARD_HEIGHT
-            val focusW = if (square) MUSIC_CARD_FOCUS else CARD_WIDTH_FOCUS
-            val focusH = if (square) MUSIC_CARD_FOCUS else CARD_HEIGHT_FOCUS
-            val width = restW + ((focusW - restW) * closeness)
-            val height = restH + ((focusH - restH) * closeness)
-            val centreY = ROW_CENTER_Y + cardOffsetFor(delta)
+        // Far cards first so the enlarged focus card layers over its neighbours. Keyed on the
+        // item so the reshuffling draw order does not restart each card's artwork request.
+        items.indices
+            .filter { abs(it - scroll.value) <= VISIBLE_CARD_RADIUS }
+            .sortedByDescending { abs(it - scroll.value) }
+            .forEach { index ->
+                val item = items[index]
+                val delta = index - scroll.value
+                val closeness = (1f - abs(delta)).coerceIn(0f, 1f)
+                val square = mode == CardBrowseMode.MusicAlbums ||
+                    mode == CardBrowseMode.MusicTracks
+                val restW = if (square) MUSIC_CARD else CARD_WIDTH
+                val restH = if (square) MUSIC_CARD else CARD_HEIGHT
+                val focusW = if (square) MUSIC_CARD_FOCUS else CARD_WIDTH_FOCUS
+                val focusH = if (square) MUSIC_CARD_FOCUS else CARD_HEIGHT_FOCUS
+                val width = restW + ((focusW - restW) * closeness)
+                val height = restH + ((focusH - restH) * closeness)
+                val centreY = ROW_CENTER_Y + cardOffsetFor(delta)
 
-            BrowseCard(
-                item = items[index],
-                focused = index == selectedIndex,
-                unit = unit,
-                width = (width * unit).dp,
-                height = (height * unit).dp,
-                onClick = {
-                    if (index == selectedIndex) onActivateItem() else onSelectItem(index)
-                },
-                modifier = Modifier.offset(
-                    x = designX(CARD_CENTER_X - (width / 2f)),
-                    y = designY(centreY - (height / 2f)),
-                ),
-                trailer = trailer.takeIf { index == selectedIndex } ?: HeroTrailerState(),
-            )
-        }
+                key(item.id) {
+                    BrowseCard(
+                        item = item,
+                        focused = index == selectedIndex,
+                        unit = unit,
+                        width = (width * unit).dp,
+                        height = (height * unit).dp,
+                        onClick = {
+                            if (index == selectedIndex) onActivateItem() else onSelectItem(index)
+                        },
+                        modifier = Modifier.offset(
+                            x = designX(CARD_CENTER_X - (width / 2f)),
+                            y = designY(centreY - (height / 2f)),
+                        ),
+                        trailer = trailer.takeIf { index == selectedIndex } ?: HeroTrailerState(),
+                    )
+                }
+            }
 
         if (focused != null && settledId == focused.id) {
             Row(

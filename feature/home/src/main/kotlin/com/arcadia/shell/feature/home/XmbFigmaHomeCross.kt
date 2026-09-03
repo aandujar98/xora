@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
@@ -314,51 +315,56 @@ internal fun XmbCross(
             val drawOrder = (first..last).sortedByDescending { abs(it - rowScroll) }
             for (index in drawOrder) {
                 val item = items[index]
-                val slot = slots[index]
-                val selected = index == xmb.itemIndex
-                val intro = rememberIntroAppear(
-                    reveal = introReveal,
-                    delayMs = (abs(index - xmb.itemIndex) * 22).coerceAtMost(160) + 40,
-                    reduceMotion = reduceMotion,
-                )
-                val pad = XoraForegroundShadow.DesignExtent
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .graphicsLayer {
-                            // Inactive icons use layer alpha, which otherwise crops the drop
-                            // shadow to the glyph box. Pad so the full 10×10 / 15px blur fits.
-                            translationX = pxX(slot.left - pad)
-                            translationY = pxY(slot.top - pad) + intro.dropPx
-                            this.alpha = slot.alpha * enterAlpha * intro.alpha
-                            scaleX = intro.scale
-                            scaleY = intro.scale
-                            transformOrigin = TransformOrigin.Center
-                            clip = false
-                        }
-                        .requiredSize(du(slot.width + pad * 2f), du(slot.height + pad * 2f))
-                        .clickable(
-                            interactionSource = remember(item.id) { MutableInteractionSource() },
-                            indication = null,
-                        ) {
-                            if (selected) onActivateItem() else onSelectItem(index)
-                        },
-                ) {
-                XmbHoverGlow(
-                    enabled = !atRoot && selected,
-                    modifier = Modifier.requiredSize(
-                        du(slot.width * 1.55f),
-                        du(slot.height * 1.55f),
-                    ),
-                )
-                    XmbColumnGlyph(
-                        item = item,
-                        selected = selected,
-                        width = du(slot.width),
-                        height = du(slot.height),
-                        unit = unit,
-                        trailer = trailer,
+                // Draw order reshuffles every frame of the scroll, and the visible window slides.
+                // Keying on the row keeps each tile's artwork request alive across both, so cover
+                // art does not restart loading as the selection moves.
+                key(item.id) {
+                    val slot = slots[index]
+                    val selected = index == xmb.itemIndex
+                    val intro = rememberIntroAppear(
+                        reveal = introReveal,
+                        delayMs = (abs(index - xmb.itemIndex) * 22).coerceAtMost(160) + 40,
+                        reduceMotion = reduceMotion,
                     )
+                    val pad = XoraForegroundShadow.DesignExtent
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .graphicsLayer {
+                                // Inactive icons use layer alpha, which otherwise crops the drop
+                                // shadow to the glyph box. Pad so the full 10×10 / 15px blur fits.
+                                translationX = pxX(slot.left - pad)
+                                translationY = pxY(slot.top - pad) + intro.dropPx
+                                this.alpha = slot.alpha * enterAlpha * intro.alpha
+                                scaleX = intro.scale
+                                scaleY = intro.scale
+                                transformOrigin = TransformOrigin.Center
+                                clip = false
+                            }
+                            .requiredSize(du(slot.width + pad * 2f), du(slot.height + pad * 2f))
+                            .clickable(
+                                interactionSource = remember(item.id) { MutableInteractionSource() },
+                                indication = null,
+                            ) {
+                                if (selected) onActivateItem() else onSelectItem(index)
+                            },
+                    ) {
+                        XmbHoverGlow(
+                            enabled = !atRoot && selected,
+                            modifier = Modifier.requiredSize(
+                                du(slot.width * 1.55f),
+                                du(slot.height * 1.55f),
+                            ),
+                        )
+                        XmbColumnGlyph(
+                            item = item,
+                            selected = selected,
+                            width = du(slot.width),
+                            height = du(slot.height),
+                            unit = unit,
+                            trailer = trailer,
+                        )
+                    }
                 }
             }
 

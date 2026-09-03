@@ -171,7 +171,7 @@ private val FavoritePlateH = 108.dp
 private val FavoritePlateRadius = 12.dp
 private val ProfileCardWidth = 464.dp
 /** Figma 464×444 card (nodes 363:1927 / 710:1769), grown so Favorite Game clears the footer. */
-private val ProfileCardHeight = 496.dp
+private val ProfileCardHeight = 540.dp
 private val ProfileCardRadius = 24.dp
 private val ProfileCardPadStart = 22.dp
 private val ProfileCardPadEnd = 22.dp
@@ -268,7 +268,9 @@ fun SystemPill(
     var charging by remember { mutableStateOf(isCharging(context)) }
     var wifiConnected by remember { mutableStateOf(isWifiConnected(context)) }
     val listState = rememberLazyListState()
-    val maxPanelHeight = LocalConfiguration.current.screenHeightDp.dp * 0.96f
+    // The pane already reserves its own 12dp inset, so cap on the frame rather than a fraction
+    // of it — a fractional cap clipped the card before it reached its designed height.
+    val maxPanelHeight = (LocalConfiguration.current.screenHeightDp - 32).coerceAtLeast(320).dp
 
     val systemRows = remember(
         systemProfile.favoritePickerOpen,
