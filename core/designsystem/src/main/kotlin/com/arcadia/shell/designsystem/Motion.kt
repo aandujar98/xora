@@ -10,10 +10,12 @@ import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.TweenSpec
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -34,13 +36,17 @@ object ArcadiaMotion {
     const val Slow = 320
     /** Theme wallpaper / BGM soft mix when switching packs. */
     const val ThemeCrossfade = THEME_CROSSFADE_MS
-    /** Chrome-only split-door slide when launching into an emulator. */
-    const val Launch = 900
-    /** Backdrop zoom easing. Runs alongside the doors and settles well before [LaunchHold]. */
-    const val LaunchZoom = 1100
+    /** UI chrome fade that finishes before the wallpaper zoom starts. */
+    const val Launch = 500
+    /** Backdrop zoom after the chrome fade. */
+    const val LaunchZoom = 800
+    /** Wallpaper starts dissolving this many ms after launch begins. */
+    const val LaunchWallpaperFadeAt = 1500
+    /** Wallpaper dissolve into black before the emulator Activity takes over. */
+    const val LaunchWallpaperFade = 500
     /**
-     * Whole cinematic plate before the emulator Activity is started: the doors part, the backdrop
-     * finishes its zoom, and then the zoomed plate simply holds for the rest of the beat.
+     * Whole cinematic plate before the emulator Activity is started: chrome fades, the backdrop
+     * zooms, then the wallpaper fades at [LaunchWallpaperFadeAt].
      */
     const val LaunchHold = 3000
     /** Ken Burns zoom on wallpaper / hero art while chrome splits out. */
@@ -206,3 +212,59 @@ fun <T> arcadiaTween(durationMillis: Int = ArcadiaMotion.Medium): TweenSpec<T> =
         durationMillis = motionMillis(durationMillis),
         easing = FastOutSlowInEasing,
     )
+
+/** Chrome fade, delayed wallpaper zoom, and wallpaper dissolve for a game launch. */
+data class LaunchCinematicProgress(
+    val chrome: Float,
+    val zoom: Float,
+    val wallpaperFade: Float,
+) {
+    val chromeAlpha: Float get() = (1f - chrome).coerceIn(0f, 1f)
+    val wallpaperAlpha: Float get() = (1f - wallpaperFade).coerceIn(0f, 1f)
+}
+
+@Composable
+fun rememberLaunchCinematic(isLaunching: Boolean): LaunchCinematicProgress {
+    val reduce = rememberReduceMotion()
+    val snapMs = if (reduce) 0 else ArcadiaMotion.Fast
+    val chrome by animateFloatAsState(
+        targetValue = if (isLaunching) 1f else 0f,
+        animationSpec = if (isLaunching && !reduce) {
+            tween(ArcadiaMotion.Launch, easing = FastOutSlowInEasing)
+        } else {
+            tween(snapMs, easing = FastOutSlowInEasing)
+        },
+        label = "launchChromeFade",
+    )
+    val zoom by animateFloatAsState(
+        targetValue = if (isLaunching) 1f else 0f,
+        animationSpec = if (isLaunching && !reduce) {
+            tween(
+                durationMillis = ArcadiaMotion.LaunchZoom,
+                delayMillis = ArcadiaMotion.Launch,
+                easing = FastOutSlowInEasing,
+            )
+        } else {
+            tween(snapMs, easing = FastOutSlowInEasing)
+        },
+        label = "launchZoom",
+    )
+    val wallpaperFade by animateFloatAsState(
+        targetValue = if (isLaunching) 1f else 0f,
+        animationSpec = if (isLaunching && !reduce) {
+            tween(
+                durationMillis = ArcadiaMotion.LaunchWallpaperFade,
+                delayMillis = ArcadiaMotion.LaunchWallpaperFadeAt,
+                easing = FastOutSlowInEasing,
+            )
+        } else {
+            tween(snapMs, easing = FastOutSlowInEasing)
+        },
+        label = "launchWallpaperFade",
+    )
+    return LaunchCinematicProgress(
+        chrome = chrome,
+        zoom = zoom,
+        wallpaperFade = wallpaperFade,
+    )
+}

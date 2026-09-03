@@ -253,6 +253,8 @@ class HomeViewModel @Inject constructor(
     private val xoraDrilledPlatformId = MutableStateFlow<String?>(null)
     /** Last hovered item in each XMB folder, restored when backing out. */
     private val xoraReturnItemIndex = mutableMapOf<XoraXmbDepth, Int>()
+    /** Last hovered ROM in each platform folder, restored when re-entering that system. */
+    private val xoraReturnRomIndex = mutableMapOf<String, Int>()
     /** Drill-in parents so Cancel returns to the folder the user actually left. */
     private val xoraReturnStack = ArrayDeque<XoraXmbDepth>()
     private val homeShortcutIndex = MutableStateFlow(0)
@@ -2650,7 +2652,7 @@ class HomeViewModel @Inject constructor(
         val state = uiState.value
 
         // The cinematic launch plate holds the screen for [ArcadiaMotion.LaunchHold]. The chrome
-        // has already slid off, so anything accepted here would move the shell invisibly and the
+        // has already faded off, so anything accepted here would move the shell invisibly and the
         // player would come back from the game to a menu that had shifted under them.
         if (state.isLaunching) return
 
@@ -2955,7 +2957,7 @@ class HomeViewModel @Inject constructor(
             val resolveJob = launch {
                 vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
             }
-            delay(750)
+            delay(VitaBubbleDepartMs.toLong())
             resolveJob.join()
             if (vitaShortcutDepartingIndex.value != index) return@launch
             vitaShortcutDepartingIndex.value = null
@@ -3246,11 +3248,13 @@ class HomeViewModel @Inject constructor(
                 rememberXoraFolder(XoraXmbDepth.Systems)
                 xoraDrilledPlatformId.value = action.platformId
                 xoraDepth.value = XoraXmbDepth.Roms
-                xoraItemIndex.value = 0
+                val restored = xoraReturnRomIndex[action.platformId] ?: 0
+                xoraItemIndex.value = restored
                 viewModelScope.launch {
-                    libraryRepository.observeGames().first()
-                        .firstOrNull { !it.isAndroidApp && it.platformId == action.platformId }
-                        ?.let { focusGameInLibrary(it) }
+                    val games = libraryRepository.observeGames().first()
+                        .filter { !it.isAndroidApp && it.platformId == action.platformId }
+                    games.getOrNull(restored)?.let { focusGameInLibrary(it) }
+                        ?: games.firstOrNull()?.let { focusGameInLibrary(it) }
                 }
             }
             is XoraXmbAction.LaunchGame -> {
@@ -3383,6 +3387,11 @@ class HomeViewModel @Inject constructor(
             else -> Unit
         }
         xoraReturnItemIndex[current] = xoraItemIndex.value
+        if (current == XoraXmbDepth.Roms) {
+            xoraDrilledPlatformId.value?.let { platformId ->
+                xoraReturnRomIndex[platformId] = xoraItemIndex.value
+            }
+        }
         val previous = xoraReturnStack.removeLastOrNull() ?: xoraParentDepth(current)
         val restored = restoreXoraItem(
             previous,
@@ -7721,9 +7730,9 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             isLaunching.value = true
             try {
-                // Split doors slide chrome out on [ArcadiaMotion.Launch], the backdrop finishes
-                // zooming on [ArcadiaMotion.LaunchZoom], and the zoomed plate then holds for the
-                // rest of [ArcadiaMotion.LaunchHold] before the emulator Activity takes over.
+                // Chrome fades on [ArcadiaMotion.Launch], the wallpaper zooms after that, then
+                // the wallpaper dissolves at [ArcadiaMotion.LaunchWallpaperFadeAt]. The plate
+                // holds through [ArcadiaMotion.LaunchHold] before the emulator Activity takes over.
                 // On failure, clearing isLaunching brings the shell back.
                 val waitMs = if (appContext.isReduceMotionPreferred()) {
                     0L

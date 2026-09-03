@@ -77,8 +77,8 @@ import com.arcadia.shell.designsystem.arcadiaHazeSource
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.launchBackdropScale
 import com.arcadia.shell.designsystem.motionMillis
+import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.designsystem.rememberReduceMotion
-import com.arcadia.shell.designsystem.xoraChromeSplitDoors
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
@@ -167,18 +167,8 @@ fun XoraHomeXmbPane(
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
 
-    // Chrome exits quickly; backdrop eases over the full cinematic hold (matches HeroPane).
-    val chromeProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-        label = "xmbLaunchChrome",
-    )
-    val holdProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchZoom),
-        label = "xmbLaunchHold",
-    )
-    val chromeAlpha = 1f - chromeProgress
+    val cinematic = rememberLaunchCinematic(state.isLaunching)
+    val chromeAlpha = cinematic.chromeAlpha
     val trayOpen = state.homeHub.vitaShortcutTrayOpen
     val trayRecede by animateFloatAsState(
         targetValue = if (trayOpen) 1f else 0f,
@@ -194,15 +184,22 @@ fun XoraHomeXmbPane(
     )
     val recedeScale = 1f - (trayRecede * 0.12f)
     val recedeAlpha = 1f - trayRecede
-    val artworkScale = launchBackdropScale(holdProgress)
-    val backdropMotion = xmbBackdropMotion(launchScale = artworkScale)
+    val artworkScale = launchBackdropScale(cinematic.zoom)
+    val backdropMotion = xmbBackdropMotion(
+        launchScale = artworkScale,
+        wallpaperAlpha = cinematic.wallpaperAlpha,
+    )
 
     XoraAspectLetterbox(
         mode = state.xoraEmulator.aspectMode,
         modifier = modifier.fillMaxSize(),
     ) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Theme / custom wallpaper must remain the base plate — it zooms, it does not split.
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        // Theme / custom wallpaper must remain the base plate — it zooms, then fades to black.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -252,13 +249,11 @@ fun XoraHomeXmbPane(
             }
         }
 
-        // Everything over the wallpaper is chrome. The cross bar, the shortcut tray and the
-        // capsules split away as one plate so the backdrop is all that is left under the
-        // emulator — the halves would otherwise slide out from under capsules that stayed put.
+        // Everything over the wallpaper is chrome. It fades out before the backdrop zooms.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .xoraChromeSplitDoors(chromeProgress),
+                .graphicsLayer { alpha = chromeAlpha },
         ) {
             Box(
                 modifier = Modifier
@@ -444,19 +439,13 @@ fun XoraXmbHeroDetail(
     val titleExit = fadeOut(tween(120, easing = FastOutSlowInEasing)) +
         slideOutHorizontally(tween(120, easing = FastOutSlowInEasing)) { -it / 14 }
 
-    val chromeProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-        label = "xmbHeroLaunchChrome",
+    val cinematic = rememberLaunchCinematic(state.isLaunching)
+    val chromeAlpha = cinematic.chromeAlpha
+    val artworkScale = launchBackdropScale(cinematic.zoom)
+    val backdropMotion = xmbBackdropMotion(
+        launchScale = artworkScale,
+        wallpaperAlpha = cinematic.wallpaperAlpha,
     )
-    val holdProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchZoom),
-        label = "xmbHeroLaunchHold",
-    )
-    val chromeAlpha = 1f - chromeProgress
-    val artworkScale = launchBackdropScale(holdProgress)
-    val backdropMotion = xmbBackdropMotion(launchScale = artworkScale)
     val trayOpen = state.homeHub.vitaShortcutTrayOpen
     val trayRecede by animateFloatAsState(
         targetValue = if (trayOpen) 1f else 0f,
@@ -476,7 +465,11 @@ fun XoraXmbHeroDetail(
         mode = state.xoraEmulator.aspectMode,
         modifier = modifier.fillMaxSize(),
     ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -533,7 +526,7 @@ fun XoraXmbHeroDetail(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .xoraChromeSplitDoors(chromeProgress),
+                .graphicsLayer { alpha = chromeAlpha },
         ) {
             AnimatedContent(
                 targetState = Triple(
@@ -623,10 +616,11 @@ fun XoraXmbHeroDetail(
  * Launch-hold zoom for wallpaper / hero plates. Category and item navigation must not
  * pan or drift the backdrop — the menu moves; the sky stays put.
  */
-private fun xmbBackdropMotion(launchScale: Float): Modifier =
+private fun xmbBackdropMotion(launchScale: Float, wallpaperAlpha: Float = 1f): Modifier =
     Modifier.graphicsLayer {
         scaleX = launchScale
         scaleY = launchScale
+        alpha = wallpaperAlpha
         translationX = 0f
         translationY = 0f
     }

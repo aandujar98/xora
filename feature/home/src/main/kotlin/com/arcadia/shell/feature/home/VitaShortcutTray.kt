@@ -2,8 +2,8 @@ package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -111,24 +111,27 @@ private val BubbleFill = Color(0x4D0E2230)
 /** A page holds three staggered rows, matching the bubble grid in the design. */
 private val VITA_TRAY_ROW_CAPACITIES = intArrayOf(3, 4, 3)
 internal const val VITA_TRAY_PAGE_SIZE = 10
-private const val VitaBubbleFlipDeg = 720f
-private const val VitaBubbleDepartMs = 750
+private const val VitaBubbleFlipDeg = 360f
+internal const val VitaBubbleDepartMs = 1_000
 /** End scale so a 233u bubble covers a 1920u panel and keeps going into the wallpaper. */
 private const val VitaBubbleZoom = 11f
-/** Flip completes before zoom starts — no overlap. */
-private const val VitaTwirlEnd = 0.42f
-private const val VitaZoomStart = 0.42f
-private const val VitaBubbleFadeStart = 0.62f
-private val VitaBubbleDepartEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
+/** Flip occupies the first half-second; zoom occupies the second. */
+private const val VitaTwirlEnd = 0.5f
+private const val VitaZoomStart = 0.5f
+private const val VitaBubbleFadeStart = 0.75f
+private val VitaBubbleDepartEasing = LinearEasing
 private val VitaBubbleEchoLags = FloatArray(24) { i ->
     val t = (i + 1f) / 24f
     t * t * 0.28f
 }
 
-private fun vitaTwirl(t: Float): Float = (t / VitaTwirlEnd).coerceIn(0f, 1f)
+private fun vitaTwirl(t: Float): Float =
+    FastOutSlowInEasing.transform((t / VitaTwirlEnd).coerceIn(0f, 1f))
 
 private fun vitaZoom(t: Float): Float =
-    ((t - VitaZoomStart) / (1f - VitaZoomStart)).coerceIn(0f, 1f)
+    FastOutSlowInEasing.transform(
+        ((t - VitaZoomStart) / (1f - VitaZoomStart)).coerceIn(0f, 1f),
+    )
 
 /**
  * PS Vita LiveArea-style shortcut field: staggered bubbles over the live wallpaper (no tray

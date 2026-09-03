@@ -12,7 +12,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -47,6 +46,7 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.SkyBackground
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.display.SecondaryDisplayPane
 import com.arcadia.shell.feature.home.ChooseEmulatorSheet
 import com.arcadia.shell.feature.home.GameCompanionPane
@@ -1096,11 +1096,7 @@ private fun PaneForRole(
             }
 
             ScreenRole.Grid -> {
-                val launchProgress by animateFloatAsState(
-                    targetValue = if (state.isLaunching) 1f else 0f,
-                    animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-                    label = "dualLibraryLaunchChrome",
-                )
+                val launchProgress = rememberLaunchCinematic(state.isLaunching).chrome
                 HomePageContent(
                     state = state,
                     onSelectTab = homeViewModel::selectTab,

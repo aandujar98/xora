@@ -1,7 +1,6 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -44,7 +43,7 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaHazeSource
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.launchBackdropScale
-import com.arcadia.shell.designsystem.xoraChromeSplitDoors
+import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
@@ -128,28 +127,19 @@ fun HeroPane(
     onSignOutRetroAchievements: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Chrome exits quickly; artwork eases over the full cinematic hold.
-    val chromeProgress by animateFloatAsState(
-        targetValue = if (isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-        label = "heroLaunchChrome",
-    )
-    val holdProgress by animateFloatAsState(
-        targetValue = if (isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchZoom),
-        label = "heroLaunchHold",
-    )
+    val cinematic = rememberLaunchCinematic(isLaunching)
+    val chromeProgress = cinematic.chrome
     val accountExpanded = accountPanelExpanded && !isLaunching
     val systemExpanded = systemPanelExpanded && !isLaunching
     val achievementsExpanded = achievementsPanelExpanded && !isLaunching
-    val artworkScale = launchBackdropScale(holdProgress)
+    val artworkScale = launchBackdropScale(cinematic.zoom)
     var profileEditing by remember { mutableStateOf(false) }
 
     LaunchedEffect(profileEditRequest) {
         if (profileEditRequest > 0) profileEditing = true
     }
 
-    Box(modifier = modifier.background(MaterialTheme.colorScheme.background)) {
+    Box(modifier = modifier.background(Color.Black)) {
         val heroEnter = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
         val heroExit = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
         // Game-select (and empty) use the home wallpaper as a base; ROM art draws above it.
@@ -157,7 +147,8 @@ fun HeroPane(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clipToBounds(),
+                .clipToBounds()
+                .graphicsLayer { alpha = cinematic.wallpaperAlpha },
         ) {
             if (!showHomeWallpaper && rssItem == null) {
                 HomeWallpaper(
@@ -182,7 +173,11 @@ fun HeroPane(
                         modifier = Modifier
                             .fillMaxSize()
                             .arcadiaHazeSource(zIndex = 0f)
-                            .graphicsLayer { scaleX = artworkScale; scaleY = artworkScale },
+                            .graphicsLayer {
+                                scaleX = artworkScale
+                                scaleY = artworkScale
+                                alpha = cinematic.wallpaperAlpha
+                            },
                     )
                 }
                 rssItem != null -> {
@@ -216,7 +211,7 @@ fun HeroPane(
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .xoraChromeSplitDoors(chromeProgress),
+                                    .graphicsLayer { alpha = 1f - chromeProgress },
                             ) {
                                 HeroEmptyState(modifier = Modifier.fillMaxSize())
                             }
@@ -237,7 +232,7 @@ fun HeroPane(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .xoraChromeSplitDoors(chromeProgress),
+                .graphicsLayer { alpha = 1f - chromeProgress },
         ) {
             AccountPill(
             expanded = accountExpanded,
@@ -380,7 +375,7 @@ private fun HeroContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .xoraChromeSplitDoors(chromeProgress),
+                .graphicsLayer { alpha = 1f - chromeProgress },
         ) {
             // Logo + metadata float over the artwork scrim — no glass plate / border chrome.
             Column(
@@ -533,7 +528,7 @@ private fun RssHeroContent(
                 .align(Alignment.BottomStart)
                 .fillMaxWidth(0.85f)
                 .padding(start = 28.dp, end = 28.dp, bottom = 24.dp)
-                .xoraChromeSplitDoors(chromeProgress),
+                .graphicsLayer { alpha = 1f - chromeProgress },
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(

@@ -3,7 +3,6 @@ package com.arcadia.shell.feature.home
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -62,11 +61,11 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LiquidGlassSurface
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.launchBackdropScale
+import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.designsystem.rememberReduceMotion
-import com.arcadia.shell.designsystem.xoraChromeSplitDoors
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
@@ -126,20 +125,12 @@ fun VerticalGameSelectorPane(
     onSignOutRetroAchievements: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val launchProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-        label = "verticalSelectorLaunch",
-    )
-    val holdProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchZoom),
-        label = "verticalSelectorHold",
-    )
+    val cinematic = rememberLaunchCinematic(state.isLaunching)
+    val launchProgress = cinematic.chrome
     val accountExpanded = state.accountPanelExpanded && !state.isLaunching
     val systemExpanded = state.systemPanelExpanded && !state.isLaunching
     val achievementsExpanded = state.achievementsPanelExpanded && !state.isLaunching
-    val artworkScale = launchBackdropScale(holdProgress)
+    val artworkScale = launchBackdropScale(cinematic.zoom)
     var profileEditing by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.profileEditRequest) {
@@ -150,11 +141,16 @@ fun VerticalGameSelectorPane(
         state.trailer.active && state.trailer.displayMode == TrailerDisplayMode.FullBackground
 
     // Wallpaper base → ROM hero on top when scraped art exists (never the reverse).
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clipToBounds(),
+                .clipToBounds()
+                .graphicsLayer { alpha = cinematic.wallpaperAlpha },
         ) {
             HomeWallpaper(
                 customPath = state.homeHub.wallpaperPath,
@@ -214,7 +210,7 @@ fun VerticalGameSelectorPane(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .xoraChromeSplitDoors(launchProgress),
+                        .graphicsLayer { alpha = 1f - launchProgress },
                 ) {
                     // Soft high-key veil for title legibility — keeps hero visible full-bleed.
                     val density = LocalDensity.current
