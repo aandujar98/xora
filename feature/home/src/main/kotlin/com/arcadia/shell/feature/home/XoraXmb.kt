@@ -64,6 +64,8 @@ enum class XoraXmbDepth {
     Photos,
     /** XOrA Network → Dashboard — Metro-style tile board over the wallpaper. */
     Dashboard,
+    /** Games → Retro Achievements — library overlay; XMB zooms out and fades underneath. */
+    RaLibrary,
 }
 
 /** One focusable row in the XMB vertical list. */

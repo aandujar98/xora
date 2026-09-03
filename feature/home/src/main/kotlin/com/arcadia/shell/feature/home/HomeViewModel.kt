@@ -2035,9 +2035,13 @@ class HomeViewModel @Inject constructor(
         val xoraCategory = XoraXmbCategory.entries.getOrElse(theme.xora.categoryIndex) {
             XoraXmbCategory.Games
         }
+        val xoraListDepth = when (val depth = theme.xora.depth) {
+            XoraXmbDepth.RaLibrary -> xoraReturnStack.lastOrNull() ?: XoraXmbDepth.Category
+            else -> depth
+        }
         val xoraItems = overlayGameArtAlignment(
             items = overlayMusicCustomMedia(
-            items = when (theme.xora.depth) {
+            items = when (xoraListDepth) {
             XoraXmbDepth.Category -> buildXoraCategoryItems(
                 category = xoraCategory,
                 profileName = chrome.profile.displayName,
@@ -2081,6 +2085,8 @@ class HomeViewModel @Inject constructor(
             XoraXmbDepth.Photos -> emptyList()
             // The dashboard pane draws itself; the rung carries no list.
             XoraXmbDepth.Dashboard -> emptyList()
+            // RA rides above a receding XMB; this rung carries no list.
+            XoraXmbDepth.RaLibrary -> emptyList()
             },
             epoch = platformChrome.customMediaEpoch,
         ),
@@ -2805,6 +2811,17 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        // Retro Achievements overlay captures the pad while the XMB is receded; LT/RT still work.
+        if (state.homePage == HomePage.Home && state.xoraXmb.depth == XoraXmbDepth.RaLibrary) {
+            when (action) {
+                NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+                else -> onRaLibraryNavAction(action)
+            }
+            return
+        }
+
         // On XOrA XMB home, LB/RB cycle categories. Elsewhere they retain page jumps.
         when (action) {
             NavAction.PreviousPlatform -> {
@@ -3384,6 +3401,7 @@ class HomeViewModel @Inject constructor(
                     it.copy(view = DashboardView.Tiles, busy = false, error = null, notice = null)
                 }
             }
+            XoraXmbDepth.RaLibrary -> Unit
             else -> Unit
         }
         xoraReturnItemIndex[current] = xoraItemIndex.value
@@ -7041,15 +7059,23 @@ class HomeViewModel @Inject constructor(
             return
         }
         collapseHeroPanels()
-        if (homePage.value != HomePage.RaLibrary) {
+        if (homePage.value != HomePage.Home) {
             homePageBeforeRaLibrary = homePage.value
+            homePage.value = HomePage.Home
         }
-        homePage.value = HomePage.RaLibrary
+        if (xoraDepth.value != XoraXmbDepth.RaLibrary) {
+            rememberXoraFolder()
+            xoraDepth.value = XoraXmbDepth.RaLibrary
+        }
         refreshRaLibrary()
     }
 
     fun closeRaLibrary() {
         noteUserActivity()
+        if (xoraDepth.value == XoraXmbDepth.RaLibrary) {
+            drillOutXora()
+            return
+        }
         if (homePage.value != HomePage.RaLibrary) return
         homePage.value = homePageBeforeRaLibrary.takeUnless { it == HomePage.RaLibrary }
             ?: HomePage.Home
@@ -7166,6 +7192,9 @@ class HomeViewModel @Inject constructor(
                 return@launch
             }
 
+            if (xoraDepth.value == XoraXmbDepth.RaLibrary) {
+                drillOutXora()
+            }
             homePage.value = HomePage.GameSelector
             val tabs = buildTabs(all, libraryRepository.observePlatformSummaries().first())
             val platformTab = tabs.indexOfFirst { it.platformId == match.platformId }

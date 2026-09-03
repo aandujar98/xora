@@ -102,6 +102,7 @@ fun hintsForPage(
         xmbDepth == XoraXmbDepth.NowPlaying -> XoraNowPlayingHints
         xmbDepth == XoraXmbDepth.Photos -> XoraPhotoHints
         xmbDepth == XoraXmbDepth.Dashboard -> XoraDashboardHints
+        xmbDepth == XoraXmbDepth.RaLibrary -> RaLibraryHints
         else -> XoraXmbHints
     }
     HomePage.GameSelector -> if (displayMode == DisplayMode.Single) {
@@ -310,7 +311,6 @@ val RaLibraryHints: List<Pair<String, String>> = listOf(
     "L/R" to "Tab",
     "A" to "Open in library",
     "B" to "Back",
-    "LB/RB" to "Home",
     "X" to "This game",
     "LT" to "Social",
     "Start+Select" to "Guide",

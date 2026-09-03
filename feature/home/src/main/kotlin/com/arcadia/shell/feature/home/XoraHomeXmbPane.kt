@@ -143,6 +143,11 @@ fun XoraHomeXmbPane(
     onToggleRepeat: () -> Unit = {},
     onPhotoCommand: (PhotoPaneCommand) -> Unit = {},
     onDashboardCommand: (DashboardCommand) -> Unit = {},
+    onSelectRaLibraryIndex: (Int) -> Unit = {},
+    onSelectRaLibraryTab: (RaLibraryTab) -> Unit = {},
+    onSelectRaPlatformFilter: (String?) -> Unit = {},
+    onActivateRaLibrary: () -> Unit = {},
+    onRetryRaLibrary: () -> Unit = {},
     showPillChrome: Boolean = true,
     modifier: Modifier = Modifier,
     /** Full-bleed layer above the XMB cross but below the pill chrome. */
@@ -169,21 +174,38 @@ fun XoraHomeXmbPane(
 
     val cinematic = rememberLaunchCinematic(state.isLaunching)
     val chromeAlpha = cinematic.chromeAlpha
+    val reduceMotion = rememberReduceMotion()
     val trayOpen = state.homeHub.vitaShortcutTrayOpen
-    val trayRecede by animateFloatAsState(
-        targetValue = if (trayOpen) 1f else 0f,
-        animationSpec = if (trayOpen) {
-            spring(
+    val raOpen = xmb.depth == XoraXmbDepth.RaLibrary
+    val recedeOpen = trayOpen || raOpen
+    val recede by animateFloatAsState(
+        targetValue = if (recedeOpen) 1f else 0f,
+        animationSpec = when {
+            trayOpen -> spring(
                 dampingRatio = 0.78f,
                 stiffness = Spring.StiffnessMediumLow,
             )
-        } else {
-            arcadiaTween(ArcadiaMotion.Medium)
+            raOpen && !reduceMotion -> tween(
+                ArcadiaMotion.Slow,
+                easing = FastOutSlowInEasing,
+            )
+            else -> arcadiaTween(ArcadiaMotion.Medium)
         },
-        label = "xmbTrayRecede",
+        label = "xmbRecede",
     )
-    val recedeScale = 1f - (trayRecede * 0.12f)
-    val recedeAlpha = 1f - trayRecede
+    val recedeScale = 1f - (recede * 0.12f)
+    val recedeAlpha = 1f - recede
+    // Keep the XMB cross composed under RA so it can zoom out instead of sliding away.
+    var underlayDepth by remember {
+        mutableStateOf(
+            xmb.depth.takeUnless { it == XoraXmbDepth.RaLibrary } ?: XoraXmbDepth.Category,
+        )
+    }
+    LaunchedEffect(xmb.depth) {
+        if (xmb.depth != XoraXmbDepth.RaLibrary) {
+            underlayDepth = xmb.depth
+        }
+    }
     val artworkScale = launchBackdropScale(cinematic.zoom)
     val backdropMotion = xmbBackdropMotion(
         launchScale = artworkScale,
@@ -282,7 +304,7 @@ fun XoraHomeXmbPane(
                 // between them the way the PSP / PS3 shells do rather than cutting.
                 val depthSlideMs = motionMillis(XMB_DEPTH_SLIDE_MS)
                 AnimatedContent(
-                    targetState = xmb.depth,
+                    targetState = underlayDepth,
                     transitionSpec = {
                         val drillingIn = targetState.ordinal > initialState.ordinal
                         val slide = tween<IntOffset>(depthSlideMs, easing = FastOutSlowInEasing)
@@ -340,7 +362,7 @@ fun XoraHomeXmbPane(
                         trailer = state.trailer,
                     )
                     else -> XmbCross(
-                        xmb = xmb,
+                        xmb = xmb.copy(depth = depth),
                         introReveal = state.homeIntroReveal,
                         onSelectCategory = onSelectCategory,
                         onSelectItem = onSelectItem,
@@ -355,8 +377,42 @@ fun XoraHomeXmbPane(
             }
 
             // Vita tray rides above the receding XMB. Pill chrome stays put so LT/RT
-            // remain visible over the bubbles.
+            // remain visible over the bubbles. RA also sits outside recede — putting it
+            // inside would fade the cheevos out as the menu tries to fade in.
             overlayContent()
+
+            val raEnterMs = if (reduceMotion) 0 else ArcadiaMotion.Medium
+            val raDelayMs = if (reduceMotion) 0 else 180
+            AnimatedVisibility(
+                visible = raOpen,
+                enter = fadeIn(
+                    tween(raEnterMs, delayMillis = raDelayMs, easing = FastOutSlowInEasing),
+                ) + scaleIn(
+                    initialScale = 0.96f,
+                    animationSpec = tween(
+                        raEnterMs,
+                        delayMillis = raDelayMs,
+                        easing = FastOutSlowInEasing,
+                    ),
+                ),
+                exit = fadeOut(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)) +
+                    scaleOut(
+                        targetScale = 0.98f,
+                        animationSpec = tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing),
+                    ),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                RaLibraryPane(
+                    state = state,
+                    onSelectIndex = onSelectRaLibraryIndex,
+                    onSelectTab = onSelectRaLibraryTab,
+                    onSelectPlatformFilter = onSelectRaPlatformFilter,
+                    onActivate = onActivateRaLibrary,
+                    onRetry = onRetryRaLibrary,
+                    populateCheevos = true,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
 
             if (showPillChrome) {
                 XoraXmbPillChrome(
@@ -447,19 +503,22 @@ fun XoraXmbHeroDetail(
         wallpaperAlpha = cinematic.wallpaperAlpha,
     )
     val trayOpen = state.homeHub.vitaShortcutTrayOpen
-    val trayRecede by animateFloatAsState(
-        targetValue = if (trayOpen) 1f else 0f,
+    val raOpen = xmb.depth == XoraXmbDepth.RaLibrary
+    val recedeOpen = trayOpen || raOpen
+    val recede by animateFloatAsState(
+        targetValue = if (recedeOpen) 1f else 0f,
         animationSpec = if (trayOpen) {
             spring(
                 dampingRatio = 0.78f,
                 stiffness = Spring.StiffnessMediumLow,
             )
         } else {
-            arcadiaTween(ArcadiaMotion.Medium)
+            arcadiaTween(ArcadiaMotion.Slow)
         },
-        label = "xmbHeroTrayRecede",
+        label = "xmbHeroRecede",
     )
-    val recedeAlpha = 1f - trayRecede
+    val recedeScale = 1f - (recede * 0.12f)
+    val recedeAlpha = 1f - recede
 
     XoraAspectLetterbox(
         mode = state.xoraEmulator.aspectMode,
@@ -538,7 +597,13 @@ fun XoraXmbHeroDetail(
                 label = "xmbHeroTitle",
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(28.dp),
+                    .padding(28.dp)
+                    .graphicsLayer {
+                        alpha = recedeAlpha
+                        scaleX = recedeScale
+                        scaleY = recedeScale
+                        transformOrigin = TransformOrigin(0f, 1f)
+                    },
             ) { (title, subtitle, logoKey) ->
                 val logoPath = logoKey.second
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -842,7 +907,8 @@ private fun XoraXmbPillChrome(
             accountRows = state.accountPanelRows,
             selectedRowIndex = state.accountPanelSelectedIndex,
             hideCollapsedChrome = state.activeNotificationPresent ||
-                state.photos.chromeOverlayOpen,
+                state.photos.chromeOverlayOpen ||
+                state.xoraXmb.depth == XoraXmbDepth.RaLibrary,
             onToggle = onToggleAccountPanel,
             onSelectTab = onSelectSocialTab,
             onSelectRow = onSelectAccountRow,
@@ -869,7 +935,8 @@ private fun XoraXmbPillChrome(
             systemProfile = state.systemProfile,
             expanded = systemExpanded,
             selectedRowIndex = state.systemPanelSelectedIndex,
-            hideCollapsedChrome = state.photos.chromeOverlayOpen,
+            hideCollapsedChrome = state.photos.chromeOverlayOpen ||
+                state.xoraXmb.depth == XoraXmbDepth.RaLibrary,
             onToggle = onToggleSystemPanel,
             onSelectRow = onSelectSystemRow,
             onActivateRow = onActivateSystemRow,
@@ -893,10 +960,12 @@ private fun XoraXmbPillChrome(
         val launchGame = state.homeHub.vitaShortcutLaunch?.game
         val showMiniPlayer = launchGame == null &&
             musicFocused &&
-            state.xoraXmb.depth != XoraXmbDepth.NowPlaying
+            state.xoraXmb.depth != XoraXmbDepth.NowPlaying &&
+            state.xoraXmb.depth != XoraXmbDepth.RaLibrary
         val showAchievementsCard = launchGame == null &&
             !musicFocused &&
-            state.xoraXmb.showsAchievementsCard
+            state.xoraXmb.showsAchievementsCard &&
+            state.xoraXmb.depth != XoraXmbDepth.RaLibrary
         if (showMiniPlayer) {
             NowPlayingPill(
                 state = state.music.nowPlaying,
