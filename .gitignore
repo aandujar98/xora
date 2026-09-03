@@ -1,33 +1,5 @@
-*.iml
-.gradle/
-local.properties
-.idea/
 .DS_Store
-build/
-captures/
-.externalNativeBuild/
-.cxx/
+.idea/
+.cursor/
 *.apk
 *.aab
-*.keystore
-!debug.keystore
-*.jks
-keystore.properties
-.kotlin/
-.testshots/
-.tmp_logos/
-dist/
-
-# Local build / crash junk
-*.log
-hs_err_pid*.log
-replay_pid*.log
-build-*.txt
-build-*.log
-
-# Discord Social SDK partner binary (see core/launcher/libs/README.md).
-# Vendored release AAR is tracked; other AAR variants / extracted trees stay local.
-core/launcher/libs/*.aar
-!core/launcher/libs/discord_partner_sdk.aar
-core/launcher/libs/discord_partner_sdk/
-!core/launcher/libs/README.md
