@@ -51,6 +51,7 @@ import com.arcadia.shell.feature.home.component.steamPersonaToPresence
 import com.arcadia.shell.feature.home.rss.RssFeedClient
 import com.arcadia.shell.input.GamepadDispatcher
 import com.arcadia.shell.input.NavAction
+import com.arcadia.shell.input.UiOneShot
 import com.arcadia.shell.launcher.DetectedEmulator
 import com.arcadia.shell.launcher.GameLauncher
 import com.arcadia.shell.launcher.InstalledAppSync
@@ -896,6 +897,27 @@ class HomeViewModel @Inject constructor(
                 noteUserActivity()
                 onNavAction(action)
             }
+            .launchIn(viewModelScope)
+
+        // Keep the pre-action Cancel flag in sync so LT/RT window dismiss can use NavClose.
+        combine(
+            combine(accountPanelExpanded, systemPanelExpanded, ::Pair),
+            combine(notificationsOpen, conversationReply, discordRichPresence.dmThread) { notifications, reply, dm ->
+                Triple(notifications, reply.conversationKey != null, dm.peerUserId != null)
+            },
+            combine(systemFavoritePickerOpen, systemStatusEditorOpen, ::Pair),
+        ) { panels, nested, pickers ->
+            val (account, system) = panels
+            val (notifications, replyOpen, dmOpen) = nested
+            val (favoritePicker, statusEditor) = pickers
+            when {
+                account -> !notifications && !replyOpen && !dmOpen
+                system -> !favoritePicker && !statusEditor
+                else -> false
+            }
+        }
+            .distinctUntilChanged()
+            .onEach { gamepadDispatcher.heroPanelClosesOnCancel = it }
             .launchIn(viewModelScope)
 
         observeIdleTrailer()
@@ -3619,6 +3641,7 @@ class HomeViewModel @Inject constructor(
 
     fun openNotificationHistory() {
         noteUserActivity()
+        playNavCloseIfHeroPanelOpen()
         systemPanelExpanded.value = false
         accountPanelExpanded.value = false
         achievementsPanelExpanded.value = false
@@ -4141,6 +4164,7 @@ class HomeViewModel @Inject constructor(
                 displayName = friend?.displayName ?: userId,
                 avatarUrl = friend?.avatarUrl,
             )
+            playNavCloseIfHeroPanelOpen()
             accountPanelExpanded.value = false
             emit(HomeEvent.ShowMessage("Conversation open · A send · B close"))
             return
@@ -4999,9 +5023,11 @@ class HomeViewModel @Inject constructor(
             accountPanelSelectedIndex.value = 0
             if (steamFriendsUi.value.isConfigured) refreshSteamFriends()
             conversationRepository.refreshListenerEnabled()
+            playUiOneShot(UiOneShot.FriendsTab)
         } else {
             managingCircle.value = false
             notificationsOpen.value = false
+            playUiOneShot(UiOneShot.NavClose)
         }
     }
 
@@ -5027,9 +5053,11 @@ class HomeViewModel @Inject constructor(
             closeFavoritePicker()
             closeStatusEditor()
             refreshSystemPanelRaChrome()
+            playUiOneShot(UiOneShot.ProfileTab)
         } else {
             closeFavoritePicker()
             closeStatusEditor()
+            playUiOneShot(UiOneShot.NavClose)
         }
     }
 
@@ -5038,6 +5066,7 @@ class HomeViewModel @Inject constructor(
         val opening = !achievementsPanelExpanded.value
         achievementsPanelExpanded.value = opening
         if (opening) {
+            playNavCloseIfHeroPanelOpen()
             accountPanelExpanded.value = false
             systemPanelExpanded.value = false
             closeFavoritePicker()
@@ -5047,12 +5076,23 @@ class HomeViewModel @Inject constructor(
 
     fun collapseHeroPanels() {
         noteUserActivity()
+        playNavCloseIfHeroPanelOpen()
         accountPanelExpanded.value = false
         systemPanelExpanded.value = false
         achievementsPanelExpanded.value = false
         notificationHistoryOpen.value = false
         closeFavoritePicker()
         closeStatusEditor()
+    }
+
+    private fun playNavCloseIfHeroPanelOpen() {
+        if (accountPanelExpanded.value || systemPanelExpanded.value) {
+            playUiOneShot(UiOneShot.NavClose)
+        }
+    }
+
+    private fun playUiOneShot(shot: UiOneShot) {
+        gamepadDispatcher.uiOneShotPlayer?.play(shot)
     }
 
     fun saveProfile(displayName: String, avatarPresetId: String) {
