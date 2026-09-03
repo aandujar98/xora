@@ -79,10 +79,6 @@ class MainActivity : ComponentActivity() {
             val homeState by homeViewModel.uiState.collectAsStateWithLifecycle()
             val darkTheme = shellState.themeMode.resolveDarkTheme(isSystemInDarkTheme())
 
-            LaunchedEffect(homeState.trailer.active) {
-                backgroundMusic.setTrailerDucked(homeState.trailer.active)
-            }
-
             LaunchedEffect(homeState.music.nowPlaying.isPlaying) {
                 backgroundMusic.setLibraryMusicActive(homeState.music.nowPlaying.isPlaying)
             }

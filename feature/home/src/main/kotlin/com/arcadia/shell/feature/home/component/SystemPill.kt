@@ -174,12 +174,12 @@ private val ProfileCardRadius = 24.dp
 private val ProfileCardPadStart = 22.dp
 private val ProfileCardPadEnd = 22.dp
 private val ProfileCardPadTop = 20.dp
-private val ProfileCardPadBottom = 22.dp
-private val ProfileHeaderH = 140.dp
-private val ProfileIdentityStart = 88.dp
-private val ProfileIdentityTop = 60.dp
-private val StatusBubbleW = 350.dp
-private val StatusBubbleEndInset = 8.dp
+private val ProfileCardPadBottom = 14.dp
+private val ProfileHeaderH = 96.dp
+private val ProfileIdentityStart = 128.dp
+private val ProfileIdentityTop = 28.dp
+private val StatusBubbleW = 318.dp
+private val StatusBubbleEndInset = 20.dp
 private val StatusBubbleTextSize = 24.sp
 private val RecentlyEarnedBadgeSlots = 6
 private val RecentlyEarnedBadgeSize = 60.dp
@@ -188,7 +188,7 @@ private val RecentlyEarnedLabelGap = 25.dp
 private val FavoriteLabelGap = 30.dp
 private val HeaderToRecentGap = 21.dp
 private val RecentToFavoriteGap = 15.dp
-private val FavoriteToFooterGap = 32.dp
+private val FavoriteToFooterGap = 25.dp
 private val PresenceDotSize = 12.dp
 private val TrophyGlyphW = 24.dp
 private val TrophyGlyphH = TrophyGlyphW * (120f / 130f)
@@ -197,12 +197,12 @@ private fun vibrantFillBrush(accent: Color): Brush =
     Brush.verticalGradient(listOf(lerp(accent, Color.White, 0.42f), accent))
 
 /** Collapsed RT chrome is the profile picture alone, tucked into the corner. */
-private val CollapsedAvatarSize = 96.8.dp
+private val CollapsedAvatarSize = 88.dp
 
 /** Figma crops the disc on both screen edges; this clears the pane padding to get there. */
 private val CollapsedAvatarBleed = 24.dp
 
-/** Expanded header disc — Figma node 363:1927. */
+/** Expanded header disc — Figma 464×444 card (nodes 363:1927 / 710:1686). */
 private val ProfileAvatarSelectedSize = 96.dp
 
 /** Selected drop shadow: X4 Y4 B4 S0. Idle chrome stays 10 / 10 / 15. */

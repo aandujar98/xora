@@ -110,7 +110,10 @@ class BackgroundMusicController @Inject constructor(
         }
     }
 
-    /** Soften (or restore) BGM while an idle trailer is playing. */
+    /**
+     * Idle trailers stay muted and no longer duck shell BGM. Kept so a future
+     * opt-in can restore ducking without rewiring MainActivity.
+     */
     fun setTrailerDucked(ducked: Boolean) {
         duckFactor = if (ducked) TRAILER_DUCK_FACTOR else 1f
         applyVolume()

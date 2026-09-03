@@ -502,7 +502,7 @@ fun SettingsScreen(
                     text = "Playnite-style trailers: resolve a YouTube or Steam URL for the " +
                         "selected game, store it, then play muted after " +
                         "${state.settings.trailerIdleSeconds}s idle on the game selector. " +
-                        "Shell music ducks while a trailer plays.",
+                        "Shell music keeps playing at full volume while a trailer is muted.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

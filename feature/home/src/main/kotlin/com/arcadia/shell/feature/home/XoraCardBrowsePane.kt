@@ -166,7 +166,14 @@ fun XoraCardBrowsePane(
         fun designY(y: Float): Dp = (originY + (y * unit)).dp
 
         val focused = items.getOrNull(selectedIndex)
-        val settledId = rememberXmbSettledFocus(focused?.id)
+        val settledId = rememberXmbSettledFocus(
+            focused?.id,
+            settleMs = if (mode == CardBrowseMode.Roms) {
+                XMB_GAME_SELECT_SETTLE_MS
+            } else {
+                XMB_FOCUS_SETTLE_MS
+            },
+        )
 
         BackHintArrow(
             size = (ARROW_SIZE * unit).dp,

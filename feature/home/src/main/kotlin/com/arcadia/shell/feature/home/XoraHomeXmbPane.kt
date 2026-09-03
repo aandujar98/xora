@@ -220,6 +220,11 @@ fun XoraHomeXmbPane(
             // Keep mounted so focus / back / cancel always crossfade (never unmount-snap).
             XoraRomHeroBackdrop(
                 artPath = backdropArtPath,
+                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                    XMB_GAME_SELECT_SETTLE_MS
+                } else {
+                    XMB_FOCUS_SETTLE_MS
+                },
                 scrimAlpha = chromeAlpha,
                 modifier = Modifier
                     .fillMaxSize()
@@ -493,6 +498,11 @@ fun XoraXmbHeroDetail(
                         xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
                         xmb.selectedItem?.action is XoraXmbAction.LaunchGame
                 }?.let { it.heroImagePath ?: it.boxArtPath ?: it.logoImagePath },
+                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                    XMB_GAME_SELECT_SETTLE_MS
+                } else {
+                    XMB_FOCUS_SETTLE_MS
+                },
                 scrimAlpha = chromeAlpha,
                 modifier = Modifier
                     .fillMaxSize()
@@ -692,6 +702,7 @@ internal fun formatXmbPlaytime(millis: Long): String {
 private fun XoraRomHeroBackdrop(
     artPath: String?,
     modifier: Modifier = Modifier,
+    settleMs: Long = XMB_FOCUS_SETTLE_MS,
     scrimAlpha: Float = 1f,
 ) {
     val reduceMotion = rememberReduceMotion()
@@ -699,13 +710,13 @@ private fun XoraRomHeroBackdrop(
     // Keep the last art on screen while scrolling — clearing it first is the flicker.
     val target = artPath.orEmpty()
     var committed by remember { mutableStateOf(target) }
-    LaunchedEffect(target, reduceMotion) {
+    LaunchedEffect(target, reduceMotion, settleMs) {
         if (target == committed) return@LaunchedEffect
         if (target.isBlank()) {
             committed = ""
             return@LaunchedEffect
         }
-        if (!reduceMotion) delay(XMB_FOCUS_SETTLE_MS)
+        if (!reduceMotion) delay(settleMs)
         committed = target
     }
     // Crossfade (not AnimatedContent): empty ↔ art and art ↔ art always fade,

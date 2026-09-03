@@ -410,7 +410,7 @@ private fun SoftHeroBackdrop(
             committed = ""
             return@LaunchedEffect
         }
-        if (!reduceMotion) delay(XMB_FOCUS_SETTLE_MS)
+        if (!reduceMotion) delay(XMB_GAME_SELECT_SETTLE_MS)
         committed = target
     }
     Box(modifier = modifier) {
@@ -535,7 +535,7 @@ private fun VerticalDetailPane(
 ) {
     val enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
     val exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
-    val settledId = rememberXmbSettledFocus(game?.id)
+    val settledId = rememberXmbSettledFocus(game?.id, settleMs = XMB_GAME_SELECT_SETTLE_MS)
     val settledGame = game.takeIf { it?.id == settledId }
 
     Box(modifier = modifier) {
