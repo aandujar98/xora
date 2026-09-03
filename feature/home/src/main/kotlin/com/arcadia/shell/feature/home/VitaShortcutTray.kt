@@ -115,9 +115,9 @@ private const val VitaBubbleFlipDeg = 720f
 private const val VitaBubbleDepartMs = 750
 /** End scale so a 233u bubble covers a 1920u panel and keeps going into the wallpaper. */
 private const val VitaBubbleZoom = 11f
-/** Twirl finishes before the zoom takes over; a little overlap keeps the motion continuous. */
-private const val VitaTwirlEnd = 0.40f
-private const val VitaZoomStart = 0.32f
+/** Flip completes before zoom starts — no overlap. */
+private const val VitaTwirlEnd = 0.42f
+private const val VitaZoomStart = 0.42f
 private const val VitaBubbleFadeStart = 0.62f
 private val VitaBubbleDepartEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
 private val VitaBubbleEchoLags = FloatArray(24) { i ->
