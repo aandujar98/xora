@@ -214,7 +214,7 @@ data class XoraXmbUiState(
 
     /**
      * The bottom-right RA card only belongs next to a real game (recents plate, a ROM,
-     * or in-session Resume). Trophy / Device / Folder and every other category stay clean.
+     * or in-session Resume). Trophy / All Games / Folder and every other category stay clean.
      */
     val showsAchievementsCard: Boolean
         get() {
@@ -229,7 +229,7 @@ data class XoraXmbUiState(
         }
 }
 
-/** Home Games column: Trophy, recents plate, Device library, Folder_IMG. */
+/** Home Games column: Trophy, recents plate, All Games, Folder_IMG. */
 const val GAMES_ITEM_TROPHY = 0
 const val GAMES_ITEM_RECENTS = 1
 const val GAMES_ITEM_LIBRARY = 2
@@ -440,7 +440,7 @@ fun buildXoraCategoryItems(
                 add(
                     XoraXmbItem(
                         id = "all_games",
-                        title = "Library",
+                        title = "All Games",
                         subtitle = "Platforms & titles",
                         action = XoraXmbAction.DrillAllGames,
                         icon = XmbIcon.Device,
@@ -514,15 +514,6 @@ fun buildXoraCategoryItems(
                 subtitle = "Every song on this device",
                 action = XoraXmbAction.DrillAllSongs,
                 icon = XmbIcon.FolderMusic,
-            ),
-        )
-        add(
-            XoraXmbItem(
-                id = "dsp",
-                title = "Link DSP Accounts",
-                subtitle = "Spotify, Apple Music & YouTube Music",
-                action = XoraXmbAction.DrillDspAccounts,
-                icon = XmbIcon.Dsp,
             ),
         )
         addAll(musicFolderItems(musicFolders))

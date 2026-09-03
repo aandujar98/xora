@@ -649,7 +649,7 @@ private fun isRecentsItem(item: XoraXmbItem): Boolean =
         item.action is XoraXmbAction.LaunchContinueOrFavorite
 
 private fun hoverTitle(item: XoraXmbItem): String = when {
-    item.id == "all_games" || item.action is XoraXmbAction.DrillAllGames -> "Device"
+    item.id == "all_games" || item.action is XoraXmbAction.DrillAllGames -> "All Games"
     item.id == "home_folder" || item.action is XoraXmbAction.PickHomeFolderImage -> "Folder_IMG"
     else -> item.title
 }

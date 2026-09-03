@@ -170,17 +170,15 @@ private val FavoritePlateW = 210.dp
 private val FavoritePlateH = 108.dp
 private val FavoritePlateRadius = 12.dp
 private val ProfileCardWidth = 464.dp
+/** Figma 464×444 card (nodes 363:1927 / 710:1769). */
+private val ProfileCardHeight = 444.dp
 private val ProfileCardRadius = 24.dp
 private val ProfileCardPadStart = 22.dp
 private val ProfileCardPadEnd = 22.dp
 private val ProfileCardPadTop = 20.dp
 private val ProfileCardPadBottom = 14.dp
-private val ProfileHeaderH = 96.dp
-private val ProfileIdentityStart = 128.dp
-private val ProfileIdentityTop = 28.dp
-private val StatusBubbleW = 318.dp
-private val StatusBubbleEndInset = 20.dp
-private val StatusBubbleTextSize = 24.sp
+private val ProfileIdentityGap = 10.dp
+private val StatusBubbleTextSize = 16.sp
 private val RecentlyEarnedBadgeSlots = 6
 private val RecentlyEarnedBadgeSize = 60.dp
 private val RecentlyEarnedBadgeGap = 12.dp
@@ -355,29 +353,28 @@ fun SystemPill(
         ) {
             val cardShape = RoundedCornerShape(ProfileCardRadius)
             val pickerScroll = rememberScrollState()
+            val cardHeight = ProfileCardHeight.coerceAtMost(maxPanelHeight)
             Column(
                 modifier = Modifier
                     .width(ProfileCardWidth)
-                    .heightIn(max = maxPanelHeight)
+                    .height(cardHeight)
                     .xoraModalGlass(cardShape)
                     .fillMaxWidth(),
             ) {
                 Column(
                     modifier = Modifier
+                        .weight(1f, fill = true)
                         .then(
                             if (systemProfile.favoritePickerOpen) {
                                 Modifier
-                                    .weight(1f, fill = false)
-                                    .verticalScroll(pickerScroll)
                             } else {
-                                Modifier
+                                Modifier.verticalScroll(pickerScroll)
                             },
                         )
                         .padding(
                             start = ProfileCardPadStart,
                             end = ProfileCardPadEnd,
                             top = ProfileCardPadTop,
-                            bottom = ProfileCardPadBottom,
                         )
                         .fillMaxWidth(),
                 ) {
@@ -430,18 +427,21 @@ fun SystemPill(
                             }
                         },
                     )
-
-                    Spacer(modifier = Modifier.height(FavoriteToFooterGap))
                 }
-
+                }
                 ProfileCardFooter(
                     wifiConnected = wifiConnected,
                     timeText = timeText,
                     dateText = dateShort,
                     batteryPercent = batteryPercent,
                     charging = charging,
+                    modifier = Modifier.padding(
+                        start = ProfileCardPadStart,
+                        end = ProfileCardPadEnd,
+                        top = FavoriteToFooterGap,
+                        bottom = ProfileCardPadBottom,
+                    ),
                 )
-                }
             }
         }
 
@@ -705,34 +705,16 @@ private fun ProfileCardHeader(
     onSaveCustomStatus: () -> Unit,
     onClearCustomStatus: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(ProfileHeaderH)
-            .graphicsLayer { clip = false },
+    val identityStart = ProfileAvatarSelectedSize + ProfileIdentityGap
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        StatusBubble(
-            text = systemProfile.statusLine,
-            selected = statusSelected,
-            editing = systemProfile.statusEditorOpen,
-            draft = systemProfile.statusDraft,
-            isCustom = systemProfile.isCustomStatus,
-            onSelect = onSelectStatus,
-            onActivate = onActivateStatus,
-            onDraftChange = onStatusDraftChange,
-            onSave = onSaveCustomStatus,
-            onClear = onClearCustomStatus,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .width(StatusBubbleW)
-                .padding(end = StatusBubbleEndInset),
-        )
         Column(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = ProfileIdentityStart, top = ProfileIdentityTop)
-                .graphicsLayer { clip = false },
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .fillMaxWidth()
+                .padding(start = identityStart),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.Start,
         ) {
             Row(
@@ -749,7 +731,6 @@ private fun ProfileCardHeader(
             }
 
             Row(
-                modifier = Modifier.graphicsLayer { clip = false },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -770,6 +751,21 @@ private fun ProfileCardHeader(
                 )
             }
         }
+        StatusBubble(
+            text = systemProfile.statusLine,
+            selected = statusSelected,
+            editing = systemProfile.statusEditorOpen,
+            draft = systemProfile.statusDraft,
+            isCustom = systemProfile.isCustomStatus,
+            onSelect = onSelectStatus,
+            onActivate = onActivateStatus,
+            onDraftChange = onStatusDraftChange,
+            onSave = onSaveCustomStatus,
+            onClear = onClearCustomStatus,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = identityStart),
+        )
     }
 }
 
@@ -1355,6 +1351,7 @@ private fun ProfileCardFooter(
     dateText: String,
     batteryPercent: Int,
     charging: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     val footerSize = 14.sp
     val footerStyle = TextStyle(
@@ -1364,7 +1361,7 @@ private fun ProfileCardFooter(
         shadow = cardAssetShadow(),
     )
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(36.dp),
         verticalAlignment = Alignment.CenterVertically,

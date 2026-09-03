@@ -2,8 +2,12 @@ package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -136,12 +140,26 @@ fun XoraPhotoViewerPane(
             )
         }
 
-        if (state.fullscreenOpen) {
+        AnimatedVisibility(
+            visible = state.fullscreenOpen,
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(6f),
+            enter = fadeIn(tween(220)) +
+                scaleIn(
+                    initialScale = 0.86f,
+                    animationSpec = tween(320, easing = FastOutSlowInEasing),
+                ),
+            exit = fadeOut(tween(180)) +
+                scaleOut(
+                    targetScale = 0.92f,
+                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                ),
+        ) {
             PhotoFullscreenViewer(
                 state = state,
                 unit = unit,
                 onCommand = onCommand,
-                modifier = Modifier.zIndex(6f),
             )
         }
 
