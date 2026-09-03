@@ -221,11 +221,11 @@ private val ProfileBubbleSelectedInsetStart = 22.dp
 private val ProfileBubbleSelectedInsetTop = 19.dp
 
 /**
- * Afterimage samples along the travel path. Soft, un-rotated discs so the trail stays a
- * uniform feathered ribbon instead of a jagged stack of spinning coins.
+ * Afterimage samples along the coin-flip. White discs share the live bubble's Y-spin so
+ * the trail reads as a lagged echo, not a stacked face or a flat ribbon.
  */
-private const val ProfileBubbleEchoCount = 28
-private const val ProfileBubbleEchoSpan = 0.24f
+private const val ProfileBubbleEchoCount = 24
+private const val ProfileBubbleEchoSpan = 0.22f
 private val ProfileBubbleEchoLags = FloatArray(ProfileBubbleEchoCount) { i ->
     val t = (i + 1f) / ProfileBubbleEchoCount
     t * t * ProfileBubbleEchoSpan
@@ -616,42 +616,31 @@ private fun ProfileBubbleEcho(
     trailT: Float,
     canBlur: Boolean,
 ) {
-    val density = LocalDensity.current
-    val fade = (exp(-3.4f * trailT * trailT) * 0.30f).coerceAtLeast(0.02f)
-    val taper = 1f - 0.06f * trailT
+    val fade = (exp(-3.4f * trailT * trailT) * 0.28f * (1f - progress * 0.18f))
+        .coerceAtLeast(0.03f)
+    val taper = 1f - 0.08f * trailT
     val echoSize = profileBubbleSize(progress) * taper
-    val blurPx = with(density) { (3.dp + 8.dp * trailT).toPx() }
     Box(
         modifier = Modifier
             .profileBubblePlacement(progress)
             .size(echoSize)
             .graphicsLayer {
-                // Stretch along the mostly-horizontal flight path so discs melt
-                // into one ribbon instead of a dotted, jagged coin stack.
-                scaleX = 1.22f
-                scaleY = 0.98f
+                rotationY = ProfileBubbleFlipDeg * progress
+                cameraDistance = ProfileBubbleAnimCamera * density
+                alpha = fade
+                transformOrigin = TransformOrigin.Center
                 clip = false
                 compositingStrategy = CompositingStrategy.Offscreen
                 if (canBlur) {
-                    renderEffect = BlurEffect(blurPx, blurPx, TileMode.Decal)
+                    renderEffect = BlurEffect(
+                        4f + 10f * trailT,
+                        4f + 10f * trailT,
+                        TileMode.Decal,
+                    )
                 }
             }
-            .drawBehind {
-                val radius = size.minDimension * 0.5f
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colorStops = arrayOf(
-                            0.00f to ProfileBubbleEchoInk.copy(alpha = fade),
-                            0.38f to ProfileBubbleEchoInk.copy(alpha = fade * 0.50f),
-                            0.70f to ProfileBubbleEchoInk.copy(alpha = fade * 0.14f),
-                            1.00f to Color.Transparent,
-                        ),
-                        center = center,
-                        radius = radius,
-                    ),
-                    radius = radius,
-                )
-            },
+            .clip(CircleShape)
+            .background(ProfileBubbleEchoInk),
     )
 }
 
