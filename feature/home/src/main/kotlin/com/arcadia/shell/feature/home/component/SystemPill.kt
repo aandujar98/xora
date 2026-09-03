@@ -23,6 +23,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -88,7 +89,6 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.imageResource
@@ -170,23 +170,23 @@ private val FavoritePlateW = 210.dp
 private val FavoritePlateH = 108.dp
 private val FavoritePlateRadius = 12.dp
 private val ProfileCardWidth = 464.dp
-/** Figma 464×444 card (nodes 363:1927 / 710:1769), grown so Favorite Game clears the footer. */
-private val ProfileCardHeight = 540.dp
+/** Figma 464×444 (nodes 363:1927 / 710:1769). Live card wraps its content instead of this frame. */
+private val ProfileCardHeight = 444.dp
 private val ProfileCardRadius = 24.dp
 private val ProfileCardPadStart = 22.dp
 private val ProfileCardPadEnd = 22.dp
-private val ProfileCardPadTop = 20.dp
-private val ProfileCardPadBottom = 10.dp
+private val ProfileCardPadTop = 16.dp
+private val ProfileCardPadBottom = 8.dp
 private val ProfileIdentityGap = 10.dp
 private val StatusBubbleTextSize = 16.sp
 private val RecentlyEarnedBadgeSlots = 6
 private val RecentlyEarnedBadgeSize = 60.dp
 private val RecentlyEarnedBadgeGap = 12.dp
-private val RecentlyEarnedLabelGap = 25.dp
-private val FavoriteLabelGap = 30.dp
-private val HeaderToRecentGap = 21.dp
-private val RecentToFavoriteGap = 15.dp
-private val FavoriteToFooterGap = 12.dp
+private val RecentlyEarnedLabelGap = 10.dp
+private val FavoriteLabelGap = 10.dp
+private val HeaderToRecentGap = 16.dp
+private val RecentToFavoriteGap = 12.dp
+private val FavoriteToFooterGap = 10.dp
 private val PresenceDotSize = 12.dp
 private val TrophyGlyphW = 24.dp
 private val TrophyGlyphH = TrophyGlyphW * (120f / 130f)
@@ -268,9 +268,6 @@ fun SystemPill(
     var charging by remember { mutableStateOf(isCharging(context)) }
     var wifiConnected by remember { mutableStateOf(isWifiConnected(context)) }
     val listState = rememberLazyListState()
-    // The pane already reserves its own 12dp inset, so cap on the frame rather than a fraction
-    // of it — a fractional cap clipped the card before it reached its designed height.
-    val maxPanelHeight = (LocalConfiguration.current.screenHeightDp - 32).coerceAtLeast(320).dp
 
     val systemRows = remember(
         systemProfile.favoritePickerOpen,
@@ -355,19 +352,41 @@ fun SystemPill(
         ) {
             val cardShape = RoundedCornerShape(ProfileCardRadius)
             val pickerScroll = rememberScrollState()
-            val cardHeight = ProfileCardHeight.coerceAtMost(maxPanelHeight)
+            BoxWithConstraints {
+            val available = maxHeight
+            val picking = systemProfile.favoritePickerOpen
+            val footerReserve = 24.dp + FavoriteToFooterGap + ProfileCardPadBottom
             Column(
                 modifier = Modifier
                     .width(ProfileCardWidth)
-                    .height(cardHeight)
+                    .then(
+                        if (picking) {
+                            Modifier.heightIn(
+                                min = ProfileCardHeight.coerceAtMost(available),
+                                max = available,
+                            )
+                        } else {
+                            // Wrap the header + strips + favorite plate so the window grows
+                            // with its content instead of clipping Favorite Game at a fixed frame.
+                            Modifier.heightIn(max = available)
+                        },
+                    )
                     .xoraModalGlass(cardShape)
                     .fillMaxWidth(),
             ) {
                 Column(
                     modifier = Modifier
-                        .weight(1f, fill = true)
                         .then(
-                            if (systemProfile.favoritePickerOpen) {
+                            if (picking) {
+                                Modifier.weight(1f, fill = true)
+                            } else {
+                                Modifier.heightIn(
+                                    max = (available - footerReserve).coerceAtLeast(0.dp),
+                                )
+                            },
+                        )
+                        .then(
+                            if (picking) {
                                 Modifier
                             } else {
                                 Modifier.verticalScroll(pickerScroll)
@@ -444,6 +463,7 @@ fun SystemPill(
                         bottom = ProfileCardPadBottom,
                     ),
                 )
+            }
             }
         }
 
