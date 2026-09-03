@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.PlatformTextStyle
@@ -60,6 +61,9 @@ private const val LAUNCH_RULE_EDGE_INSET = 85f
 private const val LAUNCH_RULE_THICKNESS = 4f
 /** Figma X4 Y4 B4 S0 — same drop as Game Select hover titles. */
 private const val LAUNCH_TITLE_SHADOW = 4f
+/** Background fade to white while the tapped bubble is still departing. */
+private const val WhiteFadeInMs = 750
+private const val WhiteHoldRevealMs = 420
 
 @Composable
 fun VitaShortcutLaunchPage(
@@ -75,142 +79,150 @@ fun VitaShortcutLaunchPage(
     achievementsContent: @Composable BoxScope.() -> Unit = {},
 ) {
     AnimatedVisibility(
-        visible = visible && launch != null,
+        visible = visible,
         enter = fadeIn(tween(0)),
         exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
         modifier = modifier,
     ) {
-        val page = launch ?: return@AnimatedVisibility
+        val page = launch
+        val revealPlate = page != null && !holdWhite
         val reduceMotion = rememberReduceMotion()
         val cinematic = rememberLaunchCinematic(isLaunching)
         val artworkScale = launchBackdropScale(cinematic.zoom)
-        val whiteAlpha = remember { Animatable(1f) }
-        LaunchedEffect(visible, holdWhite, reduceMotion) {
-            if (reduceMotion) {
+        val whiteAlpha = remember { Animatable(0f) }
+        val fadeUp = holdWhite || page == null
+        LaunchedEffect(visible, fadeUp, reduceMotion) {
+            if (!visible) {
                 whiteAlpha.snapTo(0f)
                 return@LaunchedEffect
             }
-            if (holdWhite) {
-                whiteAlpha.snapTo(1f)
+            if (reduceMotion) {
+                whiteAlpha.snapTo(if (fadeUp) 1f else 0f)
                 return@LaunchedEffect
             }
             whiteAlpha.animateTo(
-                0f,
-                tween(durationMillis = 420, easing = FastOutSlowInEasing),
+                targetValue = if (fadeUp) 1f else 0f,
+                animationSpec = tween(
+                    durationMillis = if (fadeUp) WhiteFadeInMs else WhiteHoldRevealMs,
+                    easing = FastOutSlowInEasing,
+                ),
             )
         }
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black),
+                .then(if (revealPlate) Modifier.background(Color.Black) else Modifier)
+                .pointerInput(Unit) {},
         ) {
-            val unit = min(
-                maxWidth.value / XORA_DESIGN_WIDTH,
-                maxHeight.value / XORA_DESIGN_HEIGHT,
-            )
-            val originX = (maxWidth.value - (XORA_DESIGN_WIDTH * unit)) / 2f
-            val originY = (maxHeight.value - (XORA_DESIGN_HEIGHT * unit)) / 2f
-            val density = LocalDensity.current
-            fun du(v: Float) = (v * unit).dp
-
-            val wallpaperMotion = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = artworkScale
-                    scaleY = artworkScale
-                    alpha = cinematic.wallpaperAlpha
-                }
-            if (!page.wallpaperPath.isNullOrBlank()) {
-                ArtworkImage(
-                    path = page.wallpaperPath,
-                    contentDescription = page.shortcut.title,
-                    fallbackText = "",
-                    contentScale = ContentScale.Crop,
-                    cacheInMemory = false,
-                    decodeMaxEdgePx = 1920,
-                    modifier = wallpaperMotion,
+            if (revealPlate && page != null) {
+                val unit = min(
+                    maxWidth.value / XORA_DESIGN_WIDTH,
+                    maxHeight.value / XORA_DESIGN_HEIGHT,
                 )
-            } else {
-                HomeWallpaper(
-                    customPath = homeWallpaperPath,
-                    dim = false,
-                    alignX = wallpaperAlignX,
-                    alignY = wallpaperAlignY,
-                    modifier = wallpaperMotion,
-                )
-            }
+                val originX = (maxWidth.value - (XORA_DESIGN_WIDTH * unit)) / 2f
+                val originY = (maxHeight.value - (XORA_DESIGN_HEIGHT * unit)) / 2f
+                val density = LocalDensity.current
+                fun du(v: Float) = (v * unit).dp
 
-            val cardW = du(LAUNCH_CARD_W)
-            val cardH = du(LAUNCH_CARD_H)
-            val titleX = originX + LAUNCH_TITLE_X * unit
-            val ruleThickness = LAUNCH_RULE_THICKNESS * unit
-            // Horizon through the screen's center; right end stops 85 design-px shy of the edge.
-            val ruleY = maxHeight.value / 2f - ruleThickness / 2f
-            val ruleWidth = (maxWidth.value - LAUNCH_RULE_EDGE_INSET * unit - titleX)
-                .coerceAtLeast(0f)
-            val titleY = ruleY - LAUNCH_TITLE_TO_RULE * unit
-            val subtitleY = ruleY + ruleThickness + LAUNCH_RULE_TO_SUBTITLE * unit
-
-            Box(
-                modifier = Modifier
+                val wallpaperMotion = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = cinematic.chromeAlpha },
-            ) {
-                XmbGamePlate(
-                    title = page.shortcut.title,
-                    artPath = page.iconPath,
-                    selected = true,
-                    width = cardW,
-                    height = cardH,
-                    unit = unit,
-                    onClick = onConfirm,
-                    trailer = HeroTrailerState(),
-                    artAlignX = page.artAlignX,
-                    artAlignY = page.artAlignY,
-                    modifier = Modifier.offset(
-                        x = (originX + (LAUNCH_CARD_X - LAUNCH_CARD_W / 2f) * unit).dp,
-                        y = (originY + LAUNCH_CARD_Y * unit).dp,
-                    ),
-                )
+                    .graphicsLayer {
+                        scaleX = artworkScale
+                        scaleY = artworkScale
+                        alpha = cinematic.wallpaperAlpha
+                    }
+                if (!page.wallpaperPath.isNullOrBlank()) {
+                    ArtworkImage(
+                        path = page.wallpaperPath,
+                        contentDescription = page.shortcut.title,
+                        fallbackText = "",
+                        contentScale = ContentScale.Crop,
+                        cacheInMemory = false,
+                        decodeMaxEdgePx = 1920,
+                        modifier = wallpaperMotion,
+                    )
+                } else {
+                    HomeWallpaper(
+                        customPath = homeWallpaperPath,
+                        dim = false,
+                        alignX = wallpaperAlignX,
+                        alignY = wallpaperAlignY,
+                        modifier = wallpaperMotion,
+                    )
+                }
 
-                LaunchSelectTitle(
-                    text = page.shortcut.title,
-                    fontSize = with(density) { du(LAUNCH_TITLE_SIZE).toSp() },
-                    unit = unit,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .offset(x = titleX.dp, y = titleY.dp)
-                        .width(ruleWidth.dp),
-                )
+                val cardW = du(LAUNCH_CARD_W)
+                val cardH = du(LAUNCH_CARD_H)
+                val titleX = originX + LAUNCH_TITLE_X * unit
+                val ruleThickness = LAUNCH_RULE_THICKNESS * unit
+                // Horizon through the screen's center; right end stops 85 design-px shy of the edge.
+                val ruleY = maxHeight.value / 2f - ruleThickness / 2f
+                val ruleWidth = (maxWidth.value - LAUNCH_RULE_EDGE_INSET * unit - titleX)
+                    .coerceAtLeast(0f)
+                val titleY = ruleY - LAUNCH_TITLE_TO_RULE * unit
+                val subtitleY = ruleY + ruleThickness + LAUNCH_RULE_TO_SUBTITLE * unit
+
                 Box(
                     modifier = Modifier
-                        .offset(x = titleX.dp, y = ruleY.dp)
-                        .width(ruleWidth.dp)
-                        .height(ruleThickness.dp)
-                        .xmbAssetShadow(
-                            unit = unit,
-                            shape = RectangleShape,
-                            alpha = XoraForegroundShadow.TitleAlpha,
-                        )
-                        .background(Color.White),
-                )
-                LaunchSelectTitle(
-                    text = "Playtime: ${formatXmbPlaytime(page.game?.playTimeMs ?: 0L)}",
-                    fontSize = with(density) { du(LAUNCH_SUBTITLE_SIZE).toSp() },
-                    unit = unit,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .offset(x = titleX.dp, y = subtitleY.dp)
-                        .width(ruleWidth.dp),
-                )
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = cinematic.chromeAlpha },
+                ) {
+                    XmbGamePlate(
+                        title = page.shortcut.title,
+                        artPath = page.iconPath,
+                        selected = true,
+                        width = cardW,
+                        height = cardH,
+                        unit = unit,
+                        onClick = onConfirm,
+                        trailer = HeroTrailerState(),
+                        artAlignX = page.artAlignX,
+                        artAlignY = page.artAlignY,
+                        modifier = Modifier.offset(
+                            x = (originX + (LAUNCH_CARD_X - LAUNCH_CARD_W / 2f) * unit).dp,
+                            y = (originY + LAUNCH_CARD_Y * unit).dp,
+                        ),
+                    )
 
-                achievementsContent()
+                    LaunchSelectTitle(
+                        text = page.shortcut.title,
+                        fontSize = with(density) { du(LAUNCH_TITLE_SIZE).toSp() },
+                        unit = unit,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .offset(x = titleX.dp, y = titleY.dp)
+                            .width(ruleWidth.dp),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .offset(x = titleX.dp, y = ruleY.dp)
+                            .width(ruleWidth.dp)
+                            .height(ruleThickness.dp)
+                            .xmbAssetShadow(
+                                unit = unit,
+                                shape = RectangleShape,
+                                alpha = XoraForegroundShadow.TitleAlpha,
+                            )
+                            .background(Color.White),
+                    )
+                    LaunchSelectTitle(
+                        text = "Playtime: ${formatXmbPlaytime(page.game?.playTimeMs ?: 0L)}",
+                        fontSize = with(density) { du(LAUNCH_SUBTITLE_SIZE).toSp() },
+                        unit = unit,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .offset(x = titleX.dp, y = subtitleY.dp)
+                            .width(ruleWidth.dp),
+                    )
+
+                    achievementsContent()
+                }
             }
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White.copy(alpha = whiteAlpha.value)),
+                    .background(Color.White.copy(alpha = whiteAlpha.value.coerceIn(0f, 1f))),
             )
         }
     }

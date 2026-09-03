@@ -696,13 +696,14 @@ fun HomePageContent(
                         modifier = Modifier.fillMaxSize(),
                         overlayContent = {
                             val launch = state.homeHub.vitaShortcutLaunch
-                            // Wallpaper sits under the zooming bubble so the flip can dissolve
+                            val departingIndex = state.homeHub.vitaShortcutDepartingIndex
+                            // White fade sits under the zooming bubble so the flip can dissolve
                             // into the launch plate once it covers the panel.
                             VitaShortcutLaunchPage(
-                                visible = trayOpen && launch != null,
+                                visible = trayOpen && (launch != null || departingIndex != null),
                                 launch = launch,
                                 homeWallpaperPath = state.homeHub.wallpaperPath,
-                                holdWhite = state.homeHub.vitaShortcutDepartingIndex != null,
+                                holdWhite = departingIndex != null,
                                 isLaunching = state.isLaunching,
                                 wallpaperAlignX = state.homeHub.wallpaperAlignX,
                                 wallpaperAlignY = state.homeHub.wallpaperAlignY,
@@ -736,7 +737,7 @@ fun HomePageContent(
                                 shortcuts = state.homeHub.shortcuts,
                                 selectedIndex = state.homeHub.shortcutIndex,
                                 editMode = state.homeHub.shortcutsEditMode,
-                                departingIndex = state.homeHub.vitaShortcutDepartingIndex,
+                                departingIndex = departingIndex,
                                 suppressIdleBubbles = launch != null,
                                 onSelect = onSelectHomeShortcut,
                                 onActivate = onActivateHomeShortcut,
