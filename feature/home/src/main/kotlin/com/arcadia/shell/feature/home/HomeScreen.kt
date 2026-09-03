@@ -31,6 +31,7 @@ import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.xoraChromeSplitDoors
+import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ButtonHintBar
 import com.arcadia.shell.feature.home.component.hintsForGuide
 import com.arcadia.shell.feature.home.component.hintsForPage
@@ -679,24 +680,48 @@ fun HomePageContent(
                         showPillChrome = state.displayMode == DisplayMode.Single,
                         modifier = Modifier.fillMaxSize(),
                         overlayContent = {
+                            val launch = state.homeHub.vitaShortcutLaunch
+                            // Wallpaper sits under the zooming bubble so the flip can dissolve
+                            // into the launch plate once it covers the panel.
+                            VitaShortcutLaunchPage(
+                                visible = trayOpen && launch != null,
+                                launch = launch,
+                                homeWallpaperPath = state.homeHub.wallpaperPath,
+                                onConfirm = {
+                                    onActivateHomeShortcut(state.homeHub.shortcutIndex)
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                                achievementsContent = {
+                                    if (launch?.game != null) {
+                                        AchievementsPill(
+                                            expanded = state.achievementsPanelExpanded &&
+                                                !state.isLaunching,
+                                            state = state.achievements,
+                                            onToggle = onToggleAchievementsPanel,
+                                            onSelectTab = onSelectAchievementsTab,
+                                            onLogin = onLoginRetroAchievements,
+                                            onLoginWithApiKey =
+                                                onLoginRetroAchievementsWithApiKey,
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(
+                                                    horizontal = 16.dp,
+                                                    vertical = 12.dp,
+                                                ),
+                                        )
+                                    }
+                                },
+                            )
                             VitaShortcutTray(
                                 visible = trayOpen,
                                 shortcuts = state.homeHub.shortcuts,
                                 selectedIndex = state.homeHub.shortcutIndex,
                                 editMode = state.homeHub.shortcutsEditMode,
                                 departingIndex = state.homeHub.vitaShortcutDepartingIndex,
+                                suppressIdleBubbles = launch != null,
                                 onSelect = onSelectHomeShortcut,
                                 onActivate = onActivateHomeShortcut,
                                 onAddSlot = onAddHomeShortcut,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                            VitaShortcutLaunchPage(
-                                visible = trayOpen && state.homeHub.vitaShortcutLaunch != null,
-                                launch = state.homeHub.vitaShortcutLaunch,
-                                homeWallpaperPath = state.homeHub.wallpaperPath,
-                                onConfirm = {
-                                    onActivateHomeShortcut(state.homeHub.shortcutIndex)
-                                },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         },

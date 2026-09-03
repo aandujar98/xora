@@ -106,6 +106,9 @@ private val VITA_TRAY_ROW_CAPACITIES = intArrayOf(3, 4, 3)
 internal const val VITA_TRAY_PAGE_SIZE = 10
 private const val VitaBubbleFlipDeg = 720f
 private const val VitaBubbleDepartMs = 720
+/** End scale so a 233u bubble covers a 1920u panel and keeps going into the wallpaper. */
+private const val VitaBubbleZoom = 11f
+private const val VitaBubbleFadeStart = 0.55f
 private val VitaBubbleDepartEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
 private val VitaBubbleEchoLags = FloatArray(24) { i ->
     val t = (i + 1f) / 24f
@@ -124,11 +127,12 @@ fun VitaShortcutTray(
     shortcuts: List<HomeShortcut>,
     selectedIndex: Int,
     editMode: Boolean,
-    departingIndex: Int? = null,
     onSelect: (Int) -> Unit,
     onActivate: (Int) -> Unit,
     onAddSlot: () -> Unit,
     modifier: Modifier = Modifier,
+    departingIndex: Int? = null,
+    suppressIdleBubbles: Boolean = false,
 ) {
     val enter = slideInVertically(
         animationSpec = arcadiaTween(ArcadiaMotion.Medium),
@@ -176,6 +180,11 @@ fun VitaShortcutTray(
 
             val pageSlide = tween<IntOffset>(ArcadiaMotion.Medium)
             val pageFade = tween<Float>(ArcadiaMotion.Fast)
+            val crowdAlpha by animateFloatAsState(
+                targetValue = if (departingIndex != null || suppressIdleBubbles) 0f else 1f,
+                animationSpec = arcadiaTween(ArcadiaMotion.Fast),
+                label = "vitaCrowdHide",
+            )
             AnimatedContent(
                 targetState = page,
                 transitionSpec = {
@@ -205,6 +214,7 @@ fun VitaShortcutTray(
                                     val tiltShift = motion.offsetAt(slotIndex)
                                     Offset(tiltShift.x, tiltShift.y + landing.offsetY(slotIndex))
                                 },
+                                interactive = departingIndex == null && !suppressIdleBubbles,
                                 onClick = {
                                     onSelect(slotIndex)
                                     when (slots[slotIndex]) {
@@ -214,7 +224,11 @@ fun VitaShortcutTray(
                                 },
                                 modifier = Modifier
                                     .align(Alignment.Center)
-                                    .offset(x = (columnShift * unit).dp, y = (rowShift * unit).dp),
+                                    .offset(x = (columnShift * unit).dp, y = (rowShift * unit).dp)
+                                    .graphicsLayer {
+                                        if (slotIndex != departingIndex) alpha = crowdAlpha
+                                        clip = false
+                                    },
                             )
                         }
                     }
@@ -222,7 +236,12 @@ fun VitaShortcutTray(
                     // Drawn after every bubble so the focused name always reads over its neighbours.
                     rows.forEachIndexed { rowIndex, row ->
                         val focusColumn = row.indexOf(focus)
-                        if (focusColumn < 0 || departingIndex == focus) return@forEachIndexed
+                        if (focusColumn < 0 ||
+                            departingIndex == focus ||
+                            suppressIdleBubbles
+                        ) {
+                            return@forEachIndexed
+                        }
                         val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
                         val columnShift = (focusColumn - ((row.size - 1) / 2f)) * COLUMN_PITCH
                         val pillCentre = rowShift + (BUBBLE_DIAMETER / 2f) + NAME_PILL_GAP +
@@ -247,7 +266,9 @@ fun VitaShortcutTray(
                 count = pageCount,
                 current = page,
                 unit = unit,
-                modifier = Modifier.align(Alignment.CenterStart),
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .graphicsLayer { alpha = crowdAlpha },
             )
         }
     }
@@ -263,6 +284,7 @@ private fun VitaBubble(
     offsetProvider: () -> Offset,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    interactive: Boolean = true,
 ) {
     val ringWidth = diameter * (SELECTION_RING_WIDTH / BUBBLE_DIAMETER)
     val depart by animateFloatAsState(
@@ -274,6 +296,7 @@ private fun VitaBubble(
         label = "vitaBubbleDepart",
     )
     val canBlur = supportsGlassBlurEffect()
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .size(diameter + ringWidth)
@@ -283,10 +306,16 @@ private fun VitaBubble(
                 translationY = shift.y
                 clip = false
             }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
+            .then(
+                if (interactive) {
+                    Modifier.clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        onClick = onClick,
+                    )
+                } else {
+                    Modifier
+                },
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -298,7 +327,7 @@ private fun VitaBubble(
                 val trailT = index / (echoCount - 1f).coerceAtLeast(1f)
                 val fade = (exp(-3.4f * trailT * trailT) * 0.28f * (1f - echoT * 0.35f))
                     .coerceAtLeast(0.02f)
-                val echoScale = 1f + 2.1f * echoT
+                val echoScale = 1f + (VitaBubbleZoom - 0.4f) * echoT
                 Box(
                     modifier = Modifier
                         .size(diameter)
@@ -329,9 +358,10 @@ private fun VitaBubble(
                 .size(diameter)
                 .graphicsLayer {
                     rotationY = VitaBubbleFlipDeg * depart
-                    scaleX = 1f + 2.2f * depart
-                    scaleY = 1f + 2.2f * depart
-                    alpha = 1f - depart
+                    scaleX = 1f + VitaBubbleZoom * depart
+                    scaleY = 1f + VitaBubbleZoom * depart
+                    alpha = 1f - ((depart - VitaBubbleFadeStart) / (1f - VitaBubbleFadeStart))
+                        .coerceIn(0f, 1f)
                     cameraDistance = 8f * density
                     transformOrigin = TransformOrigin.Center
                     clip = false

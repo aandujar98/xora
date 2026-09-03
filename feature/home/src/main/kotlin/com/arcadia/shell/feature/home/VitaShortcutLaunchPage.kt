@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,19 +14,26 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
-import com.arcadia.shell.designsystem.XoraSecondaryText
-import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.feature.home.component.ArtworkImage
@@ -39,7 +47,10 @@ private const val LAUNCH_CARD_Y = 416f
 private const val LAUNCH_TITLE_X = 683f
 private const val LAUNCH_TITLE_Y = 475f
 private const val LAUNCH_TITLE_SIZE = 48f
+private const val LAUNCH_SUBTITLE_SIZE = 28f
 private const val LAUNCH_CARD_RADIUS = 30f
+/** Figma X4 Y4 B4 S0 — same drop as Game Select hover titles. */
+private const val LAUNCH_TITLE_SHADOW = 4f
 
 @Composable
 fun VitaShortcutLaunchPage(
@@ -48,6 +59,7 @@ fun VitaShortcutLaunchPage(
     homeWallpaperPath: String?,
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
+    achievementsContent: @Composable BoxScope.() -> Unit = {},
 ) {
     AnimatedVisibility(
         visible = visible && launch != null,
@@ -125,19 +137,56 @@ fun VitaShortcutLaunchPage(
                     )
                     .widthIn(max = du(900f)),
             ) {
-                XoraTitleText(
+                LaunchSelectTitle(
                     text = page.shortcut.title,
                     fontSize = with(density) { du(LAUNCH_TITLE_SIZE).toSp() },
+                    unit = unit,
                     maxLines = 2,
                 )
-                XoraSecondaryText(
+                LaunchSelectTitle(
                     text = "A  Launch",
-                    fontSize = with(density) { du(28f).toSp() },
-                    fillColor = Color.White,
+                    fontSize = with(density) { du(LAUNCH_SUBTITLE_SIZE).toSp() },
+                    unit = unit,
                     maxLines = 1,
-                    modifier = Modifier.align(Alignment.Start),
                 )
             }
+
+            achievementsContent()
         }
     }
+}
+
+/** Game Select / XMB hover title: NewRodin Pro DB, #FFFFFF, X4 Y4 B4 S0. */
+@Composable
+private fun LaunchSelectTitle(
+    text: String,
+    fontSize: TextUnit,
+    unit: Float,
+    maxLines: Int,
+    modifier: Modifier = Modifier,
+) {
+    val shadowPx = with(LocalDensity.current) { (LAUNCH_TITLE_SHADOW * unit).dp.toPx() }
+    Text(
+        text = text,
+        modifier = modifier,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        color = Color.White,
+        style = TextStyle(
+            fontFamily = XoraFonts.XmbLabel,
+            fontWeight = FontWeight.Normal,
+            fontSize = fontSize,
+            lineHeight = fontSize,
+            platformStyle = PlatformTextStyle(includeFontPadding = false),
+            lineHeightStyle = LineHeightStyle(
+                alignment = LineHeightStyle.Alignment.Center,
+                trim = LineHeightStyle.Trim.Both,
+            ),
+            shadow = Shadow(
+                color = Color.Black.copy(alpha = XoraForegroundShadow.TitleAlpha),
+                offset = Offset(shadowPx, shadowPx),
+                blurRadius = shadowPx,
+            ),
+        ),
+    )
 }

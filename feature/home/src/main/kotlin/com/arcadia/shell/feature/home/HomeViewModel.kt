@@ -1318,7 +1318,8 @@ class HomeViewModel @Inject constructor(
         combine(
             achievementsPanelExpanded,
             uiState.map { state ->
-                state.xoraXmb.focusGame?.id?.takeIf { state.xoraXmb.showsAchievementsCard }
+                state.homeHub.vitaShortcutLaunch?.game?.id
+                    ?: state.xoraXmb.focusGame?.id?.takeIf { state.xoraXmb.showsAchievementsCard }
                     ?: state.selectedGame?.id
             }.distinctUntilChanged(),
             achievementsUi.map { it.tab }.distinctUntilChanged(),
@@ -1339,7 +1340,11 @@ class HomeViewModel @Inject constructor(
             .launchIn(viewModelScope)
 
         uiState
-            .map { it.homePage == HomePage.Home && !it.xoraXmb.showsAchievementsCard }
+            .map { state ->
+                state.homePage == HomePage.Home &&
+                    !state.xoraXmb.showsAchievementsCard &&
+                    state.homeHub.vitaShortcutLaunch?.game == null
+            }
             .distinctUntilChanged()
             .onEach { hideHomeCard ->
                 if (hideHomeCard) achievementsPanelExpanded.value = false
@@ -2843,9 +2848,12 @@ class HomeViewModel @Inject constructor(
     private fun beginVitaShortcutDepart(index: Int, shortcut: HomeShortcut) {
         vitaShortcutDepartingIndex.value = index
         viewModelScope.launch {
+            val resolveJob = launch {
+                vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
+            }
             delay(720)
+            resolveJob.join()
             if (vitaShortcutDepartingIndex.value != index) return@launch
-            vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
             vitaShortcutDepartingIndex.value = null
         }
     }
@@ -2887,6 +2895,7 @@ class HomeViewModel @Inject constructor(
             shortcut = shortcut,
             wallpaperPath = wallpaper,
             iconPath = icon,
+            game = game,
         )
     }
 
@@ -2896,6 +2905,9 @@ class HomeViewModel @Inject constructor(
             when (action) {
                 NavAction.Confirm -> confirmVitaShortcutLaunch()
                 NavAction.Cancel -> cancelVitaShortcutLaunch()
+                NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
                 else -> Unit
             }
             return
@@ -7115,7 +7127,10 @@ class HomeViewModel @Inject constructor(
         val opening = !achievementsPanelExpanded.value
         if (opening) {
             val state = uiState.value
-            if (state.homePage == HomePage.Home && !state.xoraXmb.showsAchievementsCard) {
+            if (state.homePage == HomePage.Home &&
+                !state.xoraXmb.showsAchievementsCard &&
+                state.homeHub.vitaShortcutLaunch?.game == null
+            ) {
                 return
             }
         }

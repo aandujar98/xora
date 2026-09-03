@@ -136,6 +136,7 @@ data class VitaShortcutLaunchUi(
     val shortcut: HomeShortcut,
     val wallpaperPath: String?,
     val iconPath: String?,
+    val game: Game? = null,
 )
 
 /** Idle trailer overlay for the hero pane. */

@@ -860,8 +860,13 @@ private fun XoraXmbPillChrome(
         // so the mini player hides there and comes back on exit. The RA card stays hidden until
         // the XMB is actually sitting on a game (recents / a ROM / in-session Resume).
         val musicFocused = state.xoraXmb.category == XoraXmbCategory.Music
-        val showMiniPlayer = musicFocused && state.xoraXmb.depth != XoraXmbDepth.NowPlaying
-        val showAchievementsCard = !musicFocused && state.xoraXmb.showsAchievementsCard
+        val launchGame = state.homeHub.vitaShortcutLaunch?.game
+        val showMiniPlayer = launchGame == null &&
+            musicFocused &&
+            state.xoraXmb.depth != XoraXmbDepth.NowPlaying
+        val showAchievementsCard = launchGame == null &&
+            !musicFocused &&
+            state.xoraXmb.showsAchievementsCard
         if (showMiniPlayer) {
             NowPlayingPill(
                 state = state.music.nowPlaying,

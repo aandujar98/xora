@@ -206,6 +206,7 @@ val XoraRomBrowseHints: List<Pair<String, String>> = listOf(
 val VitaShortcutLaunchHints: List<Pair<String, String>> = listOf(
     "A" to "Launch",
     "B" to "Back",
+    "X" to "Achievements",
     "LT" to "Circle",
     "RT" to "Profile / Alerts",
 )
