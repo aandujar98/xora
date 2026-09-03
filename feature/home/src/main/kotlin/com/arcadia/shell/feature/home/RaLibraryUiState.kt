@@ -1,6 +1,11 @@
 package com.arcadia.shell.feature.home
 
+import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaCompletionGame
+import com.arcadia.shell.retroachievements.RaGameProgress
+
+/** Columns in the per-game cheevo window — keep pad navigation in lockstep with the grid. */
+internal const val RA_CHEEVO_GRID_COLUMNS = 8
 
 /** Sort / filter modes for the RetroAchievements library page. */
 enum class RaLibraryTab {
@@ -26,6 +31,10 @@ data class RaLibraryUiState(
     /** Null = all platforms; otherwise match [RaCompletionGame.consoleName]. */
     val platformFilter: String? = null,
     val error: String? = null,
+    val gameDetail: RaGameProgress? = null,
+    val gameDetailLoading: Boolean = false,
+    val gameDetailError: String? = null,
+    val cheevoIndex: Int = 0,
 ) {
     val platforms: List<String>
         get() = games.map { it.game.consoleName }
@@ -56,4 +65,14 @@ data class RaLibraryUiState(
 
     val selectedGame: RaLibraryGameRow?
         get() = visibleGames.getOrNull(selectedIndex.coerceIn(0, (visibleGames.size - 1).coerceAtLeast(0)))
+
+    val gameDetailOpen: Boolean
+        get() = gameDetail != null || gameDetailLoading || gameDetailError != null
+
+    val selectedCheevo: RaAchievement?
+        get() {
+            val list = gameDetail?.achievements.orEmpty()
+            if (list.isEmpty()) return null
+            return list.getOrNull(cheevoIndex.coerceIn(0, list.lastIndex))
+        }
 }

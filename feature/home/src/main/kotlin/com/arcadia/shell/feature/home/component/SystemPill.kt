@@ -176,7 +176,7 @@ private val ProfileCardRadius = 24.dp
 private val ProfileCardPadStart = 22.dp
 private val ProfileCardPadEnd = 22.dp
 private val ProfileCardPadTop = 16.dp
-private val ProfileCardPadBottom = 8.dp
+private val ProfileCardPadBottom = 4.dp
 private val ProfileIdentityGap = 10.dp
 private val StatusBubbleTextSize = 16.sp
 private val RecentlyEarnedBadgeSlots = 6
@@ -186,7 +186,7 @@ private val RecentlyEarnedLabelGap = 10.dp
 private val FavoriteLabelGap = 10.dp
 private val HeaderToRecentGap = 16.dp
 private val RecentToFavoriteGap = 12.dp
-private val FavoriteToFooterGap = 10.dp
+private val FavoriteToFooterGap = 6.dp
 private val PresenceDotSize = 12.dp
 private val TrophyGlyphW = 24.dp
 private val TrophyGlyphH = TrophyGlyphW * (120f / 130f)
@@ -355,7 +355,7 @@ fun SystemPill(
             BoxWithConstraints {
             val available = maxHeight
             val picking = systemProfile.favoritePickerOpen
-            val footerReserve = 24.dp + FavoriteToFooterGap + ProfileCardPadBottom
+            val footerReserve = 18.dp + FavoriteToFooterGap + ProfileCardPadBottom
             Column(
                 modifier = Modifier
                     .width(ProfileCardWidth)
@@ -1369,7 +1369,7 @@ private fun ProfileCardFooter(
     charging: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val footerSize = 14.sp
+    val footerSize = 12.sp
     val footerStyle = TextStyle(
         fontFamily = XoraFonts.XmbLabel,
         fontSize = footerSize,
@@ -1379,13 +1379,13 @@ private fun ProfileCardFooter(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(24.dp),
+            .height(18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         WifiGlyph(
             connected = wifiConnected,
             tint = FooterInk,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(14.dp),
         )
         Spacer(modifier = Modifier.weight(1f))
         Text(text = timeText, style = footerStyle)
@@ -1396,7 +1396,7 @@ private fun ProfileCardFooter(
             percent = batteryPercent,
             charging = charging,
             tint = FooterInk,
-            modifier = Modifier.size(width = 26.dp, height = 15.dp),
+            modifier = Modifier.size(width = 20.dp, height = 12.dp),
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(

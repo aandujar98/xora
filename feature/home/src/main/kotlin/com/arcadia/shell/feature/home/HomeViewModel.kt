@@ -864,6 +864,7 @@ class HomeViewModel @Inject constructor(
     }
     private var photoSlideshowJob: Job? = null
     private var photoControlsHideJob: Job? = null
+    private var raGameDetailJob: Job? = null
     private var pendingDeletePhotoId: String? = null
     /** Debounce for layer-changing photo actions so one press cannot fire through two layers. */
     private var lastPhotoLayerActionMs = 0L
@@ -3401,7 +3402,17 @@ class HomeViewModel @Inject constructor(
                     it.copy(view = DashboardView.Tiles, busy = false, error = null, notice = null)
                 }
             }
-            XoraXmbDepth.RaLibrary -> Unit
+            XoraXmbDepth.RaLibrary -> {
+                raGameDetailJob?.cancel()
+                raLibraryUi.update {
+                    it.copy(
+                        gameDetail = null,
+                        gameDetailLoading = false,
+                        gameDetailError = null,
+                        cheevoIndex = 0,
+                    )
+                }
+            }
             else -> Unit
         }
         xoraReturnItemIndex[current] = xoraItemIndex.value
@@ -6483,13 +6494,16 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun onRaLibraryNavAction(action: NavAction) {
+        val detailOpen = raLibraryUi.value.gameDetailOpen
         when (action) {
-            NavAction.Up -> moveRaLibrarySelection(-1)
-            NavAction.Down -> moveRaLibrarySelection(1)
-            NavAction.Left -> cycleRaLibraryTab(-1)
-            NavAction.Right -> cycleRaLibraryTab(1)
+            NavAction.Up -> if (detailOpen) moveRaCheevoSelection(0, -1) else moveRaLibrarySelection(-1)
+            NavAction.Down -> if (detailOpen) moveRaCheevoSelection(0, 1) else moveRaLibrarySelection(1)
+            NavAction.Left -> if (detailOpen) moveRaCheevoSelection(-1, 0) else cycleRaLibraryTab(-1)
+            NavAction.Right -> if (detailOpen) moveRaCheevoSelection(1, 0) else cycleRaLibraryTab(1)
+            NavAction.PreviousPlatform -> cycleRaLibraryPlatform(-1)
+            NavAction.NextPlatform -> cycleRaLibraryPlatform(1)
             NavAction.Confirm -> activateRaLibrarySelection()
-            NavAction.Cancel -> closeRaLibrary()
+            NavAction.Cancel -> if (detailOpen) closeRaGameDetail() else closeRaLibrary()
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             NavAction.ToggleSystemPanel -> toggleSystemPanel()
             NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
@@ -7092,17 +7106,46 @@ class HomeViewModel @Inject constructor(
 
     fun selectRaLibraryTab(tab: RaLibraryTab) {
         noteUserActivity()
+        closeRaGameDetail()
         raLibraryUi.update { it.copy(tab = tab, selectedIndex = 0) }
     }
 
     fun selectRaPlatformFilter(platform: String?) {
         noteUserActivity()
+        closeRaGameDetail()
         raLibraryUi.update { it.copy(platformFilter = platform, selectedIndex = 0) }
+    }
+
+    fun selectRaCheevoIndex(index: Int) {
+        noteUserActivity()
+        raLibraryUi.update { current ->
+            val last = (current.gameDetail?.achievements?.size ?: 1) - 1
+            if (last < 0) current
+            else current.copy(cheevoIndex = index.coerceIn(0, last))
+        }
+    }
+
+    fun closeRaGameDetail() {
+        raGameDetailJob?.cancel()
+        raLibraryUi.update {
+            it.copy(
+                gameDetail = null,
+                gameDetailLoading = false,
+                gameDetailError = null,
+                cheevoIndex = 0,
+            )
+        }
     }
 
     fun activateRaLibrarySelection() {
         val row = uiState.value.raLibrary.selectedGame ?: return
-        focusLocalGameForRa(row.game.title, row.game.consoleId)
+        if (uiState.value.raLibrary.gameDetailOpen &&
+            uiState.value.raLibrary.gameDetail?.gameId == row.game.gameId &&
+            !uiState.value.raLibrary.gameDetailLoading
+        ) {
+            return
+        }
+        openRaGameDetail(row.game.gameId)
     }
 
     fun refreshRaLibrary() {
@@ -7168,6 +7211,69 @@ class HomeViewModel @Inject constructor(
         val current = raLibraryUi.value.tab.ordinal
         val next = ((current + delta) % tabs.size + tabs.size) % tabs.size
         selectRaLibraryTab(tabs[next])
+    }
+
+    private fun cycleRaLibraryPlatform(delta: Int) {
+        val current = raLibraryUi.value
+        val options = buildList {
+            add(null)
+            addAll(current.platforms)
+        }
+        if (options.size <= 1) return
+        val idx = options.indexOf(current.platformFilter).let { if (it < 0) 0 else it }
+        val next = ((idx + delta) % options.size + options.size) % options.size
+        selectRaPlatformFilter(options[next])
+    }
+
+    private fun moveRaCheevoSelection(dx: Int, dy: Int) {
+        val achievements = raLibraryUi.value.gameDetail?.achievements.orEmpty()
+        if (achievements.isEmpty()) return
+        val last = achievements.lastIndex
+        val current = raLibraryUi.value.cheevoIndex.coerceIn(0, last)
+        val next = when {
+            dx != 0 -> (current + dx).coerceIn(0, last)
+            dy != 0 -> (current + dy * RA_CHEEVO_GRID_COLUMNS).coerceIn(0, last)
+            else -> current
+        }
+        selectRaCheevoIndex(next)
+    }
+
+    private fun openRaGameDetail(gameId: Int) {
+        noteUserActivity()
+        raGameDetailJob?.cancel()
+        raLibraryUi.update {
+            it.copy(
+                gameDetailLoading = true,
+                gameDetailError = null,
+                gameDetail = it.gameDetail?.takeIf { detail -> detail.gameId == gameId },
+                cheevoIndex = if (it.gameDetail?.gameId == gameId) it.cheevoIndex else 0,
+            )
+        }
+        raGameDetailJob = viewModelScope.launch {
+            val result = retroAchievements.fetchGameProgress(gameId)
+            raLibraryUi.update { current ->
+                result.fold(
+                    onSuccess = { progress ->
+                        current.copy(
+                            gameDetailLoading = false,
+                            gameDetail = progress,
+                            gameDetailError = null,
+                            cheevoIndex = current.cheevoIndex.coerceIn(
+                                0,
+                                (progress.achievements.size - 1).coerceAtLeast(0),
+                            ),
+                        )
+                    },
+                    onFailure = { error ->
+                        current.copy(
+                            gameDetailLoading = false,
+                            gameDetail = null,
+                            gameDetailError = error.message ?: "Could not load achievements.",
+                        )
+                    },
+                )
+            }
+        }
     }
 
     private fun focusLocalGameForRa(raTitle: String, consoleId: Int) {

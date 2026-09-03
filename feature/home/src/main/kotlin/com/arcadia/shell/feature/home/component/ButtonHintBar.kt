@@ -87,6 +87,7 @@ fun hintsForPage(
     displayMode: DisplayMode = DisplayMode.Dual,
     homeHub: HomeHubUiState? = null,
     xmbDepth: XoraXmbDepth? = null,
+    raGameDetailOpen: Boolean = false,
 ): List<Pair<String, String>> = when (page) {
     HomePage.Home -> when {
         homeHub?.vitaShortcutTrayOpen == true && homeHub.vitaShortcutLaunch != null ->
@@ -102,6 +103,7 @@ fun hintsForPage(
         xmbDepth == XoraXmbDepth.NowPlaying -> XoraNowPlayingHints
         xmbDepth == XoraXmbDepth.Photos -> XoraPhotoHints
         xmbDepth == XoraXmbDepth.Dashboard -> XoraDashboardHints
+        xmbDepth == XoraXmbDepth.RaLibrary && raGameDetailOpen -> RaCheevoGridHints
         xmbDepth == XoraXmbDepth.RaLibrary -> RaLibraryHints
         else -> XoraXmbHints
     }
@@ -111,7 +113,7 @@ fun hintsForPage(
         GameSelectorHints
     }
     HomePage.RssFeed -> RssFeedHints
-    HomePage.RaLibrary -> RaLibraryHints
+    HomePage.RaLibrary -> if (raGameDetailOpen) RaCheevoGridHints else RaLibraryHints
 }
 
 /** Classic XOrA XMB: LB/RB cycle categories; Start focuses Settings. */
@@ -309,9 +311,17 @@ val RssFeedHints: List<Pair<String, String>> = listOf(
 val RaLibraryHints: List<Pair<String, String>> = listOf(
     "U/D" to "Game",
     "L/R" to "Tab",
-    "A" to "Open in library",
+    "LB/RB" to "Platform",
+    "A" to "Cheevos",
     "B" to "Back",
-    "X" to "This game",
+    "LT" to "Social",
+    "Start+Select" to "Guide",
+)
+
+val RaCheevoGridHints: List<Pair<String, String>> = listOf(
+    "U/D/L/R" to "Cheevo",
+    "LB/RB" to "Platform",
+    "B" to "Games",
     "LT" to "Social",
     "Start+Select" to "Guide",
 )

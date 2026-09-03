@@ -148,6 +148,8 @@ fun XoraHomeXmbPane(
     onSelectRaPlatformFilter: (String?) -> Unit = {},
     onActivateRaLibrary: () -> Unit = {},
     onRetryRaLibrary: () -> Unit = {},
+    onSelectRaCheevoIndex: (Int) -> Unit = {},
+    onCloseRaGameDetail: () -> Unit = {},
     showPillChrome: Boolean = true,
     modifier: Modifier = Modifier,
     /** Full-bleed layer above the XMB cross but below the pill chrome. */
@@ -410,6 +412,8 @@ fun XoraHomeXmbPane(
                     onActivate = onActivateRaLibrary,
                     onRetry = onRetryRaLibrary,
                     populateCheevos = true,
+                    onSelectCheevoIndex = onSelectRaCheevoIndex,
+                    onCloseGameDetail = onCloseRaGameDetail,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
