@@ -170,13 +170,13 @@ private val FavoritePlateW = 210.dp
 private val FavoritePlateH = 108.dp
 private val FavoritePlateRadius = 12.dp
 private val ProfileCardWidth = 464.dp
-/** Figma 464×444 card (nodes 363:1927 / 710:1769). */
-private val ProfileCardHeight = 444.dp
+/** Figma 464×444 card (nodes 363:1927 / 710:1769), grown so Favorite Game clears the footer. */
+private val ProfileCardHeight = 496.dp
 private val ProfileCardRadius = 24.dp
 private val ProfileCardPadStart = 22.dp
 private val ProfileCardPadEnd = 22.dp
 private val ProfileCardPadTop = 20.dp
-private val ProfileCardPadBottom = 14.dp
+private val ProfileCardPadBottom = 10.dp
 private val ProfileIdentityGap = 10.dp
 private val StatusBubbleTextSize = 16.sp
 private val RecentlyEarnedBadgeSlots = 6
@@ -186,7 +186,7 @@ private val RecentlyEarnedLabelGap = 25.dp
 private val FavoriteLabelGap = 30.dp
 private val HeaderToRecentGap = 21.dp
 private val RecentToFavoriteGap = 15.dp
-private val FavoriteToFooterGap = 25.dp
+private val FavoriteToFooterGap = 12.dp
 private val PresenceDotSize = 12.dp
 private val TrophyGlyphW = 24.dp
 private val TrophyGlyphH = TrophyGlyphW * (120f / 130f)
@@ -268,7 +268,7 @@ fun SystemPill(
     var charging by remember { mutableStateOf(isCharging(context)) }
     var wifiConnected by remember { mutableStateOf(isWifiConnected(context)) }
     val listState = rememberLazyListState()
-    val maxPanelHeight = LocalConfiguration.current.screenHeightDp.dp * 0.90f
+    val maxPanelHeight = LocalConfiguration.current.screenHeightDp.dp * 0.96f
 
     val systemRows = remember(
         systemProfile.favoritePickerOpen,
@@ -707,50 +707,12 @@ private fun ProfileCardHeader(
 ) {
     val identityStart = ProfileAvatarSelectedSize + ProfileIdentityGap
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = identityStart),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.Start,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = identityStart),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.Start,
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                PresenceDot(color = xoraPresenceColor(systemProfile))
-                CardTitleText(
-                    text = displayName,
-                    fontSize = 20.sp,
-                    fillBrush = vibrantFillBrush(usernameAccent),
-                    modifier = Modifier.clickable(onClick = onEditProfile),
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                TrophyMiniGlyph()
-                CardTitleText(
-                    text = "POINTS",
-                    fontSize = 14.sp,
-                    fillBrush = DullFillBrush,
-                    letterSpacing = 0.sp,
-                )
-                CardTitleText(
-                    text = formatPoints(raScore),
-                    fontSize = 18.sp,
-                    fillBrush = vibrantFillBrush(ScoreAmber),
-                    letterSpacing = 0.sp,
-                    overflow = TextOverflow.Visible,
-                    softWrap = false,
-                )
-            }
-        }
         StatusBubble(
             text = systemProfile.statusLine,
             selected = statusSelected,
@@ -762,10 +724,42 @@ private fun ProfileCardHeader(
             onDraftChange = onStatusDraftChange,
             onSave = onSaveCustomStatus,
             onClear = onClearCustomStatus,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = identityStart),
+            modifier = Modifier.fillMaxWidth(),
         )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            PresenceDot(color = xoraPresenceColor(systemProfile))
+            CardTitleText(
+                text = displayName,
+                fontSize = 20.sp,
+                fillBrush = vibrantFillBrush(usernameAccent),
+                modifier = Modifier.clickable(onClick = onEditProfile),
+            )
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TrophyMiniGlyph()
+            CardTitleText(
+                text = "POINTS",
+                fontSize = 14.sp,
+                fillBrush = DullFillBrush,
+                letterSpacing = 0.sp,
+            )
+            CardTitleText(
+                text = formatPoints(raScore),
+                fontSize = 18.sp,
+                fillBrush = vibrantFillBrush(ScoreAmber),
+                letterSpacing = 0.sp,
+                overflow = TextOverflow.Visible,
+                softWrap = false,
+            )
+        }
     }
 }
 
@@ -1363,7 +1357,7 @@ private fun ProfileCardFooter(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(36.dp),
+            .height(24.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         WifiGlyph(
