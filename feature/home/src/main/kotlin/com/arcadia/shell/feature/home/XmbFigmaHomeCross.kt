@@ -32,11 +32,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -139,6 +144,13 @@ private const val XMB_SCROLL_MS = 340
 private const val VISIBLE_ITEM_RADIUS = 5
 private val PlateEmptyFill = Color(0xFF3A3A3A)
 private val HoverInk = Color.White
+/** Same white→ice glass rim as XMB vector glyphs. */
+private val PlateStrokeBrush = Brush.verticalGradient(
+    0f to Color.White,
+    0.34f to Color(0xFFEAF5FE),
+    0.66f to Color(0xFFB9DCF7),
+    1f to Color(0xFF7FB4E6),
+)
 
 private data class XmbSlot(
     val left: Float,
@@ -538,30 +550,54 @@ private fun XmbColumnGlyph(
 }
 
 @Composable
-private fun XmbGamePlate(
+internal fun XmbGamePlate(
     title: String,
     artPath: String?,
     selected: Boolean,
     width: Dp,
     height: Dp,
     unit: Float,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape((PLATE_RADIUS * unit).dp)
+    val strokeAlpha = if (selected) 1f else 0.55f
+    val interaction = remember { MutableInteractionSource() }
     Box(
-        modifier = Modifier
+        modifier = modifier
             .requiredSize(width, height)
             .xmbAssetShadow(
                 unit = unit,
                 shape = shape,
                 alpha = XoraForegroundShadow.Alpha,
             )
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        onClick = onClick,
+                    )
+                } else {
+                    Modifier
+                },
+            )
+            .drawWithContent {
+                drawContent()
+                val stroke = (PLATE_BORDER * unit).dp.toPx()
+                val inset = stroke / 2f
+                val radius = ((PLATE_RADIUS * unit).dp.toPx() - inset).coerceAtLeast(0f)
+                drawRoundRect(
+                    brush = PlateStrokeBrush,
+                    alpha = strokeAlpha,
+                    topLeft = Offset(inset, inset),
+                    size = Size(size.width - stroke, size.height - stroke),
+                    cornerRadius = CornerRadius(radius, radius),
+                    style = Stroke(width = stroke),
+                )
+            }
             .clip(shape)
-            .background(PlateEmptyFill)
-            .border(
-                width = (PLATE_BORDER * unit).dp,
-                color = Color.White.copy(alpha = if (selected) 1f else 0.55f),
-                shape = shape,
-            ),
+            .background(PlateEmptyFill),
         contentAlignment = Alignment.Center,
     ) {
         if (!artPath.isNullOrBlank()) {

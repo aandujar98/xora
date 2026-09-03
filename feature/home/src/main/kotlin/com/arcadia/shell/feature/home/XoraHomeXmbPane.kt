@@ -193,10 +193,7 @@ fun XoraHomeXmbPane(
     val recedeScale = 1f - (trayRecede * 0.12f)
     val recedeAlpha = 1f - trayRecede
     val artworkScale = launchBackdropScale(holdProgress)
-    val backdropMotion = rememberXmbBackdropMotion(
-        categoryIndex = xmb.categoryIndex,
-        launchScale = artworkScale,
-    )
+    val backdropMotion = xmbBackdropMotion(launchScale = artworkScale)
 
     XoraAspectLetterbox(
         mode = state.xoraEmulator.aspectMode,
@@ -446,10 +443,7 @@ fun XoraXmbHeroDetail(
     )
     val chromeAlpha = 1f - chromeProgress
     val artworkScale = launchBackdropScale(holdProgress)
-    val backdropMotion = rememberXmbBackdropMotion(
-        categoryIndex = xmb.categoryIndex,
-        launchScale = artworkScale,
-    )
+    val backdropMotion = xmbBackdropMotion(launchScale = artworkScale)
 
     XoraAspectLetterbox(
         mode = state.xoraEmulator.aspectMode,
@@ -585,32 +579,16 @@ fun XoraXmbHeroDetail(
 
 
 /**
- * Ambient drift + selection parallax for wallpaper / hero plates.
- * Only left/right (category) navigation pans the wallpaper — moving up and down a
- * column must not shift it vertically, so there is no item-index parallax.
+ * Launch-hold zoom for wallpaper / hero plates. Category and item navigation must not
+ * pan or drift the backdrop — the menu moves; the sky stays put.
  */
-@Composable
-private fun rememberXmbBackdropMotion(
-    categoryIndex: Int,
-    launchScale: Float,
-): Modifier {
-    val reduceMotion = rememberReduceMotion()
-    val parallaxX by animateFloatAsState(
-        targetValue = if (reduceMotion) 0f else categoryIndex * 14f,
-        animationSpec = tween(
-            durationMillis = if (reduceMotion) 0 else XMB_SCROLL_MS,
-            easing = FastOutSlowInEasing,
-        ),
-        label = "xmbParallaxX",
-    )
-    return Modifier.graphicsLayer {
-        val base = 1.045f * launchScale
-        scaleX = base
-        scaleY = base
-        translationX = -parallaxX
+private fun xmbBackdropMotion(launchScale: Float): Modifier =
+    Modifier.graphicsLayer {
+        scaleX = launchScale
+        scaleY = launchScale
+        translationX = 0f
         translationY = 0f
     }
-}
 
 internal data class IntroAppear(
     val scale: Float,
@@ -932,5 +910,3 @@ private fun XoraXmbPillChrome(
 
 /** Drill in / out slide between XMB rungs (PSP / PS3 shell feel). */
 private const val XMB_DEPTH_SLIDE_MS = 300
-/** Ease-out slide duration for category / item cursors and focus titles. */
-private const val XMB_SCROLL_MS = 340

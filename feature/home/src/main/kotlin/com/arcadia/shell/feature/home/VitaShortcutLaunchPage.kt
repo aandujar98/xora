@@ -3,22 +3,15 @@ package com.arcadia.shell.feature.home
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -35,7 +28,6 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.arcadiaTween
-import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import kotlin.math.min
 
@@ -48,7 +40,6 @@ private const val LAUNCH_TITLE_X = 683f
 private const val LAUNCH_TITLE_Y = 475f
 private const val LAUNCH_TITLE_SIZE = 48f
 private const val LAUNCH_SUBTITLE_SIZE = 28f
-private const val LAUNCH_CARD_RADIUS = 30f
 /** Figma X4 Y4 B4 S0 — same drop as Game Select hover titles. */
 private const val LAUNCH_TITLE_SHADOW = 4f
 
@@ -98,36 +89,19 @@ fun VitaShortcutLaunchPage(
 
             val cardW = du(LAUNCH_CARD_W)
             val cardH = du(LAUNCH_CARD_H)
-            val shape = RoundedCornerShape(du(LAUNCH_CARD_RADIUS))
-            Box(
-                modifier = Modifier
-                    .offset(
-                        x = (originX + (LAUNCH_CARD_X - LAUNCH_CARD_W / 2f) * unit).dp,
-                        y = (originY + LAUNCH_CARD_Y * unit).dp,
-                    )
-                    .requiredSize(cardW, cardH)
-                    .xmbAssetShadow(
-                        unit = unit,
-                        shape = shape,
-                        alpha = XoraForegroundShadow.Alpha,
-                    )
-                    .clip(shape)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onConfirm,
-                    ),
-            ) {
-                ArtworkImage(
-                    path = page.iconPath,
-                    contentDescription = page.shortcut.title,
-                    fallbackText = page.shortcut.title.take(2).uppercase(),
-                    contentScale = ContentScale.Crop,
-                    cacheInMemory = true,
-                    decodeMaxEdgePx = 512,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            XmbGamePlate(
+                title = page.shortcut.title,
+                artPath = page.iconPath,
+                selected = true,
+                width = cardW,
+                height = cardH,
+                unit = unit,
+                onClick = onConfirm,
+                modifier = Modifier.offset(
+                    x = (originX + (LAUNCH_CARD_X - LAUNCH_CARD_W / 2f) * unit).dp,
+                    y = (originY + LAUNCH_CARD_Y * unit).dp,
+                ),
+            )
 
             Column(
                 modifier = Modifier
