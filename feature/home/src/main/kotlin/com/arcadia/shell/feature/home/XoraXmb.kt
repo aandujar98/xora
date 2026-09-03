@@ -74,6 +74,8 @@ data class XoraXmbItem(
     val action: XoraXmbAction,
     /** Optional box/hero thumb for ROM / Continue / Favorite rows. */
     val artPath: String? = null,
+    /** Optional wallpaper (still or video) shown behind a focused album / track. */
+    val heroPath: String? = null,
     /** Clear-logo / wheel title art — preferred over [title] text for ROM rows. */
     val logoPath: String? = null,
     /** Accumulated play time for ROM rows ([Game.playTimeMs]). */
@@ -101,6 +103,13 @@ fun XoraXmbItem.isMusicCoverArt(): Boolean {
             id.startsWith("track_") ||
             id.startsWith("music_folder_")
     }
+}
+
+/** Stable id for custom cover / wallpaper files on an album or track row. */
+fun XoraXmbItem.musicCustomMediaId(): String? = when (val action = action) {
+    is XoraXmbAction.DrillMusicAlbum -> "album_${action.albumId}"
+    is XoraXmbAction.PlayMusicTrack -> "track_${action.trackId}"
+    else -> null
 }
 
 sealed interface XoraXmbAction {
@@ -453,7 +462,7 @@ fun buildXoraCategoryItems(
                 title = "Photos",
                 subtitle = "Pictures & screenshots on this device",
                 action = XoraXmbAction.OpenPhotos,
-                icon = XmbIcon.Photo,
+                icon = XmbIcon.FolderPhoto,
             ),
         )
         addAll(photoFolderItems(photoFolders))
@@ -465,7 +474,7 @@ fun buildXoraCategoryItems(
                 title = "Videos",
                 subtitle = "Clips on this device",
                 action = XoraXmbAction.VideosStub,
-                icon = XmbIcon.Video,
+                icon = XmbIcon.FolderVideo,
             ),
         )
         addAll(videoFolderItems(videoFolders))
@@ -496,7 +505,7 @@ fun buildXoraCategoryItems(
                 title = "All music",
                 subtitle = "Every song on this device",
                 action = XoraXmbAction.DrillAllSongs,
-                icon = XmbIcon.Music,
+                icon = XmbIcon.FolderMusic,
             ),
         )
         add(

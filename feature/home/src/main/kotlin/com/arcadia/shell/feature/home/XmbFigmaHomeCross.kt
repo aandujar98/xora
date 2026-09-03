@@ -57,7 +57,9 @@ import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xmbAssetShadow
+import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.feature.home.component.ArtworkImage
+import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -172,6 +174,7 @@ internal fun XmbCross(
     onSelectItem: (Int) -> Unit,
     onActivateItem: () -> Unit,
     modifier: Modifier = Modifier,
+    trailer: HeroTrailerState = HeroTrailerState(),
 ) {
     val reduceMotion = rememberReduceMotion()
     val scrollSpec = remember(reduceMotion) {
@@ -366,6 +369,7 @@ internal fun XmbCross(
                         width = du(slot.width),
                         height = du(slot.height),
                         unit = unit,
+                        trailer = trailer,
                     )
                 }
             }
@@ -451,6 +455,7 @@ private fun XmbColumnGlyph(
     width: Dp,
     height: Dp,
     unit: Float,
+    trailer: HeroTrailerState = HeroTrailerState(),
 ) {
     val shadowOffset = (XoraForegroundShadow.DesignOffset * unit).dp
     val shadowBlur = (XoraForegroundShadow.DesignBlur * unit).dp
@@ -491,6 +496,7 @@ private fun XmbColumnGlyph(
             width = width,
             height = height,
             unit = unit,
+            trailer = trailer,
         )
         item.icon.isFolderGlyph() -> XmbFolderImgIcon(
             artPath = item.artPath,
@@ -559,6 +565,7 @@ internal fun XmbGamePlate(
     unit: Float,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    trailer: HeroTrailerState = HeroTrailerState(),
 ) {
     val shape = RoundedCornerShape((PLATE_RADIUS * unit).dp)
     val strokeAlpha = if (selected) 1f else 0.55f
@@ -600,7 +607,16 @@ internal fun XmbGamePlate(
             .background(PlateEmptyFill),
         contentAlignment = Alignment.Center,
     ) {
-        if (!artPath.isNullOrBlank()) {
+        val playInIcon = selected &&
+            trailer.active &&
+            trailer.displayMode == TrailerDisplayMode.InIcon &&
+            !trailer.trailerUrl.isNullOrBlank()
+        if (playInIcon) {
+            HeroTrailerLayer(
+                state = trailer.copy(displayMode = TrailerDisplayMode.FullBackground),
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (!artPath.isNullOrBlank()) {
             ArtworkImage(
                 path = artPath,
                 contentDescription = title,

@@ -284,8 +284,10 @@ private data class WallpaperLayer(
 private fun File.isVideoWallpaper(): Boolean =
     extension.lowercase() in VIDEO_WALLPAPER_EXTS
 
-private fun String.isVideoWallpaperPath(): Boolean =
+internal fun String.isVideoMediaPath(): Boolean =
     substringAfterLast('.', "").lowercase() in VIDEO_WALLPAPER_EXTS
+
+private fun String.isVideoWallpaperPath(): Boolean = isVideoMediaPath()
 
 internal fun assetExists(context: android.content.Context, path: String): Boolean =
     runCatching {

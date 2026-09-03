@@ -95,6 +95,9 @@ fun HeroTrailerLayer(
         },
     ) {
         when (state.displayMode) {
+            TrailerDisplayMode.InIcon -> {
+                // Hosted by the focused Game Icon plate / ROM card, not this wallpaper layer.
+            }
             TrailerDisplayMode.FullBackground -> {
                 // Stay transparent until the first frame so hero art does not pop to black.
                 TrailerSurface(

@@ -60,6 +60,7 @@ import com.arcadia.shell.feature.home.HomePageContent
 import com.arcadia.shell.feature.home.HomeScreen
 import com.arcadia.shell.feature.home.HomeUiState
 import com.arcadia.shell.feature.home.HomeViewModel
+import com.arcadia.shell.feature.home.MusicCustomizeSheet
 import com.arcadia.shell.feature.home.RomOptionsSheet
 import com.arcadia.shell.feature.home.ThemesSheet
 import com.arcadia.shell.libretro.GameSaveEntry
@@ -107,15 +108,20 @@ fun ArcadiaShell(
     var route by rememberSaveable { mutableStateOf(ShellRoute.Home) }
     var optionsGameId by rememberSaveable { mutableStateOf<String?>(null) }
     var scrapeMenuGameId by rememberSaveable { mutableStateOf<String?>(null) }
+    var musicCustomizeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var musicCustomizeTitle by rememberSaveable { mutableStateOf("") }
     var chooseEmulatorPlatformId by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val routeTween = arcadiaTween<Float>(ArcadiaMotion.Medium)
     // Game options dialog blocks the dispatcher; bottom sheets keep it on so SheetNavCapture works.
     val dialogOverlayOpen = optionsGameId != null
-    val sheetOverlayOpen = scrapeMenuGameId != null || chooseEmulatorPlatformId != null
+    val sheetOverlayOpen = scrapeMenuGameId != null ||
+        chooseEmulatorPlatformId != null ||
+        musicCustomizeId != null
     val overlayOpen = dialogOverlayOpen || sheetOverlayOpen
     val context = LocalContext.current
     var pendingGameMediaId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingMusicMediaId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingPlatformBannerId by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Activity Result launchers must live only in this Activity-rooted composition. Home hub /
@@ -206,6 +212,27 @@ fun ArcadiaShell(
         pendingGameMediaId = null
         if (uri != null && gameId != null) homeViewModel.setGameSoundBite(gameId, uri)
     }
+    val gameIdleVideoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val gameId = pendingGameMediaId
+        pendingGameMediaId = null
+        if (uri != null && gameId != null) homeViewModel.setGameIdleVideo(gameId, uri)
+    }
+    val musicCoverPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        val mediaId = pendingMusicMediaId
+        pendingMusicMediaId = null
+        if (uri != null && mediaId != null) homeViewModel.setMusicCover(mediaId, uri)
+    }
+    val musicWallpaperPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val mediaId = pendingMusicMediaId
+        pendingMusicMediaId = null
+        if (uri != null && mediaId != null) homeViewModel.setMusicWallpaper(mediaId, uri)
+    }
 
     LaunchedEffect(homeViewModel) {
         homeViewModel.mediaPickerRequestFlow.collect { request ->
@@ -245,6 +272,20 @@ fun ArcadiaShell(
                     is HomeMediaPickerRequest.GameSoundBite -> {
                         pendingGameMediaId = request.gameId
                         gameSoundBitePicker.launch("audio/*")
+                    }
+                    is HomeMediaPickerRequest.GameIdleVideo -> {
+                        pendingGameMediaId = request.gameId
+                        gameIdleVideoPicker.launch(arrayOf("video/*"))
+                    }
+                    is HomeMediaPickerRequest.MusicCover -> {
+                        pendingMusicMediaId = request.mediaId
+                        musicCoverPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    }
+                    is HomeMediaPickerRequest.MusicWallpaper -> {
+                        pendingMusicMediaId = request.mediaId
+                        musicWallpaperPicker.launch(arrayOf("image/*", "video/*"))
                     }
                     HomeMediaPickerRequest.HomeFolderImage -> folderImagePicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
@@ -339,6 +380,10 @@ fun ArcadiaShell(
                 }.onFailure { homeViewModel.onPhotoDeleteResult(confirmed = false) }
                 is HomeEvent.OpenGameOptions -> optionsGameId = event.gameId
                 is HomeEvent.OpenScrapeMenu -> scrapeMenuGameId = event.gameId
+                is HomeEvent.OpenMusicCustomize -> {
+                    musicCustomizeId = event.mediaId
+                    musicCustomizeTitle = event.title
+                }
                 HomeEvent.BringShellToFront -> bringShellToFront(context)
                 HomeEvent.RequestUnknownAppSources -> {
                     val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
@@ -718,8 +763,16 @@ fun ArcadiaShell(
             }
             val saveTick by homeViewModel.romSaveRefreshTick()
                 .collectAsStateWithLifecycle()
+            val mediaEpoch by homeViewModel.customMediaEpochFlow.collectAsStateWithLifecycle()
             val saves by produceState(emptyList<GameSaveEntry>(), game.id, saveTick, game.filePath) {
                 value = homeViewModel.listSavesForGame(game)
+            }
+            val idlePath by produceState(
+                homeViewModel.idleVideoPath(game.id),
+                game.id,
+                mediaEpoch,
+            ) {
+                value = homeViewModel.idleVideoPath(game.id)
             }
             SheetNavCapture(homeViewModel)
             RomOptionsSheet(
@@ -734,10 +787,13 @@ fun ArcadiaShell(
                 onPickBoxArt = { homeViewModel.pickGameBoxArt(gameId) },
                 onPickBackground = { homeViewModel.pickGameBackground(gameId) },
                 onPickSoundBite = { homeViewModel.pickGameSoundBite(gameId) },
+                onPickIdleVideo = { homeViewModel.pickGameIdleVideo(gameId) },
                 onClearBoxArt = { homeViewModel.clearGameBoxArt(gameId) },
                 onClearBackground = { homeViewModel.clearGameBackground(gameId) },
                 onClearSoundBite = { homeViewModel.clearGameSoundBite(gameId) },
+                onClearIdleVideo = { homeViewModel.clearGameIdleVideo(gameId) },
                 onPreviewSoundBite = { homeViewModel.previewGameSoundBite(gameId) },
+                idleVideoPath = idlePath,
                 onImportSaves = { homeViewModel.importSavesForGame(gameId) },
                 onDeleteSave = { entry -> homeViewModel.deleteSaveForGame(entry) },
                 onSetGamePreference = { pref ->
@@ -754,6 +810,32 @@ fun ArcadiaShell(
                 onRescrapePlatform = { homeViewModel.rescrapePlatform(game.platformId) },
             )
         }
+    }
+
+    musicCustomizeId?.let { mediaId ->
+        val mediaEpoch by homeViewModel.customMediaEpochFlow.collectAsStateWithLifecycle()
+        val coverPath by produceState(homeViewModel.musicCoverPath(mediaId), mediaId, mediaEpoch) {
+            value = homeViewModel.musicCoverPath(mediaId)
+        }
+        val wallpaperPath by produceState(
+            homeViewModel.musicWallpaperPath(mediaId),
+            mediaId,
+            mediaEpoch,
+        ) {
+            value = homeViewModel.musicWallpaperPath(mediaId)
+        }
+        SheetNavCapture(homeViewModel)
+        MusicCustomizeSheet(
+            title = musicCustomizeTitle,
+            coverPath = coverPath,
+            wallpaperPath = wallpaperPath,
+            navActions = homeViewModel.sheetNavActionFlow,
+            onDismiss = { musicCustomizeId = null },
+            onPickCover = { homeViewModel.pickMusicCover(mediaId) },
+            onPickWallpaper = { homeViewModel.pickMusicWallpaper(mediaId) },
+            onClearCover = { homeViewModel.clearMusicCover(mediaId) },
+            onClearWallpaper = { homeViewModel.clearMusicWallpaper(mediaId) },
+        )
     }
 
     chooseEmulatorPlatformId?.let { platformId ->

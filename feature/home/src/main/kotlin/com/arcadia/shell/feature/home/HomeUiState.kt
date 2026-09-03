@@ -144,7 +144,7 @@ data class HeroTrailerState(
     val active: Boolean = false,
     /** Encoded trailer string from [com.arcadia.shell.model.TrailerRefs]. */
     val trailerUrl: String? = null,
-    val displayMode: TrailerDisplayMode = TrailerDisplayMode.FullBackground,
+    val displayMode: TrailerDisplayMode = TrailerDisplayMode.InIcon,
 )
 
 data class LibraryTab(
@@ -357,6 +357,8 @@ sealed interface HomeEvent {
     data class OpenGameOptions(val gameId: String) : HomeEvent
     /** Select button: ROM options (customize + saves + scrape) for [gameId]. */
     data class OpenScrapeMenu(val gameId: String) : HomeEvent
+    /** Select / Options on an album or track: custom cover and wallpaper. */
+    data class OpenMusicCustomize(val mediaId: String, val title: String) : HomeEvent
     /** Best-effort: reorder the shell task to the front when Guide opens. */
     data object BringShellToFront : HomeEvent
     /** Open system settings so XOrA can install the downloaded APK. */
@@ -385,6 +387,9 @@ sealed interface HomeMediaPickerRequest {
     data class GameBoxArt(val gameId: String) : HomeMediaPickerRequest
     data class GameBackground(val gameId: String) : HomeMediaPickerRequest
     data class GameSoundBite(val gameId: String) : HomeMediaPickerRequest
+    data class GameIdleVideo(val gameId: String) : HomeMediaPickerRequest
+    data class MusicCover(val mediaId: String) : HomeMediaPickerRequest
+    data class MusicWallpaper(val mediaId: String) : HomeMediaPickerRequest
 
     /** Gallery still for the Games column Folder_IMG window. */
     data object HomeFolderImage : HomeMediaPickerRequest

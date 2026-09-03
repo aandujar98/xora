@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
@@ -55,6 +56,7 @@ import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.component.ArtworkImage
+import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.xmb.drawableResForPlatformId
 import kotlin.math.abs
@@ -134,6 +136,7 @@ fun XoraCardBrowsePane(
     modifier: Modifier = Modifier,
     /** ROM rows honour the shell's title preference: clear-logo art or plain text. */
     titleStyle: XmbTitleStyle = XmbTitleStyle.TitleIcons,
+    trailer: HeroTrailerState = HeroTrailerState(),
 ) {
     val reduceMotion = rememberReduceMotion()
     val scrollSpec = remember(reduceMotion) {
@@ -199,6 +202,7 @@ fun XoraCardBrowsePane(
                     x = designX(CARD_CENTER_X - (width / 2f)),
                     y = designY(centreY - (height / 2f)),
                 ),
+                trailer = trailer.takeIf { index == selectedIndex } ?: HeroTrailerState(),
             )
         }
 
@@ -301,6 +305,7 @@ private fun BrowseCard(
     height: Dp,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    trailer: HeroTrailerState = HeroTrailerState(),
 ) {
     val shape = RoundedCornerShape((CARD_RADIUS * unit).dp)
     Box(
@@ -342,14 +347,26 @@ private fun BrowseCard(
                 strokeWidth = (XmbGlyphStrokeDesignPx * unit).dp,
             )
         } else if (item.artPath != null) {
-            ArtworkImage(
-                path = item.artPath,
-                contentDescription = item.title,
-                fallbackText = item.title,
-                contentScale = ContentScale.Crop,
-                decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
-                modifier = Modifier.fillMaxSize(),
-            )
+            val playInIcon = focused &&
+                trailer.active &&
+                trailer.displayMode == TrailerDisplayMode.InIcon &&
+                !trailer.trailerUrl.isNullOrBlank() &&
+                item.action is XoraXmbAction.LaunchGame
+            if (playInIcon) {
+                HeroTrailerLayer(
+                    state = trailer.copy(displayMode = TrailerDisplayMode.FullBackground),
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                ArtworkImage(
+                    path = item.artPath,
+                    contentDescription = item.title,
+                    fallbackText = item.title,
+                    contentScale = ContentScale.Crop,
+                    decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         } else {
             BrowseCardFallback(item = item, unit = unit, height = height)
         }

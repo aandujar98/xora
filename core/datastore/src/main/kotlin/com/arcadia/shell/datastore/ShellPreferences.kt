@@ -70,6 +70,8 @@ enum class ThemeMode {
 
 /** How an idle game trailer is shown on the hero artwork pane. */
 enum class TrailerDisplayMode {
+    /** Trailer replaces the focused Game Icon cover art. */
+    InIcon,
     /** Trailer replaces the full hero artwork behind UI chrome. */
     FullBackground,
     /** Trailer plays in a lower-right picture-in-picture region. */
@@ -184,7 +186,7 @@ data class ShellSettings(
     val trailerScrapeEnabled: Boolean = true,
     /** Which provider(s) to use when [trailerScrapeEnabled] is on. */
     val trailerSourcePreference: TrailerSourcePreference = TrailerSourcePreference.Auto,
-    val trailerDisplayMode: TrailerDisplayMode = TrailerDisplayMode.FullBackground,
+    val trailerDisplayMode: TrailerDisplayMode = TrailerDisplayMode.InIcon,
     /** Seconds without input before an idle trailer may start. */
     val trailerIdleSeconds: Int = DEFAULT_TRAILER_IDLE_SECONDS,
     /**
@@ -392,7 +394,7 @@ class ShellPreferences @Inject constructor(
                 ?: TrailerSourcePreference.Auto,
             trailerDisplayMode = prefs[Keys.TRAILER_DISPLAY_MODE]
                 ?.let { name -> runCatching { TrailerDisplayMode.valueOf(name) }.getOrNull() }
-                ?: TrailerDisplayMode.FullBackground,
+                ?: TrailerDisplayMode.InIcon,
             trailerIdleSeconds = (prefs[Keys.TRAILER_IDLE_SECONDS] ?: DEFAULT_TRAILER_IDLE_SECONDS)
                 .coerceIn(5, 60),
             homeWallpaperPath = prefs[Keys.HOME_WALLPAPER_PATH]?.takeIf { it.isNotBlank() },
@@ -1444,7 +1446,7 @@ const val DEFAULT_BGM_VOLUME = 0.35f
 /** Default UI navigation SFX level — audible even when BGM is turned down. */
 const val DEFAULT_UI_SFX_VOLUME = 0.7f
 
-const val DEFAULT_TRAILER_IDLE_SECONDS = 10
+const val DEFAULT_TRAILER_IDLE_SECONDS = 5
 
 /** Matches [com.arcadia.shell.designsystem.ShellThemeId.Default.id]. */
 const val DEFAULT_SHELL_THEME_ID = "default"

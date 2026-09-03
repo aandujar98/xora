@@ -3,17 +3,23 @@ package com.arcadia.shell.feature.home
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -28,6 +34,7 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import kotlin.math.min
 
@@ -39,7 +46,12 @@ private const val LAUNCH_CARD_Y = 416f
 private const val LAUNCH_TITLE_X = 683f
 private const val LAUNCH_TITLE_Y = 475f
 private const val LAUNCH_TITLE_SIZE = 48f
-private const val LAUNCH_SUBTITLE_SIZE = 28f
+private const val LAUNCH_SUBTITLE_SIZE = 40f
+/** Matches Game Select: title → 4px rule → playtime. */
+private const val LAUNCH_TITLE_TO_RULE = 91f
+private const val LAUNCH_RULE_TO_SUBTITLE = 25f
+private const val LAUNCH_RULE_WIDTH = 720f
+private const val LAUNCH_RULE_THICKNESS = 4f
 /** Figma X4 Y4 B4 S0 — same drop as Game Select hover titles. */
 private const val LAUNCH_TITLE_SHADOW = 4f
 
@@ -97,6 +109,7 @@ fun VitaShortcutLaunchPage(
                 height = cardH,
                 unit = unit,
                 onClick = onConfirm,
+                trailer = HeroTrailerState(),
                 modifier = Modifier.offset(
                     x = (originX + (LAUNCH_CARD_X - LAUNCH_CARD_W / 2f) * unit).dp,
                     y = (originY + LAUNCH_CARD_Y * unit).dp,
@@ -117,11 +130,24 @@ fun VitaShortcutLaunchPage(
                     unit = unit,
                     maxLines = 2,
                 )
+                Box(
+                    modifier = Modifier
+                        .padding(top = ((LAUNCH_TITLE_TO_RULE - LAUNCH_TITLE_SIZE) * unit).dp)
+                        .width(du(LAUNCH_RULE_WIDTH))
+                        .height(du(LAUNCH_RULE_THICKNESS))
+                        .xmbAssetShadow(
+                            unit = unit,
+                            shape = RectangleShape,
+                            alpha = XoraForegroundShadow.TitleAlpha,
+                        )
+                        .background(Color.White),
+                )
                 LaunchSelectTitle(
-                    text = "A  Launch",
+                    text = "Playtime: ${formatXmbPlaytime(page.game?.playTimeMs ?: 0L)}",
                     fontSize = with(density) { du(LAUNCH_SUBTITLE_SIZE).toSp() },
                     unit = unit,
                     maxLines = 1,
+                    modifier = Modifier.padding(top = du(LAUNCH_RULE_TO_SUBTITLE)),
                 )
             }
 

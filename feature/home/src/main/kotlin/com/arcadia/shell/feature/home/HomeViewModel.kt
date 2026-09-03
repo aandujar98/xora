@@ -814,6 +814,7 @@ class HomeViewModel @Inject constructor(
         val music: MusicUiState = MusicUiState(),
         val photoFolders: List<DeviceMediaFolder> = emptyList(),
         val videoFolders: List<DeviceMediaFolder> = emptyList(),
+        val customMediaEpoch: Int = 0,
     )
 
     private data class MediaFolders(
@@ -849,23 +850,28 @@ class HomeViewModel @Inject constructor(
     private val xoraEmulatedPlatformIds: Set<String> =
         xoraCoreCatalog.all.mapTo(mutableSetOf()) { it.platformId }
 
+    private val customMediaEpoch = MutableStateFlow(0)
+
     private val platformChromeFlow = combine(
-        platformArtRepository.artByPlatformId,
-        platformArtStore.bannerByPlatformId,
-        spotifyTokenStore.linked,
-        musicFlow,
-        mediaFolders,
-    ) { scraped, custom, spotifyLinked, music, folders ->
-        PlatformChrome(
-            // A banner the player picked themselves always beats the scraped system media.
-            artByPlatformId = scraped + custom,
-            readyPlatformIds = xoraEmulatedPlatformIds,
-            spotifyLinked = spotifyLinked,
-            music = music,
-            photoFolders = folders.photos,
-            videoFolders = folders.videos,
-        )
-    }
+        combine(
+            platformArtRepository.artByPlatformId,
+            platformArtStore.bannerByPlatformId,
+            spotifyTokenStore.linked,
+            musicFlow,
+            mediaFolders,
+        ) { scraped, custom, spotifyLinked, music, folders ->
+            PlatformChrome(
+                // A banner the player picked themselves always beats the scraped system media.
+                artByPlatformId = scraped + custom,
+                readyPlatformIds = xoraEmulatedPlatformIds,
+                spotifyLinked = spotifyLinked,
+                music = music,
+                photoFolders = folders.photos,
+                videoFolders = folders.videos,
+            )
+        },
+        customMediaEpoch,
+    ) { chrome, epoch -> chrome.copy(customMediaEpoch = epoch) }
 
     private val libraryUiState: StateFlow<HomeUiState> = combine(
         libraryFlow,
@@ -1968,7 +1974,8 @@ class HomeViewModel @Inject constructor(
         val xoraCategory = XoraXmbCategory.entries.getOrElse(theme.xora.categoryIndex) {
             XoraXmbCategory.Games
         }
-        val xoraItems = when (theme.xora.depth) {
+        val xoraItems = overlayMusicCustomMedia(
+            items = when (theme.xora.depth) {
             XoraXmbDepth.Category -> buildXoraCategoryItems(
                 category = xoraCategory,
                 profileName = chrome.profile.displayName,
@@ -2011,7 +2018,9 @@ class HomeViewModel @Inject constructor(
             XoraXmbDepth.Photos -> emptyList()
             // The dashboard pane draws itself; the rung carries no list.
             XoraXmbDepth.Dashboard -> emptyList()
-        }
+            },
+            epoch = platformChrome.customMediaEpoch,
+        )
         val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
         val xoraSelected = xoraItems.getOrNull(xoraItemIndex)
         val xoraFocusGame = when (val action = xoraSelected?.action) {
@@ -2515,6 +2524,10 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun ensureTrailerUrl(gameId: String): String? {
+        gameCustomMediaStore.findIdleVideo(gameId)?.let { custom ->
+            Log.i(TAG, "Using custom idle video for $gameId")
+            return custom
+        }
         val game = libraryRepository.findById(gameId) ?: return null
         if (!game.trailerUrl.isNullOrBlank()) {
             Log.i(TAG, "Using stored trailer for ${game.fileName}: ${game.trailerUrl}")
@@ -2762,12 +2775,14 @@ class HomeViewModel @Inject constructor(
             }
             NavAction.Cancel -> drillOutXora()
             NavAction.Options -> {
+                if (openMusicCustomizeIfFocused(xmb)) return
                 if (xmb.depth == XoraXmbDepth.Roms) {
                     xmb.focusGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
                         ?: state.selectedGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
                 }
             }
             NavAction.ScrapeMenu -> {
+                if (openMusicCustomizeIfFocused(xmb)) return
                 if (xmb.depth == XoraXmbDepth.Systems) {
                     (xmb.selectedItem?.action as? XoraXmbAction.DrillSystem)?.let {
                         requestPlatformBanner(it.platformId)
@@ -2851,7 +2866,7 @@ class HomeViewModel @Inject constructor(
             val resolveJob = launch {
                 vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
             }
-            delay(720)
+            delay(750)
             resolveJob.join()
             if (vitaShortcutDepartingIndex.value != index) return@launch
             vitaShortcutDepartingIndex.value = null
@@ -6482,8 +6497,9 @@ class HomeViewModel @Inject constructor(
             }
             StartSettingsAction.CycleTrailerDisplay -> viewModelScope.launch {
                 val next = when (preferences.settings.first().trailerDisplayMode) {
+                    TrailerDisplayMode.InIcon -> TrailerDisplayMode.FullBackground
                     TrailerDisplayMode.FullBackground -> TrailerDisplayMode.CornerPip
-                    TrailerDisplayMode.CornerPip -> TrailerDisplayMode.FullBackground
+                    TrailerDisplayMode.CornerPip -> TrailerDisplayMode.InIcon
                 }
                 preferences.setTrailerDisplayMode(next)
             }
@@ -7695,6 +7711,24 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun pickGameIdleVideo(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameIdleVideo(gameId)) }
+        }
+    }
+
+    fun pickMusicCover(mediaId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.MusicCover(mediaId)) }
+        }
+    }
+
+    fun pickMusicWallpaper(mediaId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.MusicWallpaper(mediaId)) }
+        }
+    }
+
     fun setGameBoxArt(gameId: String, uri: Uri) {
         viewModelScope.launch {
             runCatching {
@@ -7755,6 +7789,99 @@ class HomeViewModel @Inject constructor(
             gameSoundBitePlayer.stop()
             emit(HomeEvent.ShowMessage("Sound bite cleared."))
         }
+    }
+
+    fun setGameIdleVideo(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                gameCustomMediaStore.importIdleVideo(gameId, uri)
+                bumpCustomMedia()
+                emit(HomeEvent.ShowMessage("Idle video updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import idle video."))
+            }
+        }
+    }
+
+    fun clearGameIdleVideo(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearIdleVideo(gameId)
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Idle video cleared."))
+        }
+    }
+
+    fun idleVideoPath(gameId: String): String? = gameCustomMediaStore.findIdleVideo(gameId)
+
+    fun musicCoverPath(mediaId: String): String? = gameCustomMediaStore.findBoxArt(mediaId)
+
+    fun musicWallpaperPath(mediaId: String): String? = gameCustomMediaStore.findBackground(mediaId)
+
+    fun setMusicCover(mediaId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                gameCustomMediaStore.importBoxArt(mediaId, uri)
+                bumpCustomMedia()
+                emit(HomeEvent.ShowMessage("Cover art updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import cover art."))
+            }
+        }
+    }
+
+    fun setMusicWallpaper(mediaId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                gameCustomMediaStore.importBackground(mediaId, uri)
+                bumpCustomMedia()
+                emit(HomeEvent.ShowMessage("Wallpaper updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import wallpaper."))
+            }
+        }
+    }
+
+    fun clearMusicCover(mediaId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearBoxArt(mediaId)
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Cover art cleared."))
+        }
+    }
+
+    fun clearMusicWallpaper(mediaId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearBackground(mediaId)
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Wallpaper cleared."))
+        }
+    }
+
+    val customMediaEpochFlow: StateFlow<Int> get() = customMediaEpoch
+
+    private fun bumpCustomMedia() {
+        customMediaEpoch.update { it + 1 }
+    }
+
+    private fun overlayMusicCustomMedia(items: List<XoraXmbItem>, epoch: Int): List<XoraXmbItem> {
+        if (epoch < 0) return items
+        return items.map { item ->
+            val mediaId = item.musicCustomMediaId() ?: return@map item
+            val cover = gameCustomMediaStore.findBoxArt(mediaId)
+            val wallpaper = gameCustomMediaStore.findBackground(mediaId)
+            if (cover == null && wallpaper == null) item
+            else item.copy(
+                artPath = cover ?: item.artPath,
+                heroPath = wallpaper,
+            )
+        }
+    }
+
+    private fun openMusicCustomizeIfFocused(xmb: XoraXmbUiState): Boolean {
+        val item = xmb.selectedItem ?: return false
+        val id = item.musicCustomMediaId() ?: return false
+        emit(HomeEvent.OpenMusicCustomize(id, item.title))
+        return true
     }
 
     fun previewGameSoundBite(gameId: String) {

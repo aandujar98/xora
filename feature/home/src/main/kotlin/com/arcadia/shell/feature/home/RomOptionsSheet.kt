@@ -67,10 +67,13 @@ fun RomOptionsSheet(
     onPickBoxArt: () -> Unit,
     onPickBackground: () -> Unit,
     onPickSoundBite: () -> Unit,
+    onPickIdleVideo: () -> Unit,
     onClearBoxArt: () -> Unit,
     onClearBackground: () -> Unit,
     onClearSoundBite: () -> Unit,
+    onClearIdleVideo: () -> Unit,
     onPreviewSoundBite: () -> Unit,
+    idleVideoPath: String? = null,
     onImportSaves: () -> Unit,
     onDeleteSave: (GameSaveEntry) -> Unit,
     onSetGamePreference: (ScraperPreference) -> Unit,
@@ -189,6 +192,12 @@ fun RomOptionsSheet(
                     RomSoundBiteLocator.resolve(game) != null
                 },
                 extraLabel = "Preview",
+            )
+            MediaRow(
+                title = "Idle video",
+                status = pathStatus(idleVideoPath),
+                onChange = onPickIdleVideo,
+                onClear = onClearIdleVideo.takeIf { !idleVideoPath.isNullOrBlank() },
             )
 
             SectionLabel("Save files")
@@ -450,9 +459,11 @@ fun ScrapeOptionsSheet(
         onPickBoxArt = {},
         onPickBackground = {},
         onPickSoundBite = {},
+        onPickIdleVideo = {},
         onClearBoxArt = {},
         onClearBackground = {},
         onClearSoundBite = {},
+        onClearIdleVideo = {},
         onPreviewSoundBite = {},
         onImportSaves = {},
         onDeleteSave = {},

@@ -145,6 +145,7 @@ val XoraMusicBrowseHints: List<Pair<String, String>> = listOf(
     "U/D" to "Browse",
     "A" to "Open",
     "B" to "Back",
+    "Select" to "Customize",
     "LT" to "Circle",
     "RT" to "Profile / Alerts",
     "Start" to "Settings",

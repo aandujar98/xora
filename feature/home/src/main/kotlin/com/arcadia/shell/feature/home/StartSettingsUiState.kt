@@ -188,6 +188,7 @@ fun buildStartSettingsRows(
             id = "trailer_display",
             title = "Trailer display",
             subtitle = when (settings.trailerDisplayMode) {
+                TrailerDisplayMode.InIcon -> "Game icon"
                 TrailerDisplayMode.FullBackground -> "Full background"
                 TrailerDisplayMode.CornerPip -> "Corner PIP"
             },

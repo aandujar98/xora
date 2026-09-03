@@ -275,6 +275,15 @@ fun SettingsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = state.settings.trailerDisplayMode ==
+                            TrailerDisplayMode.InIcon,
+                        onClick = {
+                            viewModel.setTrailerDisplayMode(TrailerDisplayMode.InIcon)
+                        },
+                        enabled = state.settings.trailerEnabled,
+                        label = { Text(text = "Game icon") },
+                    )
+                    FilterChip(
+                        selected = state.settings.trailerDisplayMode ==
                             TrailerDisplayMode.FullBackground,
                         onClick = {
                             viewModel.setTrailerDisplayMode(TrailerDisplayMode.FullBackground)

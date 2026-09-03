@@ -3,7 +3,12 @@ package com.arcadia.shell.feature.home
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -13,12 +18,14 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
+import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.supportsGlassBlurEffect
 import kotlin.math.exp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -105,15 +112,23 @@ private val BubbleFill = Color(0x4D0E2230)
 private val VITA_TRAY_ROW_CAPACITIES = intArrayOf(3, 4, 3)
 internal const val VITA_TRAY_PAGE_SIZE = 10
 private const val VitaBubbleFlipDeg = 720f
-private const val VitaBubbleDepartMs = 720
+private const val VitaBubbleDepartMs = 750
 /** End scale so a 233u bubble covers a 1920u panel and keeps going into the wallpaper. */
 private const val VitaBubbleZoom = 11f
-private const val VitaBubbleFadeStart = 0.55f
+/** Twirl finishes before the zoom takes over; a little overlap keeps the motion continuous. */
+private const val VitaTwirlEnd = 0.40f
+private const val VitaZoomStart = 0.32f
+private const val VitaBubbleFadeStart = 0.62f
 private val VitaBubbleDepartEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
 private val VitaBubbleEchoLags = FloatArray(24) { i ->
     val t = (i + 1f) / 24f
-    t * t * 0.22f
+    t * t * 0.28f
 }
+
+private fun vitaTwirl(t: Float): Float = (t / VitaTwirlEnd).coerceIn(0f, 1f)
+
+private fun vitaZoom(t: Float): Float =
+    ((t - VitaZoomStart) / (1f - VitaZoomStart)).coerceIn(0f, 1f)
 
 /**
  * PS Vita LiveArea-style shortcut field: staggered bubbles over the live wallpaper (no tray
@@ -287,6 +302,7 @@ private fun VitaBubble(
     interactive: Boolean = true,
 ) {
     val ringWidth = diameter * (SELECTION_RING_WIDTH / BUBBLE_DIAMETER)
+    val interaction = remember { MutableInteractionSource() }
     val depart by animateFloatAsState(
         targetValue = if (departing) 1f else 0f,
         animationSpec = tween(
@@ -295,15 +311,38 @@ private fun VitaBubble(
         ),
         label = "vitaBubbleDepart",
     )
+    val hovered by interaction.collectIsHoveredAsState()
+    val reduceMotion = rememberReduceMotion()
+    val highlighted = (selected || hovered) && depart < 0.05f && interactive
+    val pulse = rememberInfiniteTransition(label = "vitaBubblePulse")
+    val pulseScale by pulse.animateFloat(
+        initialValue = 1f,
+        targetValue = if (highlighted && !reduceMotion) 1.045f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(640, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "vitaBubblePulseScale",
+    )
+    val pulseLift by pulse.animateFloat(
+        initialValue = 0f,
+        targetValue = if (highlighted && !reduceMotion) -0.035f else 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(640, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "vitaBubblePulseLift",
+    )
     val canBlur = supportsGlassBlurEffect()
-    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .size(diameter + ringWidth)
             .graphicsLayer {
                 val shift = offsetProvider()
                 translationX = shift.x
-                translationY = shift.y
+                translationY = shift.y + (diameter.toPx() * pulseLift)
+                scaleX = pulseScale
+                scaleY = pulseScale
                 clip = false
             }
             .then(
@@ -324,16 +363,21 @@ private fun VitaBubble(
             for (index in echoCount - 1 downTo 0) {
                 val lag = VitaBubbleEchoLags[index]
                 val echoT = (depart - lag).coerceIn(0f, 1f)
+                if (echoT <= 0.001f) continue
                 val trailT = index / (echoCount - 1f).coerceAtLeast(1f)
-                val fade = (exp(-3.4f * trailT * trailT) * 0.28f * (1f - echoT * 0.35f))
+                val twirl = vitaTwirl(echoT)
+                val zoom = vitaZoom(echoT)
+                val fade = (exp(-2.8f * trailT * trailT) * 0.34f * (1f - echoT * 0.22f))
                     .coerceAtLeast(0.02f)
-                val echoScale = 1f + (VitaBubbleZoom - 0.4f) * echoT
+                val liveScale = 1f + VitaBubbleZoom * zoom
+                val feather = 1.08f + 0.22f * trailT
+                val echoScale = liveScale * feather
                 Box(
                     modifier = Modifier
                         .size(diameter)
                         .graphicsLayer {
-                            rotationY = VitaBubbleFlipDeg * echoT
-                            scaleX = echoScale * 1.12f
+                            rotationY = VitaBubbleFlipDeg * twirl
+                            scaleX = echoScale
                             scaleY = echoScale
                             alpha = fade
                             cameraDistance = 8f * density
@@ -342,8 +386,8 @@ private fun VitaBubble(
                             compositingStrategy = CompositingStrategy.Offscreen
                             if (canBlur) {
                                 renderEffect = BlurEffect(
-                                    4f + 10f * trailT,
-                                    4f + 10f * trailT,
+                                    6f + 16f * trailT,
+                                    6f + 16f * trailT,
                                     TileMode.Decal,
                                 )
                             }
@@ -357,9 +401,11 @@ private fun VitaBubble(
             modifier = Modifier
                 .size(diameter)
                 .graphicsLayer {
-                    rotationY = VitaBubbleFlipDeg * depart
-                    scaleX = 1f + VitaBubbleZoom * depart
-                    scaleY = 1f + VitaBubbleZoom * depart
+                    val twirl = vitaTwirl(depart)
+                    val zoom = vitaZoom(depart)
+                    rotationY = VitaBubbleFlipDeg * twirl
+                    scaleX = 1f + VitaBubbleZoom * zoom
+                    scaleY = 1f + VitaBubbleZoom * zoom
                     alpha = 1f - ((depart - VitaBubbleFadeStart) / (1f - VitaBubbleFadeStart))
                         .coerceIn(0f, 1f)
                     cameraDistance = 8f * density

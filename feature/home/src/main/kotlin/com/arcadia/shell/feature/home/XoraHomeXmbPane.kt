@@ -156,8 +156,10 @@ fun XoraHomeXmbPane(
     }
     // Browsing music paints the focused album / song art; Now Playing paints the playing cover.
     val musicArtPath = when (xmb.depth) {
-        XoraXmbDepth.MusicAlbums, XoraXmbDepth.MusicTracks -> xmb.selectedItem?.artPath
+        XoraXmbDepth.MusicAlbums, XoraXmbDepth.MusicTracks ->
+            xmb.selectedItem?.heroPath ?: xmb.selectedItem?.artPath
         XoraXmbDepth.NowPlaying -> state.music.nowPlaying.track?.albumArtUri
+        XoraXmbDepth.Category -> xmb.selectedItem?.heroPath
         else -> null
     }
     val backdropArtPath = musicArtPath
@@ -331,6 +333,7 @@ fun XoraHomeXmbPane(
                         onActivateItem = onActivateItem,
                         modifier = Modifier.fillMaxSize(),
                         titleStyle = xmb.titleStyle,
+                        trailer = state.trailer,
                     )
                     else -> XmbCross(
                         xmb = xmb,
@@ -339,6 +342,7 @@ fun XoraHomeXmbPane(
                         onSelectItem = onSelectItem,
                         onActivateItem = onActivateItem,
                         modifier = Modifier.fillMaxSize(),
+                        trailer = state.trailer,
                     )
                 }
                 }
@@ -463,7 +467,12 @@ fun XoraXmbHeroDetail(
                     .then(backdropMotion),
             )
             XoraRomHeroBackdrop(
-                artPath = heroGame?.takeIf {
+                artPath = xmb.selectedItem?.heroPath
+                    ?: xmb.selectedItem?.artPath?.takeIf {
+                        xmb.depth == XoraXmbDepth.MusicAlbums ||
+                            xmb.depth == XoraXmbDepth.MusicTracks
+                    }
+                    ?: heroGame?.takeIf {
                     xmb.depth == XoraXmbDepth.Roms ||
                         xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
                         xmb.selectedItem?.action is XoraXmbAction.LaunchGame
@@ -694,15 +703,29 @@ private fun XoraRomHeroBackdrop(
     ) { path ->
         Box(modifier = Modifier.fillMaxSize()) {
             if (path.isNotBlank()) {
-                ArtworkImage(
-                    path = path,
-                    contentDescription = null,
-                    fallbackText = "",
-                    contentScale = ContentScale.Crop,
-                    cacheInMemory = true,
-                    decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                if (path.isVideoMediaPath()) {
+                    LoopingWallpaperVideo(
+                        uri = if (path.startsWith("file:", ignoreCase = true) ||
+                            path.startsWith("content:", ignoreCase = true) ||
+                            path.startsWith("http", ignoreCase = true)
+                        ) {
+                            path
+                        } else {
+                            "file://$path"
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    ArtworkImage(
+                        path = path,
+                        contentDescription = null,
+                        fallbackText = "",
+                        contentScale = ContentScale.Crop,
+                        cacheInMemory = true,
+                        decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
