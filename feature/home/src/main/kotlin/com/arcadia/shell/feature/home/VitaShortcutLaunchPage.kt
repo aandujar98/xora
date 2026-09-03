@@ -110,6 +110,8 @@ fun VitaShortcutLaunchPage(
                 unit = unit,
                 onClick = onConfirm,
                 trailer = HeroTrailerState(),
+                artAlignX = page.artAlignX,
+                artAlignY = page.artAlignY,
                 modifier = Modifier.offset(
                     x = (originX + (LAUNCH_CARD_X - LAUNCH_CARD_W / 2f) * unit).dp,
                     y = (originY + LAUNCH_CARD_Y * unit).dp,

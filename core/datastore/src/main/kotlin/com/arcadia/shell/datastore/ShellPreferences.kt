@@ -227,6 +227,11 @@ data class ShellSettings(
      * installs keep working until the user picks an emulator.
      */
     val n64UseMupen64PlusNext: Boolean = false,
+    /**
+     * When true, games marked hidden still appear in library lists (with a Hidden
+     * subtitle) so they can be unhidden. Off by default.
+     */
+    val showHiddenGames: Boolean = false,
 )
 
 /**
@@ -406,6 +411,7 @@ class ShellPreferences @Inject constructor(
             notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true,
             notificationSoundEnabled = prefs[Keys.NOTIFICATION_SOUND_ENABLED] ?: true,
             n64UseMupen64PlusNext = prefs[Keys.N64_USE_MUPEN64PLUS_NEXT] ?: false,
+            showHiddenGames = prefs[Keys.SHOW_HIDDEN_GAMES] ?: false,
         )
     }
 
@@ -605,6 +611,39 @@ class ShellPreferences @Inject constructor(
         val current = decodeStringIdSet(prefs[Keys.FAVORITE_PHOTO_IDS].orEmpty())
         val next = if (favorite) current + photoId else current - photoId
         prefs[Keys.FAVORITE_PHOTO_IDS] = encodeStringIdSet(next)
+    }
+
+    /**
+     * Library game ids the user chose to hide. Hidden titles stay in the database;
+     * they are only filtered from lists unless [ShellSettings.showHiddenGames] is on.
+     */
+    val hiddenGameIds: Flow<Set<String>> = dataStore.data.map { prefs ->
+        decodeStringIdSet(prefs[Keys.HIDDEN_GAME_IDS].orEmpty())
+    }
+
+    suspend fun setGameHidden(gameId: String, hidden: Boolean) = edit { prefs ->
+        val current = decodeStringIdSet(prefs[Keys.HIDDEN_GAME_IDS].orEmpty())
+        val next = if (hidden) current + gameId else current - gameId
+        prefs[Keys.HIDDEN_GAME_IDS] = encodeStringIdSet(next)
+    }
+
+    /** Per-game cover-art pan inside the Game Icon, biases in `-1f..1f`. */
+    val gameArtAlignments: Flow<Map<String, GameArtAlignment>> = dataStore.data.map { prefs ->
+        decodeGameArtAlignments(prefs[Keys.GAME_ART_ALIGNMENTS].orEmpty())
+    }
+
+    suspend fun setGameArtAlignment(gameId: String, alignment: GameArtAlignment?) = edit { prefs ->
+        val current = decodeGameArtAlignments(prefs[Keys.GAME_ART_ALIGNMENTS].orEmpty())
+        val next = if (alignment == null || alignment.isIdentity) {
+            current - gameId
+        } else {
+            current + (gameId to alignment.clamped())
+        }
+        prefs[Keys.GAME_ART_ALIGNMENTS] = encodeGameArtAlignments(next)
+    }
+
+    suspend fun setShowHiddenGames(enabled: Boolean) = edit {
+        it[Keys.SHOW_HIDDEN_GAMES] = enabled
     }
 
     suspend fun setSecondaryDisplayRole(role: ScreenRole) = edit { it[Keys.SECONDARY_ROLE] = role.name }
@@ -1222,6 +1261,9 @@ class ShellPreferences @Inject constructor(
         val CIRCLE_PINS = stringPreferencesKey("circle_pins")
         /** JSON array of MediaStore photo ids favourited in the Photo Viewer. */
         val FAVORITE_PHOTO_IDS = stringPreferencesKey("favorite_photo_ids")
+        val HIDDEN_GAME_IDS = stringPreferencesKey("hidden_game_ids")
+        val GAME_ART_ALIGNMENTS = stringPreferencesKey("game_art_alignments")
+        val SHOW_HIDDEN_GAMES = booleanPreferencesKey("show_hidden_games")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
         val HOME_FOLDER_IMAGE_PATH = stringPreferencesKey("home_folder_image_path")
         val CUSTOM_BGM_PATH = stringPreferencesKey("custom_bgm_path")
@@ -1407,6 +1449,58 @@ internal fun decodeStringIdSet(raw: String): Set<String> {
             }
         }
     }.getOrDefault(emptySet())
+}
+
+/** Cover-art pan inside a Game Icon. Compose [BiasAlignment] uses `-1..1` on each axis. */
+data class GameArtAlignment(
+    val x: Float = 0f,
+    val y: Float = 0f,
+) {
+    val isIdentity: Boolean get() = x == 0f && y == 0f
+
+    fun clamped(): GameArtAlignment = GameArtAlignment(
+        x = x.coerceIn(-1f, 1f),
+        y = y.coerceIn(-1f, 1f),
+    )
+
+    fun nudged(dx: Float, dy: Float): GameArtAlignment = GameArtAlignment(
+        x = (x + dx).coerceIn(-1f, 1f),
+        y = (y + dy).coerceIn(-1f, 1f),
+    )
+}
+
+/** One D-pad / button step when panning cover art inside the icon. */
+const val GAME_ART_ALIGN_STEP = 0.12f
+
+internal fun encodeGameArtAlignments(map: Map<String, GameArtAlignment>): String {
+    val obj = JSONObject()
+    map.forEach { (id, alignment) ->
+        if (id.isBlank() || alignment.isIdentity) return@forEach
+        obj.put(
+            id,
+            JSONObject()
+                .put("x", alignment.x.toDouble())
+                .put("y", alignment.y.toDouble()),
+        )
+    }
+    return obj.toString()
+}
+
+internal fun decodeGameArtAlignments(raw: String): Map<String, GameArtAlignment> {
+    if (raw.isBlank()) return emptyMap()
+    return runCatching {
+        val obj = JSONObject(raw)
+        buildMap {
+            obj.keys().forEach { id ->
+                val entry = obj.optJSONObject(id) ?: return@forEach
+                val alignment = GameArtAlignment(
+                    x = entry.optDouble("x", 0.0).toFloat(),
+                    y = entry.optDouble("y", 0.0).toFloat(),
+                ).clamped()
+                if (!alignment.isIdentity) put(id, alignment)
+            }
+        }
+    }.getOrDefault(emptyMap())
 }
 
 internal fun encodeCirclePins(pins: List<CirclePin>): String {

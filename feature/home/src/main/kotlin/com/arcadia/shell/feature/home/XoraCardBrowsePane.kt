@@ -28,11 +28,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
@@ -55,6 +55,7 @@ import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.designsystem.xoraPlateStroke
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
@@ -325,9 +326,14 @@ private fun BrowseCard(
         modifier = Modifier
             .fillMaxSize()
             .xmbAssetShadow(unit = unit, shape = shape, alpha = XoraForegroundShadow.Alpha)
+            .xoraPlateStroke(
+                unit = unit,
+                radiusDesign = CARD_RADIUS,
+                borderDesign = CARD_BORDER,
+                alpha = if (focused) 1f else 0.55f,
+            )
             .clip(shape)
             .background(CardFill)
-            .border(width = (CARD_BORDER * unit).dp, color = Color.White, shape = shape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -364,6 +370,10 @@ private fun BrowseCard(
                     fallbackText = item.title,
                     contentScale = ContentScale.Crop,
                     decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
+                    alignment = BiasAlignment(
+                        horizontalBias = item.artAlignX.coerceIn(-1f, 1f),
+                        verticalBias = item.artAlignY.coerceIn(-1f, 1f),
+                    ),
                     modifier = Modifier.fillMaxSize(),
                 )
             }

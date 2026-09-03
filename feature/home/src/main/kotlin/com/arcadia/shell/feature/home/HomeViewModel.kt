@@ -19,6 +19,7 @@ import com.arcadia.shell.datastore.CirclePinSource
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.GameArtAlignment
 import com.arcadia.shell.datastore.GameCustomMediaStore
 import com.arcadia.shell.datastore.HomeThemeMediaStore
 import com.arcadia.shell.datastore.LocalProfile
@@ -427,14 +428,21 @@ class HomeViewModel @Inject constructor(
     }
 
     private val chromeFlow = combine(
-        preferences.settings,
+        combine(
+            preferences.settings,
+            preferences.hiddenGameIds,
+            preferences.gameArtAlignments,
+        ) { settings, hidden, alignments -> Triple(settings, hidden, alignments) },
         scanner.progress,
         selection,
         transientFlow,
         panelFlow,
-    ) { settings, progress, currentSelection, transient, panels ->
+    ) { prefs, progress, currentSelection, transient, panels ->
+        val (settings, hiddenGameIds, artAlignments) = prefs
         ChromeState(
             settings = settings,
+            hiddenGameIds = hiddenGameIds,
+            artAlignments = artAlignments,
             progress = progress,
             selection = currentSelection,
             resolvedPlayerName = transient.first,
@@ -467,6 +475,8 @@ class HomeViewModel @Inject constructor(
 
     private data class ChromeState(
         val settings: ShellSettings,
+        val hiddenGameIds: Set<String> = emptySet(),
+        val artAlignments: Map<String, GameArtAlignment> = emptyMap(),
         val progress: ScanProgress,
         val selection: Selection,
         val resolvedPlayerName: String?,
@@ -1171,6 +1181,13 @@ class HomeViewModel @Inject constructor(
         }
             .distinctUntilChanged()
             .onEach { gamepadDispatcher.heroPanelClosesOnCancel = it }
+            .launchIn(viewModelScope)
+
+        combine(vitaShortcutTrayOpen, vitaShortcutLaunch) { open, launch ->
+            open && launch == null
+        }
+            .distinctUntilChanged()
+            .onEach { gamepadDispatcher.vitaBubbleLaunchSfx = it }
             .launchIn(viewModelScope)
 
         observeIdleTrailer()
@@ -1936,14 +1953,32 @@ class HomeViewModel @Inject constructor(
         theme: HomeThemeChrome,
         platformChrome: PlatformChrome = PlatformChrome(),
     ): HomeUiState {
+        val hiddenIds = chrome.hiddenGameIds
+        val showHidden = chrome.settings.showHiddenGames
+        val libraryGames = if (showHidden || hiddenIds.isEmpty()) {
+            allGames
+        } else {
+            allGames.filter { it.id !in hiddenIds }
+        }
+        val visibleSummaries = if (showHidden || hiddenIds.isEmpty()) {
+            summaries
+        } else {
+            val counts = libraryGames
+                .filter { !it.isAndroidApp }
+                .groupingBy { it.platformId }
+                .eachCount()
+            summaries.map { summary ->
+                summary.copy(gameCount = counts[summary.platform.id] ?: 0)
+            }
+        }
         val platformArtById = platformChrome.artByPlatformId
-        val tabs = buildTabs(allGames, summaries)
+        val tabs = buildTabs(libraryGames, visibleSummaries)
         val tabIndex = chrome.selection.tabIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
-        val games = gamesForTab(allGames, tabs.getOrNull(tabIndex))
+        val games = gamesForTab(libraryGames, tabs.getOrNull(tabIndex))
         val gameIndex = chrome.selection.gameIndex.coerceIn(0, (games.size - 1).coerceAtLeast(0))
         val rssIndex = rss.selectedIndex.coerceIn(0, (rss.items.size - 1).coerceAtLeast(0))
         val guideRows = buildGuideRows(
-            allGames = allGames,
+            allGames = libraryGames,
             raSignedIn = chrome.achievements.credentials.isConfigured,
             steam = social.steam,
         )
@@ -1958,14 +1993,14 @@ class HomeViewModel @Inject constructor(
             raSettings = raSettings,
         )
         val startRowIndex = startSettingsRowIndex.coerceIn(0, (startRows.size - 1).coerceAtLeast(0))
-        val quickLaunch = quickLaunchGames(allGames)
-        val continueGame = allGames
+        val quickLaunch = quickLaunchGames(libraryGames)
+        val continueGame = libraryGames
             .filter { !it.isAndroidApp && it.lastPlayedAt != null }
             .maxByOrNull { it.lastPlayedAt ?: 0L }
-        val favoriteGame = allGames
+        val favoriteGame = libraryGames
             .filter { !it.isAndroidApp && it.favorite }
             .maxByOrNull { it.lastPlayedAt ?: 0L }
-            ?: allGames.firstOrNull { !it.isAndroidApp && it.favorite }
+            ?: libraryGames.firstOrNull { !it.isAndroidApp && it.favorite }
         val gamesSecondarySlot = when (chrome.settings.gamesSecondarySlot) {
             "Favorite" -> GamesSecondarySlot.Favorite
             else -> GamesSecondarySlot.Continue
@@ -1974,7 +2009,8 @@ class HomeViewModel @Inject constructor(
         val xoraCategory = XoraXmbCategory.entries.getOrElse(theme.xora.categoryIndex) {
             XoraXmbCategory.Games
         }
-        val xoraItems = overlayMusicCustomMedia(
+        val xoraItems = overlayGameArtAlignment(
+            items = overlayMusicCustomMedia(
             items = when (theme.xora.depth) {
             XoraXmbDepth.Category -> buildXoraCategoryItems(
                 category = xoraCategory,
@@ -1993,14 +2029,15 @@ class HomeViewModel @Inject constructor(
                 musicFolders = platformChrome.music.albums,
             )
             XoraXmbDepth.Systems -> buildXoraSystemItems(
-                summaries = summaries,
+                summaries = visibleSummaries,
                 artByPlatformId = platformArtById,
                 readyPlatformIds = platformChrome.readyPlatformIds,
             )
             XoraXmbDepth.Roms -> {
                 val platformId = theme.xora.drilledPlatformId
                 buildXoraRomItems(
-                    allGames.filter { !it.isAndroidApp && it.platformId == platformId },
+                    games = libraryGames.filter { !it.isAndroidApp && it.platformId == platformId },
+                    hiddenIds = if (showHidden) hiddenIds else emptySet(),
                 )
             }
             XoraXmbDepth.Emulator -> buildXoraEmulatorItems(
@@ -2020,11 +2057,16 @@ class HomeViewModel @Inject constructor(
             XoraXmbDepth.Dashboard -> emptyList()
             },
             epoch = platformChrome.customMediaEpoch,
+        ),
+            alignments = chrome.artAlignments,
+            continueGameId = continueGame?.id,
+            favoriteGameId = favoriteGame?.id,
         )
         val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
         val xoraSelected = xoraItems.getOrNull(xoraItemIndex)
         val xoraFocusGame = when (val action = xoraSelected?.action) {
-            is XoraXmbAction.LaunchGame -> allGames.find { it.id == action.gameId }
+            is XoraXmbAction.LaunchGame -> libraryGames.find { it.id == action.gameId }
+                ?: allGames.find { it.id == action.gameId }
             XoraXmbAction.LaunchContinueOrFavorite -> when (gamesSecondarySlot) {
                 GamesSecondarySlot.Continue -> continueGame
                 GamesSecondarySlot.Favorite -> favoriteGame
@@ -2110,12 +2152,14 @@ class HomeViewModel @Inject constructor(
             selectedTabIndex = tabIndex,
             games = games,
             selectedGameIndex = gameIndex,
+            hiddenGameIds = hiddenIds,
+            gameArtAlignments = chrome.artAlignments,
             displayMode = chrome.settings.displayMode,
             gridColumns = chrome.settings.gridColumns.coerceIn(2, 6),
             scanProgress = chrome.progress,
             hasStorageAccess = storageAccess.hasAllFilesAccess,
             configuredRootCount = roots.size,
-            platformSummaries = summaries,
+            platformSummaries = visibleSummaries,
             resolvedPlayerName = chrome.resolvedPlayerName,
             isLaunching = chrome.isLaunching,
             profile = chrome.profile,
@@ -2861,6 +2905,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun beginVitaShortcutDepart(index: Int, shortcut: HomeShortcut) {
+        playUiOneShot(UiOneShot.BubbleLaunch)
         vitaShortcutDepartingIndex.value = index
         viewModelScope.launch {
             val resolveJob = launch {
@@ -2906,11 +2951,16 @@ class HomeViewModel @Inject constructor(
             ?: game?.heroImagePath
             ?: shortcut.target.takeIf { shortcut.kind == HomeShortcutKind.AndroidApp }
                 ?.let { "${InstalledAppSync.ICON_SCHEME}$it" }
+        val alignment = game?.id?.let { id ->
+            preferences.gameArtAlignments.first()[id]
+        } ?: GameArtAlignment()
         return VitaShortcutLaunchUi(
             shortcut = shortcut,
             wallpaperPath = wallpaper,
             iconPath = icon,
             game = game,
+            artAlignX = alignment.x,
+            artAlignY = alignment.y,
         )
     }
 
@@ -7661,6 +7711,21 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { libraryRepository.setFavorite(gameId, favorite) }
     }
 
+    fun setGameHidden(gameId: String, hidden: Boolean) {
+        viewModelScope.launch { preferences.setGameHidden(gameId, hidden) }
+    }
+
+    fun nudgeGameArtAlignment(gameId: String, dx: Float, dy: Float) {
+        viewModelScope.launch {
+            val current = preferences.gameArtAlignments.first()[gameId] ?: GameArtAlignment()
+            preferences.setGameArtAlignment(gameId, current.nudged(dx, dy))
+        }
+    }
+
+    fun resetGameArtAlignment(gameId: String) {
+        viewModelScope.launch { preferences.setGameArtAlignment(gameId, null) }
+    }
+
     fun listSavesForGame(game: Game): List<GameSaveEntry> = gameSaveCatalog.listForGame(game)
 
     fun romSaveRefreshTick(): StateFlow<Int> = romSaveRefresh
@@ -7874,6 +7939,26 @@ class HomeViewModel @Inject constructor(
                 artPath = cover ?: item.artPath,
                 heroPath = wallpaper,
             )
+        }
+    }
+
+    private fun overlayGameArtAlignment(
+        items: List<XoraXmbItem>,
+        alignments: Map<String, GameArtAlignment>,
+        continueGameId: String?,
+        favoriteGameId: String?,
+    ): List<XoraXmbItem> {
+        if (alignments.isEmpty()) return items
+        return items.map { item ->
+            val gameId = when (val action = item.action) {
+                is XoraXmbAction.LaunchGame -> action.gameId
+                is XoraXmbAction.LaunchContinueOrFavorite ->
+                    if (item.id == "favorite") favoriteGameId else continueGameId
+                is XoraXmbAction.ResumeGame -> continueGameId
+                else -> null
+            } ?: return@map item
+            val alignment = alignments[gameId] ?: return@map item
+            item.copy(artAlignX = alignment.x, artAlignY = alignment.y)
         }
     }
 

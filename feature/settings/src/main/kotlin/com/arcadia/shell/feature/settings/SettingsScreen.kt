@@ -376,6 +376,28 @@ fun SettingsScreen(
                 CompanionScreenPermissionRow(
                     enabled = state.settings.displayMode == DisplayMode.Dual,
                 )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(text = "Show hidden games", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = "Hidden titles stay in your library. Turn this on to list them " +
+                                "again and unhide from ROM options.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.settings.showHiddenGames,
+                        onCheckedChange = viewModel::setShowHiddenGames,
+                    )
+                }
             }
         }
 

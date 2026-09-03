@@ -88,6 +88,10 @@ data class XoraXmbItem(
     val platformLabel: String? = null,
     /** Vector glyph when [artPath] is null. */
     val icon: XmbIcon = XmbIcon.System,
+    /** Horizontal cover-art bias inside the Game Icon (`-1` left … `1` right). */
+    val artAlignX: Float = 0f,
+    /** Vertical cover-art bias inside the Game Icon (`-1` top … `1` bottom). */
+    val artAlignY: Float = 0f,
 )
 
 /** Album / track / Now Playing art uses a 1×1 plate, not the landscape game card. */
@@ -629,12 +633,19 @@ fun buildXoraSystemItems(
             )
         }
 
-fun buildXoraRomItems(games: List<Game>): List<XoraXmbItem> =
+fun buildXoraRomItems(
+    games: List<Game>,
+    hiddenIds: Set<String> = emptySet(),
+): List<XoraXmbItem> =
     games.map { game ->
         XoraXmbItem(
             id = "rom_${game.id}",
             title = game.title,
-            subtitle = if (game.favorite) "Favourite" else game.platform.shortName,
+            subtitle = when {
+                game.id in hiddenIds -> "Hidden"
+                game.favorite -> "Favourite"
+                else -> game.platform.shortName
+            },
             action = XoraXmbAction.LaunchGame(game.id),
             artPath = game.boxArtPath ?: game.heroImagePath,
             logoPath = game.logoImagePath,

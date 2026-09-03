@@ -605,6 +605,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setDisplayMode(mode) }
     }
 
+    fun setShowHiddenGames(enabled: Boolean) {
+        viewModelScope.launch { preferences.setShowHiddenGames(enabled) }
+    }
+
     fun setBgmVolume(volume: Float) {
         viewModelScope.launch { preferences.setBgmVolume(volume) }
     }

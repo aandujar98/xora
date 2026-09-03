@@ -8,6 +8,8 @@ enum class UiOneShot {
     ProfileTab,
     /** LT or RT window closing (not a nested back inside the window). */
     NavClose,
+    /** Confirm / tap on a Vita shortcut bubble (`bubble_launch.wav`). */
+    BubbleLaunch,
 }
 
 fun interface UiOneShotPlayer {

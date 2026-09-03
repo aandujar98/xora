@@ -223,14 +223,16 @@ fun XoraHomeXmbPane(
                 scrimAlpha = chromeAlpha,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(backdropMotion),
+                    .then(backdropMotion)
+                    .graphicsLayer { alpha = recedeAlpha },
             )
 
             HeroTrailerLayer(
                 state = state.trailer,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(backdropMotion),
+                    .then(backdropMotion)
+                    .graphicsLayer { alpha = recedeAlpha },
             )
 
             if (fullTrailer) {
@@ -448,6 +450,20 @@ fun XoraXmbHeroDetail(
     val chromeAlpha = 1f - chromeProgress
     val artworkScale = launchBackdropScale(holdProgress)
     val backdropMotion = xmbBackdropMotion(launchScale = artworkScale)
+    val trayOpen = state.homeHub.vitaShortcutTrayOpen
+    val trayRecede by animateFloatAsState(
+        targetValue = if (trayOpen) 1f else 0f,
+        animationSpec = if (trayOpen) {
+            spring(
+                dampingRatio = 0.78f,
+                stiffness = Spring.StiffnessMediumLow,
+            )
+        } else {
+            arcadiaTween(ArcadiaMotion.Medium)
+        },
+        label = "xmbHeroTrayRecede",
+    )
+    val recedeAlpha = 1f - trayRecede
 
     XoraAspectLetterbox(
         mode = state.xoraEmulator.aspectMode,
@@ -480,13 +496,15 @@ fun XoraXmbHeroDetail(
                 scrimAlpha = chromeAlpha,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(backdropMotion),
+                    .then(backdropMotion)
+                    .graphicsLayer { alpha = recedeAlpha },
             )
             HeroTrailerLayer(
                 state = state.trailer,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(backdropMotion),
+                    .then(backdropMotion)
+                    .graphicsLayer { alpha = recedeAlpha },
             )
             if (fullTrailer) {
                 Box(

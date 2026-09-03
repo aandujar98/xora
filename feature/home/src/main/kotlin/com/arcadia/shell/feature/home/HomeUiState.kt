@@ -3,6 +3,7 @@ package com.arcadia.shell.feature.home
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.GameArtAlignment
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
@@ -137,6 +138,8 @@ data class VitaShortcutLaunchUi(
     val wallpaperPath: String?,
     val iconPath: String?,
     val game: Game? = null,
+    val artAlignX: Float = 0f,
+    val artAlignY: Float = 0f,
 )
 
 /** Idle trailer overlay for the hero pane. */
@@ -246,6 +249,10 @@ data class HomeUiState(
     val selectedTabIndex: Int = 0,
     val games: List<Game> = emptyList(),
     val selectedGameIndex: Int = 0,
+    /** Game ids the user hid from library lists. */
+    val hiddenGameIds: Set<String> = emptySet(),
+    /** Per-game cover pan inside the Game Icon. */
+    val gameArtAlignments: Map<String, GameArtAlignment> = emptyMap(),
     /** Single-screen vertical selector vs dual-screen horizontal XMB. */
     val displayMode: DisplayMode = DisplayMode.Dual,
     /** Column count for the RSS feed grid (nav math + layout). */

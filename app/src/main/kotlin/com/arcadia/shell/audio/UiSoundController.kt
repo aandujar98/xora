@@ -60,6 +60,8 @@ class UiSoundController @Inject constructor(
     private var friendsTabId: Int = 0
     private var profileTabId: Int = 0
     private var navCloseId: Int = 0
+    /** Vita shortcut bubble confirm (`bubble_launch.wav`). */
+    private var bubbleLaunchId: Int = 0
 
     private var volume: Float = DEFAULT_UI_SFX_VOLUME
     private var notificationSoundEnabled: Boolean = true
@@ -131,6 +133,7 @@ class UiSoundController @Inject constructor(
                     UiOneShot.FriendsTab -> play(friendsTabId)
                     UiOneShot.ProfileTab -> play(profileTabId)
                     UiOneShot.NavClose -> play(navCloseId)
+                    UiOneShot.BubbleLaunch -> play(bubbleLaunchId)
                 }
             }
         }
@@ -158,6 +161,7 @@ class UiSoundController @Inject constructor(
         friendsTabId = 0
         profileTabId = 0
         navCloseId = 0
+        bubbleLaunchId = 0
     }
 
     /** Banner appear chime — friend online, download complete, RetroAchievement unlock. */
@@ -198,7 +202,8 @@ class UiSoundController @Inject constructor(
             NavAction.ToggleSystemPanel,
             -> return
 
-            NavAction.Confirm -> okId
+            NavAction.Confirm ->
+                if (gamepadDispatcher.vitaBubbleLaunchSfx) return else okId
 
             NavAction.Menu ->
                 // Flag is still the pre-toggle state when this action is observed.
@@ -270,6 +275,7 @@ class UiSoundController @Inject constructor(
                     friendsTabId = created.loadQuietly(R.raw.friends_tab)
                     profileTabId = created.loadQuietly(R.raw.profile_tab)
                     navCloseId = created.loadQuietly(R.raw.nav_close)
+                    bubbleLaunchId = created.loadQuietly(R.raw.bubble_launch)
                 }
         }.getOrNull()
         soundPool = pool
