@@ -4,6 +4,7 @@ import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.GameArtAlignment
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
@@ -114,6 +115,8 @@ data class HomeHubUiState(
     val vitaShortcutDepartingIndex: Int? = null,
     /** Absolute path to custom wallpaper, or null for the bundled default. */
     val wallpaperPath: String? = null,
+    val wallpaperAlignX: Float = 0f,
+    val wallpaperAlignY: Float = 0f,
     /** Absolute path to custom BGM, or null for the bundled default. */
     val customBgmPath: String? = null,
     /** Most recently played non-app game for the Continue shard. */
@@ -148,6 +151,9 @@ data class HeroTrailerState(
     /** Encoded trailer string from [com.arcadia.shell.model.TrailerRefs]. */
     val trailerUrl: String? = null,
     val displayMode: TrailerDisplayMode = TrailerDisplayMode.InIcon,
+    val iconIdleMedia: GameIconIdleMedia = GameIconIdleMedia.Trailer,
+    /** Screenshot / fanart paths for Game Icon idle media. */
+    val screenshotPaths: List<String> = emptyList(),
 )
 
 data class LibraryTab(
@@ -489,6 +495,9 @@ data class PhotosUiState(
     val focusedIsFavorite: Boolean get() = focusedPhoto?.id?.let { it in favoriteIds } == true
     val pageCount: Int get() = if (photos.isEmpty()) 1 else (photos.size + PHOTO_PAGE_SIZE - 1) / PHOTO_PAGE_SIZE
     val currentPage: Int get() = focusedIndex / PHOTO_PAGE_SIZE
+    /** Options / viewer / edit / delete sit above the gallery and must clear LT/RT chrome. */
+    val chromeOverlayOpen: Boolean
+        get() = optionsOpen || fullscreenOpen || deleteConfirmOpen || edit != null
 }
 
 /** 2 rows × 5 columns per gallery page, matching the concept layout. */

@@ -71,7 +71,7 @@ private const val DESIGN_HEIGHT = 1080f
 
 // Upper-left information panel.
 private const val INFO_LEFT = 79f
-private const val INFO_TOP = 17f
+private const val INFO_TOP = 124f
 private const val INFO_WIDTH = 468f
 private const val INFO_HEIGHT = 334f
 private const val INFO_RADIUS = 30f

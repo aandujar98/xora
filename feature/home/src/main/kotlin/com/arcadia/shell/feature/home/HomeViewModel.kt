@@ -20,6 +20,7 @@ import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.GameArtAlignment
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.GameCustomMediaStore
 import com.arcadia.shell.datastore.HomeThemeMediaStore
 import com.arcadia.shell.datastore.LocalProfile
@@ -250,6 +251,10 @@ class HomeViewModel @Inject constructor(
     private val xoraItemIndex = MutableStateFlow(GAMES_ITEM_RECENTS)
     private val xoraDepth = MutableStateFlow(XoraXmbDepth.Category)
     private val xoraDrilledPlatformId = MutableStateFlow<String?>(null)
+    /** Last hovered item in each XMB folder, restored when backing out. */
+    private val xoraReturnItemIndex = mutableMapOf<XoraXmbDepth, Int>()
+    /** Drill-in parents so Cancel returns to the folder the user actually left. */
+    private val xoraReturnStack = ArrayDeque<XoraXmbDepth>()
     private val homeShortcutIndex = MutableStateFlow(0)
     private val homeShortcutsEditMode = MutableStateFlow(false)
     private val homeShortcuts = MutableStateFlow<List<HomeShortcut>>(emptyList())
@@ -762,7 +767,13 @@ class HomeViewModel @Inject constructor(
     }
 
     private val homeThemeFlow = combine(
-        preferences.settings.map { it.homeWallpaperPath to it.customBgmPath },
+        preferences.settings.map {
+            Triple(
+                it.homeWallpaperPath,
+                it.customBgmPath,
+                GameArtAlignment(it.wallpaperAlignX, it.wallpaperAlignY),
+            )
+        },
         homeShortcuts,
         homeHubNavFlow,
         addShortcutChromeFlow,
@@ -774,6 +785,8 @@ class HomeViewModel @Inject constructor(
         val themes = themesAndXora.first
         HomeThemeChrome(
             wallpaperPath = themePaths.first,
+            wallpaperAlignX = themePaths.third.x,
+            wallpaperAlignY = themePaths.third.y,
             customBgmPath = themePaths.second,
             shortcuts = shortcuts,
             nav = nav,
@@ -789,6 +802,8 @@ class HomeViewModel @Inject constructor(
 
     private data class HomeThemeChrome(
         val wallpaperPath: String?,
+        val wallpaperAlignX: Float,
+        val wallpaperAlignY: Float,
         val customBgmPath: String?,
         val shortcuts: List<HomeShortcut>,
         val nav: HomeHubNav,
@@ -1003,7 +1018,16 @@ class HomeViewModel @Inject constructor(
         },
     ) { base, trailer, insight, systemIndex, aux ->
         base.copy(
-            trailer = trailer,
+            trailer = trailer.copy(
+                iconIdleMedia = base.startSettings.settings.gameIconIdleMedia,
+                screenshotPaths = run {
+                    val focused = base.xoraXmb.focusGame ?: base.selectedGame
+                    val fromInsight = insight.screenshotPaths.takeIf {
+                        insight.gameId != null && insight.gameId == focused?.id
+                    }.orEmpty()
+                    fromInsight.ifEmpty { listOfNotNull(focused?.heroImagePath) }
+                },
+            ),
             insight = insight,
             systemPanelSelectedIndex = systemIndex,
             welcomeBackOpen = aux.welcomeBack,
@@ -2126,6 +2150,8 @@ class HomeViewModel @Inject constructor(
                 vitaShortcutLaunch = theme.nav.vitaShortcutLaunch,
                 vitaShortcutDepartingIndex = theme.nav.vitaShortcutDepartingIndex,
                 wallpaperPath = theme.wallpaperPath,
+                wallpaperAlignX = theme.wallpaperAlignX,
+                wallpaperAlignY = theme.wallpaperAlignY,
                 customBgmPath = theme.customBgmPath,
                 continueGame = continueGame,
                 themesOpen = theme.themesOpen,
@@ -2454,12 +2480,20 @@ class HomeViewModel @Inject constructor(
             val enabled: Boolean,
             val mode: TrailerDisplayMode,
             val idleSeconds: Int,
+            val iconIdleMedia: GameIconIdleMedia,
             val gateAllowed: Boolean,
             val launching: Boolean,
             val panelsOpen: Boolean,
             val libraryEmpty: Boolean,
             val onGameSelector: Boolean,
             val inputAt: Long,
+        )
+
+        data class IdleTrailerPrefs(
+            val enabled: Boolean,
+            val mode: TrailerDisplayMode,
+            val idleSeconds: Int,
+            val iconIdleMedia: GameIconIdleMedia,
         )
 
         combine(
@@ -2488,16 +2522,22 @@ class HomeViewModel @Inject constructor(
                 )
             }.distinctUntilChanged(),
             preferences.settings.map { settings ->
-                Triple(settings.trailerEnabled, settings.trailerDisplayMode, settings.trailerIdleSeconds)
+                IdleTrailerPrefs(
+                    enabled = settings.trailerEnabled,
+                    mode = settings.trailerDisplayMode,
+                    idleSeconds = settings.trailerIdleSeconds,
+                    iconIdleMedia = settings.gameIconIdleMedia,
+                )
             }.distinctUntilChanged(),
             trailerGateAllowed,
             lastInputAt,
         ) { snap, trailerPrefs, gate, inputAt ->
             IdleWatch(
                 gameId = snap.gameId,
-                enabled = trailerPrefs.first,
-                mode = trailerPrefs.second,
-                idleSeconds = trailerPrefs.third,
+                enabled = trailerPrefs.enabled,
+                mode = trailerPrefs.mode,
+                idleSeconds = trailerPrefs.idleSeconds,
+                iconIdleMedia = trailerPrefs.iconIdleMedia,
                 gateAllowed = gate,
                 launching = snap.launching,
                 panelsOpen = snap.panelsOpen,
@@ -2517,6 +2557,10 @@ class HomeViewModel @Inject constructor(
                         !watch.panelsOpen &&
                         !watch.libraryEmpty
                     if (!canIdle) return@flow
+                    // Screenshots replace in-icon trailers immediately; full-bleed / PIP still idle.
+                    val skipInIconTrailer = watch.iconIdleMedia == GameIconIdleMedia.Screenshot &&
+                        watch.mode == TrailerDisplayMode.InIcon
+                    if (skipInIconTrailer) return@flow
 
                     delay(watch.idleSeconds.coerceIn(5, 60) * 1_000L)
                     Log.i(TAG, "Idle ${watch.idleSeconds}s elapsed; resolving trailer for $gameId")
@@ -3081,6 +3125,7 @@ class HomeViewModel @Inject constructor(
         )
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
+        xoraReturnStack.clear()
         onXoraCategoryLanded(XoraXmbCategory.entries[coerced])
     }
 
@@ -3108,14 +3153,16 @@ class HomeViewModel @Inject constructor(
             XoraXmbAction.OpenRaLibrary -> openRaLibrary()
             XoraXmbAction.LaunchContinueOrFavorite -> launchContinueOrFavorite()
             XoraXmbAction.DrillAllGames -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
                 xoraDepth.value = XoraXmbDepth.Systems
-                xoraItemIndex.value = 0
+                xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.Systems)
                 xoraDrilledPlatformId.value = null
             }
             XoraXmbAction.PickHomeFolderImage -> requestHomeFolderImage()
             XoraXmbAction.DrillXoraEmulator -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
                 xoraDepth.value = XoraXmbDepth.Emulator
-                xoraItemIndex.value = 0
+                xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.Emulator)
                 xoraDrilledPlatformId.value = null
             }
             is XoraXmbAction.ToggleXoraEmulatorSetting ->
@@ -3129,9 +3176,14 @@ class HomeViewModel @Inject constructor(
             XoraXmbAction.LoadGameState,
             XoraXmbAction.ResetGame,
             -> Unit
-            XoraXmbAction.OpenPhotos -> openPhotosRung()
-            is XoraXmbAction.OpenPhotoFolder ->
+            XoraXmbAction.OpenPhotos -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openPhotosRung()
+            }
+            is XoraXmbAction.OpenPhotoFolder -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
                 openPhotosRung(folderId = action.folderId, folderTitle = item.title)
+            }
             XoraXmbAction.VideosStub -> activateVideos()
             is XoraXmbAction.OpenVideoFolder -> activateVideos(folderTitle = item.title)
             XoraXmbAction.OpenNowPlaying -> {
@@ -3139,15 +3191,31 @@ class HomeViewModel @Inject constructor(
                     emit(HomeEvent.ShowMessage("Nothing playing yet — pick a song from Music."))
                     return
                 }
+                rememberXoraFolder(XoraXmbDepth.Category)
                 xoraDepth.value = XoraXmbDepth.NowPlaying
                 xoraItemIndex.value = 0
             }
-            XoraXmbAction.DrillMusicAlbums -> openMusicRung(XoraXmbDepth.MusicAlbums)
-            XoraXmbAction.DrillAllSongs -> openMusicRung(XoraXmbDepth.MusicTracks)
-            is XoraXmbAction.DrillMusicAlbum -> openMusicRung(
-                depth = XoraXmbDepth.MusicTracks,
-                albumId = action.albumId,
-            )
+            XoraXmbAction.DrillMusicAlbums -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openMusicRung(
+                    XoraXmbDepth.MusicAlbums,
+                    itemIndex = restoreXoraItem(XoraXmbDepth.MusicAlbums),
+                )
+            }
+            XoraXmbAction.DrillAllSongs -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openMusicRung(
+                    XoraXmbDepth.MusicTracks,
+                    itemIndex = restoreXoraItem(XoraXmbDepth.MusicTracks),
+                )
+            }
+            is XoraXmbAction.DrillMusicAlbum -> {
+                rememberXoraFolder()
+                openMusicRung(
+                    depth = XoraXmbDepth.MusicTracks,
+                    albumId = action.albumId,
+                )
+            }
             is XoraXmbAction.PlayMusicTrack -> {
                 val tracks = musicUi.value.tracks
                 val track = tracks.firstOrNull { it.id == action.trackId } ?: return
@@ -3156,20 +3224,26 @@ class HomeViewModel @Inject constructor(
                 if (track.source == MusicSource.Spotify) {
                     playSpotifyTrack(track, alreadyQueued = true)
                 }
+                rememberXoraFolder()
                 xoraDepth.value = XoraXmbDepth.NowPlaying
                 xoraItemIndex.value = 0
             }
             XoraXmbAction.DrillDspAccounts -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
                 xoraDepth.value = XoraXmbDepth.DspAccounts
-                xoraItemIndex.value = 0
+                xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.DspAccounts)
                 xoraDrilledPlatformId.value = null
             }
             is XoraXmbAction.LinkDspAccount -> linkDspAccount(action.provider)
-            XoraXmbAction.OpenDashboard -> openDashboardRung()
+            XoraXmbAction.OpenDashboard -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openDashboardRung()
+            }
             XoraXmbAction.StoreStub ->
                 emit(HomeEvent.ShowMessage("XOrA Store — coming soon."))
             XoraXmbAction.OpenNews -> setHomePage(HomePage.RssFeed)
             is XoraXmbAction.DrillSystem -> {
+                rememberXoraFolder(XoraXmbDepth.Systems)
                 xoraDrilledPlatformId.value = action.platformId
                 xoraDepth.value = XoraXmbDepth.Roms
                 xoraItemIndex.value = 0
@@ -3260,31 +3334,34 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /** Snapshot the hovered row before drilling into a folder so Cancel can land back on it. */
+    private fun rememberXoraFolder(depth: XoraXmbDepth = xoraDepth.value) {
+        xoraReturnItemIndex[depth] = xoraItemIndex.value
+        if (xoraReturnStack.lastOrNull() != depth) {
+            xoraReturnStack.addLast(depth)
+        }
+    }
+
+    private fun restoreXoraItem(depth: XoraXmbDepth, fallback: Int = 0): Int =
+        xoraReturnItemIndex[depth] ?: fallback
+
+    private fun xoraParentDepth(current: XoraXmbDepth): XoraXmbDepth = when (current) {
+        XoraXmbDepth.Roms -> XoraXmbDepth.Systems
+        XoraXmbDepth.MusicTracks ->
+            if (musicUi.value.drilledAlbumId != null) XoraXmbDepth.MusicAlbums
+            else XoraXmbDepth.Category
+        XoraXmbDepth.Category -> XoraXmbDepth.Category
+        else -> XoraXmbDepth.Category
+    }
+
     private fun drillOutXora() {
         noteUserActivity()
-        when (xoraDepth.value) {
-            XoraXmbDepth.Roms -> {
-                xoraDepth.value = XoraXmbDepth.Systems
-                xoraItemIndex.value = 0
-                xoraDrilledPlatformId.value = null
-            }
-            // A song rung reached from an album pops back to that album list, not to the category.
-            XoraXmbDepth.MusicTracks -> {
-                if (musicUi.value.drilledAlbumId != null) {
-                    openMusicRung(XoraXmbDepth.MusicAlbums)
-                } else {
-                    xoraDepth.value = XoraXmbDepth.Category
-                    xoraItemIndex.value = defaultXoraCategoryItemIndex(
-                        XoraXmbCategory.entries.getOrElse(xoraCategoryIndex.value) {
-                            XoraXmbCategory.Games
-                        },
-                    )
-                }
-            }
-            XoraXmbDepth.NowPlaying -> {
-                xoraDepth.value = XoraXmbDepth.Category
-                xoraItemIndex.value = 0
-            }
+        val current = xoraDepth.value
+        if (current == XoraXmbDepth.Category) {
+            if (uiState.value.anyHeroPanelExpanded) collapseHeroPanels()
+            return
+        }
+        when (current) {
             XoraXmbDepth.Photos -> {
                 stopPhotoSlideshow()
                 photoControlsHideJob?.cancel()
@@ -3297,31 +3374,43 @@ class HomeViewModel @Inject constructor(
                         edit = null,
                     )
                 }
-                xoraDepth.value = XoraXmbDepth.Category
-                xoraItemIndex.value = 0
             }
             XoraXmbDepth.Dashboard -> {
                 dashboardUi.update {
                     it.copy(view = DashboardView.Tiles, busy = false, error = null, notice = null)
                 }
-                xoraDepth.value = XoraXmbDepth.Category
-                xoraItemIndex.value = 0
             }
-            XoraXmbDepth.Systems -> {
-                xoraDepth.value = XoraXmbDepth.Category
-                xoraItemIndex.value = GAMES_ITEM_LIBRARY
-                xoraDrilledPlatformId.value = null
-            }
-            XoraXmbDepth.Emulator,
-            XoraXmbDepth.DspAccounts,
-            XoraXmbDepth.MusicAlbums,
-            -> {
-                xoraDepth.value = XoraXmbDepth.Category
-                xoraItemIndex.value = 0
-                xoraDrilledPlatformId.value = null
-            }
-            XoraXmbDepth.Category -> {
-                if (uiState.value.anyHeroPanelExpanded) collapseHeroPanels()
+            else -> Unit
+        }
+        xoraReturnItemIndex[current] = xoraItemIndex.value
+        val previous = xoraReturnStack.removeLastOrNull() ?: xoraParentDepth(current)
+        val restored = restoreXoraItem(
+            previous,
+            fallback = if (previous == XoraXmbDepth.Category) {
+                defaultXoraCategoryItemIndex(
+                    XoraXmbCategory.entries.getOrElse(xoraCategoryIndex.value) {
+                        XoraXmbCategory.Games
+                    },
+                )
+            } else {
+                0
+            },
+        )
+        when (previous) {
+            XoraXmbDepth.MusicAlbums ->
+                openMusicRung(XoraXmbDepth.MusicAlbums, itemIndex = restored)
+            XoraXmbDepth.MusicTracks ->
+                openMusicRung(
+                    depth = XoraXmbDepth.MusicTracks,
+                    albumId = musicUi.value.drilledAlbumId,
+                    itemIndex = restored,
+                )
+            else -> {
+                xoraDepth.value = previous
+                xoraItemIndex.value = restored
+                if (previous != XoraXmbDepth.Roms) {
+                    xoraDrilledPlatformId.value = null
+                }
             }
         }
     }
@@ -3332,9 +3421,13 @@ class HomeViewModel @Inject constructor(
      * MediaStore is queried per drill rather than up front: the Music category is rarely the first
      * thing opened, and the shell should not pay for an audio scan it may never show.
      */
-    private fun openMusicRung(depth: XoraXmbDepth, albumId: String? = null) {
+    private fun openMusicRung(
+        depth: XoraXmbDepth,
+        albumId: String? = null,
+        itemIndex: Int = 0,
+    ) {
         xoraDepth.value = depth
-        xoraItemIndex.value = 0
+        xoraItemIndex.value = itemIndex
         val hasAccess = musicLibrary.hasAudioAccess()
         musicUi.update {
             it.copy(
@@ -4614,6 +4707,7 @@ class HomeViewModel @Inject constructor(
         )
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
+        xoraReturnStack.clear()
         onXoraCategoryLanded(XoraXmbCategory.entries[next])
     }
 
@@ -6553,6 +6647,13 @@ class HomeViewModel @Inject constructor(
                 }
                 preferences.setTrailerDisplayMode(next)
             }
+            StartSettingsAction.CycleGameIconIdleMedia -> viewModelScope.launch {
+                val next = when (preferences.settings.first().gameIconIdleMedia) {
+                    GameIconIdleMedia.Trailer -> GameIconIdleMedia.Screenshot
+                    GameIconIdleMedia.Screenshot -> GameIconIdleMedia.Trailer
+                }
+                preferences.setGameIconIdleMedia(next)
+            }
             StartSettingsAction.CycleThemeMode -> viewModelScope.launch {
                 val values = ThemeMode.entries
                 val current = preferences.settings.first().themeMode
@@ -7724,6 +7825,18 @@ class HomeViewModel @Inject constructor(
 
     fun resetGameArtAlignment(gameId: String) {
         viewModelScope.launch { preferences.setGameArtAlignment(gameId, null) }
+    }
+
+    fun nudgeWallpaperAlignment(dx: Float, dy: Float) {
+        viewModelScope.launch {
+            val settings = preferences.settings.first()
+            val current = GameArtAlignment(settings.wallpaperAlignX, settings.wallpaperAlignY)
+            preferences.setWallpaperAlignment(current.nudged(dx, dy))
+        }
+    }
+
+    fun resetWallpaperAlignment() {
+        viewModelScope.launch { preferences.setWallpaperAlignment(null) }
     }
 
     fun listSavesForGame(game: Game): List<GameSaveEntry> = gameSaveCatalog.listForGame(game)

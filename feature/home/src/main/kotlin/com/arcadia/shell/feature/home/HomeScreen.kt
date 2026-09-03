@@ -410,6 +410,8 @@ fun HomeScreen(
                             },
                             showHomeWallpaper = state.homePage == HomePage.Home,
                             homeWallpaperPath = state.homeHub.wallpaperPath,
+                            wallpaperAlignX = state.homeHub.wallpaperAlignX,
+                            wallpaperAlignY = state.homeHub.wallpaperAlignY,
                             onToggleAccountPanel = onToggleAccountPanel,
                             onToggleSystemPanel = onToggleSystemPanel,
                                 onOpenNotifications = onOpenNotifications,
@@ -687,6 +689,9 @@ fun HomePageContent(
                                 visible = trayOpen && launch != null,
                                 launch = launch,
                                 homeWallpaperPath = state.homeHub.wallpaperPath,
+                                holdWhite = state.homeHub.vitaShortcutDepartingIndex != null,
+                                wallpaperAlignX = state.homeHub.wallpaperAlignX,
+                                wallpaperAlignY = state.homeHub.wallpaperAlignY,
                                 onConfirm = {
                                     onActivateHomeShortcut(state.homeHub.shortcutIndex)
                                 },

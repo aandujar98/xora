@@ -1,6 +1,7 @@
 package com.arcadia.shell.feature.home
 
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.ThemeMode
@@ -69,6 +70,7 @@ sealed interface StartSettingsAction {
     data object SwitchDisplayMode : StartSettingsAction
     data object CycleSecondaryRole : StartSettingsAction
     data object CycleTrailerDisplay : StartSettingsAction
+    data object CycleGameIconIdleMedia : StartSettingsAction
     data object CycleThemeMode : StartSettingsAction
     data object CycleFeedColumns : StartSettingsAction
     data object CycleUiTextScale : StartSettingsAction
@@ -193,6 +195,15 @@ fun buildStartSettingsRows(
                 TrailerDisplayMode.CornerPip -> "Corner PIP"
             },
             action = StartSettingsAction.CycleTrailerDisplay,
+        ),
+        StartSettingsRow.Action(
+            id = "game_icon_idle",
+            title = "Game Icon idle",
+            subtitle = when (settings.gameIconIdleMedia) {
+                GameIconIdleMedia.Trailer -> "Trailers"
+                GameIconIdleMedia.Screenshot -> "Screenshots"
+            },
+            action = StartSettingsAction.CycleGameIconIdleMedia,
         ),
         StartSettingsRow.Action(
             id = "theme",

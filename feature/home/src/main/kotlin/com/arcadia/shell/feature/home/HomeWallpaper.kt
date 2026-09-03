@@ -14,7 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
@@ -53,6 +56,8 @@ fun HomeWallpaper(
     modifier: Modifier = Modifier,
     @Suppress("UNUSED_PARAMETER") dim: Boolean = false,
     dimBlendMode: BlendMode = BlendMode.Hardlight,
+    alignX: Float = 0f,
+    alignY: Float = 0f,
 ) {
     val shellTheme = LocalShellTheme.current
     val layer = remember(
@@ -87,6 +92,8 @@ fun HomeWallpaper(
         ) { target ->
             WallpaperLayerContent(
                 layer = target,
+                alignX = alignX,
+                alignY = alignY,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -109,6 +116,8 @@ fun HomeWallpaper(
 private fun WallpaperLayerContent(
     layer: WallpaperLayer,
     modifier: Modifier = Modifier,
+    alignX: Float = 0f,
+    alignY: Float = 0f,
 ) {
     val platformContext = LocalPlatformContext.current
     val androidContext = LocalContext.current
@@ -116,12 +125,19 @@ private fun WallpaperLayerContent(
         layer.customPath?.takeIf { it.isNotBlank() }?.let { File(it) }
             ?.takeIf { it.isFile && it.length() > 0L }
     }
+    val alignment = BiasAlignment(
+        horizontalBias = alignX.coerceIn(-1f, 1f),
+        verticalBias = alignY.coerceIn(-1f, 1f),
+    )
+    val panMedia = kotlin.math.abs(alignX) > 0.001f || kotlin.math.abs(alignY) > 0.001f
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize().clipToBounds()) {
         when {
             customFile != null && customFile.isVideoWallpaper() -> {
                 LoopingWallpaperVideo(
                     uri = "file://${customFile.absolutePath}",
+                    alignment = alignment,
+                    pan = panMedia,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -140,6 +156,7 @@ private fun WallpaperLayerContent(
                     model = request,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    alignment = alignment,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -149,6 +166,8 @@ private fun WallpaperLayerContent(
                 LoopingWallpaperVideo(
                     uri = "asset:///${layer.assetPath}",
                     speed = layer.assetSpeed,
+                    alignment = alignment,
+                    pan = panMedia,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -166,13 +185,27 @@ private fun WallpaperLayerContent(
                     model = request,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    alignment = alignment,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
             else -> {
                 ShellThemeBackdrop(
                     style = layer.style,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (panMedia) {
+                                Modifier.graphicsLayer {
+                                    scaleX = 1.24f
+                                    scaleY = 1.24f
+                                    translationX = -alignX * size.width * 0.12f
+                                    translationY = -alignY * size.height * 0.12f
+                                }
+                            } else {
+                                Modifier
+                            },
+                        ),
                 )
             }
         }
@@ -185,6 +218,8 @@ internal fun LoopingWallpaperVideo(
     uri: String,
     modifier: Modifier = Modifier,
     speed: Float = 1f,
+    alignment: Alignment = Alignment.Center,
+    pan: Boolean = false,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -256,6 +291,18 @@ internal fun LoopingWallpaperVideo(
         }
     }
 
+    val videoModifier = if (pan) {
+        modifier.graphicsLayer {
+            scaleX = 1.24f
+            scaleY = 1.24f
+            val bias = alignment as? BiasAlignment
+            translationX = -(bias?.horizontalBias ?: 0f) * size.width * 0.12f
+            translationY = -(bias?.verticalBias ?: 0f) * size.height * 0.12f
+        }
+    } else {
+        modifier
+    }
+
     AndroidView(
         factory = { ctx ->
             (LayoutInflater.from(ctx).inflate(R.layout.xora_backdrop_player, null) as PlayerView)
@@ -269,7 +316,7 @@ internal fun LoopingWallpaperVideo(
         },
         update = { it.player = player },
         onRelease = { view -> view.player = null },
-        modifier = modifier,
+        modifier = videoModifier,
     )
 }
 

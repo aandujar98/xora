@@ -78,6 +78,12 @@ enum class TrailerDisplayMode {
     CornerPip,
 }
 
+/** What plays inside a focused Game Icon after idle. Trailers stay the default. */
+enum class GameIconIdleMedia {
+    Trailer,
+    Screenshot,
+}
+
 /**
  * Preferred source when resolving a game trailer URL.
  *
@@ -189,11 +195,17 @@ data class ShellSettings(
     val trailerDisplayMode: TrailerDisplayMode = TrailerDisplayMode.InIcon,
     /** Seconds without input before an idle trailer may start. */
     val trailerIdleSeconds: Int = DEFAULT_TRAILER_IDLE_SECONDS,
+    /** Idle media inside the focused Game Icon. Trailers remain the default. */
+    val gameIconIdleMedia: GameIconIdleMedia = GameIconIdleMedia.Trailer,
     /**
      * Absolute path to a user-picked Home wallpaper. Null / blank uses the active theme's
      * backdrop.
      */
     val homeWallpaperPath: String? = null,
+    /** Horizontal wallpaper pan (`-1` left … `1` right), same bias as cover art. */
+    val wallpaperAlignX: Float = 0f,
+    /** Vertical wallpaper pan (`-1` top … `1` bottom). */
+    val wallpaperAlignY: Float = 0f,
     /**
      * Absolute path to a gallery still cropped into the Games column Folder_IMG window.
      * Null / blank shows the checker placeholder.
@@ -402,7 +414,12 @@ class ShellPreferences @Inject constructor(
                 ?: TrailerDisplayMode.InIcon,
             trailerIdleSeconds = (prefs[Keys.TRAILER_IDLE_SECONDS] ?: DEFAULT_TRAILER_IDLE_SECONDS)
                 .coerceIn(5, 60),
+            gameIconIdleMedia = prefs[Keys.GAME_ICON_IDLE_MEDIA]
+                ?.let { name -> runCatching { GameIconIdleMedia.valueOf(name) }.getOrNull() }
+                ?: GameIconIdleMedia.Trailer,
             homeWallpaperPath = prefs[Keys.HOME_WALLPAPER_PATH]?.takeIf { it.isNotBlank() },
+            wallpaperAlignX = (prefs[Keys.WALLPAPER_ALIGN_X] ?: 0f).coerceIn(-1f, 1f),
+            wallpaperAlignY = (prefs[Keys.WALLPAPER_ALIGN_Y] ?: 0f).coerceIn(-1f, 1f),
             homeFolderImagePath = prefs[Keys.HOME_FOLDER_IMAGE_PATH]?.takeIf { it.isNotBlank() },
             customBgmPath = prefs[Keys.CUSTOM_BGM_PATH]?.takeIf { it.isNotBlank() },
             musicLibraryPath = prefs[Keys.MUSIC_LIBRARY_PATH]?.takeIf { it.isNotBlank() },
@@ -723,9 +740,24 @@ class ShellPreferences @Inject constructor(
         it[Keys.TRAILER_IDLE_SECONDS] = seconds.coerceIn(5, 60)
     }
 
+    suspend fun setGameIconIdleMedia(media: GameIconIdleMedia) = edit {
+        it[Keys.GAME_ICON_IDLE_MEDIA] = media.name
+    }
+
     suspend fun setHomeWallpaperPath(path: String?) = edit {
         if (path.isNullOrBlank()) it.remove(Keys.HOME_WALLPAPER_PATH)
         else it[Keys.HOME_WALLPAPER_PATH] = path
+    }
+
+    suspend fun setWallpaperAlignment(alignment: GameArtAlignment?) = edit { prefs ->
+        val next = (alignment ?: GameArtAlignment()).clamped()
+        if (next.isIdentity) {
+            prefs.remove(Keys.WALLPAPER_ALIGN_X)
+            prefs.remove(Keys.WALLPAPER_ALIGN_Y)
+        } else {
+            prefs[Keys.WALLPAPER_ALIGN_X] = next.x
+            prefs[Keys.WALLPAPER_ALIGN_Y] = next.y
+        }
     }
 
     suspend fun setHomeFolderImagePath(path: String?) = edit {
@@ -1232,6 +1264,7 @@ class ShellPreferences @Inject constructor(
         val TRAILER_SOURCE_PREFERENCE = stringPreferencesKey("trailer_source_preference")
         val TRAILER_DISPLAY_MODE = stringPreferencesKey("trailer_display_mode")
         val TRAILER_IDLE_SECONDS = intPreferencesKey("trailer_idle_seconds")
+        val GAME_ICON_IDLE_MEDIA = stringPreferencesKey("game_icon_idle_media")
         val TRAILER_PIPELINE_V2 = booleanPreferencesKey("trailer_pipeline_v2")
         val SS_USER = stringPreferencesKey("screenscraper_user")
         val SS_PASSWORD = stringPreferencesKey("screenscraper_password")
@@ -1265,6 +1298,8 @@ class ShellPreferences @Inject constructor(
         val GAME_ART_ALIGNMENTS = stringPreferencesKey("game_art_alignments")
         val SHOW_HIDDEN_GAMES = booleanPreferencesKey("show_hidden_games")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
+        val WALLPAPER_ALIGN_X = floatPreferencesKey("wallpaper_align_x")
+        val WALLPAPER_ALIGN_Y = floatPreferencesKey("wallpaper_align_y")
         val HOME_FOLDER_IMAGE_PATH = stringPreferencesKey("home_folder_image_path")
         val CUSTOM_BGM_PATH = stringPreferencesKey("custom_bgm_path")
         val MUSIC_LIBRARY_PATH = stringPreferencesKey("music_library_path")

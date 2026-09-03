@@ -87,6 +87,8 @@ fun XmbPane(
             customPath = state.homeHub.wallpaperPath,
             dim = true,
             dimBlendMode = BlendMode.Multiply,
+            alignX = state.homeHub.wallpaperAlignX,
+            alignY = state.homeHub.wallpaperAlignY,
             modifier = Modifier.fillMaxSize(),
         )
         Column(modifier = Modifier.fillMaxSize()) {

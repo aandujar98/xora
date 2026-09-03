@@ -255,6 +255,7 @@ fun SystemPill(
     systemProfile: SystemProfileCardState,
     expanded: Boolean,
     selectedRowIndex: Int,
+    hideCollapsedChrome: Boolean = false,
     onToggle: () -> Unit,
     onSelectRow: (Int) -> Unit,
     onActivateRow: (Int?) -> Unit,
@@ -444,14 +445,20 @@ fun SystemPill(
             }
         }
 
-            ProfileSelectBubble(
-                expanded = expanded,
-                editSelected = editSelected,
-                profile = profile,
-                avatarImageModel = avatarImageModel,
-                onClick = if (expanded) onEditProfile else onToggle,
+            androidx.compose.animation.AnimatedVisibility(
+                visible = expanded || !hideCollapsedChrome,
+                enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+                exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
                 modifier = Modifier.align(Alignment.TopEnd),
-            )
+            ) {
+                ProfileSelectBubble(
+                    expanded = expanded,
+                    editSelected = editSelected,
+                    profile = profile,
+                    avatarImageModel = avatarImageModel,
+                    onClick = if (expanded) onEditProfile else onToggle,
+                )
+            }
         }
     }
 }

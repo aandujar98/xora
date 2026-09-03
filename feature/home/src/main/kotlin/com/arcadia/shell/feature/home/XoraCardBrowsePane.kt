@@ -28,7 +28,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -48,7 +47,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
@@ -57,7 +55,6 @@ import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.designsystem.xoraPlateStroke
 import com.arcadia.shell.feature.home.component.ArtworkImage
-import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.xmb.drawableResForPlatformId
 import kotlin.math.abs
@@ -360,30 +357,16 @@ private fun BrowseCard(
                 strokeWidth = (XmbGlyphStrokeDesignPx * unit).dp,
             )
         } else if (item.artPath != null) {
-            val playInIcon = focused &&
-                trailer.active &&
-                trailer.displayMode == TrailerDisplayMode.InIcon &&
-                !trailer.trailerUrl.isNullOrBlank() &&
-                item.action is XoraXmbAction.LaunchGame
-            if (playInIcon) {
-                HeroTrailerLayer(
-                    state = trailer.copy(displayMode = TrailerDisplayMode.FullBackground),
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                ArtworkImage(
-                    path = item.artPath,
-                    contentDescription = item.title,
-                    fallbackText = item.title,
-                    contentScale = ContentScale.Crop,
-                    decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
-                    alignment = BiasAlignment(
-                        horizontalBias = item.artAlignX.coerceIn(-1f, 1f),
-                        verticalBias = item.artAlignY.coerceIn(-1f, 1f),
-                    ),
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            GameIconIdleArt(
+                coverPath = item.artPath,
+                title = item.title,
+                focused = focused,
+                trailer = trailer,
+                screenshotPaths = listOfNotNull(item.screenshotPath),
+                artAlignX = item.artAlignX,
+                artAlignY = item.artAlignY,
+                modifier = Modifier.fillMaxSize(),
+            )
         } else {
             BrowseCardFallback(item = item, unit = unit, height = height)
         }

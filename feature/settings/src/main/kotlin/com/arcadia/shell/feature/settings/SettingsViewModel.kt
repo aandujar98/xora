@@ -11,6 +11,7 @@ import com.arcadia.shell.datastore.PlatformEmulatorChoice
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.TrailerDisplayMode
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.launcher.BuiltInPlayers
@@ -652,6 +653,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setTrailerDisplayMode(mode: TrailerDisplayMode) {
         viewModelScope.launch { preferences.setTrailerDisplayMode(mode) }
+    }
+
+    fun setGameIconIdleMedia(media: GameIconIdleMedia) {
+        viewModelScope.launch { preferences.setGameIconIdleMedia(media) }
     }
 
     fun setScreenScraperCredentials(user: String, password: String) {

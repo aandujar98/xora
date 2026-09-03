@@ -1,6 +1,9 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -11,9 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -32,6 +36,7 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import kotlin.math.min
@@ -60,15 +65,34 @@ fun VitaShortcutLaunchPage(
     homeWallpaperPath: String?,
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
+    holdWhite: Boolean = false,
+    wallpaperAlignX: Float = 0f,
+    wallpaperAlignY: Float = 0f,
     achievementsContent: @Composable BoxScope.() -> Unit = {},
 ) {
     AnimatedVisibility(
         visible = visible && launch != null,
-        enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+        enter = fadeIn(tween(0)),
         exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
         modifier = modifier,
     ) {
         val page = launch ?: return@AnimatedVisibility
+        val reduceMotion = rememberReduceMotion()
+        val whiteAlpha = remember { Animatable(1f) }
+        LaunchedEffect(visible, holdWhite, reduceMotion) {
+            if (reduceMotion) {
+                whiteAlpha.snapTo(0f)
+                return@LaunchedEffect
+            }
+            if (holdWhite) {
+                whiteAlpha.snapTo(1f)
+                return@LaunchedEffect
+            }
+            whiteAlpha.animateTo(
+                0f,
+                tween(durationMillis = 420, easing = FastOutSlowInEasing),
+            )
+        }
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val unit = min(
                 maxWidth.value / XORA_DESIGN_WIDTH,
@@ -93,6 +117,8 @@ fun VitaShortcutLaunchPage(
                 HomeWallpaper(
                     customPath = homeWallpaperPath,
                     dim = false,
+                    alignX = wallpaperAlignX,
+                    alignY = wallpaperAlignY,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -129,10 +155,10 @@ fun VitaShortcutLaunchPage(
                 text = page.shortcut.title,
                 fontSize = with(density) { du(LAUNCH_TITLE_SIZE).toSp() },
                 unit = unit,
-                maxLines = 2,
+                maxLines = 1,
                 modifier = Modifier
                     .offset(x = titleX.dp, y = titleY.dp)
-                    .widthIn(max = ruleWidth.dp),
+                    .width(ruleWidth.dp),
             )
             Box(
                 modifier = Modifier
@@ -153,10 +179,16 @@ fun VitaShortcutLaunchPage(
                 maxLines = 1,
                 modifier = Modifier
                     .offset(x = titleX.dp, y = subtitleY.dp)
-                    .widthIn(max = ruleWidth.dp),
+                    .width(ruleWidth.dp),
             )
 
             achievementsContent()
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = whiteAlpha.value)),
+            )
         }
     }
 }
@@ -176,6 +208,7 @@ private fun LaunchSelectTitle(
         modifier = modifier,
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
+        softWrap = false,
         color = Color.White,
         style = TextStyle(
             fontFamily = XoraFonts.XmbLabel,

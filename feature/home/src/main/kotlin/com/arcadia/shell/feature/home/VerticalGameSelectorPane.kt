@@ -160,6 +160,8 @@ fun VerticalGameSelectorPane(
                 customPath = state.homeHub.wallpaperPath,
                 dim = false,
                 dimBlendMode = BlendMode.Multiply,
+                alignX = state.homeHub.wallpaperAlignX,
+                alignY = state.homeHub.wallpaperAlignY,
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {

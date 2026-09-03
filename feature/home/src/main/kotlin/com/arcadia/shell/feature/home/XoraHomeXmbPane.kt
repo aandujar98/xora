@@ -212,6 +212,8 @@ fun XoraHomeXmbPane(
             HomeWallpaper(
                 customPath = state.homeHub.wallpaperPath,
                 dim = false,
+                alignX = state.homeHub.wallpaperAlignX,
+                alignY = state.homeHub.wallpaperAlignY,
                 modifier = Modifier
                     .fillMaxSize()
                     .then(backdropMotion),
@@ -483,6 +485,8 @@ fun XoraXmbHeroDetail(
             HomeWallpaper(
                 customPath = state.homeHub.wallpaperPath,
                 dim = false,
+                alignX = state.homeHub.wallpaperAlignX,
+                alignY = state.homeHub.wallpaperAlignY,
                 modifier = Modifier
                     .fillMaxSize()
                     .then(backdropMotion),
@@ -843,7 +847,8 @@ private fun XoraXmbPillChrome(
             profileAvatarModel = state.profileAvatarModel,
             accountRows = state.accountPanelRows,
             selectedRowIndex = state.accountPanelSelectedIndex,
-            hideCollapsedChrome = state.activeNotificationPresent,
+            hideCollapsedChrome = state.activeNotificationPresent ||
+                state.photos.chromeOverlayOpen,
             onToggle = onToggleAccountPanel,
             onSelectTab = onSelectSocialTab,
             onSelectRow = onSelectAccountRow,
@@ -870,6 +875,7 @@ private fun XoraXmbPillChrome(
             systemProfile = state.systemProfile,
             expanded = systemExpanded,
             selectedRowIndex = state.systemPanelSelectedIndex,
+            hideCollapsedChrome = state.photos.chromeOverlayOpen,
             onToggle = onToggleSystemPanel,
             onSelectRow = onSelectSystemRow,
             onActivateRow = onActivateSystemRow,

@@ -92,6 +92,8 @@ data class XoraXmbItem(
     val artAlignX: Float = 0f,
     /** Vertical cover-art bias inside the Game Icon (`-1` top … `1` bottom). */
     val artAlignY: Float = 0f,
+    /** Fanart / screenshot used when Game Icon idle media is Screenshots. */
+    val screenshotPath: String? = null,
 )
 
 /** Album / track / Now Playing art uses a 1×1 plate, not the landscape game card. */
@@ -350,6 +352,7 @@ fun buildXoraCategoryItems(
                 playTimeMs = continueGame?.playTimeMs ?: 0L,
                 platformLabel = continueGame?.platform?.displayName,
                 icon = XmbIcon.Continue,
+                screenshotPath = continueGame?.heroImagePath,
             )
             GamesSecondarySlot.Favorite -> XoraXmbItem(
                 id = "favorite",
@@ -361,6 +364,7 @@ fun buildXoraCategoryItems(
                 playTimeMs = favoriteGame?.playTimeMs ?: 0L,
                 platformLabel = favoriteGame?.platform?.displayName,
                 icon = XmbIcon.Favorite,
+                screenshotPath = favoriteGame?.heroImagePath,
             )
         }
         buildList {
@@ -652,6 +656,7 @@ fun buildXoraRomItems(
             playTimeMs = game.playTimeMs,
             platformLabel = game.platform.shortName,
             icon = XmbIcon.Games,
+            screenshotPath = game.heroImagePath,
         )
     }
 

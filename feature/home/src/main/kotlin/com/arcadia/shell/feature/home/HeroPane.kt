@@ -94,6 +94,8 @@ fun HeroPane(
     rssItem: RssFeedItem? = null,
     showHomeWallpaper: Boolean = false,
     homeWallpaperPath: String? = null,
+    wallpaperAlignX: Float = 0f,
+    wallpaperAlignY: Float = 0f,
     onToggleAccountPanel: () -> Unit,
     onToggleSystemPanel: () -> Unit,
     onOpenNotifications: () -> Unit = {},
@@ -162,6 +164,8 @@ fun HeroPane(
                     customPath = homeWallpaperPath,
                     dim = false,
                     dimBlendMode = BlendMode.Multiply,
+                    alignX = wallpaperAlignX,
+                    alignY = wallpaperAlignY,
                     modifier = Modifier
                         .fillMaxSize()
                         .arcadiaHazeSource(zIndex = 0f)
@@ -173,6 +177,8 @@ fun HeroPane(
                     HomeWallpaper(
                         customPath = homeWallpaperPath,
                         dim = false,
+                        alignX = wallpaperAlignX,
+                        alignY = wallpaperAlignY,
                         modifier = Modifier
                             .fillMaxSize()
                             .arcadiaHazeSource(zIndex = 0f)

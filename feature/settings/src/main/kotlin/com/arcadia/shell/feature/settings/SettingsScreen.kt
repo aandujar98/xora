@@ -60,6 +60,7 @@ import com.arcadia.shell.datastore.NdsWfcServer
 import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.TrailerDisplayMode
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.datastore.XoraAspectMode
@@ -299,6 +300,33 @@ fun SettingsScreen(
                         },
                         enabled = state.settings.trailerEnabled,
                         label = { Text(text = "Corner PIP") },
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("Game Icon idle")
+                Text(
+                    text = "What fills the focused Game Icon. Trailers stay the default.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = state.settings.gameIconIdleMedia ==
+                            GameIconIdleMedia.Trailer,
+                        onClick = {
+                            viewModel.setGameIconIdleMedia(GameIconIdleMedia.Trailer)
+                        },
+                        label = { Text(text = "Trailers") },
+                    )
+                    FilterChip(
+                        selected = state.settings.gameIconIdleMedia ==
+                            GameIconIdleMedia.Screenshot,
+                        onClick = {
+                            viewModel.setGameIconIdleMedia(GameIconIdleMedia.Screenshot)
+                        },
+                        label = { Text(text = "Screenshots") },
                     )
                 }
             }

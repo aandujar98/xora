@@ -54,9 +54,7 @@ import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.designsystem.xoraPlateStroke
-import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.feature.home.component.ArtworkImage
-import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -489,6 +487,7 @@ private fun XmbColumnGlyph(
             trailer = trailer,
             artAlignX = item.artAlignX,
             artAlignY = item.artAlignY,
+            screenshotPath = item.screenshotPath,
         )
         item.icon.isFolderGlyph() -> XmbFolderImgIcon(
             artPath = item.artPath,
@@ -560,6 +559,7 @@ internal fun XmbGamePlate(
     trailer: HeroTrailerState = HeroTrailerState(),
     artAlignX: Float = 0f,
     artAlignY: Float = 0f,
+    screenshotPath: String? = null,
 ) {
     val shape = RoundedCornerShape((PLATE_RADIUS * unit).dp)
     val strokeAlpha = if (selected) 1f else 0.55f
@@ -593,30 +593,16 @@ internal fun XmbGamePlate(
             .background(PlateEmptyFill),
         contentAlignment = Alignment.Center,
     ) {
-        val playInIcon = selected &&
-            trailer.active &&
-            trailer.displayMode == TrailerDisplayMode.InIcon &&
-            !trailer.trailerUrl.isNullOrBlank()
-        if (playInIcon) {
-            HeroTrailerLayer(
-                state = trailer.copy(displayMode = TrailerDisplayMode.FullBackground),
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else if (!artPath.isNullOrBlank()) {
-            ArtworkImage(
-                path = artPath,
-                contentDescription = title,
-                fallbackText = title,
-                contentScale = ContentScale.Crop,
-                cacheInMemory = true,
-                decodeMaxEdgePx = 512,
-                alignment = BiasAlignment(
-                    horizontalBias = artAlignX.coerceIn(-1f, 1f),
-                    verticalBias = artAlignY.coerceIn(-1f, 1f),
-                ),
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+        GameIconIdleArt(
+            coverPath = artPath,
+            title = title,
+            focused = selected,
+            trailer = trailer,
+            screenshotPaths = listOfNotNull(screenshotPath),
+            artAlignX = artAlignX,
+            artAlignY = artAlignY,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 

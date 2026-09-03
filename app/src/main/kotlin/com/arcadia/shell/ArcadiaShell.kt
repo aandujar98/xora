@@ -955,6 +955,10 @@ private fun ThemesCustomizeOverlay(
             onRequestBgm = homeViewModel::requestBgmPicker,
             onClearBgm = homeViewModel::clearCustomBgm,
             onManageShortcuts = homeViewModel::openShortcutEditorFromThemes,
+            wallpaperAlignX = state.homeHub.wallpaperAlignX,
+            wallpaperAlignY = state.homeHub.wallpaperAlignY,
+            onNudgeWallpaper = homeViewModel::nudgeWallpaperAlignment,
+            onResetWallpaper = homeViewModel::resetWallpaperAlignment,
         )
     }
 }
@@ -1053,6 +1057,8 @@ private fun PaneForRole(
                         },
                         showHomeWallpaper = false,
                         homeWallpaperPath = state.homeHub.wallpaperPath,
+                        wallpaperAlignX = state.homeHub.wallpaperAlignX,
+                        wallpaperAlignY = state.homeHub.wallpaperAlignY,
                         onToggleAccountPanel = homeViewModel::toggleAccountPanel,
                         onToggleSystemPanel = homeViewModel::toggleSystemPanel,
                         onOpenNotifications = homeViewModel::openNotificationHistory,
