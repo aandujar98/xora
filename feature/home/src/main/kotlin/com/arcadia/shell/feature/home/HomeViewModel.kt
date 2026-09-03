@@ -1308,21 +1308,16 @@ class HomeViewModel @Inject constructor(
             .onEach { path -> gameSoundBitePlayer.play(path) }
             .launchIn(viewModelScope)
 
-        // Track library browsing for Discord status bridge / future Social SDK presence.
+        // Menus stay on “Browsing XOrA”. Focusing a game must not publish its title.
         uiState
-            .map { it.selectedGame }
-            .distinctUntilChangedBy { it?.id }
-            .onEach { game ->
+            .map { it.selectedGame?.id }
+            .distinctUntilChanged()
+            .onEach {
                 if (!discordRichPresence.state.value.isConfigured) return@onEach
-                when {
-                    game == null -> discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
-                    else -> discordRichPresence.setActivity(
-                        DiscordPresenceActivity.Browsing(
-                            gameTitle = game.title,
-                            platformName = game.platform.displayName,
-                        ),
-                    )
+                if (discordRichPresence.state.value.activity is DiscordPresenceActivity.Playing) {
+                    return@onEach
                 }
+                discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
             }
             .launchIn(viewModelScope)
 
@@ -5951,8 +5946,7 @@ class HomeViewModel @Inject constructor(
     ): String = when (activity) {
         is DiscordPresenceActivity.Playing ->
             "playing ${activity.gameTitle}"
-        is DiscordPresenceActivity.Browsing ->
-            "Browsing ${activity.gameTitle}"
+        is DiscordPresenceActivity.Browsing,
         DiscordPresenceActivity.InSora,
         DiscordPresenceActivity.Idle,
         -> "Browsing XOrA"
@@ -8377,6 +8371,9 @@ class HomeViewModel @Inject constructor(
     fun onResumed() {
         // Coming back from the emulator ends the play session, and with it the companion panel.
         gameCompanionController.onShellForegrounded()
+        if (discordRichPresence.state.value.isConfigured) {
+            discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
+        }
         viewModelScope.launch { sessionTracker.settlePendingSession() }
         refreshInstalledApps()
         gamepadDispatcher.reset()

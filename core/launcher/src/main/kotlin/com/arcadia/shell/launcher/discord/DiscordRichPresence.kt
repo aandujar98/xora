@@ -14,9 +14,10 @@ import kotlinx.coroutines.flow.StateFlow
 sealed interface DiscordPresenceActivity {
     data object Idle : DiscordPresenceActivity
 
-    /** User is in the SORA shell with no game focused. */
+    /** User is in the XOrA shell (menus). Discord shows “Browsing XOrA”. */
     data object InSora : DiscordPresenceActivity
 
+    /** Treated the same as [InSora] — menus never publish a focused game title. */
     data class Browsing(
         val gameTitle: String,
         val platformName: String,
@@ -181,10 +182,10 @@ data class DiscordPresenceUiState(
 
     val shareText: String
         get() = when (val a = activity) {
-            DiscordPresenceActivity.Idle -> "In XOrA"
-            DiscordPresenceActivity.InSora -> "Playing XOrA"
-            is DiscordPresenceActivity.Browsing ->
-                "Browsing ${a.gameTitle} (${a.platformName}) · XOrA"
+            DiscordPresenceActivity.Idle,
+            DiscordPresenceActivity.InSora,
+            is DiscordPresenceActivity.Browsing,
+            -> "Browsing XOrA"
             is DiscordPresenceActivity.Playing ->
                 "Playing ${a.gameTitle} on ${a.platformName} · XOrA"
         }

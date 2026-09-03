@@ -28,7 +28,7 @@ import javax.inject.Singleton
  * Discord Rich Presence controller for SORA.
  *
  * When `discord_partner_sdk.aar` is bundled and the native bridge is built, publishes real
- * Social SDK Rich Presence (Playing SORA / Browsing {game} / Playing {game}), restores OAuth
+ * Social SDK Rich Presence (Browsing XOrA / Playing {game}), restores OAuth
  * tokens, and surfaces Discord friends. Without the AAR, tracks the intended activity and
  * offers a shareable status bridge so the app still builds and runs.
  *
@@ -592,12 +592,9 @@ class DiscordPresenceController @Inject constructor(
                 lastPublishKey = "idle"
                 return
             }
-            DiscordPresenceActivity.InSora -> Triple("In the library", "Browsing", "XOrA")
-            is DiscordPresenceActivity.Browsing -> Triple(
-                "Browsing ${activity.gameTitle}",
-                activity.platformName,
-                "XOrA",
-            )
+            DiscordPresenceActivity.InSora,
+            is DiscordPresenceActivity.Browsing,
+            -> Triple("Browsing XOrA", "", "XOrA")
             is DiscordPresenceActivity.Playing -> Triple(
                 "Playing ${activity.gameTitle}",
                 activity.platformName,
@@ -693,10 +690,10 @@ class DiscordPresenceController @Inject constructor(
             DiscordPresenceCapability.SdkMissing -> when (activity) {
                 DiscordPresenceActivity.Idle ->
                     "Application ID saved · drop discord_partner_sdk.aar then rebuild"
-                DiscordPresenceActivity.InSora ->
-                    "Would show: Playing XOrA · SDK missing"
-                is DiscordPresenceActivity.Browsing ->
-                    "Would show: Browsing ${activity.gameTitle} · SDK missing"
+                DiscordPresenceActivity.InSora,
+                is DiscordPresenceActivity.Browsing,
+                ->
+                    "Would show: Browsing XOrA · SDK missing"
                 is DiscordPresenceActivity.Playing ->
                     "Would show: Playing ${activity.gameTitle} · SDK missing"
             }
@@ -711,9 +708,9 @@ class DiscordPresenceController @Inject constructor(
                 }
             DiscordPresenceCapability.Connected -> when (activity) {
                 DiscordPresenceActivity.Idle -> "Linked · Rich Presence idle$publishHint"
-                DiscordPresenceActivity.InSora -> "Linked · Publishing: Playing XOrA$publishHint"
-                is DiscordPresenceActivity.Browsing ->
-                    "Linked · Publishing: Browsing ${activity.gameTitle}$publishHint"
+                DiscordPresenceActivity.InSora,
+                is DiscordPresenceActivity.Browsing,
+                -> "Linked · Publishing: Browsing XOrA$publishHint"
                 is DiscordPresenceActivity.Playing ->
                     "Linked · Publishing: Playing ${activity.gameTitle}$publishHint"
             }
