@@ -181,6 +181,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import java.util.UUID
 import javax.inject.Inject
@@ -275,6 +276,10 @@ class HomeViewModel @Inject constructor(
     private val vitaShortcutPinMode = MutableStateFlow(false)
     private val vitaShortcutLaunch = MutableStateFlow<VitaShortcutLaunchUi?>(null)
     private val vitaShortcutDepartingIndex = MutableStateFlow<Int?>(null)
+    /** A / plate tap asked for the start gate to peel itself; the page runs the animation. */
+    private val vitaShortcutPeelRequested = MutableStateFlow(false)
+    /** Watches the launch that a peeled gate started, so the page knows when to stand down. */
+    private var vitaLaunchHandoff: Job? = null
     private val themesOpen = MutableStateFlow(false)
     /** Which Themes sheet tab to show when [themesOpen] becomes true. */
     private val themesSheetTab = MutableStateFlow(ThemesSheetTab.Customize)
@@ -668,8 +673,9 @@ class HomeViewModel @Inject constructor(
                 vitaShortcutPinMode,
                 vitaShortcutLaunch,
                 vitaShortcutDepartingIndex,
-            ) { open, pin, launch, departing ->
-                VitaTrayChrome(open, pin, launch, departing)
+                vitaShortcutPeelRequested,
+            ) { open, pin, launch, departing, peel ->
+                VitaTrayChrome(open, pin, launch, departing, peel)
             },
         ) { columns, rows, chrome, tray ->
             HomeHubLayout(
@@ -680,6 +686,7 @@ class HomeViewModel @Inject constructor(
                 vitaShortcutPinMode = tray.pin,
                 vitaShortcutLaunch = tray.launch,
                 vitaShortcutDepartingIndex = tray.departingIndex,
+                vitaShortcutPeelRequested = tray.peelRequested,
             )
         },
     ) { core, layout ->
@@ -695,6 +702,7 @@ class HomeViewModel @Inject constructor(
             vitaShortcutPinMode = layout.vitaShortcutPinMode,
             vitaShortcutLaunch = layout.vitaShortcutLaunch,
             vitaShortcutDepartingIndex = layout.vitaShortcutDepartingIndex,
+            vitaShortcutPeelRequested = layout.vitaShortcutPeelRequested,
         )
     }
 
@@ -713,6 +721,7 @@ class HomeViewModel @Inject constructor(
         val vitaShortcutPinMode: Boolean,
         val vitaShortcutLaunch: VitaShortcutLaunchUi?,
         val vitaShortcutDepartingIndex: Int?,
+        val vitaShortcutPeelRequested: Boolean,
     )
 
     private data class VitaTrayChrome(
@@ -720,6 +729,7 @@ class HomeViewModel @Inject constructor(
         val pin: Boolean,
         val launch: VitaShortcutLaunchUi?,
         val departingIndex: Int?,
+        val peelRequested: Boolean,
     )
 
     private data class HomeHubNav(
@@ -734,6 +744,7 @@ class HomeViewModel @Inject constructor(
         val vitaShortcutPinMode: Boolean,
         val vitaShortcutLaunch: VitaShortcutLaunchUi?,
         val vitaShortcutDepartingIndex: Int?,
+        val vitaShortcutPeelRequested: Boolean,
     )
 
     private val addShortcutChromeFlow = combine(
@@ -2177,6 +2188,7 @@ class HomeViewModel @Inject constructor(
                 vitaShortcutPinMode = theme.nav.vitaShortcutPinMode,
                 vitaShortcutLaunch = theme.nav.vitaShortcutLaunch,
                 vitaShortcutDepartingIndex = theme.nav.vitaShortcutDepartingIndex,
+                vitaShortcutPeelRequested = theme.nav.vitaShortcutPeelRequested,
                 wallpaperPath = theme.wallpaperPath,
                 wallpaperAlignX = theme.wallpaperAlignX,
                 wallpaperAlignY = theme.wallpaperAlignY,
@@ -2986,6 +2998,7 @@ class HomeViewModel @Inject constructor(
 
     fun closeVitaShortcutTray() {
         noteUserActivity()
+        clearVitaShortcutPeel()
         vitaShortcutLaunch.value = null
         vitaShortcutDepartingIndex.value = null
         vitaShortcutTrayOpen.value = false
@@ -3001,6 +3014,7 @@ class HomeViewModel @Inject constructor(
         if (index != null) selectHomeShortcut(index)
         val shortcut = hub.shortcuts.getOrNull(homeShortcutIndex.value) ?: return
         viewModelScope.launch {
+            clearVitaShortcutPeel()
             vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
             vitaShortcutDepartingIndex.value = null
         }
@@ -3008,6 +3022,7 @@ class HomeViewModel @Inject constructor(
 
     private fun beginVitaShortcutDepart(index: Int, shortcut: HomeShortcut) {
         playUiOneShot(UiOneShot.BubbleLaunch)
+        clearVitaShortcutPeel()
         vitaShortcutDepartingIndex.value = index
         viewModelScope.launch {
             val resolveJob = launch {
@@ -3020,16 +3035,53 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /**
+     * A (or a tap on the plate) asks the LiveArea gate to peel itself. The page owns the
+     * animation, and calls back into [completeVitaShortcutLaunch] once the sticker is off — the
+     * same callback a finger-peel uses, so both routes take the identical path into the game.
+     */
     fun confirmVitaShortcutLaunch() {
+        noteUserActivity()
+        if (vitaShortcutLaunch.value == null) return
+        vitaShortcutPeelRequested.value = true
+    }
+
+    /** The start gate has come away: hand off to the game behind the launch cinematic. */
+    fun completeVitaShortcutLaunch() {
         val preview = vitaShortcutLaunch.value ?: return
-        vitaShortcutLaunch.value = null
+        if (isLaunching.value) return
+        playUiOneShot(UiOneShot.BubbleLaunch)
         openHomeShortcut(preview.shortcut)
+        vitaLaunchHandoff?.cancel()
+        vitaLaunchHandoff = viewModelScope.launch {
+            // The page holds the title's artwork through the launch cinematic instead of
+            // snapping back to the tray, so the fade the player sees is the game's own art
+            // dissolving. A shortcut that opens a plain Activity instead — an app, a picture —
+            // never sets isLaunching, so the page gives it a moment and then stands down too.
+            val started = withTimeoutOrNull(VITA_LAUNCH_HANDOFF_MS) {
+                isLaunching.first { it }
+            } != null
+            if (started) isLaunching.first { !it }
+            // Launched, opened, or failed with a message already emitted: back to the tray.
+            vitaLaunchHandoff = null
+            vitaShortcutPeelRequested.value = false
+            vitaShortcutLaunch.value = null
+        }
     }
 
     fun cancelVitaShortcutLaunch() {
         noteUserActivity()
+        // Once the cinematic is running the page belongs to the launch, not to Back.
+        if (isLaunching.value) return
+        clearVitaShortcutPeel()
         vitaShortcutLaunch.value = null
         vitaShortcutDepartingIndex.value = null
+    }
+
+    private fun clearVitaShortcutPeel() {
+        vitaLaunchHandoff?.cancel()
+        vitaLaunchHandoff = null
+        vitaShortcutPeelRequested.value = false
     }
 
     private suspend fun resolveVitaShortcutLaunch(shortcut: HomeShortcut): VitaShortcutLaunchUi {
@@ -8832,6 +8884,12 @@ class HomeViewModel @Inject constructor(
          * Under that, Discord stays on Playing {title}.
          */
         const val PLAYING_PRESENCE_RETURN_MS = 1_500L
+
+        /**
+         * How long a peeled start gate waits for [launchGame] to take over. Shortcuts that open
+         * a plain Activity instead (apps, pictures) never set it, and fall back to the gate.
+         */
+        private const val VITA_LAUNCH_HANDOFF_MS = 1_500L
     }
 
     private fun refreshInstalledApps() {

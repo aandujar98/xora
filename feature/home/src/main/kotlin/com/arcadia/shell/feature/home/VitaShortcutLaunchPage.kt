@@ -71,7 +71,9 @@ fun VitaShortcutLaunchPage(
     launch: VitaShortcutLaunchUi?,
     homeWallpaperPath: String?,
     onConfirm: () -> Unit,
+    onPeeled: () -> Unit,
     modifier: Modifier = Modifier,
+    peelRequested: Boolean = false,
     holdWhite: Boolean = false,
     isLaunching: Boolean = false,
     wallpaperAlignX: Float = 0f,
@@ -213,6 +215,19 @@ fun VitaShortcutLaunchPage(
                         modifier = Modifier
                             .offset(x = titleX.dp, y = subtitleY.dp)
                             .width(ruleWidth.dp),
+                    )
+
+                    // The gate is the only way out of this page and into the game: peel it with
+                    // a finger, or press A and watch it come off on its own.
+                    VitaLaunchGate(
+                        peelRequested = peelRequested,
+                        unit = unit,
+                        onRequestPeel = onConfirm,
+                        onPeeled = onPeeled,
+                        modifier = Modifier.offset(
+                            x = (originX + (GATE_CENTER_X - GATE_W / 2f) * unit).dp,
+                            y = (originY + GATE_TOP_Y * unit).dp,
+                        ),
                     )
 
                     achievementsContent()

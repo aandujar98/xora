@@ -84,6 +84,7 @@ fun HomeScreen(
     onActivateHomeShard: (HomeShard) -> Unit = {},
     onSelectHomeShortcut: (Int) -> Unit = {},
     onActivateHomeShortcut: (Int) -> Unit = {},
+    onLaunchVitaShortcut: () -> Unit = {},
     onAddHomeShortcut: () -> Unit = {},
     onSelectXoraCategory: (Int) -> Unit = {},
     onSelectXoraItem: (Int) -> Unit = {},
@@ -190,6 +191,7 @@ fun HomeScreen(
                                 onActivateHomeShard = onActivateHomeShard,
                                 onSelectHomeShortcut = onSelectHomeShortcut,
                                 onActivateHomeShortcut = onActivateHomeShortcut,
+                                onLaunchVitaShortcut = onLaunchVitaShortcut,
                                 onAddHomeShortcut = onAddHomeShortcut,
                                 onSelectXoraCategory = onSelectXoraCategory,
                                 onSelectXoraItem = onSelectXoraItem,
@@ -282,6 +284,7 @@ fun HomeScreen(
                                 onActivateHomeShard = onActivateHomeShard,
                                 onSelectHomeShortcut = onSelectHomeShortcut,
                                 onActivateHomeShortcut = onActivateHomeShortcut,
+                                onLaunchVitaShortcut = onLaunchVitaShortcut,
                                 onAddHomeShortcut = onAddHomeShortcut,
                                 onSelectXoraCategory = onSelectXoraCategory,
                                 onSelectXoraItem = onSelectXoraItem,
@@ -464,6 +467,7 @@ fun HomeScreen(
                             onActivateHomeShard = onActivateHomeShard,
                             onSelectHomeShortcut = onSelectHomeShortcut,
                             onActivateHomeShortcut = onActivateHomeShortcut,
+                            onLaunchVitaShortcut = onLaunchVitaShortcut,
                             onAddHomeShortcut = onAddHomeShortcut,
                             onSelectXoraCategory = onSelectXoraCategory,
                             onSelectXoraItem = onSelectXoraItem,
@@ -559,6 +563,7 @@ fun HomePageContent(
     onActivateHomeShard: (HomeShard) -> Unit = {},
     onSelectHomeShortcut: (Int) -> Unit = {},
     onActivateHomeShortcut: (Int) -> Unit = {},
+    onLaunchVitaShortcut: () -> Unit = {},
     onAddHomeShortcut: () -> Unit = {},
     onSelectXoraCategory: (Int) -> Unit = {},
     onSelectXoraItem: (Int) -> Unit = {},
@@ -703,6 +708,7 @@ fun HomePageContent(
                                 visible = trayOpen && (launch != null || departingIndex != null),
                                 launch = launch,
                                 homeWallpaperPath = state.homeHub.wallpaperPath,
+                                peelRequested = state.homeHub.vitaShortcutPeelRequested,
                                 holdWhite = departingIndex != null,
                                 isLaunching = state.isLaunching,
                                 wallpaperAlignX = state.homeHub.wallpaperAlignX,
@@ -710,6 +716,7 @@ fun HomePageContent(
                                 onConfirm = {
                                     onActivateHomeShortcut(state.homeHub.shortcutIndex)
                                 },
+                                onPeeled = onLaunchVitaShortcut,
                                 modifier = Modifier.fillMaxSize(),
                                 achievementsContent = {
                                     if (launch?.game != null) {

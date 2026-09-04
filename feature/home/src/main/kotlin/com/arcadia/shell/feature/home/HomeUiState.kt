@@ -113,6 +113,8 @@ data class HomeHubUiState(
     val vitaShortcutLaunch: VitaShortcutLaunchUi? = null,
     /** Bubble currently flipping into the launch page. */
     val vitaShortcutDepartingIndex: Int? = null,
+    /** A was pressed on the launch page: the LiveArea start gate peels itself off. */
+    val vitaShortcutPeelRequested: Boolean = false,
     /** Absolute path to custom wallpaper, or null for the bundled default. */
     val wallpaperPath: String? = null,
     val wallpaperAlignX: Float = 0f,
