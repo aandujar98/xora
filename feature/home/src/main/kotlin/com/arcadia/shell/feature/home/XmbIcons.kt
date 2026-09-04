@@ -2,6 +2,7 @@ package com.arcadia.shell.feature.home
 
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -74,6 +75,8 @@ enum class XmbIcon {
     Scrape,
     Social,
     Notifications,
+    /** Settings → Update. */
+    Update,
     Trophy,
     Continue,
     Favorite,
@@ -101,6 +104,8 @@ enum class XmbIcon {
     Play,
     Pause,
     Friends,
+    /** XOrA Network → Dashboard. */
+    Dashboard,
     Store,
     News,
     System,
@@ -135,34 +140,68 @@ fun XmbIcon.folderWindowIcon(): XmbIcon? = when (this) {
     else -> null
 }
 
-/** Filled Figma glyphs (and the XOrA wordmark) drawn from vector drawables instead of strokes. */
+/** Filled Figma glyphs, ICONS-2 bitmaps, and the XOrA wordmark. */
 fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
+    XmbIcon.Profiles -> R.drawable.xmb_user_home
     XmbIcon.Settings -> R.drawable.xmb_figma_settings
     XmbIcon.Games, XmbIcon.GamePad, XmbIcon.Emulator -> R.drawable.xmb_figma_game
     XmbIcon.Media, XmbIcon.Photo -> R.drawable.xmb_figma_photo
-    XmbIcon.Music, XmbIcon.NowPlaying -> R.drawable.xmb_figma_music
+    XmbIcon.Music -> R.drawable.xmb_figma_music
     XmbIcon.Video -> R.drawable.xmb_figma_video
     XmbIcon.Network -> R.drawable.xmb_figma_network
+    XmbIcon.User, XmbIcon.Guest -> R.drawable.xmb_user
+    XmbIcon.General -> R.drawable.xmb_settings_device
+    XmbIcon.Display -> R.drawable.xmb_settings_display
+    XmbIcon.Themes -> R.drawable.xmb_settings_theme
+    XmbIcon.Sound -> R.drawable.xmb_settings_sound
+    XmbIcon.Scrape -> R.drawable.xmb_settings_layout
+    XmbIcon.Social -> R.drawable.xmb_settings_chat
+    XmbIcon.Notifications -> R.drawable.xmb_stack
+    XmbIcon.Update -> R.drawable.xmb_update
     XmbIcon.Trophy -> R.drawable.xmb_figma_trophy
-    XmbIcon.Device -> R.drawable.xmb_figma_device
-    XmbIcon.Folder, XmbIcon.FolderPhoto, XmbIcon.FolderVideo, XmbIcon.FolderMusic ->
-        R.drawable.xmb_figma_folder
+    XmbIcon.Device -> R.drawable.xmb_storage
+    XmbIcon.Folder -> R.drawable.xmb_folder_img
+    XmbIcon.FolderPhoto -> R.drawable.xmb_folder_photo
+    XmbIcon.FolderVideo -> R.drawable.xmb_folder_video
+    XmbIcon.FolderMusic -> R.drawable.xmb_folder_music
+    XmbIcon.NowPlaying -> R.drawable.xmb_media_play
+    XmbIcon.Playlist -> R.drawable.xmb_media_add
+    XmbIcon.Dashboard -> R.drawable.xmb_user_edit
+    XmbIcon.Store -> R.drawable.xmb_user_storage
+    XmbIcon.News -> R.drawable.xmb_www
     XmbIcon.Xora -> R.drawable.ic_xora_logo
     else -> null
 }
 
-/** Native viewport of each Figma glyph, used to contain-fit into the 178×136 / 128×92 boxes. */
+/** Native viewport of each glyph, used to contain-fit into the tab / column boxes. */
 fun XmbIcon.intrinsicDesignSize(): Pair<Float, Float> = when (this) {
+    XmbIcon.Profiles -> 157f to 139f
     XmbIcon.Settings -> 118.25f to 86.59f
     XmbIcon.Games, XmbIcon.GamePad, XmbIcon.Emulator -> 209f to 137f
     XmbIcon.Media, XmbIcon.Photo -> 107.68f to 92.24f
-    XmbIcon.Music, XmbIcon.NowPlaying -> 111.16f to 122.19f
+    XmbIcon.Music -> 111.16f to 122.19f
     XmbIcon.Video -> 128.56f to 86.20f
     XmbIcon.Network -> 92.20f to 92.20f
+    XmbIcon.User, XmbIcon.Guest -> 134f to 134f
+    XmbIcon.General -> 151f to 137f
+    XmbIcon.Display -> 162f to 146f
+    XmbIcon.Themes -> 192f to 122f
+    XmbIcon.Sound -> 146f to 135f
+    XmbIcon.Scrape -> 152f to 153f
+    XmbIcon.Social -> 158f to 181f
+    XmbIcon.Notifications -> 121f to 61f
+    XmbIcon.Update -> 171f to 136f
     XmbIcon.Trophy -> 130f to 120f
-    XmbIcon.Device -> 151f to 99f
-    XmbIcon.Folder, XmbIcon.FolderPhoto, XmbIcon.FolderVideo, XmbIcon.FolderMusic ->
-        153.69f to 108.61f
+    XmbIcon.Device -> 131f to 91f
+    XmbIcon.Folder -> 277f to 196f
+    XmbIcon.FolderPhoto -> 222f to 195f
+    XmbIcon.FolderVideo -> 308f to 195f
+    XmbIcon.FolderMusic -> 177f to 195f
+    XmbIcon.NowPlaying -> 97f to 130f
+    XmbIcon.Playlist -> 145f to 130f
+    XmbIcon.Dashboard -> 136f to 133f
+    XmbIcon.Store -> 120f to 135f
+    XmbIcon.News -> 172f to 141f
     XmbIcon.Xora -> 90f * XORA_MARK_WIDTH_SCALE to 90f
     else -> 90f to 90f
 }
@@ -551,7 +590,12 @@ private fun drawStyledXmbDrawable(
     strokePx: Float,
 ) {
     drawable.mutate()
-    val inset = if (strokePx > 0f) (strokePx / 2f).roundToInt() else 0
+    // Bitmap glyphs already include their own rim; insetting them clips the art.
+    val inset = if (drawable is BitmapDrawable || strokePx <= 0f) {
+        0
+    } else {
+        (strokePx / 2f).roundToInt()
+    }
     drawable.setBounds(
         inset,
         inset,
@@ -636,6 +680,7 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Scrape -> drawScrape(tint, stroke)
         XmbIcon.Social -> drawChat(tint, stroke)
         XmbIcon.Notifications -> drawBell(tint, stroke)
+        XmbIcon.Update -> drawGear(tint, stroke)
         XmbIcon.Trophy -> drawTrophy(tint, stroke)
         XmbIcon.Emulator -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
         XmbIcon.Continue -> drawPlay(tint, stroke)
@@ -661,6 +706,7 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Play -> drawPlay(tint, stroke)
         XmbIcon.Pause -> drawPause(tint, stroke)
         XmbIcon.Friends -> drawFriends(tint, stroke)
+        XmbIcon.Dashboard -> drawFriends(tint, stroke)
         XmbIcon.Store -> drawBag(tint, stroke)
         XmbIcon.News -> drawNews(tint, stroke)
         XmbIcon.System -> drawSystemCube(tint, stroke)

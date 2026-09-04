@@ -370,7 +370,7 @@ private fun BrowseCard(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        if (item.icon.isFolderGlyph()) {
+        if (item.icon.isFolderGlyph() && !item.artPath.isNullOrBlank()) {
             val (designW, designH) = item.icon.intrinsicDesignSize()
             val scale = (width.value / designW) * FOLDER_SIZE_SCALE
             XmbFolderImgIcon(
@@ -380,6 +380,18 @@ private fun BrowseCard(
                 height = (designH * scale).dp,
                 castShadow = false,
                 strokeWidth = (XmbGlyphStrokeDesignPx * unit).dp,
+            )
+        } else if (item.icon.isFolderGlyph()) {
+            val (designW, designH) = item.icon.intrinsicDesignSize()
+            val scale = (width.value / designW) * FOLDER_SIZE_SCALE
+            XmbVectorIcon(
+                icon = item.icon,
+                width = (designW * scale).dp,
+                height = (designH * scale).dp,
+                glass = false,
+                outlined = false,
+                castShadow = false,
+                strokeWidth = 0.dp,
             )
         } else if (item.artPath != null) {
             GameIconIdleArt(

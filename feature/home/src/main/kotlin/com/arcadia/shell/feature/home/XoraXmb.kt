@@ -216,7 +216,7 @@ data class XoraXmbUiState(
 
     /**
      * The bottom-right RA card only belongs next to a real game (recents plate, a ROM,
-     * or in-session Resume). Trophy / All Games / Folder and every other category stay clean.
+     * or in-session Resume). Trophy / All Games and every other category stay clean.
      */
     val showsAchievementsCard: Boolean
         get() {
@@ -231,11 +231,10 @@ data class XoraXmbUiState(
         }
 }
 
-/** Home Games column: Trophy, recents plate, All Games, Folder_IMG. */
+/** Home Games column: Trophy, recents plate, All Games. Folder_IMG only for collections. */
 const val GAMES_ITEM_TROPHY = 0
 const val GAMES_ITEM_RECENTS = 1
 const val GAMES_ITEM_LIBRARY = 2
-const val GAMES_ITEM_FOLDER = 3
 
 fun defaultXoraCategoryItemIndex(category: XoraXmbCategory): Int =
     if (category == XoraXmbCategory.Games) GAMES_ITEM_RECENTS else 0
@@ -258,8 +257,6 @@ fun buildXoraCategoryItems(
     nowPlayingLabel: String? = null,
     /** Cover art for the Music → Now Playing row. */
     nowPlayingArtPath: String? = null,
-    /** Gallery still cropped into the Games column Folder_IMG window. */
-    homeFolderImagePath: String? = null,
     /** Camera / Screenshots albums listed under Photos. */
     photoFolders: List<DeviceMediaFolder> = emptyList(),
     /** Video albums listed under Videos. */
@@ -339,7 +336,7 @@ fun buildXoraCategoryItems(
             title = "Update",
             subtitle = "Check for a new XOrA version",
             action = XoraXmbAction.InstallLatestUpdate,
-            icon = XmbIcon.General,
+            icon = XmbIcon.Update,
         ),
     )
     XoraXmbCategory.Games -> {
@@ -448,20 +445,8 @@ fun buildXoraCategoryItems(
                         icon = XmbIcon.Device,
                     ),
                 )
-                add(
-                    XoraXmbItem(
-                        id = "home_folder",
-                        title = "Folder",
-                        subtitle = if (homeFolderImagePath.isNullOrBlank()) {
-                            "Attach a cover from Gallery"
-                        } else {
-                            "Custom folder"
-                        },
-                        action = XoraXmbAction.PickHomeFolderImage,
-                        artPath = homeFolderImagePath,
-                        icon = XmbIcon.Folder,
-                    ),
-                )
+                // Folder_IMG is reserved for user collections. None exist yet, so the
+                // old always-on customize row stays off the Games column.
             }
         }
     }
@@ -526,7 +511,7 @@ fun buildXoraCategoryItems(
             title = "Dashboard",
             subtitle = "Profile, friends & games on XOrA Network",
             action = XoraXmbAction.OpenDashboard,
-            icon = XmbIcon.Friends,
+            icon = XmbIcon.Dashboard,
         ),
         XoraXmbItem(
             id = "store",

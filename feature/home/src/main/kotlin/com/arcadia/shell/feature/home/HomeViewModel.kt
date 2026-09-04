@@ -2074,7 +2074,6 @@ class HomeViewModel @Inject constructor(
                     "${track.title} — ${track.artist}"
                 },
                 nowPlayingArtPath = platformChrome.music.nowPlayingArtPath,
-                homeFolderImagePath = chrome.settings.homeFolderImagePath,
                 photoFolders = platformChrome.photoFolders,
                 videoFolders = platformChrome.videoFolders,
                 musicFolders = platformChrome.music.albums,

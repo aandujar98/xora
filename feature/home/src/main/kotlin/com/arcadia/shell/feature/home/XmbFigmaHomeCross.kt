@@ -116,6 +116,8 @@ private const val PLATE_W = 280f
 private const val PLATE_H = 150f
 /** Content folders share Game Icon width, then shrink 25% so the shell does not overpower plates. */
 private const val FOLDER_SIZE_SCALE = 0.75f
+/** Profile avatar / User glyph sits larger than a standard column icon. */
+private const val PROFILE_AVATAR_SCALE = 1.22f
 /** Music covers are square so they don't borrow the landscape game plate. */
 private const val MUSIC_COVER_FOCUS = 178f
 private const val MUSIC_COVER_REST = 128f
@@ -495,7 +497,7 @@ private fun XmbColumnGlyph(
             artAlignY = item.artAlignY,
             screenshotPath = item.screenshotPath,
         )
-        item.icon.isFolderGlyph() -> XmbFolderImgIcon(
+        item.icon.isFolderGlyph() && !item.artPath.isNullOrBlank() -> XmbFolderImgIcon(
             artPath = item.artPath,
             windowIcon = item.icon.folderWindowIcon(),
             width = width,
@@ -673,11 +675,14 @@ private fun isGamePlate(item: XoraXmbItem): Boolean = isRecentsItem(item)
 
 /**
  * True when the row paints artwork rather than a vector glyph, mirroring the branch order in
- * [XmbColumnGlyph]: every folder shell (Folder_IMG and the Photo / Video / Music content
- * folders) keeps its glyph even once a still is picked, so folders count as glyphs.
+ * [XmbColumnGlyph]: folder shells with no still stay glyphs (Folder_IMG only appears for
+ * game collections, plus Photo / Video / Music content folders).
  */
 private fun hasCoverArt(item: XoraXmbItem): Boolean =
-    !item.icon.isFolderGlyph() && !item.artPath.isNullOrBlank()
+    !item.icon.isFolderGlyph() && !item.artPath.isNullOrBlank() && !isProfileRow(item)
+
+private fun isProfileRow(item: XoraXmbItem): Boolean =
+    item.id == "profile" || item.action is XoraXmbAction.OpenProfile
 
 private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Float> {
     if (isGamePlate(item)) {
@@ -691,6 +696,11 @@ private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Flo
     if (item.isMusicCoverArt()) {
         val edge = if (focused) MUSIC_COVER_FOCUS else MUSIC_COVER_REST
         return edge to edge
+    }
+    if (isProfileRow(item)) {
+        val boxW = (if (focused) GLYPH_BOX_W_FOCUS else INACTIVE_BOX_W) * PROFILE_AVATAR_SCALE
+        val boxH = (if (focused) GLYPH_BOX_H_FOCUS else INACTIVE_BOX_H) * PROFILE_AVATAR_SCALE
+        return item.icon.intrinsicDesignSize().fitInBox(boxW, boxH)
     }
     val boxW: Float
     val boxH: Float
