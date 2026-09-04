@@ -57,6 +57,7 @@ import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LiquidGlassSurface
 import com.arcadia.shell.designsystem.launchBackdropScale
+import com.arcadia.shell.designsystem.ArcadiaArt
 import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.XoraForegroundShadow
@@ -726,7 +727,7 @@ private const val CASE_HEIGHT_OVER_WIDTH = 1.5f
 private const val XMB_FOCUS_SCALE = 1.14f
 private const val XMB_NEAR_SCALE = 0.94f
 /** Landscape media preview (~16:10). */
-private const val MEDIA_WIDTH_OVER_HEIGHT = 16f / 10f
+private const val MEDIA_WIDTH_OVER_HEIGHT = ArcadiaArt.BoxArtAspect
 private const val MEDIA_ASPECT = 10f / 16f
 /** Media preview vs focused case width (~20% larger). */
 private const val MEDIA_SIZE_SCALE = 1.2f

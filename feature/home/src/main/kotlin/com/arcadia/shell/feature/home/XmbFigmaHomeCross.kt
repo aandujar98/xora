@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.designsystem.ArcadiaArt
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
@@ -704,6 +705,12 @@ private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Flo
 }
 
 private fun columnItemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Float> {
+    // Artwork rows take the shared landscape box in both states. Unfocused they used to fall
+    // through to the near-square glyph box, so a column of cover art changed shape as it scrolled.
+    if (hasCoverArt(item)) {
+        val w = if (focused) TAB_BOX_W else INACTIVE_BOX_W
+        return w to (w / ArcadiaArt.BoxArtAspect)
+    }
     if (item.icon.isFolderGlyph()) {
         val (iw, ih) = item.icon.intrinsicDesignSize()
         val targetW = (if (focused) PLATE_W_FOCUS else PLATE_W) * FOLDER_SIZE_SCALE

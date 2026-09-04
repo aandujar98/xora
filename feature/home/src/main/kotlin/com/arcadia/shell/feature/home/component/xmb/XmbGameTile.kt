@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home.component.xmb
 
+import com.arcadia.shell.designsystem.ArcadiaArt
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.border
@@ -147,4 +148,4 @@ fun XmbGameTile(
 }
 
 /** PSP / Vita case proportions — width:height ≈ 2:3. */
-private const val CASE_ASPECT = 2f / 3f
+private const val CASE_ASPECT = ArcadiaArt.BoxArtAspect

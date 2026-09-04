@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home.component
 
+import com.arcadia.shell.designsystem.ArcadiaArt
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -129,4 +130,4 @@ private fun FavoriteBadge(modifier: Modifier = Modifier) {
 }
 
 /** Roughly the proportions of a physical game case, which most scraped box art matches. */
-private const val BOX_ART_ASPECT = 0.72f
+private const val BOX_ART_ASPECT = ArcadiaArt.BoxArtAspect

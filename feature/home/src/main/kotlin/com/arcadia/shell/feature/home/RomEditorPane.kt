@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ArcadiaGlass
+import com.arcadia.shell.designsystem.ArcadiaArt
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.liquidGlass
@@ -134,8 +135,8 @@ private sealed interface EditorMode {
 }
 
 private val RAIL_WIDTH = 216.dp
-private val HEADER_ART_W = 132.dp
-private val HEADER_ART_H = 178.dp
+private val HEADER_ART_W = 212.dp
+private val HEADER_ART_H = 132.dp
 private val ART_COLUMNS = 4
 
 /**
@@ -642,7 +643,7 @@ private fun ArtCandidateTile(
             cacheInMemory = true,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(if (slot == ArtSlot.BoxArt) 0.72f else 1.6f)
+                .aspectRatio(ArcadiaArt.BoxArtAspect)
                 .clip(RoundedCornerShape(10.dp))
                 .border(
                     width = if (active) 3.dp else 1.dp,
