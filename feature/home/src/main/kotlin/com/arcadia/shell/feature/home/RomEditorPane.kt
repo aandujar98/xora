@@ -1,8 +1,12 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -43,13 +47,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.component.ArtworkImage
-import com.arcadia.shell.feature.home.component.ButtonHintBar
+import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.model.Game
@@ -128,7 +133,9 @@ private sealed interface EditorMode {
     data class ArtPicker(val slot: ArtSlot) : EditorMode
 }
 
-private val RAIL_WIDTH = 208.dp
+private val RAIL_WIDTH = 216.dp
+private val HEADER_ART_W = 132.dp
+private val HEADER_ART_H = 178.dp
 private val ART_COLUMNS = 4
 
 /**
@@ -160,6 +167,14 @@ fun RomEditorPane(
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.Surface)
+
+    // Drives both directions: the pane animates itself out and only then hands the dismiss up,
+    // so closing is as smooth as opening instead of the content vanishing on the same frame.
+    val transition = remember { MutableTransitionState(false).apply { targetState = true } }
+    LaunchedEffect(transition.currentState, transition.targetState) {
+        if (!transition.targetState && !transition.currentState) actions.onDismiss()
+    }
+    val requestDismiss = { transition.targetState = false }
 
     var mode by remember { mutableStateOf<EditorMode>(EditorMode.Browse) }
     var column by remember { mutableStateOf(EditorColumn.Rail) }
@@ -285,11 +300,11 @@ fun RomEditorPane(
                     NavAction.Cancel -> if (column == EditorColumn.Rows) {
                         column = EditorColumn.Rail
                     } else {
-                        actions.onDismiss()
+                        requestDismiss()
                     }
 
                     // Select closes the editor the same way it opened it.
-                    NavAction.ScrapeMenu -> actions.onDismiss()
+                    NavAction.ScrapeMenu -> requestDismiss()
 
                     NavAction.Options -> if (column == EditorColumn.Rows) {
                         rows.getOrNull(rowIndex)?.onClear?.invoke()
@@ -311,10 +326,17 @@ fun RomEditorPane(
         }
     }
 
+    AnimatedVisibility(
+        visibleState = transition,
+        enter = fadeIn(tween(ArcadiaMotion.Slow)) +
+            scaleIn(tween(ArcadiaMotion.Slow), initialScale = 0.94f),
+        exit = fadeOut(tween(ArcadiaMotion.Medium)) +
+            scaleOut(tween(ArcadiaMotion.Medium), targetScale = 0.96f),
+    ) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xF20A0C12)),
+            .background(Color(0xFA05070C)),
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(28.dp)) {
             RomEditorHeader(game = game, customTitle = customTitle)
@@ -326,11 +348,8 @@ fun RomEditorPane(
                     modifier = Modifier
                         .width(RAIL_WIDTH)
                         .fillMaxHeight()
-                        .liquidGlass(
-                            shape = ArcadiaGlass.SheetShape,
-                            tone = GlassTone.Surface,
-                            intensity = GlassIntensity.Subtle,
-                        )
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color.White.copy(alpha = 0.07f))
                         .padding(vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
@@ -369,11 +388,6 @@ fun RomEditorPane(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-            ButtonHintBar(
-                hints = editorHints(mode, column, rows.getOrNull(rowIndex)),
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
         }
 
         AnimatedVisibility(visible = mode is EditorMode.ArtPicker, enter = fadeIn(), exit = fadeOut()) {
@@ -395,6 +409,7 @@ fun RomEditorPane(
             )
         }
     }
+    }
 }
 
 /** Remote candidates for one slot, plus whether the lookup is still running. */
@@ -407,33 +422,24 @@ data class ArtPickerUiState(
 private fun RomEditorHeader(game: Game, customTitle: String?) {
     val glass = rememberGlassTokens(GlassTone.Surface)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        ArtworkImage(
-            path = game.gridArt,
-            contentDescription = null,
-            fallbackText = game.title.take(2).uppercase(),
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(width = 68.dp, height = 92.dp)
-                .clip(RoundedCornerShape(8.dp)),
-        )
-        Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = customTitle ?: game.title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = glass.content,
-                maxLines = 1,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = buildString {
                     append(game.platform.displayName)
-                    append(" · ")
+                    append("  ·  ")
                     append(formatXmbPlaytime(game.playTimeMs))
-                    if (game.playCount > 0) append(" · ${game.playCount} plays")
+                    if (game.playCount > 0) append("  ·  ${game.playCount} plays")
                 },
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = glass.contentMuted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -448,6 +454,19 @@ private fun RomEditorHeader(game: Game, customTitle: String?) {
                 )
             }
         }
+        Spacer(modifier = Modifier.width(20.dp))
+        // Top right, and large enough to actually judge the art you are picking.
+        ArtworkImage(
+            path = game.gridArt,
+            contentDescription = null,
+            fallbackText = game.title.take(2).uppercase(),
+            contentScale = ContentScale.Crop,
+            decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
+            modifier = Modifier
+                .size(width = HEADER_ART_W, height = HEADER_ART_H)
+                .clip(RoundedCornerShape(10.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(10.dp)),
+        )
     }
 }
 
@@ -455,8 +474,8 @@ private fun RomEditorHeader(game: Game, customTitle: String?) {
 private fun RailRow(label: String, selected: Boolean, active: Boolean) {
     val glass = rememberGlassTokens(GlassTone.Surface)
     val background = when {
-        active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
-        selected -> Color.White.copy(alpha = 0.08f)
+        active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+        selected -> Color.White.copy(alpha = 0.14f)
         else -> Color.Transparent
     }
     Box(
@@ -469,9 +488,9 @@ private fun RailRow(label: String, selected: Boolean, active: Boolean) {
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) glass.content else glass.contentMuted,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = if (selected) Color.White else Color.White.copy(alpha = 0.62f),
         )
     }
 }
@@ -484,23 +503,24 @@ private fun EditorRowItem(row: RomEditorRow, active: Boolean) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(if (active) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.04f))
+            .background(if (active) accent.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.09f))
             .border(
-                width = if (active) 2.dp else 0.dp,
-                color = if (active) accent.copy(alpha = 0.9f) else Color.Transparent,
+                width = if (active) 2.dp else 1.dp,
+                color = if (active) Color.White.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.12f),
                 shape = RoundedCornerShape(10.dp),
             )
-            .padding(horizontal = 16.dp, vertical = 13.dp),
+            .padding(horizontal = 18.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = row.label,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (row.destructive) {
                     MaterialTheme.colorScheme.error
                 } else {
-                    glass.content
+                    Color.White
                 },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -508,8 +528,8 @@ private fun EditorRowItem(row: RomEditorRow, active: Boolean) {
             row.hint?.let {
                 Text(
                     text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = glass.contentMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.70f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -519,8 +539,9 @@ private fun EditorRowItem(row: RomEditorRow, active: Boolean) {
             Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = if (row.onAdjust != null) "‹ $it ›" else it,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (active) glass.content else glass.contentMuted,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium,
+                color = if (active) Color.White else Color.White.copy(alpha = 0.75f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -599,16 +620,6 @@ private fun ArtPickerOverlay(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-            ButtonHintBar(
-                hints = listOf(
-                    "D-pad" to "Browse",
-                    "A" to "Use this",
-                    "Y" to "My own file",
-                    "B" to "Back",
-                ),
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
         }
     }
 }
@@ -707,32 +718,6 @@ private fun RenameOverlay(
                 style = MaterialTheme.typography.bodySmall,
                 color = glass.contentMuted,
             )
-            ButtonHintBar(
-                hints = listOf("A" to "Save", "B" to "Cancel"),
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
         }
-    }
-}
-
-private fun editorHints(
-    mode: EditorMode,
-    column: EditorColumn,
-    row: RomEditorRow?,
-): List<Pair<String, String>> = when (mode) {
-    EditorMode.Rename -> listOf("A" to "Save", "B" to "Cancel")
-    is EditorMode.ArtPicker -> listOf("A" to "Use this", "Y" to "My own file", "B" to "Back")
-    EditorMode.Browse -> buildList {
-        add("D-pad" to "Move")
-        if (column == EditorColumn.Rail) {
-            add("A" to "Open section")
-            add("B" to "Close")
-        } else {
-            if (row?.onActivate != null) add("A" to "Select")
-            if (row?.onAdjust != null) add("◀▶" to "Change")
-            if (row?.onClear != null) add("X" to "Clear")
-            add("B" to "Back")
-        }
-        add("LB/RB" to "Section")
     }
 }

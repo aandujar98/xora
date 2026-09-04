@@ -9,6 +9,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -36,21 +37,31 @@ object ArcadiaMotion {
     const val Slow = 320
     /** Theme wallpaper / BGM soft mix when switching packs. */
     const val ThemeCrossfade = THEME_CROSSFADE_MS
-    /** UI chrome fade that finishes before the wallpaper zoom starts. */
+    /** UI chrome fade. The backdrop is already drifting under it. */
     const val Launch = 500
-    /** Backdrop zoom after the chrome fade. */
-    const val LaunchZoom = 800
-    /** Wallpaper starts dissolving this many ms after launch begins. */
-    const val LaunchWallpaperFadeAt = 1500
-    /** Wallpaper dissolve into black before the emulator Activity takes over. */
-    const val LaunchWallpaperFade = 500
     /**
-     * Whole cinematic plate before the emulator Activity is started: chrome fades, the backdrop
-     * zooms, then the wallpaper fades at [LaunchWallpaperFadeAt].
+     * Backdrop zoom. Long and linear so it reads as a slow push rather than a move that starts,
+     * accelerates and lands — a short eased zoom of any size reads as a punch.
      */
-    const val LaunchHold = 3000
-    /** Ken Burns zoom on wallpaper / hero art while chrome splits out. */
-    const val LaunchBackdropZoom = 0.14f
+    const val LaunchZoom = 2000
+    /** The drift starts under the chrome fade, so the whole plate is one continuous move. */
+    const val LaunchZoomAt = 200
+    /** Wallpaper starts dissolving this many ms after launch begins. */
+    const val LaunchWallpaperFadeAt = 2100
+    /** Wallpaper dissolve into black before the emulator Activity takes over. */
+    const val LaunchWallpaperFade = 700
+    /**
+     * Whole cinematic plate before the emulator Activity is started: the backdrop drifts in, the
+     * chrome clears, then the wallpaper dissolves from [LaunchWallpaperFadeAt]. Ends as that
+     * dissolve does, so the emulator's own fade-in continues one movement instead of following a
+     * beat of dead black.
+     */
+    const val LaunchHold = 2800
+    /**
+     * Ken Burns push on wallpaper / hero art. Small on purpose: enough to feel the screen breathe
+     * into the game, not enough to crop the art or read as a lurch.
+     */
+    const val LaunchBackdropZoom = 0.05f
     /** White plate dissolve from the boot clip into the XMB. */
     const val BootWhiteFade = 560
     /**
@@ -251,8 +262,10 @@ fun rememberLaunchCinematic(isLaunching: Boolean): LaunchCinematicProgress {
         animationSpec = if (isLaunching && !reduce) {
             tween(
                 durationMillis = ArcadiaMotion.LaunchZoom,
-                delayMillis = ArcadiaMotion.Launch,
-                easing = FastOutSlowInEasing,
+                delayMillis = ArcadiaMotion.LaunchZoomAt,
+                // Linear: an eased push spends its middle third moving fast, which is exactly the
+                // lurch a slow zoom is trying to avoid.
+                easing = LinearEasing,
             )
         } else {
             tween(snapMs, easing = FastOutSlowInEasing)
