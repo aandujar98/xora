@@ -659,6 +659,24 @@ class ShellPreferences @Inject constructor(
         prefs[Keys.GAME_ART_ALIGNMENTS] = encodeGameArtAlignments(next)
     }
 
+    /**
+     * User-typed names, keyed by game id.
+     *
+     * Deliberately not a database column: the database falls back to a destructive migration, so
+     * adding one would drop every library, playtime and favourite on upgrade. Living out here also
+     * means a re-scrape cannot quietly overwrite a name the user chose by hand.
+     */
+    val gameTitleOverrides: Flow<Map<String, String>> = dataStore.data.map { prefs ->
+        decodeGameTitleOverrides(prefs[Keys.GAME_TITLE_OVERRIDES].orEmpty())
+    }
+
+    suspend fun setGameTitleOverride(gameId: String, title: String?) = edit { prefs ->
+        val current = decodeGameTitleOverrides(prefs[Keys.GAME_TITLE_OVERRIDES].orEmpty())
+        val cleaned = title?.trim()?.takeIf { it.isNotEmpty() }
+        val next = if (cleaned == null) current - gameId else current + (gameId to cleaned)
+        prefs[Keys.GAME_TITLE_OVERRIDES] = encodeGameTitleOverrides(next)
+    }
+
     suspend fun setShowHiddenGames(enabled: Boolean) = edit {
         it[Keys.SHOW_HIDDEN_GAMES] = enabled
     }
@@ -1314,6 +1332,7 @@ class ShellPreferences @Inject constructor(
         val FAVORITE_PHOTO_IDS = stringPreferencesKey("favorite_photo_ids")
         val HIDDEN_GAME_IDS = stringPreferencesKey("hidden_game_ids")
         val GAME_ART_ALIGNMENTS = stringPreferencesKey("game_art_alignments")
+        val GAME_TITLE_OVERRIDES = stringPreferencesKey("game_title_overrides")
         val SHOW_HIDDEN_GAMES = booleanPreferencesKey("show_hidden_games")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
         val WALLPAPER_ALIGN_X = floatPreferencesKey("wallpaper_align_x")
@@ -1553,6 +1572,31 @@ internal fun decodeGameArtAlignments(raw: String): Map<String, GameArtAlignment>
                     y = entry.optDouble("y", 0.0).toFloat(),
                 ).clamped()
                 if (!alignment.isIdentity) put(id, alignment)
+            }
+        }
+    }.getOrDefault(emptyMap())
+}
+
+/** Longer than any real title, but short enough that a pasted essay cannot bloat the store. */
+const val GAME_TITLE_MAX_LENGTH = 120
+
+internal fun encodeGameTitleOverrides(map: Map<String, String>): String {
+    val obj = JSONObject()
+    map.forEach { (id, title) ->
+        val cleaned = title.trim().take(GAME_TITLE_MAX_LENGTH)
+        if (id.isNotBlank() && cleaned.isNotEmpty()) obj.put(id, cleaned)
+    }
+    return obj.toString()
+}
+
+internal fun decodeGameTitleOverrides(raw: String): Map<String, String> {
+    if (raw.isBlank()) return emptyMap()
+    return runCatching {
+        val obj = JSONObject(raw)
+        buildMap {
+            obj.keys().forEach { id ->
+                val title = obj.optString(id).trim().take(GAME_TITLE_MAX_LENGTH)
+                if (title.isNotEmpty()) put(id, title)
             }
         }
     }.getOrDefault(emptyMap())
