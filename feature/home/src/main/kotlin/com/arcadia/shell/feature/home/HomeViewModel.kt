@@ -1308,8 +1308,11 @@ class HomeViewModel @Inject constructor(
         }
             .distinctUntilChanged()
             .transformLatest { path ->
-                gameSoundBitePlayer.stop()
-                if (path.isNullOrBlank()) return@transformLatest
+                if (path.isNullOrBlank()) {
+                    gameSoundBitePlayer.stop()
+                    return@transformLatest
+                }
+                gameSoundBitePlayer.stop(releaseBackgroundMusic = false)
                 delay(XMB_FOCUS_SETTLE_MS)
                 emit(path)
             }

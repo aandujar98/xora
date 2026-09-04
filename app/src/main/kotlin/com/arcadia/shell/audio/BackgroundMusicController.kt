@@ -64,6 +64,11 @@ class BackgroundMusicController @Inject constructor(
     private var libraryMusicActive: Boolean = false
     /** When true, shell BGM stays paused so the boot clip can own the soundtrack. */
     private var bootIntroActive: Boolean = false
+    /** When true, a ROM sound bite owns the speakers; BGM fades out then pauses. */
+    private var soundBiteActive: Boolean = false
+    /** 1 = full BGM, 0 = silent under a sound bite. */
+    private var soundBiteFade: Float = 1f
+    private var soundBiteFadeJob: Job? = null
     private var crossfadeJob: Job? = null
     /** Outgoing player during a soft mix; released when the fade completes or is cancelled. */
     private var fadingOutPlayer: MediaPlayer? = null
@@ -76,7 +81,7 @@ class BackgroundMusicController @Inject constructor(
                 syncPlayback()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                val ducked = (volume * duckFactor * TRAILER_DUCK_FACTOR).coerceIn(0f, 1f)
+                val ducked = (currentVolume() * TRAILER_DUCK_FACTOR).coerceIn(0f, 1f)
                 runCatching { player?.setVolume(ducked, ducked) }
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
@@ -143,6 +148,36 @@ class BackgroundMusicController @Inject constructor(
         syncPlayback()
     }
 
+    /**
+     * Fade shell BGM out while a ROM sound bite plays, then fade it back in when the bite
+     * finishes. The player is paused at silence so the loop does not drift under the clip.
+     */
+    fun setSoundBiteActive(active: Boolean) {
+        if (soundBiteActive == active) return
+        soundBiteActive = active
+        soundBiteFadeJob?.cancel()
+        if (active) {
+            soundBiteFadeJob = scope.launch {
+                fadeSoundBite(to = 0f)
+                runCatching { player?.pause() }
+            }
+        } else {
+            soundBiteFadeJob = scope.launch {
+                soundBiteFade = 0f
+                applyVolume()
+                if (shouldPlayBgm()) {
+                    requestAudioFocus()
+                    val media = ensurePlayer(hardCut = false) ?: return@launch
+                    applyVolume()
+                    if (!runCatching { media.isPlaying }.getOrDefault(false)) {
+                        runCatching { media.start() }
+                    }
+                }
+                fadeSoundBite(to = 1f)
+            }
+        }
+    }
+
     fun onForeground() {
         foreground = true
         syncPlayback()
@@ -166,9 +201,19 @@ class BackgroundMusicController @Inject constructor(
         crossfadeToDesiredSource()
     }
 
+    private fun shouldPlayBgm(): Boolean =
+        foreground &&
+            volume > 0f &&
+            !onboardingActive &&
+            !libraryMusicActive &&
+            !bootIntroActive &&
+            !(soundBiteActive && soundBiteFade <= 0.001f)
+
     private fun syncPlayback() {
-        if (!foreground || volume <= 0f || onboardingActive || libraryMusicActive || bootIntroActive) {
-            runCatching { player?.pause() }
+        if (!shouldPlayBgm()) {
+            if (!foreground || volume <= 0f || onboardingActive || libraryMusicActive || bootIntroActive) {
+                runCatching { player?.pause() }
+            }
             if (!foreground) abandonAudioFocus()
             return
         }
@@ -229,7 +274,7 @@ class BackgroundMusicController @Inject constructor(
                 return
             }
 
-        val targetVol = (volume * duckFactor).coerceIn(0f, 1f)
+        val targetVol = currentVolume()
         crossfadeJob = scope.launch {
             val steps = CROSSFADE_STEPS
             val stepDelay = THEME_CROSSFADE_MS.toLong() / steps
@@ -313,7 +358,7 @@ class BackgroundMusicController @Inject constructor(
                     true
                 }
                 prepare()
-                val v = (volume * duckFactor).coerceIn(0f, 1f)
+                val v = currentVolume()
                 setVolume(v, v)
             }
         }.getOrNull()
@@ -347,8 +392,29 @@ class BackgroundMusicController @Inject constructor(
         runCatching { media.release() }
     }
 
+    private fun currentVolume(): Float =
+        (volume * duckFactor * soundBiteFade).coerceIn(0f, 1f)
+
+    private suspend fun fadeSoundBite(to: Float) {
+        val from = soundBiteFade
+        if (from == to) {
+            applyVolume()
+            return
+        }
+        val steps = SOUNDBITE_FADE_STEPS
+        val stepMs = SOUNDBITE_FADE_MS / steps
+        for (i in 1..steps) {
+            val t = i.toFloat() / steps
+            soundBiteFade = from + (to - from) * t
+            applyVolume()
+            delay(stepMs)
+        }
+        soundBiteFade = to
+        applyVolume()
+    }
+
     private fun applyVolume() {
-        val v = (volume * duckFactor).coerceIn(0f, 1f)
+        val v = currentVolume()
         runCatching { player?.setVolume(v, v) }
     }
 
@@ -401,5 +467,7 @@ class BackgroundMusicController @Inject constructor(
         const val KEY_DEFAULT = "__default__"
         const val KEY_UNLOADED = "__unloaded__"
         const val CROSSFADE_STEPS = 24
+        const val SOUNDBITE_FADE_MS = 240L
+        const val SOUNDBITE_FADE_STEPS = 16
     }
 }
