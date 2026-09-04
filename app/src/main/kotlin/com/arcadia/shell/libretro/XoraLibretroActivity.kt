@@ -1,9 +1,15 @@
 package com.arcadia.shell.libretro
 
 import android.Manifest
+import android.app.AppOpsManager
+import android.app.UiModeManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.res.Configuration
+import android.provider.Settings
+import android.os.PowerManager
+import android.view.accessibility.AccessibilityManager
+import android.widget.ScrollView
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
@@ -289,7 +295,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var bannerOverlay: ComposeView? = null
     @Volatile private var bannerHostNeeded = false
     /** Long-press the profile disc: on-screen wash report. Removed on tap. */
-    private var washReport: TextView? = null
+    private var washReport: View? = null
     private val washFrameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             washFramePosted = false
@@ -1359,6 +1365,7 @@ class XoraLibretroActivity : ComponentActivity() {
         pinGameplaySurfaceRepeatedly()
         keepProfileChipOnTop()
         postWashFrame()
+        gameRoot?.postDelayed({ showWashProbeIfSystemHit() }, WASH_CHECK_DELAY_MS)
     }
 
     private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
@@ -2582,7 +2589,9 @@ class XoraLibretroActivity : ComponentActivity() {
         report.appendLine("WINDOW")
         report.appendLine("  alpha=${attrs.alpha} dim=${attrs.dimAmount} format=${attrs.format}")
         report.appendLine("  flags=0x${Integer.toHexString(attrs.flags)}")
+        report.appendLine("  colorMode=${window.colorMode} wide=${window.isWideColorGamut}")
         report.appendLine("  menuOpen=$menuOpen paused=$paused")
+        report.appendLine(collectSystemWashProbe(includeOverlayApps = true).asText())
 
         report.appendLine("LAYERS >=40% of window, front to back")
         val covering = mutableListOf<String>()
@@ -2624,18 +2633,186 @@ class XoraLibretroActivity : ComponentActivity() {
                         if (washDetected) {
                             "  => WASH IS INSIDE THIS WINDOW. Blame a layer listed above."
                         } else {
-                            "  => window output is clean. The wash is ABOVE this window: " +
-                                "system dim / accessibility or OEM overlay / display colour mode."
+                            "  => window buffer is clean. If you still see a tint, it is " +
+                                "applied AFTER this window. See SYSTEM / OVERLAY APPS above."
                         },
                     )
                 }
             }
             shot.recycle()
             Log.i("XoraWash", report.toString())
-            // Automatic runs stay in logcat. The on-screen dump is long-press only — showing it
-            // on a clean window is how "the wash is ABOVE this window" ended up over the game.
-            if (!auto) showWashReport(report.toString())
+            if (!auto) {
+                copyWashReport(report.toString())
+                showWashReport(report.toString())
+            }
         }, root.handler)
+    }
+
+    private data class WashSystemProbe(
+        val lines: List<String>,
+        val hits: List<String>,
+    ) {
+        fun asText(): String = buildString {
+            appendLine("SYSTEM")
+            lines.forEach { appendLine("  $it") }
+            appendLine("VERDICT")
+            if (hits.isEmpty()) {
+                appendLine("  no Extra Dim / Night Light / inversion / colour-correction flag is on.")
+                appendLine("  if the tint is still visible, it is an OEM colour profile or a")
+                appendLine("  3rd-party overlay we cannot see from this process.")
+            } else {
+                hits.forEach { appendLine("  ON  $it") }
+            }
+        }
+    }
+
+    /**
+     * Reads the flags the PixelCopy dump cannot see: Extra Dim, Night Light, colour inversion,
+     * colour correction, night UI, battery saver, and apps that hold SYSTEM_ALERT_WINDOW.
+     */
+    private fun collectSystemWashProbe(includeOverlayApps: Boolean): WashSystemProbe {
+        val lines = mutableListOf<String>()
+        val hits = mutableListOf<String>()
+
+        fun flag(key: String): String =
+            runCatching {
+                when (Settings.Secure.getInt(contentResolver, key, -1)) {
+                    1 -> "ON"
+                    0 -> "off"
+                    else -> "n/a"
+                }
+            }.getOrElse { "n/a" }
+
+        fun hit(label: String, on: Boolean) {
+            if (on) hits.add(label)
+        }
+
+        val extraDim = flag("reduce_bright_colors_activated")
+        val extraDimLevel = runCatching {
+            Settings.Secure.getInt(contentResolver, "reduce_bright_colors_level", -1)
+        }.getOrDefault(-1)
+        val nightLight = flag("night_display_activated")
+        val inversion = flag("accessibility_display_inversion_enabled")
+        val daltonizer = flag("accessibility_display_daltonizer_enabled")
+        val highContrast = flag("high_text_contrast_enabled").let { v ->
+            if (v != "n/a") v else flag("accessibility_high_text_contrast_enabled")
+        }
+        lines += "extra dim (reduce_bright_colors) = $extraDim" +
+            if (extraDimLevel >= 0) " level=$extraDimLevel" else ""
+        lines += "night light                     = $nightLight"
+        lines += "colour inversion                = $inversion"
+        lines += "colour correction               = $daltonizer"
+        lines += "high contrast                   = $highContrast"
+        hit("Extra Dim — Settings → Display → Extra dim", extraDim == "ON")
+        hit("Night Light — Settings → Display → Night Light", nightLight == "ON")
+        hit("Colour inversion — Settings → Accessibility → Colour inversion", inversion == "ON")
+        hit("Colour correction — Settings → Accessibility → Colour correction", daltonizer == "ON")
+        hit("High contrast text — Settings → Accessibility", highContrast == "ON")
+
+        val uiMode = getSystemService(UiModeManager::class.java)
+        val nightMode = when (uiMode?.nightMode) {
+            UiModeManager.MODE_NIGHT_YES -> "YES"
+            UiModeManager.MODE_NIGHT_NO -> "no"
+            UiModeManager.MODE_NIGHT_AUTO -> "auto"
+            UiModeManager.MODE_NIGHT_CUSTOM -> "custom"
+            else -> "n/a"
+        }
+        val cfgNight = when (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) {
+            Configuration.UI_MODE_NIGHT_YES -> "YES"
+            Configuration.UI_MODE_NIGHT_NO -> "no"
+            else -> "undefined"
+        }
+        lines += "ui nightMode / config           = $nightMode / $cfgNight"
+        if (nightMode == "YES" || cfgNight == "YES") {
+            hit("Dark theme / night UI mode", true)
+        }
+
+        val power = getSystemService(PowerManager::class.java)
+        val saver = power?.isPowerSaveMode == true
+        lines += "battery saver                   = ${if (saver) "ON" else "off"}"
+        hit("Battery saver (can grey the panel)", saver)
+
+        val a11y = getSystemService(AccessibilityManager::class.java)
+        val a11yOn = a11y?.isEnabled == true
+        val services = a11y?.getEnabledAccessibilityServiceList(
+            android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK,
+        ).orEmpty()
+        lines += "accessibility enabled           = $a11yOn services=${services.size}"
+        services.take(8).forEach { info ->
+            val id = info.id.ifBlank { info.resolveInfo?.serviceInfo?.packageName }.orEmpty()
+            lines += "  a11y $id"
+            if (id.isNotBlank()) hit("Accessibility service $id", true)
+        }
+
+        val display = window.decorView.display
+        val mode = display?.mode
+        lines += "display mode                    = ${mode?.physicalWidth}x${mode?.physicalHeight}" +
+            "@${mode?.refreshRate?.let { "%.1f".format(it) }}Hz id=${mode?.modeId}"
+        lines += "display wideColor / hdr         = ${display?.isWideColorGamut} / " +
+            "${display?.hdrCapabilities?.supportedHdrTypes?.contentToString() ?: "[]"}"
+        lines += "window colorMode                = ${window.colorMode}"
+        val brightness = runCatching {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, -1)
+        }.getOrDefault(-1)
+        val brightMode = runCatching {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, -1)
+        }.getOrDefault(-1)
+        lines += "brightness / auto               = $brightness / " +
+            if (brightMode == Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC) "auto" else "manual"
+
+        if (includeOverlayApps) {
+            val overlays = overlayCapablePackages()
+            lines += "apps allowed to draw overlays   = ${overlays.size}"
+            overlays.take(12).forEach { lines += "  overlay $it" }
+            overlays.filterNot {
+                it == packageName || it.startsWith("com.android.") || it.startsWith("android")
+            }.forEach { hit("Overlay app $it (Settings → Apps → Special access → Display over other apps)", true) }
+        }
+
+        return WashSystemProbe(lines, hits)
+    }
+
+    private fun overlayCapablePackages(): List<String> {
+        val appOps = getSystemService(AppOpsManager::class.java) ?: return emptyList()
+        val apps = runCatching {
+            packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+        }.getOrDefault(emptyList())
+        return apps.mapNotNull { app ->
+            val mode = runCatching {
+                appOps.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW,
+                    app.uid,
+                    app.packageName,
+                )
+            }.getOrDefault(AppOpsManager.MODE_DEFAULT)
+            if (mode == AppOpsManager.MODE_ALLOWED) app.packageName else null
+        }.sorted()
+    }
+
+    private fun showWashProbeIfSystemHit() {
+        if (isFinishing || menuOpen) return
+        val probe = collectSystemWashProbe(includeOverlayApps = true)
+        Log.i("XoraWash", probe.asText())
+        if (probe.hits.isEmpty()) return
+        showWashReport(
+            buildString {
+                appendLine("WASH PROBE — overlay just closed")
+                probe.hits.forEach { appendLine("ON  $it") }
+                appendLine()
+                appendLine("These sit above the emulator window. Sleep/wake")
+                appendLine("clears a leftover compositor state; turning the")
+                appendLine("flag off stops it coming back.")
+                appendLine("Long-press the profile disc for the full dump")
+                appendLine("(also copied to the clipboard). Tap to dismiss.")
+            },
+        )
+    }
+
+    private fun copyWashReport(text: String) {
+        runCatching {
+            getSystemService(ClipboardManager::class.java)
+                ?.setPrimaryClip(ClipData.newPlainText("XOrA wash probe", text))
+        }
     }
 
     private fun collectCoveringViews(view: View, windowArea: Int, out: MutableList<String>) {
@@ -2677,27 +2854,33 @@ class XoraLibretroActivity : ComponentActivity() {
         val root = gameRoot ?: return
         hideWashReport()
         val density = resources.displayMetrics.density
+        val pad = (12 * density).toInt()
         val view = TextView(this).apply {
-            setBackgroundColor(AndroidColor.argb(200, 0, 0, 0))
+            setBackgroundColor(AndroidColor.argb(210, 0, 0, 0))
             setTextColor(AndroidColor.WHITE)
             textSize = 10f
             typeface = android.graphics.Typeface.MONOSPACE
-            setPadding((12 * density).toInt(), (12 * density).toInt(), (12 * density).toInt(), (12 * density).toInt())
+            setPadding(pad, pad, pad, pad)
             this.text = text
             isForceDarkAllowed = false
+        }
+        val host = ScrollView(this).apply {
+            isForceDarkAllowed = false
             isClickable = true
+            setBackgroundColor(AndroidColor.argb(210, 0, 0, 0))
             layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
+                (root.width * 0.78f).toInt().coerceAtLeast((420 * density).toInt()),
+                (root.height * 0.70f).toInt().coerceAtLeast((220 * density).toInt()),
                 Gravity.TOP or Gravity.START,
             ).apply {
-                leftMargin = (12 * density).toInt()
-                topMargin = (12 * density).toInt()
+                leftMargin = pad
+                topMargin = pad
             }
+            addView(view)
             setOnClickListener { hideWashReport() }
         }
-        washReport = view
-        root.addView(view)
+        washReport = host
+        root.addView(host)
     }
 
     private fun keepProfileChipOnTop() {
