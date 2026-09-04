@@ -1287,16 +1287,13 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun openMenu() {
         if (menuOpen || isFinishing) return
-        val overlay = xmbOverlay ?: return
+        if (xmbOverlay == null) return
         refreshSaveSlots()
         refreshAchievementList()
         menuOpen = true
         releasePointer()
         syncPaused()
-        overlay.visibility = View.VISIBLE
-        overlay.alpha = 1f
-        overlay.setBackgroundColor(AndroidColor.BLACK)
-        overlay.bringToFront()
+        attachMenuOverlay()
         keepProfileChipOnTop()
         uiSounds.playConfirm()
     }
@@ -1347,17 +1344,21 @@ class XoraLibretroActivity : ComponentActivity() {
         hideSoftKeyboard()
         syncPaused()
         dissolveWashLayers()
+        detachMenuOverlay()
         menuMessageJob?.cancel()
         menuMessage = null
+        // Sleep/wake is what actually clears this wash: SurfaceFlinger drops the display
+        // mode and HWUI destroys the overlay's hardware layer. Do both here.
+        flushHardwareLayer(xmbOverlay)
+        flushHardwareLayer(window.decorView)
+        DisplayRefresh.rebind(window)
+        opaqueWindowBackgroundSet = false
+        forceDarkPinned = false
+        displayPipelinePinned = false
         applyOpaqueWindow()
         pinGameplaySurfaceRepeatedly()
         keepProfileChipOnTop()
-        displayPipelinePinned = false
-        pinDisplayPipeline()
         postWashFrame()
-        // Log-only: an on-screen dump over a clean window is not a fix, and PixelCopy cannot
-        // see a wash that lives above this window.
-        gameRoot?.postDelayed({ runWashDiagnostics(auto = true) }, WASH_CHECK_DELAY_MS)
     }
 
     private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
@@ -2343,16 +2344,70 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun pinGameplaySurfaceRepeatedly() {
         pinGameplaySurfaceAndRepaint()
         val root = gameRoot ?: return
-        root.post { pinGameplaySurfaceAndRepaint() }
-        root.postDelayed({ pinGameplaySurfaceAndRepaint() }, 50)
-        root.postDelayed({ pinGameplaySurfaceAndRepaint() }, 160)
-        root.postDelayed({ pinGameplaySurfaceAndRepaint() }, 400)
+        val again: Runnable = Runnable {
+            displayPipelinePinned = false
+            pinDisplayPipeline()
+            pinGameplaySurfaceAndRepaint()
+        }
+        root.post(again)
+        root.postDelayed(again, 50)
+        root.postDelayed(again, 160)
+        root.postDelayed(again, 400)
     }
 
     /**
      * If a wash is still attached, fade it to fully transparent instead of leaving it opaque
      * and GONE (some OEMs still composite a GONE ComposeView).
      */
+    private fun attachMenuOverlay() {
+        val overlay = xmbOverlay ?: return
+        val root = gameRoot ?: return
+        if (overlay.parent == null) {
+            val dialogs = dialogOverlay
+            val chip = profileChip
+            val index = when {
+                dialogs?.parent === root -> root.indexOfChild(dialogs)
+                chip?.parent === root -> root.indexOfChild(chip)
+                else -> root.childCount
+            }.coerceAtLeast(0)
+            root.addView(overlay, index)
+        }
+        overlay.visibility = View.VISIBLE
+        overlay.alpha = 1f
+        overlay.setBackgroundColor(AndroidColor.BLACK)
+        overlay.isClickable = true
+        overlay.isFocusable = false
+        overlay.bringToFront()
+    }
+
+    /**
+     * GONE is not enough on some handhelds: HWUI keeps compositing the last frame of a
+     * detached-but-still-parented ComposeView. Sleep/wake destroys that layer because the
+     * view tree's hardware resources go with the surface. [ViewGroup.removeView] is the
+     * same teardown without leaving the activity.
+     */
+    private fun detachMenuOverlay() {
+        val overlay = xmbOverlay ?: return
+        overlay.alpha = 0f
+        overlay.visibility = View.GONE
+        overlay.setBackgroundColor(AndroidColor.TRANSPARENT)
+        overlay.isClickable = false
+        overlay.isFocusable = false
+        if (overlay.hasComposition) overlay.disposeComposition()
+        flushHardwareLayer(overlay)
+        (overlay.parent as? ViewGroup)?.removeView(overlay)
+    }
+
+    private fun flushHardwareLayer(view: View?) {
+        view ?: return
+        if (view.layerType != View.LAYER_TYPE_NONE) {
+            view.setLayerType(View.LAYER_TYPE_NONE, null)
+        } else {
+            view.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            view.setLayerType(View.LAYER_TYPE_NONE, null)
+        }
+    }
+
     private fun dissolveWashLayers() {
         if (isFinishing) return
         val attrs = window.attributes
@@ -2360,13 +2415,8 @@ class XoraLibretroActivity : ComponentActivity() {
             attrs.dimAmount = 0f
             window.attributes = attrs
         }
-        xmbOverlay?.apply {
-            alpha = 0f
-            visibility = View.GONE
-            setBackgroundColor(AndroidColor.TRANSPARENT)
-            isClickable = false
-            isFocusable = false
-            if (hasComposition) disposeComposition()
+        if (xmbOverlay?.parent != null) {
+            detachMenuOverlay()
         }
         // The dialog host is MATCH_PARENT and stacks above the stage. syncDialogOverlay is the
         // only thing that ever hid it, so a seat picker / invite that lost its close published a
@@ -2454,7 +2504,9 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun reconcileMenuState() {
         if (!menuOpen || isFinishing) return
         val overlay = xmbOverlay ?: return
-        val showing = overlay.visibility == View.VISIBLE && overlay.alpha > 0.01f
+        val showing = overlay.parent != null &&
+            overlay.visibility == View.VISIBLE &&
+            overlay.alpha > 0.01f
         if (showing) return
         menuOpen = false
         syncPaused()
@@ -2481,11 +2533,9 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         keepProfileChipOnTop()
         uiSounds.playConfirm()
+        DisplayRefresh.rebind(window)
         displayPipelinePinned = false
         pinDisplayPipeline()
-        // Log only. A wash above this window cannot be cleared by resetting our views, and
-        // painting the diagnostic over the game is not a fix.
-        gameRoot?.postDelayed({ runWashDiagnostics(auto = true) }, WASH_CHECK_DELAY_MS)
     }
 
     /**
