@@ -51,6 +51,11 @@ class NsoBezelView @JvmOverloads constructor(
     var onAvatarClick: (() -> Unit)? = null
     private val avatarRect = RectF()
 
+    init {
+        isForceDarkAllowed = false
+        setBackgroundColor(Color.BLACK)
+    }
+
     fun setGameRect(left: Int, top: Int, right: Int, bottom: Int) {
         if (gameRect.left == left && gameRect.top == top &&
             gameRect.right == right && gameRect.bottom == bottom
@@ -109,11 +114,15 @@ class NsoBezelView @JvmOverloads constructor(
         canvas.drawColor(Color.BLACK)
         val overlay = overlayBitmap
         if (overlay != null && !overlay.isRecycled) {
+            // NSO PNGs fill the LCD hole with white. Never let that white reach the compositor
+            // under the ImageView — clip it out before drawing, then matte the hole black.
+            canvas.save()
+            if (!gameRect.isEmpty) canvas.clipOutRect(gameRect)
             canvas.drawBitmap(overlay, null, Rect(0, 0, w, h), overlayPaint)
+            canvas.restore()
         } else {
             drawHalftonePillars(canvas, w, h)
         }
-        // NSO PNGs fill the LCD hole with white. Keep that rect black under the ImageView.
         if (!gameRect.isEmpty) {
             mattePaint.color = Color.BLACK
             canvas.drawRect(gameRect, mattePaint)

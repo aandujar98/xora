@@ -273,6 +273,8 @@ class XoraLibretroActivity : ComponentActivity() {
     private var washFramePosted = false
     /** The window background drawable only needs loading once; reloading it churns the decor. */
     private var opaqueWindowBackgroundSet = false
+    /** Force-dark is a render-time lift: views still report black, PixelCopy comes back grey. */
+    private var forceDarkPinned = false
     /**
      * Host for RA unlock banners and the dual-screen pane. It is added directly above the game
      * stage and below the side menu, which is the one z-band that tints the framebuffer without
@@ -377,6 +379,7 @@ class XoraLibretroActivity : ComponentActivity() {
         window.setFormat(PixelFormat.OPAQUE)
         val root = FrameLayout(this).apply {
             setBackgroundColor(AndroidColor.BLACK)
+            isForceDarkAllowed = false
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -2238,6 +2241,10 @@ class XoraLibretroActivity : ComponentActivity() {
             opaqueWindowBackgroundSet = true
             window.setBackgroundDrawableResource(android.R.color.black)
         }
+        if (!forceDarkPinned) {
+            forceDarkPinned = true
+            disableForceDark(window.decorView)
+        }
         paintBlack(window.decorView)
         // A window animation left mid-flight parks LayoutParams.alpha below 1, and the bright
         // shell behind then blends straight through the emulator window. Nothing reset it, so
@@ -2308,7 +2315,10 @@ class XoraLibretroActivity : ComponentActivity() {
             paintBlack(this)
             if (alpha != 1f) alpha = 1f
             if (colorFilter != null) colorFilter = null
+            if (imageTintList != null) imageTintList = null
+            if (backgroundTintList != null) backgroundTintList = null
             if (imageAlpha != 255) imageAlpha = 255
+            (drawable as? BitmapDrawable)?.bitmap?.takeIf { it.hasAlpha() }?.setHasAlpha(false)
             if (visibility != View.VISIBLE) visibility = View.VISIBLE
         }
     }
@@ -2343,6 +2353,7 @@ class XoraLibretroActivity : ComponentActivity() {
             setBackgroundColor(AndroidColor.TRANSPARENT)
             isClickable = false
             isFocusable = false
+            if (hasComposition) disposeComposition()
         }
         // The dialog host is MATCH_PARENT and stacks above the stage. syncDialogOverlay is the
         // only thing that ever hid it, so a seat picker / invite that lost its close published a
@@ -2353,6 +2364,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 alpha = 0f
                 setBackgroundColor(AndroidColor.TRANSPARENT)
                 isClickable = false
+                if (hasComposition) disposeComposition()
             }
         }
         syncBannerHost()
@@ -2375,6 +2387,7 @@ class XoraLibretroActivity : ComponentActivity() {
             if (host.layerType != View.LAYER_TYPE_NONE) {
                 host.setLayerType(View.LAYER_TYPE_NONE, null)
             }
+            if (host.hasComposition) host.disposeComposition()
         } else if (host.alpha != 1f) {
             host.alpha = 1f
         }
@@ -2397,7 +2410,20 @@ class XoraLibretroActivity : ComponentActivity() {
         view ?: return
         if (view.alpha != 1f) view.alpha = 1f
         if (view.foreground != null) view.foreground = null
+        if (view.backgroundTintList != null) view.backgroundTintList = null
+        if (view.foregroundTintList != null) view.foregroundTintList = null
         if (view.layerType != View.LAYER_TYPE_NONE) view.setLayerType(View.LAYER_TYPE_NONE, null)
+        view.overlay.clear()
+        if (view.isForceDarkAllowed) view.isForceDarkAllowed = false
+    }
+
+    private fun disableForceDark(view: View?) {
+        view ?: return
+        if (view.isForceDarkAllowed) view.isForceDarkAllowed = false
+        if (Build.VERSION.SDK_INT >= 31) view.setRenderEffect(null)
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) disableForceDark(view.getChildAt(i))
+        }
     }
 
     private fun restoreShellPresence() {
@@ -2459,6 +2485,8 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun runWashDiagnostics(auto: Boolean = false) {
         val root = gameRoot ?: return
         val view = primaryGameView ?: return
+        // Measuring our own overlay would blame a leftover report for the wash.
+        hideWashReport()
         val report = StringBuilder()
 
         val attrs = window.attributes
@@ -2523,15 +2551,20 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun collectCoveringViews(view: View, windowArea: Int, out: MutableList<String>) {
         if (windowArea <= 0) return
-        if (view.visibility == View.VISIBLE && view.width * view.height * 100 >= windowArea * 40) {
+        if (view.visibility != View.VISIBLE) return
+        if (view.width * view.height * 100 >= windowArea * 40) {
             val bg = (view.background as? ColorDrawable)
                 ?.let { "#" + Integer.toHexString(it.color) }
                 ?: view.background?.javaClass?.simpleName
                 ?: "none"
+            val tint = (view as? ImageView)?.imageTintList?.defaultColor?.let {
+                "#" + Integer.toHexString(it)
+            } ?: "none"
             out.add(
                 "${view.javaClass.simpleName} ${view.width}x${view.height} " +
                     "alpha=${view.alpha} layer=${view.layerType} bg=$bg " +
-                    "fg=${view.foreground?.javaClass?.simpleName ?: "none"}",
+                    "fg=${view.foreground?.javaClass?.simpleName ?: "none"} " +
+                    "elev=${view.elevation} forceDark=${view.isForceDarkAllowed} tint=$tint",
             )
         }
         if (view is ViewGroup) {
@@ -2544,28 +2577,35 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun hexColor(color: Int?): String =
         if (color == null) "n/a" else "#" + Integer.toHexString(color).padStart(8, '0')
 
+    private fun hideWashReport() {
+        val root = gameRoot ?: return
+        washReport?.let { root.removeView(it) }
+        washReport = null
+    }
+
     /** On-screen because the whole point is to read it on the handheld the wash happens on. */
     private fun showWashReport(text: String) {
         val root = gameRoot ?: return
-        washReport?.let { root.removeView(it) }
+        hideWashReport()
         val density = resources.displayMetrics.density
         val view = TextView(this).apply {
-            setBackgroundColor(AndroidColor.argb(240, 0, 0, 0))
+            setBackgroundColor(AndroidColor.argb(200, 0, 0, 0))
             setTextColor(AndroidColor.WHITE)
             textSize = 10f
             typeface = android.graphics.Typeface.MONOSPACE
-            setPadding((12 * density).toInt(), (12 * density).toInt(), (12 * density).toInt(), 0)
+            setPadding((12 * density).toInt(), (12 * density).toInt(), (12 * density).toInt(), (12 * density).toInt())
             this.text = text
-            elevation = 64f * density
+            isForceDarkAllowed = false
             isClickable = true
             layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            )
-            setOnClickListener {
-                root.removeView(this)
-                washReport = null
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.START,
+            ).apply {
+                leftMargin = (12 * density).toInt()
+                topMargin = (12 * density).toInt()
             }
+            setOnClickListener { hideWashReport() }
         }
         washReport = view
         root.addView(view)
@@ -3250,20 +3290,24 @@ class XoraLibretroActivity : ComponentActivity() {
                     var top = gameBitmap
                     if (top == null || top.width != w || top.height != topH || top.isRecycled) {
                         top = Bitmap.createBitmap(w, topH, Bitmap.Config.ARGB_8888)
+                        top.setHasAlpha(false)
                         gameBitmap = top
                         primaryGameView?.setImageBitmap(top)
                     }
                     top.setPixels(pixels, 0, w, 0, 0, w, topH)
+                    top.setHasAlpha(false)
 
                     var bottom = bottomBitmap
                     if (bottom == null || bottom.width != w || bottom.height != bottomH ||
                         bottom.isRecycled
                     ) {
                         bottom = Bitmap.createBitmap(w, bottomH, Bitmap.Config.ARGB_8888)
+                        bottom.setHasAlpha(false)
                         bottomBitmap = bottom
                         secondaryGameView?.setImageBitmap(bottom)
                     }
                     bottom.setPixels(pixels, topH * w, w, 0, 0, w, bottomH)
+                    bottom.setHasAlpha(false)
                     stage?.let { stageView ->
                         if (stageView.contentWidthPx != w || stageView.contentHeightPx != topH) {
                             stageView.contentWidthPx = w
@@ -3278,10 +3322,12 @@ class XoraLibretroActivity : ComponentActivity() {
                     var bmp = gameBitmap
                     if (bmp == null || bmp.width != w || bmp.height != h || bmp.isRecycled) {
                         bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        bmp.setHasAlpha(false)
                         gameBitmap = bmp
                         primaryGameView?.setImageBitmap(bmp)
                     }
                     bmp.setPixels(pixels, 0, w, 0, 0, w, h)
+                    bmp.setHasAlpha(false)
                     stage?.let { stageView ->
                         if (stageView.contentWidthPx != w || stageView.contentHeightPx != h) {
                             stageView.contentWidthPx = w
