@@ -10,6 +10,7 @@ import android.graphics.Color as AndroidColor
 import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.content.pm.PackageManager
 import android.hardware.input.InputManager
@@ -268,6 +269,8 @@ class XoraLibretroActivity : ComponentActivity() {
     /** Keeps pinning the window opaque while this activity is in the foreground. */
     private var washGuardJob: Job? = null
     private var washFramePosted = false
+    /** The window background drawable only needs loading once; reloading it churns the decor. */
+    private var opaqueWindowBackgroundSet = false
     private val washFrameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             washFramePosted = false
@@ -2145,9 +2148,22 @@ class XoraLibretroActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Runs on every vsync, so every write here has to be conditional.
+     *
+     * The unconditional version of this was its own wash: `setFormat`, `setBackgroundDrawable*`
+     * and the bar-colour setters each dispatch window attributes to WindowManager, and
+     * `ImmersiveMode.apply` posts a fresh insets request. Firing all of that 60 times a second
+     * kept the window in a permanent relayout / insets animation, and a window caught mid-relayout
+     * blends what is behind it through *everything* it holds — the game and the opaque side menu
+     * alike, which is exactly what the tint looked like. Read first, write only on a real mismatch.
+     */
     private fun pinOpaqueWindow() {
         if (isFinishing) return
-        window.setFormat(PixelFormat.OPAQUE)
+        if (window.attributes.format != PixelFormat.OPAQUE) {
+            window.setFormat(PixelFormat.OPAQUE)
+        }
+        // Window.setFlags already no-ops when nothing changed.
         @Suppress("DEPRECATION")
         window.clearFlags(
             WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
@@ -2156,16 +2172,27 @@ class XoraLibretroActivity : ComponentActivity() {
         )
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            window.isNavigationBarContrastEnforced = false
-            window.isStatusBarContrastEnforced = false
+            if (window.isNavigationBarContrastEnforced) {
+                window.isNavigationBarContrastEnforced = false
+            }
+            if (window.isStatusBarContrastEnforced) {
+                window.isStatusBarContrastEnforced = false
+            }
         }
         @Suppress("DEPRECATION")
         run {
-            window.statusBarColor = AndroidColor.BLACK
-            window.navigationBarColor = AndroidColor.BLACK
+            if (window.statusBarColor != AndroidColor.BLACK) {
+                window.statusBarColor = AndroidColor.BLACK
+            }
+            if (window.navigationBarColor != AndroidColor.BLACK) {
+                window.navigationBarColor = AndroidColor.BLACK
+            }
         }
-        window.setBackgroundDrawableResource(android.R.color.black)
-        window.decorView.setBackgroundColor(AndroidColor.BLACK)
+        if (!opaqueWindowBackgroundSet) {
+            opaqueWindowBackgroundSet = true
+            window.setBackgroundDrawableResource(android.R.color.black)
+        }
+        paintBlack(window.decorView)
         // A window animation left mid-flight parks LayoutParams.alpha below 1, and the bright
         // shell behind then blends straight through the emulator window. Nothing reset it, so
         // that wash outlived every clear we had, the profile disc included.
@@ -2175,13 +2202,21 @@ class XoraLibretroActivity : ComponentActivity() {
             attrs.dimAmount = 0f
             window.attributes = attrs
         }
-        ImmersiveMode.apply(window)
+        ImmersiveMode.keepHidden(window)
         clearParentWashLayers()
-        gameRoot?.setBackgroundColor(AndroidColor.BLACK)
+        paintBlack(gameRoot)
         stage?.apply {
-            setLayerType(View.LAYER_TYPE_NONE, null)
-            setBackgroundColor(AndroidColor.BLACK)
-            alpha = 1f
+            if (layerType != View.LAYER_TYPE_NONE) setLayerType(View.LAYER_TYPE_NONE, null)
+            paintBlack(this)
+            if (alpha != 1f) alpha = 1f
+        }
+    }
+
+    /** setBackgroundColor mutates and invalidates unconditionally, so check the colour first. */
+    private fun paintBlack(view: View?) {
+        view ?: return
+        if ((view.background as? ColorDrawable)?.color != AndroidColor.BLACK) {
+            view.setBackgroundColor(AndroidColor.BLACK)
         }
     }
 
@@ -2197,13 +2232,13 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun pinGameplaySurface() {
         if (isFinishing || menuOpen) return
         dissolveWashLayers()
-        gameRoot?.setBackgroundColor(AndroidColor.BLACK)
+        paintBlack(gameRoot)
         pinGameImage(primaryGameView)
         pinGameImage(secondaryGameView)
         stage?.apply {
-            setBackgroundColor(AndroidColor.BLACK)
-            alpha = 1f
-            visibility = View.VISIBLE
+            paintBlack(this)
+            if (alpha != 1f) alpha = 1f
+            if (visibility != View.VISIBLE) visibility = View.VISIBLE
         }
     }
 
@@ -2223,12 +2258,12 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun pinGameImage(view: ImageView?) {
         view?.apply {
-            setLayerType(View.LAYER_TYPE_NONE, null)
-            setBackgroundColor(AndroidColor.BLACK)
-            alpha = 1f
+            if (layerType != View.LAYER_TYPE_NONE) setLayerType(View.LAYER_TYPE_NONE, null)
+            paintBlack(this)
+            if (alpha != 1f) alpha = 1f
             if (colorFilter != null) colorFilter = null
             if (imageAlpha != 255) imageAlpha = 255
-            visibility = View.VISIBLE
+            if (visibility != View.VISIBLE) visibility = View.VISIBLE
         }
     }
 
