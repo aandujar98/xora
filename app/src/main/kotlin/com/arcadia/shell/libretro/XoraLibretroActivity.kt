@@ -271,6 +271,13 @@ class XoraLibretroActivity : ComponentActivity() {
     private var washFramePosted = false
     /** The window background drawable only needs loading once; reloading it churns the decor. */
     private var opaqueWindowBackgroundSet = false
+    /**
+     * Host for RA unlock banners and the dual-screen pane. It is added directly above the game
+     * stage and below the side menu, which is the one z-band that tints the framebuffer without
+     * touching the overlay — so it is kept GONE unless it genuinely has something to show.
+     */
+    private var bannerOverlay: ComposeView? = null
+    @Volatile private var bannerHostNeeded = false
     private val washFrameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             washFramePosted = false
@@ -403,6 +410,8 @@ class XoraLibretroActivity : ComponentActivity() {
             )
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         }
+        bannerOverlay = banners
+        banners.visibility = View.GONE
         root.addView(banners)
 
         val xmb = ComposeView(this).apply {
@@ -581,6 +590,14 @@ class XoraLibretroActivity : ComponentActivity() {
             val settings by preferences.settings.collectAsStateWithLifecycle(
                 initialValue = ShellSettings(),
             )
+            // An always-VISIBLE Compose host over a live framebuffer is a wash waiting to happen,
+            // and this one has nothing to draw the vast majority of a session. Show it only while
+            // a banner is up or the dual-screen pane is mounted.
+            val activeBanner by shellNotifications.active.collectAsStateWithLifecycle()
+            LaunchedEffect(activeBanner, expandActive) {
+                bannerHostNeeded = activeBanner != null || expandActive
+                syncBannerHost()
+            }
             val xora by preferences.xoraEmulatorSettings.collectAsStateWithLifecycle(
                 initialValue = XoraEmulatorSettings(),
             )
@@ -2309,7 +2326,29 @@ class XoraLibretroActivity : ComponentActivity() {
                 isClickable = false
             }
         }
+        syncBannerHost()
         clearParentWashLayers()
+    }
+
+    /**
+     * Keeps the banner host out of the compositor whenever it has nothing to show.
+     *
+     * GONE rather than transparent on purpose: a ComposeView with a live composition still hands
+     * HWUI a layer to blend, and blending anything over the framebuffer is exactly the artefact
+     * this window keeps growing back.
+     */
+    private fun syncBannerHost() {
+        val host = bannerOverlay ?: return
+        val want = if (bannerHostNeeded) View.VISIBLE else View.GONE
+        if (host.visibility != want) host.visibility = want
+        if (!bannerHostNeeded) {
+            if (host.alpha != 0f) host.alpha = 0f
+            if (host.layerType != View.LAYER_TYPE_NONE) {
+                host.setLayerType(View.LAYER_TYPE_NONE, null)
+            }
+        } else if (host.alpha != 1f) {
+            host.alpha = 1f
+        }
     }
 
     /**
