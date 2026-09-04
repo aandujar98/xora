@@ -286,6 +286,7 @@ class XoraLibretroActivity : ComponentActivity() {
         override fun doFrame(frameTimeNanos: Long) {
             washFramePosted = false
             if (isFinishing || activityInBackground) return
+            reconcileMenuState()
             pinOpaqueWindow()
             if (!menuOpen) pinGameplaySurface()
             if (seatPickerOpen || invitePromptOpen) {
@@ -316,6 +317,8 @@ class XoraLibretroActivity : ComponentActivity() {
     private var romFilePath: String? = null
     private var selectHeld = false
     private var startHeld = false
+    /** Latches the Select+Start chord so one press is one toggle, not one per auto-repeat. */
+    private var chordFired = false
     private var xoraSettings = XoraEmulatorSettings()
     private var raSettings = RetroAchievementsSettings()
     private var expandActive by mutableStateOf(false)
@@ -930,9 +933,19 @@ class XoraLibretroActivity : ComponentActivity() {
         super.onWindowFocusChanged(hasFocus)
         // Regaining focus is exactly when a toast or system window has just gone away, which is
         // when the wash used to appear — so restore the whole window state, not just immersive.
-        if (hasFocus && !menuOpen) {
-            applyOpaqueWindow()
-            pinGameplaySurfaceRepeatedly()
+        if (!hasFocus) {
+            // Key-ups are not delivered once focus moves, so the chord halves would stay latched
+            // and every later key press would toggle the menu.
+            selectHeld = false
+            startHeld = false
+            chordFired = false
+        }
+        if (hasFocus) {
+            reconcileMenuState()
+            if (!menuOpen) {
+                applyOpaqueWindow()
+                pinGameplaySurfaceRepeatedly()
+            }
         }
     }
 
@@ -1035,8 +1048,16 @@ class XoraLibretroActivity : ComponentActivity() {
                         return true
                     }
                 }
+                // Edge-triggered. Chord keys are exempt from the repeat filter above, so a
+                // level-triggered test fired toggleMenu() on every auto-repeat while the chord was
+                // held — flipping the menu open/closed ~20x a second and leaving menuOpen wherever
+                // the release happened to land. A stale `true` then silently gates off every wash
+                // defence in this file, which is exactly the tint that would not go away.
                 if (selectHeld && startHeld) {
-                    toggleMenu()
+                    if (!chordFired) {
+                        chordFired = true
+                        toggleMenu()
+                    }
                     return true
                 }
                 if (keyCode == KeyEvent.KEYCODE_BACK) {
@@ -1073,6 +1094,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     KeyEvent.KEYCODE_NUMPAD_ENTER,
                     -> startHeld = false
                 }
+                if (!selectHeld || !startHeld) chordFired = false
                 if (menuOpen) {
                     val mappedBit = LibretroPad.padButtonFor(event, customMappings)
                     val consumed = LibretroPad.run { event.isFromGameController(customMappings) } ||
@@ -2385,9 +2407,27 @@ class XoraLibretroActivity : ComponentActivity() {
         gameCompanionController.endSession()
     }
 
+    /**
+     * Every gameplay reset in this file is gated on [menuOpen]. A flag that can outlive the view it
+     * describes therefore switches all of them off at once and nothing says so, so reconcile it
+     * against the overlay that is actually on screen.
+     */
+    private fun reconcileMenuState() {
+        if (!menuOpen || isFinishing) return
+        val overlay = xmbOverlay ?: return
+        val showing = overlay.visibility == View.VISIBLE && overlay.alpha > 0.01f
+        if (showing) return
+        menuOpen = false
+        syncPaused()
+        pinGameplaySurfaceRepeatedly()
+    }
+
     /** Tap the profile disc — the kill switch when the automatic pin still leaves a wash. */
     private fun clearWhiteTintFromProfileTap() {
         if (isFinishing) return
+        // The kill switch never takes the lesser path: reconcile first, because a stale menu flag
+        // is precisely what stops the real clear below from running.
+        reconcileMenuState()
         pinOpaqueWindow()
         if (menuOpen) {
             val attrs = window.attributes
