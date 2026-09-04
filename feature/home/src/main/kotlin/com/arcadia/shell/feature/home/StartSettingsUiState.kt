@@ -549,7 +549,7 @@ fun buildStartSettingsRows(
         StartSettingsRow.Action(
             id = "update",
             title = "Update",
-            subtitle = "Install latest GitHub build",
+            subtitle = "Check for a new XOrA version",
             action = StartSettingsAction.InstallLatestUpdate,
         ),
         StartSettingsRow.Action(

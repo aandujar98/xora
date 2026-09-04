@@ -935,6 +935,24 @@ class ShellPreferences @Inject constructor(
         prefs[Keys.DISMISSED_SHELL_NOTIFICATION_IDS] = merged
     }
 
+    /** Wall-clock time of the last GitHub release check, so resume does not poll every time. */
+    val lastUpdateCheckAt: Flow<Long> = dataStore.data.map { prefs ->
+        prefs[Keys.LAST_UPDATE_CHECK_AT] ?: 0L
+    }
+
+    suspend fun setLastUpdateCheckAt(timestamp: Long) = edit {
+        it[Keys.LAST_UPDATE_CHECK_AT] = timestamp
+    }
+
+    /** Newest version already announced by a notification, so one release toasts once. */
+    val announcedUpdateVersion: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.ANNOUNCED_UPDATE_VERSION].orEmpty()
+    }
+
+    suspend fun setAnnouncedUpdateVersion(version: String) = edit {
+        it[Keys.ANNOUNCED_UPDATE_VERSION] = version.trim().take(64)
+    }
+
     suspend fun setXoraPreferredControllerName(name: String) = edit {
         it[Keys.XORA_CONTROLLER_NAME] = name.trim().take(128)
     }
@@ -1351,6 +1369,8 @@ class ShellPreferences @Inject constructor(
         val HOME_SHORTCUT_GRID_COLUMNS = intPreferencesKey("home_shortcut_grid_columns")
         val HOME_SHORTCUT_GRID_ROWS = intPreferencesKey("home_shortcut_grid_rows")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+        val LAST_UPDATE_CHECK_AT = longPreferencesKey("last_update_check_at")
+        val ANNOUNCED_UPDATE_VERSION = stringPreferencesKey("announced_update_version")
     }
 }
 

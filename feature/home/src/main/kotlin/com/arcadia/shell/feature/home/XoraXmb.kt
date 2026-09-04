@@ -124,7 +124,7 @@ sealed interface XoraXmbAction {
     data object OpenProfile : XoraXmbAction
     data object GuestModeStub : XoraXmbAction
     data class OpenSettingsCategory(val category: StartSettingsCategory) : XoraXmbAction
-    /** Fetch the newest GitHub Releases APK and open the system installer. */
+    /** Open the System Update window (check GitHub Releases, download, install). */
     data object InstallLatestUpdate : XoraXmbAction
     data object OpenRaLibrary : XoraXmbAction
     data object LaunchContinueOrFavorite : XoraXmbAction
@@ -337,7 +337,7 @@ fun buildXoraCategoryItems(
         XoraXmbItem(
             id = "set_update",
             title = "Update",
-            subtitle = "Install latest GitHub build",
+            subtitle = "Check for a new XOrA version",
             action = XoraXmbAction.InstallLatestUpdate,
             icon = XmbIcon.General,
         ),

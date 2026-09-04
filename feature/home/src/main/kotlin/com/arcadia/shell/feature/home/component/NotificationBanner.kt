@@ -385,5 +385,15 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             avatarFallback = "✓",
             accent = Color(0xFF37D6A0),
         )
+
+        is ShellNotification.UpdateAvailable -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_download,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = null,
+            avatarFallback = "↑",
+            accent = Color(0xFF4A9BE0),
+        )
     }
 }

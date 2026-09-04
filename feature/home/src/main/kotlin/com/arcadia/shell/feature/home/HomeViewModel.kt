@@ -324,6 +324,10 @@ class HomeViewModel @Inject constructor(
     private val startSettingsOpen = MutableStateFlow(false)
     private val startSettingsCategory = MutableStateFlow(StartSettingsCategory.Display)
     private val startSettingsRowIndex = MutableStateFlow(0)
+    private val systemUpdate = MutableStateFlow(SystemUpdateUiState())
+    /** Release the last check found, kept out of UI state because only the download needs it. */
+    private var pendingUpdateRelease: GithubApkRelease? = null
+    private var downloadedUpdateApk: java.io.File? = null
     private val raSettingsState = MutableStateFlow(RetroAchievementsSettings())
     private val xoraEmulatorSettingsState = MutableStateFlow(XoraEmulatorSettings())
     private val welcomeBackOpen = MutableStateFlow(false)
@@ -987,6 +991,7 @@ class HomeViewModel @Inject constructor(
         val systemProfile: SystemProfileCardState,
         val photos: PhotosUiState,
         val dashboard: XoraDashboardUiState,
+        val systemUpdate: SystemUpdateUiState,
     )
 
     val uiState: StateFlow<HomeUiState> = combine(
@@ -1007,7 +1012,8 @@ class HomeViewModel @Inject constructor(
             systemProfileChromeFlow(),
             photosUi,
             dashboardFlow,
-        ) { wake, systemProfile, photos, dashboard ->
+            systemUpdate,
+        ) { wake, systemProfile, photos, dashboard, update ->
             AuxChrome(
                 welcomeBack = wake.welcomeBack,
                 bootIntro = wake.bootIntro,
@@ -1017,6 +1023,7 @@ class HomeViewModel @Inject constructor(
                 systemProfile = systemProfile,
                 photos = photos,
                 dashboard = dashboard,
+                systemUpdate = update,
             )
         },
     ) { base, trailer, insight, systemIndex, aux ->
@@ -1048,6 +1055,7 @@ class HomeViewModel @Inject constructor(
             systemProfile = aux.systemProfile,
             photos = aux.photos,
             dashboard = aux.dashboard,
+            systemUpdate = aux.systemUpdate,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -1702,8 +1710,14 @@ class HomeViewModel @Inject constructor(
     }
 
     fun activateShellNotification(notification: ShellNotification) {
-        if (notification is ShellNotification.XoraNetplayInvite) {
-            openNetplayInvitePrompt(notification)
+        when (notification) {
+            is ShellNotification.XoraNetplayInvite -> openNetplayInvitePrompt(notification)
+            is ShellNotification.UpdateAvailable -> {
+                closeNotificationHistory()
+                shellNotifications.dismiss()
+                openSystemUpdate()
+            }
+            else -> Unit
         }
     }
 
@@ -2688,6 +2702,19 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        // System Update window sits above every other overlay while it is open.
+        if (state.systemUpdateOpen) {
+            noteUserActivity()
+            when (action) {
+                NavAction.Confirm -> activateSystemUpdatePrimary()
+                NavAction.Cancel -> closeSystemUpdate()
+                NavAction.Left, NavAction.Up -> selectSystemUpdateButton(0)
+                NavAction.Right, NavAction.Down -> selectSystemUpdateButton(1)
+                else -> Unit
+            }
+            return
+        }
+
         if (action == NavAction.Cancel &&
             state.pendingNetplayInvite != null &&
             !state.notificationHistoryOpen &&
@@ -3170,7 +3197,7 @@ class HomeViewModel @Inject constructor(
             XoraXmbAction.GuestModeStub ->
                 emit(HomeEvent.ShowMessage("Guest Mode — coming soon."))
             is XoraXmbAction.OpenSettingsCategory -> openStartSettings(action.category)
-            XoraXmbAction.InstallLatestUpdate -> installLatestGithubBuild()
+            XoraXmbAction.InstallLatestUpdate -> openSystemUpdate()
             XoraXmbAction.OpenRaLibrary -> openRaLibrary()
             XoraXmbAction.LaunchContinueOrFavorite -> launchContinueOrFavorite()
             XoraXmbAction.DrillAllGames -> {
@@ -6890,58 +6917,216 @@ class HomeViewModel @Inject constructor(
                     ),
                 )
             }
-            StartSettingsAction.InstallLatestUpdate -> installLatestGithubBuild()
+            StartSettingsAction.InstallLatestUpdate -> {
+                closeStartSettings()
+                openSystemUpdate()
+            }
             StartSettingsAction.Reboot -> requestDevicePower(reboot = true)
             StartSettingsAction.PowerDown -> requestDevicePower(reboot = false)
         }
     }
 
-    private fun installLatestGithubBuild() {
-        if (githubReleaseUpdater.isBusy) {
-            emit(HomeEvent.ShowMessage("Update already downloading…"))
+    /** Settings → Update. Opens the window and starts a check so the user sees a result. */
+    fun openSystemUpdate() {
+        noteUserActivity()
+        val current = systemUpdate.value
+        systemUpdate.value = current.copy(
+            open = true,
+            installedVersion = githubReleaseUpdater.installedVersionName(),
+            selectedButton = 0,
+        )
+        // A finished download / in-flight transfer keeps its phase so reopening shows progress.
+        if (!current.busy && current.phase != SystemUpdatePhase.ReadyToInstall) {
+            checkForSystemUpdate()
+        }
+    }
+
+    fun closeSystemUpdate() {
+        noteUserActivity()
+        systemUpdate.update { it.copy(open = false, selectedButton = 0) }
+    }
+
+    fun selectSystemUpdateButton(index: Int) {
+        systemUpdate.update { it.copy(selectedButton = index.coerceIn(0, 1)) }
+    }
+
+    /** A on the focused button: check, download, or hand the APK to the installer. */
+    fun activateSystemUpdatePrimary() {
+        noteUserActivity()
+        val state = systemUpdate.value
+        if (state.selectedButton == 1 || state.primaryLabel == null) {
+            closeSystemUpdate()
+            return
+        }
+        when (state.phase) {
+            SystemUpdatePhase.Idle,
+            SystemUpdatePhase.UpToDate,
+            SystemUpdatePhase.Failed,
+            -> checkForSystemUpdate()
+            SystemUpdatePhase.Available -> downloadSystemUpdate()
+            SystemUpdatePhase.ReadyToInstall -> installDownloadedUpdate()
+            SystemUpdatePhase.Checking, SystemUpdatePhase.Downloading -> Unit
+        }
+    }
+
+    private fun checkForSystemUpdate() {
+        if (systemUpdate.value.busy) return
+        systemUpdate.update {
+            it.copy(
+                phase = SystemUpdatePhase.Checking,
+                error = null,
+                installedVersion = githubReleaseUpdater.installedVersionName(),
+            )
+        }
+        viewModelScope.launch {
+            githubReleaseUpdater.check().fold(
+                onSuccess = { check ->
+                    pendingUpdateRelease = check.release
+                    preferences.setLastUpdateCheckAt(System.currentTimeMillis())
+                    systemUpdate.update {
+                        it.copy(
+                            phase = if (check.updateAvailable) {
+                                SystemUpdatePhase.Available
+                            } else {
+                                SystemUpdatePhase.UpToDate
+                            },
+                            installedVersion = check.installedVersionName,
+                            availableVersion = check.release.versionName,
+                            totalBytes = check.release.sizeBytes,
+                            downloadedBytes = 0L,
+                            error = null,
+                            selectedButton = 0,
+                        )
+                    }
+                },
+                onFailure = { error -> failSystemUpdate(error) },
+            )
+        }
+    }
+
+    private fun downloadSystemUpdate() {
+        val release = pendingUpdateRelease ?: run {
+            checkForSystemUpdate()
+            return
+        }
+        if (systemUpdate.value.busy) return
+        systemUpdate.update {
+            it.copy(
+                phase = SystemUpdatePhase.Downloading,
+                downloadedBytes = 0L,
+                totalBytes = release.sizeBytes,
+                error = null,
+                selectedButton = 0,
+            )
+        }
+        viewModelScope.launch {
+            val result = githubReleaseUpdater.download(release) { copied, total ->
+                systemUpdate.update { it.copy(downloadedBytes = copied, totalBytes = total) }
+            }
+            result.fold(
+                onSuccess = { apk ->
+                    downloadedUpdateApk = apk
+                    systemUpdate.update {
+                        it.copy(phase = SystemUpdatePhase.ReadyToInstall, selectedButton = 0)
+                    }
+                    shellNotifications.emit(
+                        ShellNotification.InstallComplete(
+                            id = "update-ready:${release.versionName}",
+                            title = "XOrA ${release.versionName} downloaded",
+                            subtitle = "Open Settings → Update to install",
+                        ),
+                    )
+                    // Reopen the window if the user hid it while the APK was coming down.
+                    systemUpdate.update { it.copy(open = true) }
+                },
+                onFailure = { error -> failSystemUpdate(error) },
+            )
+        }
+    }
+
+    private fun installDownloadedUpdate() {
+        val apk = downloadedUpdateApk?.takeIf { it.isFile } ?: run {
+            downloadedUpdateApk = null
+            systemUpdate.update {
+                it.copy(
+                    phase = SystemUpdatePhase.Available,
+                    error = "The downloaded update is gone — download it again.",
+                )
+            }
             return
         }
         if (android.os.Build.VERSION.SDK_INT >= 26 &&
             !appContext.packageManager.canRequestPackageInstalls()
         ) {
             emit(HomeEvent.RequestUnknownAppSources)
-            emit(
-                HomeEvent.ShowMessage(
-                    "Allow XOrA to install apps, then press Update again.",
-                ),
-            )
+            emit(HomeEvent.ShowMessage("Allow XOrA to install apps, then press Install again."))
             return
         }
+        val uri = runCatching {
+            FileProvider.getUriForFile(appContext, "${appContext.packageName}.files", apk)
+        }.getOrNull() ?: run {
+            systemUpdate.update {
+                it.copy(
+                    phase = SystemUpdatePhase.Failed,
+                    error = "Could not hand the update to the installer.",
+                )
+            }
+            return
+        }
+        closeSystemUpdate()
+        emit(HomeEvent.InstallApk(uri))
+    }
+
+    private fun failSystemUpdate(error: Throwable) {
+        systemUpdate.update {
+            it.copy(
+                phase = SystemUpdatePhase.Failed,
+                error = error.message?.takeIf { message -> message.isNotBlank() }
+                    ?: "Could not reach GitHub Releases.",
+                selectedButton = 0,
+            )
+        }
+    }
+
+    /**
+     * Silent check on resume so a new release can announce itself. Throttled, and each version
+     * only notifies once, so reopening the shell does not re-toast the same build.
+     */
+    private fun maybeAnnounceUpdate() {
+        if (systemUpdate.value.busy) return
+        if (systemUpdate.value.phase == SystemUpdatePhase.ReadyToInstall) return
         viewModelScope.launch {
-            emit(HomeEvent.ShowMessage("Fetching latest XOrA from GitHub…"))
-            val installed = runCatching {
-                appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
-            }.getOrNull()
-            val result = githubReleaseUpdater.downloadLatest(installed)
-            result.fold(
-                onSuccess = { update ->
-                    when (update) {
-                        is GithubUpdateResult.AlreadyCurrent ->
-                            emit(HomeEvent.ShowMessage("Already on the latest build (${update.versionName})."))
-                        is GithubUpdateResult.Downloaded -> {
-                            val uri = FileProvider.getUriForFile(
-                                appContext,
-                                "${appContext.packageName}.files",
-                                update.apk,
-                            )
-                            emit(HomeEvent.ShowMessage("Installing XOrA ${update.versionName}…"))
-                            emit(HomeEvent.InstallApk(uri))
-                        }
-                    }
-                },
-                onFailure = { error ->
-                    emit(
-                        HomeEvent.ShowError(
-                            error.message?.takeIf { it.isNotBlank() }
-                                ?: "Could not download the latest build.",
-                        ),
-                    )
-                },
+            val now = System.currentTimeMillis()
+            val last = preferences.lastUpdateCheckAt.first()
+            if (last > 0L && now - last < UPDATE_CHECK_INTERVAL_MS) return@launch
+            preferences.setLastUpdateCheckAt(now)
+            val check = githubReleaseUpdater.check().getOrNull() ?: return@launch
+            pendingUpdateRelease = check.release
+            systemUpdate.update {
+                it.copy(
+                    installedVersion = check.installedVersionName,
+                    availableVersion = check.release.versionName,
+                    // Leave an open window's phase alone; it is driving its own flow.
+                    phase = if (it.open) {
+                        it.phase
+                    } else if (check.updateAvailable) {
+                        SystemUpdatePhase.Available
+                    } else {
+                        SystemUpdatePhase.UpToDate
+                    },
+                    totalBytes = if (it.open) it.totalBytes else check.release.sizeBytes,
+                )
+            }
+            if (!check.updateAvailable) return@launch
+            if (preferences.announcedUpdateVersion.first() == check.release.versionName) {
+                return@launch
+            }
+            preferences.setAnnouncedUpdateVersion(check.release.versionName)
+            shellNotifications.emit(
+                ShellNotification.UpdateAvailable(
+                    id = "update-available:${check.release.versionName}",
+                    versionName = check.release.versionName,
+                ),
             )
         }
     }
@@ -8381,6 +8566,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { pollRetroAchievementUnlocks() }
         if (steamFriendsUi.value.isConfigured) refreshSteamFriends()
         viewModelScope.launch { maybeShowWelcomeBack() }
+        maybeAnnounceUpdate()
     }
 
     fun dismissWelcomeBack() {
@@ -8469,6 +8655,8 @@ class HomeViewModel @Inject constructor(
         /** Fullscreen photo chrome fades after this pause. */
         const val PHOTO_CONTROLS_HIDE_MS = 3_000L
         const val PHOTO_SLIDESHOW_INTERVAL_MS = 4_000L
+        /** GitHub release polling floor, so resuming the shell repeatedly does not hammer the API. */
+        const val UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
     }
 
     private fun refreshInstalledApps() {

@@ -105,4 +105,10 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
         body = title,
         subtitle = this.subtitle ?: "Install complete",
     )
+
+    is ShellNotification.UpdateAvailable -> ShellNotificationCopy(
+        category = "System Update",
+        body = "XOrA $versionName is available",
+        subtitle = "Settings → Update to install",
+    )
 }

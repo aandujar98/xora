@@ -104,6 +104,15 @@ sealed interface ShellNotification {
         val title: String,
         val subtitle: String? = null,
     ) : ShellNotification
+
+    /**
+     * A newer XOrA build is published on GitHub Releases. Activating the banner (or the history
+     * row) opens the System Update window so the user can download and install it.
+     */
+    data class UpdateAvailable(
+        override val id: String,
+        val versionName: String,
+    ) : ShellNotification
 }
 
 /**

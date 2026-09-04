@@ -299,6 +299,8 @@ data class HomeUiState(
     val rss: RssUiState = RssUiState(),
     val guide: GuideUiState = GuideUiState(),
     val startSettings: StartSettingsUiState = StartSettingsUiState(),
+    /** Settings → Update window (check GitHub, download, install). */
+    val systemUpdate: SystemUpdateUiState = SystemUpdateUiState(),
     val insight: GameInsightUiState = GameInsightUiState(),
     val raLibrary: RaLibraryUiState = RaLibraryUiState(),
     /** Recent + favourite titles for the expanded account panel quick-launch list. */
@@ -330,6 +332,8 @@ data class HomeUiState(
     val guideOpen: Boolean get() = guide.open
 
     val startSettingsOpen: Boolean get() = startSettings.open
+
+    val systemUpdateOpen: Boolean get() = systemUpdate.open
 
     /**
      * True when there are neither ROM folders nor a synced Apps tab yet. Apps alone are enough to

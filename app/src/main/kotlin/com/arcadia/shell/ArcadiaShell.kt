@@ -75,6 +75,7 @@ import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
 import com.arcadia.shell.feature.home.component.DiscordConversationWindow
 import com.arcadia.shell.feature.home.component.XoraConversationWindow
 import com.arcadia.shell.feature.home.component.StartSettingsPanel
+import com.arcadia.shell.feature.home.component.SystemUpdatePanel
 import com.arcadia.shell.feature.home.component.WelcomeBackOverlay
 import com.arcadia.shell.feature.home.component.BootIntroOverlay
 import com.arcadia.shell.designsystem.LocalShellTheme
@@ -625,6 +626,13 @@ fun ArcadiaShell(
                 StartSettingsOverlay(
                     state = state,
                     homeViewModel = homeViewModel,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                SystemUpdatePanel(
+                    state = state.systemUpdate,
+                    onPrimary = homeViewModel::activateSystemUpdatePrimary,
+                    onSelectButton = homeViewModel::selectSystemUpdateButton,
+                    onDismiss = homeViewModel::closeSystemUpdate,
                     modifier = Modifier.fillMaxSize(),
                 )
                 ThemesCustomizeOverlay(
