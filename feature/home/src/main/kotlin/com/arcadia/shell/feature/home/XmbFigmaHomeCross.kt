@@ -684,10 +684,26 @@ private fun hasCoverArt(item: XoraXmbItem): Boolean =
 private fun isProfileRow(item: XoraXmbItem): Boolean =
     item.id == "profile" || item.action is XoraXmbAction.OpenProfile
 
+/**
+ * Column rows other than the recents plate sit smaller than their Figma frame.
+ *
+ * The board was drawn around that plate and every other row inherited a box scaled to match it,
+ * which left platform folders, album covers and content glyphs crowding the cross under Games,
+ * Photos, Videos, Music and XOrA Network. The plate itself keeps its size: it is the anchor
+ * [HOVER_TITLE_X] and the hover rule are positioned from, so shrinking it would swing the title
+ * column and leave the rule ragged.
+ */
+private const val COLUMN_ITEM_SCALE = 0.8f
+
 private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Float> {
     if (isGamePlate(item)) {
         return if (focused) PLATE_W_FOCUS to PLATE_H_FOCUS else PLATE_W to PLATE_H
     }
+    val (w, h) = columnItemDesignSize(item, focused)
+    return w * COLUMN_ITEM_SCALE to h * COLUMN_ITEM_SCALE
+}
+
+private fun columnItemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Float> {
     if (item.icon.isFolderGlyph()) {
         val (iw, ih) = item.icon.intrinsicDesignSize()
         val targetW = (if (focused) PLATE_W_FOCUS else PLATE_W) * FOLDER_SIZE_SCALE
