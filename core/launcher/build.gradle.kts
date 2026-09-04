@@ -79,7 +79,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     if (discordSocialSdkEnabled) {
-        implementation(files(discordPartnerAar))
+        implementation(project(":core:discordpartnersdk"))
         implementation(libs.androidx.browser)
     }
 
