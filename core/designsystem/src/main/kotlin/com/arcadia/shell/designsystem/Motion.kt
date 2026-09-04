@@ -59,12 +59,15 @@ object ArcadiaMotion {
      */
     const val HeroCrossfade = 460
     /**
-     * Extra scale on the incoming ROM hero while it crossfades. Kept well under
-     * [LaunchBackdropZoom] so a launch still reads as a bigger move.
+     * Extra scale on the incoming ROM hero while it crossfades. A light drift only —
+     * well under [LaunchBackdropZoom] so a launch still reads as a bigger move.
      */
-    const val HeroBrowseZoom = 0.06f
-    /** Ken Burns zoom — a little longer than the fade so they mix. */
-    const val HeroBrowseZoomMs = 780
+    const val HeroBrowseZoom = 0.025f
+    /** Slow Ken Burns so the zoom reads as a drift, not a punch. */
+    const val HeroBrowseZoomMs = 1200
+    /** Title / playtime fade+slide when the focused ROM changes. */
+    const val HeroCopy = 520
+    const val HeroCopyExit = 340
 }
 
 /**

@@ -4,11 +4,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,7 +56,6 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LiquidGlassSurface
-import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.launchBackdropScale
 import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.designsystem.liquidGlass
@@ -539,12 +533,8 @@ private fun VerticalDetailPane(
     mediaWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val enter = fadeIn(arcadiaTween(ArcadiaMotion.Slow)) +
-        slideInHorizontally(arcadiaTween(ArcadiaMotion.Slow)) { it / 5 }
-    val exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) +
-        slideOutHorizontally(arcadiaTween(ArcadiaMotion.Fast)) { -it / 8 }
-    val settledId = rememberXmbSettledFocus(game?.id, settleMs = XMB_GAME_SELECT_SETTLE_MS)
-    val settledGame = game.takeIf { it?.id == settledId }
+    val reduceMotion = rememberReduceMotion()
+    val settledGame = rememberXmbHeldFocus(game, settleMs = XMB_COPY_SETTLE_MS)
 
     Box(modifier = modifier) {
         Column(
@@ -557,7 +547,7 @@ private fun VerticalDetailPane(
 
             AnimatedContent(
                 targetState = settledGame?.id to (settledGame?.logoImagePath to settledGame?.title),
-                transitionSpec = { enter togetherWith exit },
+                transitionSpec = { xmbCopyTransition(reduceMotion) },
                 label = "verticalFocusedTitle",
                 modifier = Modifier.fillMaxWidth(),
             ) { (_, logoAndTitle) ->

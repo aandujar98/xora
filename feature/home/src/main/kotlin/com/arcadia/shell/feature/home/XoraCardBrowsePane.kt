@@ -4,11 +4,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,7 +50,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.datastore.XmbTitleStyle
-import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.rememberReduceMotion
@@ -175,14 +169,15 @@ fun XoraCardBrowsePane(
         fun designY(y: Float): Dp = (originY + (y * unit)).dp
 
         val focused = items.getOrNull(selectedIndex)
-        val settledId = rememberXmbSettledFocus(
+        val shownId = rememberXmbHeldFocus(
             focused?.id,
             settleMs = if (mode == CardBrowseMode.Roms) {
-                XMB_GAME_SELECT_SETTLE_MS
+                XMB_COPY_SETTLE_MS
             } else {
                 XMB_FOCUS_SETTLE_MS
             },
         )
+        val shownItem = items.firstOrNull { it.id == shownId } ?: focused
 
         BackHintArrow(
             size = (ARROW_SIZE * unit).dp,
@@ -230,19 +225,9 @@ fun XoraCardBrowsePane(
                 }
             }
 
-        val copyEnter = fadeIn(tween(ArcadiaMotion.Slow, easing = FastOutSlowInEasing)) +
-            slideInHorizontally(tween(ArcadiaMotion.Slow, easing = FastOutSlowInEasing)) { it / 5 }
-        val copyExit = fadeOut(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)) +
-            slideOutHorizontally(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)) { -it / 8 }
         AnimatedContent(
-            targetState = focused?.takeIf { it.id == settledId },
-            transitionSpec = {
-                if (reduceMotion) {
-                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
-                } else {
-                    copyEnter togetherWith copyExit
-                }
-            },
+            targetState = shownItem,
+            transitionSpec = { xmbCopyTransition(reduceMotion) },
             contentKey = { it?.id },
             label = "cardBrowseCopy",
             modifier = Modifier.offset(

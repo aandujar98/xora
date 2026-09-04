@@ -10,9 +10,12 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
@@ -91,9 +94,6 @@ import com.arcadia.shell.feature.home.component.XmbStarFieldLayer
 import com.arcadia.shell.libretro.XoraAspectLetterbox
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
-import kotlin.math.roundToInt
-import kotlin.math.sign
 import kotlinx.coroutines.delay
 
 /**
@@ -501,11 +501,8 @@ fun XoraXmbHeroDetail(
     val heroGame = xmb.focusGame
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
-    val titleEnter = fadeIn(tween(ArcadiaMotion.Slow, easing = FastOutSlowInEasing)) +
-        slideInHorizontally(tween(ArcadiaMotion.Slow, easing = FastOutSlowInEasing)) { it / 5 } +
-        scaleIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing), initialScale = 0.97f)
-    val titleExit = fadeOut(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)) +
-        slideOutHorizontally(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)) { -it / 8 }
+    val reduceMotion = rememberReduceMotion()
+    val titleTransition = xmbCopyTransition(reduceMotion)
 
     val cinematic = rememberLaunchCinematic(state.isLaunching)
     val chromeAlpha = cinematic.chromeAlpha
@@ -640,16 +637,23 @@ fun XoraXmbHeroDetail(
                 .graphicsLayer { alpha = chromeAlpha },
         ) {
             AnimatedContent(
-                targetState = Triple(
-                    xmb.focusTitle,
-                    if (xmb.depth == XoraXmbDepth.Roms && heroGame != null) {
-                        "Playtime: ${formatXmbPlaytime(heroGame.playTimeMs)}"
+                targetState = rememberXmbHeldFocus(
+                    Triple(
+                        xmb.focusTitle,
+                        if (xmb.depth == XoraXmbDepth.Roms && heroGame != null) {
+                            "Playtime: ${formatXmbPlaytime(heroGame.playTimeMs)}"
+                        } else {
+                            xmb.focusSubtitle
+                        },
+                        heroGame?.id to heroGame?.logoImagePath,
+                    ),
+                    settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                        XMB_COPY_SETTLE_MS
                     } else {
-                        xmb.focusSubtitle
+                        XMB_FOCUS_SETTLE_MS
                     },
-                    heroGame?.id to heroGame?.logoImagePath,
                 ),
-                transitionSpec = { titleEnter togetherWith titleExit },
+                transitionSpec = { titleTransition },
                 label = "xmbHeroTitle",
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -901,10 +905,36 @@ internal fun rememberHeroBrowseZoom(path: String): Float {
         zoom.snapTo(1f)
         zoom.animateTo(
             settled,
-            tween(ArcadiaMotion.HeroBrowseZoomMs, easing = FastOutSlowInEasing),
+            tween(ArcadiaMotion.HeroBrowseZoomMs, easing = LinearEasing),
         )
     }
     return zoom.value
+}
+
+/** Soft fade + short slide. Size is not animated so long titles do not resize-jank the row. */
+internal fun xmbCopyTransition(reduceMotion: Boolean): ContentTransform {
+    if (reduceMotion) {
+        return ContentTransform(
+            targetContentEnter = fadeIn(tween(0)),
+            initialContentExit = fadeOut(tween(0)),
+            sizeTransform = null,
+        )
+    }
+    val enter =
+        fadeIn(tween(ArcadiaMotion.HeroCopy, easing = LinearOutSlowInEasing)) +
+            slideInHorizontally(tween(ArcadiaMotion.HeroCopy, easing = LinearOutSlowInEasing)) {
+                24
+            }
+    val exit =
+        fadeOut(tween(ArcadiaMotion.HeroCopyExit, easing = LinearOutSlowInEasing)) +
+            slideOutHorizontally(tween(ArcadiaMotion.HeroCopyExit, easing = LinearOutSlowInEasing)) {
+                -10
+            }
+    return ContentTransform(
+        targetContentEnter = enter,
+        initialContentExit = exit,
+        sizeTransform = null,
+    )
 }
 
 @Composable
