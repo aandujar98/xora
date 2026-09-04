@@ -16,8 +16,10 @@ const val XMB_FOCUS_SETTLE_MS = 500L
 const val XMB_GAME_SELECT_SETTLE_MS = 1000L
 
 /**
- * Title / playtime can follow sooner than hero art. Matching the card scroll keeps the
- * outgoing line on screen while the wheel is still moving, then crossfades as it lands.
+ * Non-game copy (systems, music, settings) can follow sooner than hero art. Matching the
+ * card scroll keeps the outgoing line on screen while the wheel is still moving, then
+ * crossfades as it lands. ROM title / partition / playtime use [rememberXmbSettledFocus]
+ * at [XMB_GAME_SELECT_SETTLE_MS] so the new line waits for wallpaper and the sound bite.
  */
 const val XMB_COPY_SETTLE_MS = 280L
 

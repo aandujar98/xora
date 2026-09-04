@@ -535,7 +535,8 @@ private fun VerticalDetailPane(
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = rememberReduceMotion()
-    val settledGame = rememberXmbHeldFocus(game, settleMs = XMB_COPY_SETTLE_MS)
+    val settledId = rememberXmbSettledFocus(game?.id, settleMs = XMB_GAME_SELECT_SETTLE_MS)
+    val settledGame = game.takeIf { it?.id != null && it.id == settledId }
 
     Box(modifier = modifier) {
         Column(

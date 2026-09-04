@@ -117,6 +117,8 @@ private const val PLATE_W = 280f
 private const val PLATE_H = 150f
 /** Content folders share Game Icon width, then shrink 25% so the shell does not overpower plates. */
 private const val FOLDER_SIZE_SCALE = 0.75f
+/** Folder_Music reads taller than Photos / Videos; pull it in another 15%. */
+private const val MUSIC_FOLDER_SCALE = 0.85f
 /** Profile avatar / User glyph sits larger than a standard column icon. */
 private const val PROFILE_AVATAR_SCALE = 1.22f
 /** Music covers are square so they don't borrow the landscape game plate. */
@@ -383,7 +385,16 @@ internal fun XmbCross(
                 val title = hoverTitle(focusItem)
                 val subtitle = hoverSubtitle(focusItem, xmb)
                 val titleTop = ruleY - TITLE_TO_RULE
-                val settledId = rememberXmbSettledFocus(focusItem.id)
+                val gameFocus = focusItem.action is XoraXmbAction.LaunchGame ||
+                    focusItem.action is XoraXmbAction.LaunchContinueOrFavorite
+                val settledId = rememberXmbSettledFocus(
+                    focusItem.id,
+                    settleMs = if (gameFocus) {
+                        XMB_GAME_SELECT_SETTLE_MS
+                    } else {
+                        XMB_FOCUS_SETTLE_MS
+                    },
+                )
                 AnimatedVisibility(
                     visible = settledId == focusItem.id,
                     enter = fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)),
@@ -714,7 +725,13 @@ private fun columnItemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Floa
     if (item.icon.isFolderGlyph()) {
         val (iw, ih) = item.icon.intrinsicDesignSize()
         val targetW = (if (focused) PLATE_W_FOCUS else PLATE_W) * FOLDER_SIZE_SCALE
-        return targetW to (targetW * (ih / iw))
+        val width = targetW
+        val height = targetW * (ih / iw)
+        return if (item.icon == XmbIcon.FolderMusic) {
+            width * MUSIC_FOLDER_SCALE to height * MUSIC_FOLDER_SCALE
+        } else {
+            width to height
+        }
     }
     if (item.isMusicCoverArt()) {
         val edge = if (focused) MUSIC_COVER_FOCUS else MUSIC_COVER_REST

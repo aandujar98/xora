@@ -70,6 +70,8 @@ private const val CARD_WIDTH_FOCUS = 462f
 private const val CARD_HEIGHT_FOCUS = 248f
 /** Same 25% shrink as the XMB folder glyphs. */
 private const val FOLDER_SIZE_SCALE = 0.75f
+/** Folder_Music reads taller than Photos / Videos; pull it in another 15%. */
+private const val MUSIC_FOLDER_SCALE = 0.85f
 /** Music albums / tracks: 1×1, same height rhythm as the game cards. */
 private const val MUSIC_CARD = 150f
 private const val MUSIC_CARD_FOCUS = 248f
@@ -169,15 +171,18 @@ fun XoraCardBrowsePane(
         fun designY(y: Float): Dp = (originY + (y * unit)).dp
 
         val focused = items.getOrNull(selectedIndex)
-        val shownId = rememberXmbHeldFocus(
+        // ROM copy fades out while the wheel is moving and stays gone until the hero
+        // wallpaper (and its sound bite) have had time to appear on the new title.
+        val settledRomId = rememberXmbSettledFocus(
             focused?.id,
-            settleMs = if (mode == CardBrowseMode.Roms) {
-                XMB_COPY_SETTLE_MS
-            } else {
-                XMB_FOCUS_SETTLE_MS
-            },
+            settleMs = XMB_GAME_SELECT_SETTLE_MS,
         )
-        val shownItem = items.firstOrNull { it.id == shownId } ?: focused
+        val heldId = rememberXmbHeldFocus(
+            focused?.id,
+            settleMs = XMB_FOCUS_SETTLE_MS,
+        )
+        val shownId = if (mode == CardBrowseMode.Roms) settledRomId else heldId
+        val shownItem = items.firstOrNull { it.id == shownId }
 
         val (arrowW, arrowH) = XmbIcon.Back.intrinsicDesignSize()
         val arrowScale = min(ARROW_SIZE / arrowW, ARROW_SIZE / arrowH)
@@ -381,7 +386,9 @@ private fun BrowseCard(
     ) {
         if (item.icon.isFolderGlyph() && !item.artPath.isNullOrBlank()) {
             val (designW, designH) = item.icon.intrinsicDesignSize()
-            val scale = (width.value / designW) * FOLDER_SIZE_SCALE
+            val folderScale = FOLDER_SIZE_SCALE *
+                if (item.icon == XmbIcon.FolderMusic) MUSIC_FOLDER_SCALE else 1f
+            val scale = (width.value / designW) * folderScale
             XmbFolderImgIcon(
                 artPath = item.artPath,
                 windowIcon = item.icon.folderWindowIcon(),
@@ -392,7 +399,9 @@ private fun BrowseCard(
             )
         } else if (item.icon.isFolderGlyph()) {
             val (designW, designH) = item.icon.intrinsicDesignSize()
-            val scale = (width.value / designW) * FOLDER_SIZE_SCALE
+            val folderScale = FOLDER_SIZE_SCALE *
+                if (item.icon == XmbIcon.FolderMusic) MUSIC_FOLDER_SCALE else 1f
+            val scale = (width.value / designW) * folderScale
             XmbVectorIcon(
                 icon = item.icon,
                 width = (designW * scale).dp,

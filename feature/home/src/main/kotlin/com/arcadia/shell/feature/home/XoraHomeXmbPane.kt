@@ -637,24 +637,32 @@ fun XoraXmbHeroDetail(
                 .fillMaxSize()
                 .graphicsLayer { alpha = chromeAlpha },
         ) {
+            val heroCopy = Triple(
+                xmb.focusTitle,
+                if (xmb.depth == XoraXmbDepth.Roms && heroGame != null) {
+                    "Playtime: ${formatXmbPlaytime(heroGame.playTimeMs)}"
+                } else {
+                    xmb.focusSubtitle
+                },
+                heroGame?.id to heroGame?.logoImagePath,
+            )
+            val settledRomId = rememberXmbSettledFocus(
+                heroGame?.id,
+                settleMs = XMB_GAME_SELECT_SETTLE_MS,
+            )
+            val heldCopy = rememberXmbHeldFocus(
+                heroCopy,
+                settleMs = XMB_FOCUS_SETTLE_MS,
+            )
+            val shownCopy = if (xmb.depth == XoraXmbDepth.Roms) {
+                heroCopy.takeIf { heroGame?.id != null && heroGame.id == settledRomId }
+            } else {
+                heldCopy
+            }
             AnimatedContent(
-                targetState = rememberXmbHeldFocus(
-                    Triple(
-                        xmb.focusTitle,
-                        if (xmb.depth == XoraXmbDepth.Roms && heroGame != null) {
-                            "Playtime: ${formatXmbPlaytime(heroGame.playTimeMs)}"
-                        } else {
-                            xmb.focusSubtitle
-                        },
-                        heroGame?.id to heroGame?.logoImagePath,
-                    ),
-                    settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
-                        XMB_COPY_SETTLE_MS
-                    } else {
-                        XMB_FOCUS_SETTLE_MS
-                    },
-                ),
+                targetState = shownCopy,
                 transitionSpec = { titleTransition },
+                contentKey = { it?.third?.first ?: it?.first },
                 label = "xmbHeroTitle",
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -665,7 +673,9 @@ fun XoraXmbHeroDetail(
                         scaleY = recedeScale
                         transformOrigin = TransformOrigin(0f, 1f)
                     },
-            ) { (title, subtitle, logoKey) ->
+            ) { copy ->
+                if (copy == null) return@AnimatedContent
+                val (title, subtitle, logoKey) = copy
                 val logoPath = logoKey.second
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!logoPath.isNullOrBlank()) {
