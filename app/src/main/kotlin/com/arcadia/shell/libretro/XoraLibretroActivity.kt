@@ -1318,6 +1318,9 @@ class XoraLibretroActivity : ComponentActivity() {
         pinGameplaySurfaceRepeatedly()
         keepProfileChipOnTop()
         postWashFrame()
+        // This is the exact repro. Let the frame settle, then check the composited output against
+        // the frame we handed over and speak up only if the wash is really there.
+        gameRoot?.postDelayed({ runWashDiagnostics(auto = true) }, WASH_CHECK_DELAY_MS)
     }
 
     private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
@@ -2399,6 +2402,9 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         keepProfileChipOnTop()
         uiSounds.playConfirm()
+        // The disc has stopped clearing anything, so make the failure report itself: if the wash
+        // survives every reset this can reach, the readback says whose it is.
+        gameRoot?.postDelayed({ runWashDiagnostics(auto = true) }, WASH_CHECK_DELAY_MS)
     }
 
     /**
@@ -2410,7 +2416,7 @@ class XoraLibretroActivity : ComponentActivity() {
      * and the wash is above the window (system dim, an accessibility or OEM overlay, a display
      * colour transform). If it does not match, the wash is ours, and the layer dump says which view.
      */
-    private fun runWashDiagnostics() {
+    private fun runWashDiagnostics(auto: Boolean = false) {
         val root = gameRoot ?: return
         val view = primaryGameView ?: return
         val report = StringBuilder()
@@ -2443,6 +2449,7 @@ class XoraLibretroActivity : ComponentActivity() {
 
         val shot = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
         PixelCopy.request(window, shot, { result ->
+            var washDetected = false
             report.appendLine("PIXEL AT GAME CENTRE (${sampleX}, ${sampleY})")
             if (result != PixelCopy.SUCCESS) {
                 report.appendLine("  readback failed: $result")
@@ -2455,8 +2462,9 @@ class XoraLibretroActivity : ComponentActivity() {
                     val dg = AndroidColor.green(actual) - AndroidColor.green(expected)
                     val db = AndroidColor.blue(actual) - AndroidColor.blue(expected)
                     report.appendLine("  delta         = r$dr g$dg b$db")
+                    washDetected = dr > WASH_DELTA || dg > WASH_DELTA || db > WASH_DELTA
                     report.appendLine(
-                        if (dr > 6 && dg > 6 && db > 6) {
+                        if (dr > WASH_DELTA && dg > WASH_DELTA && db > WASH_DELTA) {
                             "  => WASH IS INSIDE THIS WINDOW. Blame a layer listed above."
                         } else {
                             "  => window output is clean. The wash is ABOVE this window: " +
@@ -2467,7 +2475,9 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             shot.recycle()
             Log.i("XoraWash", report.toString())
-            showWashReport(report.toString())
+            // An automatic run stays silent unless there is actually something to report, so the
+            // check can sit on the close-menu path without ever getting in the way.
+            if (!auto || washDetected) showWashReport(report.toString())
         }, root.handler)
     }
 
@@ -3363,6 +3373,10 @@ class XoraLibretroActivity : ComponentActivity() {
         /** Loop tick while paused / backgrounded, where no frames are produced. */
         private const val IDLE_TICK_MS = 200L
         private const val MENU_MESSAGE_MS = 2_600L
+        /** Per-channel lift over the source frame before a readback counts as washed. */
+        private const val WASH_DELTA = 6
+        /** Long enough for the close animation and a fresh frame to land. */
+        private const val WASH_CHECK_DELAY_MS = 700L
         private val chordKeys = setOf(
             KeyEvent.KEYCODE_BUTTON_SELECT,
             KeyEvent.KEYCODE_BUTTON_START,
