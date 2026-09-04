@@ -13,6 +13,8 @@ import com.arcadia.shell.datastore.DEFAULT_UI_SFX_VOLUME
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.input.GamepadDispatcher
 import com.arcadia.shell.input.NavAction
+import com.arcadia.shell.input.UiOneShot
+import com.arcadia.shell.input.UiOneShotPlayer
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -53,6 +55,8 @@ class UiSoundController @Inject constructor(
     private var ngId: Int = 0
     /** Friend online / download complete / RA unlock banner chime (`notif_banner.wav`). */
     private var notificationId: Int = 0
+    /** Vita shortcut bubble confirm (`bubble_launch.wav`). */
+    private var bubbleLaunchId: Int = 0
 
     private var volume: Float = DEFAULT_UI_SFX_VOLUME
     private var notificationSoundEnabled: Boolean = true
@@ -113,6 +117,9 @@ class UiSoundController @Inject constructor(
                 if (foreground) playFor(action)
             }
         }
+        gamepadDispatcher.uiOneShotPlayer = UiOneShotPlayer { shot ->
+            if (foreground && shot == UiOneShot.BubbleLaunch) play(bubbleLaunchId)
+        }
     }
 
     fun onForeground() {
@@ -133,6 +140,7 @@ class UiSoundController @Inject constructor(
         okId = 0
         ngId = 0
         notificationId = 0
+        bubbleLaunchId = 0
     }
 
     /** Banner appear chime — friend online, download complete, RetroAchievement unlock. */
@@ -166,7 +174,8 @@ class UiSoundController @Inject constructor(
                 cursorId
             }
 
-            NavAction.Confirm -> okId
+            NavAction.Confirm ->
+                if (gamepadDispatcher.vitaBubbleLaunchSfx) return else okId
 
             NavAction.Menu ->
                 // Flag is still the pre-toggle state when this action is observed.
@@ -232,6 +241,7 @@ class UiSoundController @Inject constructor(
                     okId = created.loadQuietly(R.raw.snd_system_ok)
                     ngId = created.loadQuietly(R.raw.snd_system_ng)
                     notificationId = created.loadQuietly(R.raw.notif_banner)
+                    bubbleLaunchId = created.loadQuietly(R.raw.bubble_launch)
                 }
         }.getOrNull()
         soundPool = pool

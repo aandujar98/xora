@@ -12,6 +12,12 @@ data class ShellDisplay(
      * is not public throws [SecurityException], so this gates every targeted launch.
      */
     val isPublic: Boolean,
+    /**
+     * True when the panel is a Presentation display (`Display.FLAG_PRESENTATION`). AYN Thor /
+     * similar clamshells expose the bottom screen this way — often `FLAG_PRIVATE`, so it is not
+     * [isPublic] and cannot host a launched Activity, but it *can* host a [android.app.Presentation].
+     */
+    val isPresentation: Boolean = false,
 ) {
     val aspectRatio: Float get() = if (heightPx == 0) 0f else widthPx.toFloat() / heightPx
 }
@@ -29,8 +35,16 @@ data class DisplayTopology(
 
     val secondary: ShellDisplay? get() = displays.firstOrNull { !it.isPrimary && it.isPublic }
 
-    /** True only when the shell can actually drive two panes on two separate physical screens. */
-    val isDualScreen: Boolean get() = primary != null && secondary != null
+    /**
+     * Second panel that can host a Presentation or overlay. Prefers a FLAG_PRESENTATION display
+     * (AYN Thor bottom screen) and falls back to a public secondary.
+     */
+    val presentationDisplay: ShellDisplay?
+        get() = displays.firstOrNull { !it.isPrimary && it.isPresentation }
+            ?: secondary
+
+    /** True when two physical panels can show shell / emulator content. */
+    val isDualScreen: Boolean get() = primary != null && presentationDisplay != null
 
     companion object {
         val Empty = DisplayTopology(

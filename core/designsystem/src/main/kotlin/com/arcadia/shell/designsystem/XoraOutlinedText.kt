@@ -116,7 +116,7 @@ fun XoraTitleText(
     )
 }
 
-/** Bio / info / secondary copy (FOT-NewRodin Pro EB). */
+/** Bio / info / secondary copy (FOT-NewRodin Pro DB). */
 @Composable
 fun XoraSecondaryText(
     text: String,

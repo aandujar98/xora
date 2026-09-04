@@ -61,6 +61,20 @@ class GamepadDispatcher @Inject constructor() {
     @Volatile
     var startSettingsOpen: Boolean = false
 
+    /**
+     * True while the Vita shortcut tray is open. Confirm then plays
+     * [UiOneShot.BubbleLaunch] instead of the generic ok click.
+     */
+    @Volatile
+    var vitaBubbleLaunchSfx: Boolean = false
+
+    /**
+     * App audio layer registers here so Home can fire bubble-launch one-shots
+     * (including touch activates) without feature modules depending on `:app`.
+     */
+    @Volatile
+    var uiOneShotPlayer: UiOneShotPlayer? = null
+
     private val _actions = MutableSharedFlow<NavAction>(extraBufferCapacity = 64)
     val actions: SharedFlow<NavAction> = _actions.asSharedFlow()
 
