@@ -179,11 +179,20 @@ fun XoraCardBrowsePane(
         )
         val shownItem = items.firstOrNull { it.id == shownId } ?: focused
 
-        BackHintArrow(
-            size = (ARROW_SIZE * unit).dp,
+        val (arrowW, arrowH) = XmbIcon.Back.intrinsicDesignSize()
+        val arrowScale = min(ARROW_SIZE / arrowW, ARROW_SIZE / arrowH)
+        val visArrowW = arrowW * arrowScale
+        val visArrowH = arrowH * arrowScale
+        XmbVectorIcon(
+            icon = XmbIcon.Back,
+            width = (visArrowW * unit).dp,
+            height = (visArrowH * unit).dp,
+            glass = false,
+            outlined = false,
+            strokeWidth = 0.dp,
             modifier = Modifier.offset(
-                x = designX(ARROW_CENTER_X - (ARROW_SIZE / 2f)),
-                y = designY(ROW_CENTER_Y - (ARROW_SIZE / 2f)),
+                x = designX(ARROW_CENTER_X - (visArrowW / 2f)),
+                y = designY(ROW_CENTER_Y - (visArrowH / 2f)),
             ),
         )
 
@@ -502,26 +511,3 @@ private fun ReadyCheck(diameter: Dp, modifier: Modifier = Modifier) {
     )
 }
 
-/** Mirrors the design's left chevron: B steps back out of this list. */
-@Composable
-private fun BackHintArrow(size: Dp, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .size(size)
-            .drawBehind {
-                val arrow = Path().apply {
-                    moveTo(this@drawBehind.size.width * 0.72f, 0f)
-                    lineTo(this@drawBehind.size.width * 0.18f, this@drawBehind.size.height * 0.5f)
-                    lineTo(this@drawBehind.size.width * 0.72f, this@drawBehind.size.height)
-                }
-                drawPath(
-                    path = arrow,
-                    color = Color.White.copy(alpha = 0.85f),
-                    style = Stroke(
-                        width = this@drawBehind.size.minDimension * 0.16f,
-                        cap = StrokeCap.Round,
-                    ),
-                )
-            },
-    )
-}

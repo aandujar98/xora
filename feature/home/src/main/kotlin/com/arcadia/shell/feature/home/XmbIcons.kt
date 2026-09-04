@@ -101,6 +101,8 @@ enum class XmbIcon {
     Repeat,
     PreviousTrack,
     NextTrack,
+    /** XMB card-browse back chevron (B). */
+    Back,
     Play,
     Pause,
     Friends,
@@ -169,6 +171,7 @@ fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
     XmbIcon.Dashboard -> R.drawable.xmb_user_edit
     XmbIcon.Store -> R.drawable.xmb_user_storage
     XmbIcon.News -> R.drawable.xmb_www
+    XmbIcon.Back -> R.drawable.xmb_arrow_back
     XmbIcon.Xora -> R.drawable.ic_xora_logo
     else -> null
 }
@@ -202,6 +205,7 @@ fun XmbIcon.intrinsicDesignSize(): Pair<Float, Float> = when (this) {
     XmbIcon.Dashboard -> 136f to 133f
     XmbIcon.Store -> 120f to 135f
     XmbIcon.News -> 172f to 141f
+    XmbIcon.Back -> 24f to 28f
     XmbIcon.Xora -> 90f * XORA_MARK_WIDTH_SCALE to 90f
     else -> 90f to 90f
 }
@@ -703,6 +707,7 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Repeat -> drawRepeat(tint, stroke)
         XmbIcon.PreviousTrack -> drawSkip(tint, stroke, forward = false)
         XmbIcon.NextTrack -> drawSkip(tint, stroke, forward = true)
+        XmbIcon.Back -> drawSkip(tint, stroke, forward = false)
         XmbIcon.Play -> drawPlay(tint, stroke)
         XmbIcon.Pause -> drawPause(tint, stroke)
         XmbIcon.Friends -> drawFriends(tint, stroke)
