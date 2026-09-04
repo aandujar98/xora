@@ -168,7 +168,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) ImmersiveMode.apply(window)
+        if (hasFocus) {
+            ImmersiveMode.apply(window)
+            homeViewModel.onShellRegainedFocus()
+        }
     }
 
     override fun onPause() {

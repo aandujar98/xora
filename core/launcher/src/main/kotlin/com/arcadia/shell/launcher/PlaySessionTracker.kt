@@ -24,6 +24,14 @@ class PlaySessionTracker @Inject constructor(
         launchedAt = System.currentTimeMillis()
     }
 
+    fun hasPendingSession(): Boolean = pendingGameId != null
+
+    /** Elapsed ms since [onLaunched], or 0 when no session is open. */
+    fun pendingElapsedMs(): Long {
+        if (pendingGameId == null) return 0L
+        return (System.currentTimeMillis() - launchedAt).coerceAtLeast(0L)
+    }
+
     /**
      * Called when the shell comes back to the foreground. Sessions shorter than [minimumMs] are
      * discarded, since they mean the emulator failed to start or the user immediately backed out.

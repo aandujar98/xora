@@ -8140,6 +8140,33 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Dual-screen keeps MainActivity resumed while the emulator is up, so [onResumed] never
+     * fires on quit. Built-in emulator [finish] calls this so Discord returns to Browsing XOrA.
+     */
+    fun onPlaySessionEnded() {
+        restoreBrowsingPresence()
+        gameCompanionController.endSession()
+    }
+
+    /**
+     * Shell window is in front again. Restores Browsing when a real play session has elapsed,
+     * even if [onPaused] never ran (second display / companion pane).
+     */
+    fun onShellRegainedFocus() {
+        maybeRestoreBrowsingPresence()
+    }
+
+    private fun maybeRestoreBrowsingPresence() {
+        if (!discordRichPresence.state.value.isConfigured) return
+        if (discordRichPresence.state.value.activity !is DiscordPresenceActivity.Playing) return
+        val awayMs = backgroundedAtElapsed?.let { SystemClock.elapsedRealtime() - it } ?: 0L
+        val pendingMs = sessionTracker.pendingElapsedMs()
+        if (awayMs >= PLAYING_PRESENCE_RETURN_MS || pendingMs >= PLAYING_PRESENCE_RETURN_MS) {
+            restoreBrowsingPresence()
+        }
+    }
+
     fun selectCompanionAction(action: GameCompanionAction) {
         gameCompanionController.selectAction(action)
     }
@@ -8573,13 +8600,7 @@ class HomeViewModel @Inject constructor(
         gameCompanionController.onShellForegrounded()
         // Keep Playing through the launch handoff. startActivity often pause/resumes the shell
         // for a frame, which used to snap Discord back to Browsing XOrA before the game started.
-        val awayMs = backgroundedAtElapsed?.let { SystemClock.elapsedRealtime() - it } ?: 0L
-        val returnFromPlay =
-            discordRichPresence.state.value.activity is DiscordPresenceActivity.Playing &&
-                awayMs >= PLAYING_PRESENCE_RETURN_MS
-        if (discordRichPresence.state.value.isConfigured && returnFromPlay) {
-            discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
-        }
+        maybeRestoreBrowsingPresence()
         viewModelScope.launch { sessionTracker.settlePendingSession() }
         refreshInstalledApps()
         gamepadDispatcher.reset()

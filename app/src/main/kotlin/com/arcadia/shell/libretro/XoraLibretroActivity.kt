@@ -80,10 +80,13 @@ import com.arcadia.shell.display.SecondaryDisplayPane
 import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.EmulatorMenuAction
 import com.arcadia.shell.feature.home.EmulatorSaveSlotUi
+import com.arcadia.shell.feature.home.GameCompanionController
 import com.arcadia.shell.feature.home.LocalInGameXmbController
 import com.arcadia.shell.feature.home.NetplayInvitePrompt
 import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
 import com.arcadia.shell.feature.home.XoraInGameXmbController
+import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
+import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
 import com.arcadia.shell.feature.home.component.NetplaySeatOption
 import com.arcadia.shell.feature.home.component.NetplaySeatPickerDialog
@@ -174,6 +177,8 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var avatarStore: ProfileAvatarStore
     @Inject lateinit var xoraNetwork: XoraNetworkRepository
     @Inject lateinit var xoraCookies: XoraNetworkAuthCookies
+    @Inject lateinit var discordRichPresence: DiscordRichPresence
+    @Inject lateinit var gameCompanionController: GameCompanionController
 
     @Volatile private var menuOpen = false
     /** True while the in-game menu is showing or the user left Pause on. */
@@ -860,6 +865,7 @@ class XoraLibretroActivity : ComponentActivity() {
         super.onResume()
         activityInBackground = false
         applyOpaqueWindow()
+        pinGameplaySurfaceRepeatedly()
         DisplayRefresh.preferSixtyHertz(window)
         startWashGuard()
         if (gameLoaded) restartAudio()
@@ -883,7 +889,10 @@ class XoraLibretroActivity : ComponentActivity() {
         super.onWindowFocusChanged(hasFocus)
         // Regaining focus is exactly when a toast or system window has just gone away, which is
         // when the wash used to appear — so restore the whole window state, not just immersive.
-        if (hasFocus && !menuOpen) applyOpaqueWindow()
+        if (hasFocus && !menuOpen) {
+            applyOpaqueWindow()
+            pinGameplaySurfaceRepeatedly()
+        }
     }
 
     override fun onPause() {
@@ -891,7 +900,6 @@ class XoraLibretroActivity : ComponentActivity() {
         // changes used to reboot every core after a clamshell close / fold.
         activityInBackground = true
         persistSessionForBackground()
-        stopWashGuard()
         uiSounds.onBackground()
         xoraNetwork.setRealtimeEnabled(false)
         super.onPause()
@@ -1265,7 +1273,7 @@ class XoraLibretroActivity : ComponentActivity() {
         menuMessageJob?.cancel()
         menuMessage = null
         applyOpaqueWindow()
-        pinGameplaySurface()
+        pinGameplaySurfaceRepeatedly()
         keepProfileChipOnTop()
     }
 
@@ -2156,14 +2164,8 @@ class XoraLibretroActivity : ComponentActivity() {
         if (isFinishing || menuOpen) return
         dissolveWashLayers()
         gameRoot?.setBackgroundColor(AndroidColor.BLACK)
-        primaryGameView?.apply {
-            setLayerType(View.LAYER_TYPE_NONE, null)
-            setBackgroundColor(AndroidColor.BLACK)
-            alpha = 1f
-            colorFilter = null
-            imageAlpha = 255
-            visibility = View.VISIBLE
-        }
+        pinGameImage(primaryGameView)
+        pinGameImage(secondaryGameView)
         stage?.apply {
             setBackgroundColor(AndroidColor.BLACK)
             alpha = 1f
@@ -2177,6 +2179,30 @@ class XoraLibretroActivity : ComponentActivity() {
                 view.invalidate()
             }
         }
+    }
+
+    private fun pinGameImage(view: ImageView?) {
+        view?.apply {
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            setBackgroundColor(AndroidColor.BLACK)
+            alpha = 1f
+            if (colorFilter != null) colorFilter = null
+            if (imageAlpha != 255) imageAlpha = 255
+            visibility = View.VISIBLE
+        }
+    }
+
+    /**
+     * OEM wash often lands a few frames after Resume / menu close. Re-pin now and again
+     * shortly after so the leftover scrim cannot sit on the framebuffer.
+     */
+    private fun pinGameplaySurfaceRepeatedly() {
+        pinGameplaySurface()
+        val root = gameRoot ?: return
+        root.post { if (!isFinishing && !menuOpen) pinGameplaySurface() }
+        root.postDelayed({ if (!isFinishing && !menuOpen) pinGameplaySurface() }, 50)
+        root.postDelayed({ if (!isFinishing && !menuOpen) pinGameplaySurface() }, 160)
+        root.postDelayed({ if (!isFinishing && !menuOpen) pinGameplaySurface() }, 400)
     }
 
     /**
@@ -2197,6 +2223,13 @@ class XoraLibretroActivity : ComponentActivity() {
             isClickable = false
             isFocusable = false
         }
+    }
+
+    private fun restoreShellPresence() {
+        if (discordRichPresence.state.value.activity is DiscordPresenceActivity.Playing) {
+            discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
+        }
+        gameCompanionController.endSession()
     }
 
     /** Tap the profile disc — the kill switch when the automatic pin still leaves a wash. */
@@ -2339,14 +2372,14 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     /**
-     * Runs while the activity is RESUMED — overlay open **and** closed / playing.
-     * A 250 ms ticker is enough to catch OEM white-wash; vsync pinning was waking
-     * both AMOLED panels every frame for work that does not need to be that hot.
+     * Runs while the activity is STARTED — overlay open **and** closed / playing.
+     * Dual-screen / dialogs can pause RESUMED without leaving the game; keep pinning.
      */
     private fun startWashGuard() {
+        if (washGuardJob?.isActive == true) return
         washGuardJob?.cancel()
         washGuardJob = lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (true) {
                     runWashGuardTick()
                     delay(WASH_GUARD_MS)
@@ -2361,7 +2394,7 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun runWashGuardTick() {
-        if (isFinishing || activityInBackground) return
+        if (isFinishing) return
         pinOpaqueWindow()
         if (!menuOpen) pinGameplaySurface()
         if (seatPickerOpen || invitePromptOpen) {
@@ -2935,6 +2968,11 @@ class XoraLibretroActivity : ComponentActivity() {
             primaryGameView?.invalidate()
             secondaryGameView?.invalidate()
             frameTick++
+            if (!menuOpen &&
+                (primaryGameView?.colorFilter != null || secondaryGameView?.colorFilter != null)
+            ) {
+                pinGameplaySurface()
+            }
         }
     }
 
@@ -2981,6 +3019,7 @@ class XoraLibretroActivity : ComponentActivity() {
         xoraNetwork.setPlayingLine(null)
         xoraNetwork.setRealtimeEnabled(false)
         closeMenu()
+        restoreShellPresence()
         super.finish()
         @Suppress("DEPRECATION")
         overridePendingTransition(
@@ -3023,6 +3062,7 @@ class XoraLibretroActivity : ComponentActivity() {
         inputManager = null
         netplaySession?.stop()
         netplaySession = null
+        restoreShellPresence()
         stopWashGuard()
         closeMenu()
         runJob?.cancel()

@@ -255,9 +255,13 @@ class DiscordPresenceController @Inject constructor(
                 )
             }
         }
-        // Playing must publish before the emulator Activity pauses the shell, or the 450ms
-        // debounce is cancelled by onAppBackground and Discord never leaves Browsing XOrA.
-        schedulePublish(immediate = activity is DiscordPresenceActivity.Playing)
+        // Playing and InSora must publish immediately. The 450ms debounce is cancelled by
+        // onAppBackground, which is exactly the launch/quit Activity handoff.
+        schedulePublish(
+            immediate = activity is DiscordPresenceActivity.Playing ||
+                activity is DiscordPresenceActivity.InSora ||
+                activity is DiscordPresenceActivity.Browsing,
+        )
     }
 
     /**
