@@ -236,7 +236,14 @@ fun XoraCardBrowsePane(
             ),
         ) { item ->
             if (item == null) return@AnimatedContent
-            Box {
+            // Offset children (rule / playtime) sit below the title row. Size the plate to that
+            // full block so AnimatedContent fades and slides title and playtime together.
+            Box(
+                modifier = Modifier.size(
+                    width = (RULE_WIDTH * unit).dp,
+                    height = ((TITLE_TO_SUBTITLE_Y + SUBTITLE_SIZE) * unit).dp,
+                ),
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy((CHECK_GAP * unit).dp),

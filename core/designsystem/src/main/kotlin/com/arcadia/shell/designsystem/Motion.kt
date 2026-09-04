@@ -63,8 +63,8 @@ object ArcadiaMotion {
      * well under [LaunchBackdropZoom] so a launch still reads as a bigger move.
      */
     const val HeroBrowseZoom = 0.025f
-    /** Slow Ken Burns so the zoom reads as a drift, not a punch. */
-    const val HeroBrowseZoomMs = 1200
+    /** Ken Burns while the new hero fades in — short so it does not linger. */
+    const val HeroBrowseZoomMs = 520
     /** Title / playtime fade+slide when the focused ROM changes. */
     const val HeroCopy = 520
     const val HeroCopyExit = 340

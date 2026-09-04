@@ -11,11 +11,12 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
@@ -905,19 +906,19 @@ internal fun rememberHeroBrowseZoom(path: String): Float {
         zoom.snapTo(1f)
         zoom.animateTo(
             settled,
-            tween(ArcadiaMotion.HeroBrowseZoomMs, easing = LinearEasing),
+            tween(ArcadiaMotion.HeroBrowseZoomMs, easing = FastOutSlowInEasing),
         )
     }
     return zoom.value
 }
 
-/** Soft fade + short slide. Size is not animated so long titles do not resize-jank the row. */
+/** Soft fade + short slide. Size is snapped and unclipped so title and playtime move together. */
 internal fun xmbCopyTransition(reduceMotion: Boolean): ContentTransform {
     if (reduceMotion) {
         return ContentTransform(
             targetContentEnter = fadeIn(tween(0)),
             initialContentExit = fadeOut(tween(0)),
-            sizeTransform = null,
+            sizeTransform = SizeTransform(clip = false) { _, _ -> snap() },
         )
     }
     val enter =
@@ -933,7 +934,7 @@ internal fun xmbCopyTransition(reduceMotion: Boolean): ContentTransform {
     return ContentTransform(
         targetContentEnter = enter,
         initialContentExit = exit,
-        sizeTransform = null,
+        sizeTransform = SizeTransform(clip = false) { _, _ -> snap() },
     )
 }
 

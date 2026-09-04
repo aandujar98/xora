@@ -546,19 +546,22 @@ private fun VerticalDetailPane(
             Spacer(modifier = Modifier.weight(0.22f))
 
             AnimatedContent(
-                targetState = settledGame?.id to (settledGame?.logoImagePath to settledGame?.title),
+                targetState = settledGame,
                 transitionSpec = { xmbCopyTransition(reduceMotion) },
+                contentKey = { it?.id },
                 label = "verticalFocusedTitle",
                 modifier = Modifier.fillMaxWidth(),
-            ) { (_, logoAndTitle) ->
-                val (logoPath, title) = logoAndTitle
-                if (title.isNullOrBlank() && logoPath.isNullOrBlank()) return@AnimatedContent
+            ) { shown ->
+                if (shown == null) return@AnimatedContent
+                val logoPath = shown.logoImagePath
+                val title = shown.title
+                if (title.isBlank() && logoPath.isNullOrBlank()) return@AnimatedContent
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (!logoPath.isNullOrBlank()) {
                         ArtworkImage(
                             path = logoPath,
                             contentDescription = title,
-                            fallbackText = title.orEmpty(),
+                            fallbackText = title,
                             contentScale = ContentScale.Fit,
                             cacheInMemory = false,
                             decodeMaxEdgePx = 720,
@@ -569,7 +572,7 @@ private fun VerticalDetailPane(
                         )
                     } else {
                         Text(
-                            text = title.orEmpty(),
+                            text = title,
                             style = MaterialTheme.typography.headlineLarge.copy(
                                 fontSize = 36.sp,
                                 lineHeight = 42.sp,
@@ -587,9 +590,7 @@ private fun VerticalDetailPane(
                             modifier = Modifier.widthIn(max = 560.dp),
                         )
                     }
-                    if (settledGame != null) {
-                        PlaytimePill(playTimeMs = settledGame.playTimeMs)
-                    }
+                    PlaytimePill(playTimeMs = shown.playTimeMs)
                 }
             }
 
