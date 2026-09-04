@@ -25,6 +25,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,6 +68,8 @@ import com.arcadia.shell.feature.home.MusicCustomizeSheet
 import com.arcadia.shell.feature.home.ArtPickerUiState
 import com.arcadia.shell.feature.home.RomEditorActions
 import com.arcadia.shell.feature.home.RomEditorPane
+import com.arcadia.shell.feature.home.component.LocalShellSheetNav
+import com.arcadia.shell.feature.home.component.ShellSheetNav
 import com.arcadia.shell.model.TrailerRefs
 import com.arcadia.shell.scraper.ArtSlot
 import com.arcadia.shell.feature.home.ThemesSheet
@@ -501,6 +504,14 @@ fun ArcadiaShell(
             Modifier
         }
 
+        val sheetNav = remember(homeViewModel) {
+            object : ShellSheetNav {
+                override val actions = homeViewModel.sheetNavActionFlow
+                override fun setCapturing(capturing: Boolean) =
+                    homeViewModel.setBottomSheetNavOpen(capturing)
+            }
+        }
+        CompositionLocalProvider(LocalShellSheetNav provides sheetNav) {
         Box(modifier = contentModifier.then(swipeModifier)) {
             // Keep Home mounted under Setup so the dim settings plate can show wallpaper through.
             if (shellState.useDualLayout) {
@@ -707,6 +718,7 @@ fun ArcadiaShell(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+        }
         }
     }
 

@@ -1,6 +1,13 @@
 package com.arcadia.shell.feature.home.component
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,7 +34,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -35,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -44,10 +56,12 @@ import androidx.compose.ui.unit.sp
 import com.arcadia.shell.datastore.AvatarSource
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.designsystem.ArcadiaGlass
+import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.feature.home.R
+import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.xoranetwork.XoraPresenceMode
 import com.arcadia.shell.xoranetwork.parseXoraPresenceMode
 
@@ -65,6 +79,17 @@ private val RestFill = Color.White.copy(alpha = 0.06f)
 private val SelectedEdge = Color.White
 private val RestEdge = Color.White.copy(alpha = 0.18f)
 private val MutedInk = Color.White.copy(alpha = 0.62f)
+
+/**
+ * Focus reads differently from selection here: selection is what the profile *is*, focus is where
+ * the D-pad is. A selected-but-unfocused chip and a focused-but-unselected one have to be told
+ * apart at a glance, so focus gets the accent ring and a brighter fill rather than a heavier white.
+ */
+private val FocusEdge = Color(0xFF6E7BFF)
+private val FocusFill = Color(0xFF6E7BFF).copy(alpha = 0.28f)
+
+/** Vertical focus stops. Horizontal movement is within whichever row is current. */
+private enum class ProfileRow { Source, Preset, Name, Presence, Actions }
 
 /**
  * One avatar source, mapped 1:1 onto [AvatarSource] so the chip row and the stored source can
@@ -108,8 +133,6 @@ fun ProfileEditSheet(
     var name by remember(profile.displayName) { mutableStateOf(profile.displayName) }
     var presetId by remember(profile.avatarPresetId) { mutableStateOf(profile.avatarPresetId) }
 
-    BackHandler(onBack = onDismiss)
-
     val sources = listOf(
         AvatarSourceOption(AvatarSource.Default, "Colour", null, true, onClearAvatar),
         AvatarSourceOption(
@@ -142,15 +165,121 @@ fun ProfileEditSheet(
         ),
     )
 
+    val presenceShown = xoraSignedIn
+    val rows = remember(presenceShown) {
+        buildList {
+            add(ProfileRow.Source)
+            add(ProfileRow.Preset)
+            add(ProfileRow.Name)
+            if (presenceShown) add(ProfileRow.Presence)
+            add(ProfileRow.Actions)
+        }
+    }
+    var rowIndex by remember { mutableIntStateOf(0) }
+    var colIndex by remember { mutableIntStateOf(0) }
+    var editingName by remember { mutableStateOf(false) }
+    val nameFocus = remember { FocusRequester() }
+    val row = rows[rowIndex.coerceIn(0, rows.lastIndex)]
+
+    // Animates itself out and only then hands the dismiss up, so closing matches opening.
+    val transition = remember { MutableTransitionState(false).apply { targetState = true } }
+    LaunchedEffect(transition.currentState, transition.targetState) {
+        if (!transition.targetState && !transition.currentState) onDismiss()
+    }
+    val requestDismiss = { transition.targetState = false }
+    BackHandler(onBack = requestDismiss)
+
+    fun cellCount(target: ProfileRow): Int = when (target) {
+        ProfileRow.Source -> sources.size
+        ProfileRow.Preset -> AvatarPresets.size
+        ProfileRow.Name -> 1
+        ProfileRow.Presence -> XoraPresenceMode.entries.size
+        ProfileRow.Actions -> 2
+    }
+
+    fun activate() {
+        when (row) {
+            ProfileRow.Source -> sources.getOrNull(colIndex)
+                ?.takeIf { it.available }
+                ?.onPick
+                ?.invoke()
+            ProfileRow.Preset -> AvatarPresets.getOrNull(colIndex)?.let { preset ->
+                presetId = preset.id
+                onSelectAvatarPreset(preset.id)
+            }
+            ProfileRow.Name -> editingName = true
+            ProfileRow.Presence -> XoraPresenceMode.entries.getOrNull(colIndex)
+                ?.let(onXoraPresenceMode)
+            ProfileRow.Actions -> if (colIndex == 0) {
+                requestDismiss()
+            } else if (name.isNotBlank()) {
+                onSave(name.trim(), presetId)
+                requestDismiss()
+            }
+        }
+    }
+
+    // The Activity dispatches gamepad keys before any view sees them, so claim the shell's
+    // capture channel for as long as this overlay is up rather than trying to take Compose focus.
+    val sheetNav = LocalShellSheetNav.current
+    DisposableEffect(sheetNav) {
+        sheetNav?.setCapturing(true)
+        onDispose { sheetNav?.setCapturing(false) }
+    }
+    LaunchedEffect(sheetNav, rows, editingName) {
+        val flow = sheetNav?.actions ?: return@LaunchedEffect
+        flow.collect { action ->
+            if (editingName) {
+                // The keyboard owns everything else while a name is being typed.
+                when (action) {
+                    NavAction.Confirm, NavAction.Cancel -> editingName = false
+                    else -> Unit
+                }
+                return@collect
+            }
+            when (action) {
+                NavAction.Up -> {
+                    rowIndex = (rowIndex - 1 + rows.size) % rows.size
+                    colIndex = colIndex.coerceAtMost(cellCount(rows[rowIndex]) - 1)
+                }
+                NavAction.Down -> {
+                    rowIndex = (rowIndex + 1) % rows.size
+                    colIndex = colIndex.coerceAtMost(cellCount(rows[rowIndex]) - 1)
+                }
+                NavAction.Left -> {
+                    val count = cellCount(row)
+                    colIndex = (colIndex - 1 + count) % count
+                }
+                NavAction.Right -> {
+                    val count = cellCount(row)
+                    colIndex = (colIndex + 1) % count
+                }
+                NavAction.Confirm -> activate()
+                NavAction.Cancel -> requestDismiss()
+                else -> Unit
+            }
+        }
+    }
+    LaunchedEffect(editingName) {
+        if (editingName) runCatching { nameFocus.requestFocus() }
+    }
+
+    AnimatedVisibility(
+        visibleState = transition,
+        enter = fadeIn(tween(ArcadiaMotion.Slow)) +
+            scaleIn(tween(ArcadiaMotion.Slow), initialScale = 0.94f),
+        exit = fadeOut(tween(ArcadiaMotion.Medium)) +
+            scaleOut(tween(ArcadiaMotion.Medium), targetScale = 0.96f),
+    ) {
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.58f))
+                .background(Color.Black.copy(alpha = 0.72f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onDismiss,
+                    onClick = requestDismiss,
                 ),
         )
         Column(
@@ -185,10 +314,11 @@ fun ProfileEditSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        sources.forEach { option ->
+                        sources.forEachIndexed { index, option ->
                             SourceChip(
                                 option = option,
                                 selected = option.source == profile.avatarSource,
+                                focused = row == ProfileRow.Source && index == colIndex,
                                 swatch = avatarPreset(presetId).color,
                                 modifier = Modifier.weight(1f),
                             )
@@ -205,19 +335,31 @@ fun ProfileEditSheet(
 
                 Section(label = "Colour preset") {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        AvatarPresets.forEach { preset ->
+                        AvatarPresets.forEachIndexed { index, preset ->
                             val active = profile.avatarSource == AvatarSource.Default &&
                                 preset.id == presetId
-                            ProfileAvatar(
-                                displayName = name.ifBlank { "P" },
-                                presetId = preset.id,
-                                size = 44.dp,
-                                onClick = {
-                                    presetId = preset.id
-                                    onSelectAvatarPreset(preset.id)
-                                },
-                                borderColor = if (active) SelectedEdge else RestEdge,
-                            )
+                            val focused = row == ProfileRow.Preset && index == colIndex
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .border(
+                                        width = if (focused) 3.dp else 0.dp,
+                                        color = if (focused) FocusEdge else Color.Transparent,
+                                        shape = CircleShape,
+                                    )
+                                    .padding(if (focused) 3.dp else 0.dp),
+                            ) {
+                                ProfileAvatar(
+                                    displayName = name.ifBlank { "P" },
+                                    presetId = preset.id,
+                                    size = 48.dp,
+                                    onClick = {
+                                        presetId = preset.id
+                                        onSelectAvatarPreset(preset.id)
+                                    },
+                                    borderColor = if (active) SelectedEdge else RestEdge,
+                                )
+                            }
                         }
                     }
                 }
@@ -241,10 +383,11 @@ fun ProfileEditSheet(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            XoraPresenceMode.entries.forEach { entry ->
+                            XoraPresenceMode.entries.forEachIndexed { index, entry ->
                                 PresenceChip(
                                     mode = entry,
                                     selected = entry == mode,
+                                    focused = row == ProfileRow.Presence && index == colIndex,
                                     onClick = { onXoraPresenceMode(entry) },
                                     modifier = Modifier.weight(1f),
                                 )
@@ -264,19 +407,34 @@ fun ProfileEditSheet(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onDismiss) { Text(text = "Cancel") }
+                val cancelFocused = row == ProfileRow.Actions && colIndex == 0
+                val saveFocused = row == ProfileRow.Actions && colIndex == 1
+                TextButton(
+                    onClick = requestDismiss,
+                    modifier = Modifier.border(
+                        width = if (cancelFocused) 2.dp else 0.dp,
+                        color = if (cancelFocused) FocusEdge else Color.Transparent,
+                        shape = ChipShape,
+                    ),
+                ) { Text(text = "Cancel") }
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
                     onClick = {
                         onSave(name.trim(), presetId)
-                        onDismiss()
+                        requestDismiss()
                     },
                     enabled = name.isNotBlank(),
+                    modifier = Modifier.border(
+                        width = if (saveFocused) 3.dp else 0.dp,
+                        color = if (saveFocused) FocusEdge else Color.Transparent,
+                        shape = ChipShape,
+                    ),
                 ) {
                     Text(text = "Save")
                 }
             }
         }
+    }
     }
 }
 
@@ -295,11 +453,11 @@ private fun SheetHeader(
         ProfileAvatar(
             displayName = name.ifBlank { "P" },
             presetId = presetId,
-            size = 76.dp,
+            size = 104.dp,
             imageModel = avatarImageModel,
         )
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            XoraTitleText(text = "Customize Profile", fontSize = 22.sp, maxLines = 1)
+            XoraTitleText(text = "Customize Profile", fontSize = 26.sp, maxLines = 1)
             XoraSecondaryText(
                 text = sourceLabel(source),
                 fontSize = 13.sp,
@@ -328,16 +486,27 @@ private fun Section(label: String, content: @Composable () -> Unit) {
 private fun RowScope.SourceChip(
     option: AvatarSourceOption,
     selected: Boolean,
+    focused: Boolean,
     swatch: Color,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .clip(ChipShape)
-            .background(if (selected) SelectedFill else RestFill)
+            .background(
+                when {
+                    focused -> FocusFill
+                    selected -> SelectedFill
+                    else -> RestFill
+                },
+            )
             .border(
-                width = if (selected) 2.dp else 1.5.dp,
-                color = if (selected) SelectedEdge else RestEdge,
+                width = if (focused) 3.dp else if (selected) 2.dp else 1.5.dp,
+                color = when {
+                    focused -> FocusEdge
+                    selected -> SelectedEdge
+                    else -> RestEdge
+                },
                 shape = ChipShape,
             )
             .then(
@@ -377,16 +546,27 @@ private fun RowScope.SourceChip(
 private fun RowScope.PresenceChip(
     mode: XoraPresenceMode,
     selected: Boolean,
+    focused: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier
             .clip(ChipShape)
-            .background(if (selected) SelectedFill else RestFill)
+            .background(
+                when {
+                    focused -> FocusFill
+                    selected -> SelectedFill
+                    else -> RestFill
+                },
+            )
             .border(
-                width = if (selected) 2.dp else 1.5.dp,
-                color = if (selected) SelectedEdge else RestEdge,
+                width = if (focused) 3.dp else if (selected) 2.dp else 1.5.dp,
+                color = when {
+                    focused -> FocusEdge
+                    selected -> SelectedEdge
+                    else -> RestEdge
+                },
                 shape = ChipShape,
             )
             .clickable(onClick = onClick)
