@@ -51,6 +51,7 @@ import com.arcadia.shell.feature.home.component.steamPersonaToPresence
 import com.arcadia.shell.feature.home.rss.RssFeedClient
 import com.arcadia.shell.input.GamepadDispatcher
 import com.arcadia.shell.input.NavAction
+import com.arcadia.shell.input.UiOneShot
 import com.arcadia.shell.launcher.DetectedEmulator
 import com.arcadia.shell.launcher.GameLauncher
 import com.arcadia.shell.launcher.InstalledAppSync
@@ -896,6 +897,11 @@ class HomeViewModel @Inject constructor(
                 noteUserActivity()
                 onNavAction(action)
             }
+            .launchIn(viewModelScope)
+
+        vitaShortcutTrayOpen
+            .distinctUntilChanged()
+            .onEach { gamepadDispatcher.vitaBubbleLaunchSfx = it }
             .launchIn(viewModelScope)
 
         observeIdleTrailer()
@@ -2894,7 +2900,14 @@ class HomeViewModel @Inject constructor(
             removeHomeShortcut(shortcut.id)
             return
         }
+        if (vitaShortcutTrayOpen.value) {
+            playUiOneShot(UiOneShot.BubbleLaunch)
+        }
         openHomeShortcut(shortcut)
+    }
+
+    private fun playUiOneShot(shot: UiOneShot) {
+        gamepadDispatcher.uiOneShotPlayer?.play(shot)
     }
 
     fun openAddShortcutChooser() {
