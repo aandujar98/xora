@@ -14,6 +14,7 @@ import android.graphics.drawable.ColorDrawable
 import android.util.Log
 import android.view.PixelCopy
 import android.graphics.drawable.GradientDrawable
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.hardware.input.InputManager
 import android.media.AudioAttributes
@@ -275,6 +276,11 @@ class XoraLibretroActivity : ComponentActivity() {
     private var opaqueWindowBackgroundSet = false
     /** Force-dark is a render-time lift: views still report black, PixelCopy comes back grey. */
     private var forceDarkPinned = false
+    /**
+     * Overlay-hide and display-pipeline pins have no cheap getters. Re-assert on resume / focus,
+     * not every vsync — [setHideOverlayWindows] talks to WindowManager.
+     */
+    private var displayPipelinePinned = false
     /**
      * Host for RA unlock banners and the dual-screen pane. It is added directly above the game
      * stage and below the side menu, which is the one z-band that tints the framebuffer without
@@ -911,6 +917,7 @@ class XoraLibretroActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         activityInBackground = false
+        displayPipelinePinned = false
         applyOpaqueWindow()
         pinGameplaySurfaceRepeatedly()
         DisplayRefresh.preferSixtyHertz(window)
@@ -944,7 +951,9 @@ class XoraLibretroActivity : ComponentActivity() {
             chordFired = false
         }
         if (hasFocus) {
+            displayPipelinePinned = false
             reconcileMenuState()
+            pinDisplayPipeline()
             if (!menuOpen) {
                 applyOpaqueWindow()
                 pinGameplaySurfaceRepeatedly()
@@ -956,6 +965,7 @@ class XoraLibretroActivity : ComponentActivity() {
         // Always snapshot before Android may kill us. Skipping this on configuration
         // changes used to reboot every core after a clamshell close / fold.
         activityInBackground = true
+        displayPipelinePinned = false
         persistSessionForBackground()
         stopWashGuard()
         uiSounds.onBackground()
@@ -1342,9 +1352,11 @@ class XoraLibretroActivity : ComponentActivity() {
         applyOpaqueWindow()
         pinGameplaySurfaceRepeatedly()
         keepProfileChipOnTop()
+        displayPipelinePinned = false
+        pinDisplayPipeline()
         postWashFrame()
-        // This is the exact repro. Let the frame settle, then check the composited output against
-        // the frame we handed over and speak up only if the wash is really there.
+        // Log-only: an on-screen dump over a clean window is not a fix, and PixelCopy cannot
+        // see a wash that lives above this window.
         gameRoot?.postDelayed({ runWashDiagnostics(auto = true) }, WASH_CHECK_DELAY_MS)
     }
 
@@ -2256,6 +2268,7 @@ class XoraLibretroActivity : ComponentActivity() {
             window.attributes = attrs
         }
         ImmersiveMode.keepHidden(window)
+        pinDisplayPipeline()
         clearParentWashLayers()
         paintBlack(gameRoot)
         stage?.apply {
@@ -2468,9 +2481,35 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         keepProfileChipOnTop()
         uiSounds.playConfirm()
-        // The disc has stopped clearing anything, so make the failure report itself: if the wash
-        // survives every reset this can reach, the readback says whose it is.
+        displayPipelinePinned = false
+        pinDisplayPipeline()
+        // Log only. A wash above this window cannot be cleared by resetting our views, and
+        // painting the diagnostic over the game is not a fix.
         gameRoot?.postDelayed({ runWashDiagnostics(auto = true) }, WASH_CHECK_DELAY_MS)
+    }
+
+    /**
+     * The wash PixelCopy cannot see: other windows and the display colour pipeline.
+     *
+     * [Window.setHideOverlayWindows] drops `TYPE_APPLICATION_OVERLAY` dimmers / filters that sit
+     * on this display. [Window.setPreferMinimalPostProcessing] asks the panel to skip extra
+     * colour transforms (vivid modes, motion processing) that lift blacks after our buffer is
+     * already clean. Companion overlay lives on the second display, so hiding overlays here
+     * does not take that panel down.
+     */
+    private fun pinDisplayPipeline() {
+        if (isFinishing) return
+        if (window.colorMode != ActivityInfo.COLOR_MODE_DEFAULT) {
+            window.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
+        }
+        if (displayPipelinePinned) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setPreferMinimalPostProcessing(true)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && xoraSettings.blockOverlayWash) {
+            runCatching { window.setHideOverlayWindows(true) }
+        }
+        displayPipelinePinned = true
     }
 
     /**
@@ -2530,9 +2569,9 @@ class XoraLibretroActivity : ComponentActivity() {
                     val dg = AndroidColor.green(actual) - AndroidColor.green(expected)
                     val db = AndroidColor.blue(actual) - AndroidColor.blue(expected)
                     report.appendLine("  delta         = r$dr g$dg b$db")
-                    washDetected = dr > WASH_DELTA || dg > WASH_DELTA || db > WASH_DELTA
+                    washDetected = dr > WASH_DELTA && dg > WASH_DELTA && db > WASH_DELTA
                     report.appendLine(
-                        if (dr > WASH_DELTA && dg > WASH_DELTA && db > WASH_DELTA) {
+                        if (washDetected) {
                             "  => WASH IS INSIDE THIS WINDOW. Blame a layer listed above."
                         } else {
                             "  => window output is clean. The wash is ABOVE this window: " +
@@ -2543,9 +2582,9 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             shot.recycle()
             Log.i("XoraWash", report.toString())
-            // An automatic run stays silent unless there is actually something to report, so the
-            // check can sit on the close-menu path without ever getting in the way.
-            if (!auto || washDetected) showWashReport(report.toString())
+            // Automatic runs stay in logcat. The on-screen dump is long-press only — showing it
+            // on a clean window is how "the wash is ABOVE this window" ended up over the game.
+            if (!auto) showWashReport(report.toString())
         }, root.handler)
     }
 

@@ -52,6 +52,8 @@
       without the user-granted overlay toggle the panel simply never appears during gameplay.
     -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Lets the emulator hide TYPE_APPLICATION_OVERLAY dimmers / filters over gameplay. -->
+    <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
@@ -118,6 +120,7 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode|colorMode|fontScale|layoutDirection|locale|touchscreen"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.Arcadia.Emulator"
+            android:colorMode="default"
             android:launchMode="singleTask"
             android:alwaysRetainTaskState="true" />
 
