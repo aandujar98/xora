@@ -8056,6 +8056,16 @@ class HomeViewModel @Inject constructor(
 
         viewModelScope.launch {
             isLaunching.value = true
+            // Publish Playing before the cinematic / Activity handoff. Waiting until after
+            // startActivity let onResume flicker the status back to Browsing XOrA.
+            if (discordRichPresence.state.value.isConfigured) {
+                discordRichPresence.setActivity(
+                    DiscordPresenceActivity.Playing(
+                        gameTitle = game.title,
+                        platformName = game.platform.displayName,
+                    ),
+                )
+            }
             try {
                 // Chrome fades on [ArcadiaMotion.Launch], the wallpaper zooms after that, then
                 // the wallpaper dissolves at [ArcadiaMotion.LaunchWallpaperFadeAt]. The plate
@@ -8069,7 +8079,8 @@ class HomeViewModel @Inject constructor(
                 if (waitMs > 0L) delay(waitMs)
 
                 val target = targetDisplayId ?: resolveTargetDisplay(game)
-                when (val result = launcher.launch(game, target)) {
+                val result = launcher.launch(game, target)
+                when (result) {
                     is LaunchResult.Launched -> {
                         // Bottom screen takes over as a companion panel for this session; the
                         // controller decides whether the game and display setup qualify.
@@ -8080,12 +8091,6 @@ class HomeViewModel @Inject constructor(
                             // game when the launch came from the grid rather than a shortcut.
                             raLookup = uiState.value.achievements.gameLookup
                                 ?.takeIf { uiState.value.selectedGame?.id == game.id },
-                        )
-                        discordRichPresence.setActivity(
-                            DiscordPresenceActivity.Playing(
-                                gameTitle = game.title,
-                                platformName = game.platform.displayName,
-                            ),
                         )
                         result.displayFallbackReason?.let { emit(HomeEvent.ShowMessage(it)) }
                     }
@@ -8119,9 +8124,19 @@ class HomeViewModel @Inject constructor(
                         ),
                     )
                 }
+                if (result !is LaunchResult.Launched) {
+                    restoreBrowsingPresence()
+                }
             } finally {
                 isLaunching.value = false
             }
+        }
+    }
+
+    private fun restoreBrowsingPresence() {
+        if (!discordRichPresence.state.value.isConfigured) return
+        if (discordRichPresence.state.value.activity is DiscordPresenceActivity.Playing) {
+            discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
         }
     }
 
@@ -8556,7 +8571,13 @@ class HomeViewModel @Inject constructor(
     fun onResumed() {
         // Coming back from the emulator ends the play session, and with it the companion panel.
         gameCompanionController.onShellForegrounded()
-        if (discordRichPresence.state.value.isConfigured) {
+        // Keep Playing through the launch handoff. startActivity often pause/resumes the shell
+        // for a frame, which used to snap Discord back to Browsing XOrA before the game started.
+        val awayMs = backgroundedAtElapsed?.let { SystemClock.elapsedRealtime() - it } ?: 0L
+        val returnFromPlay =
+            discordRichPresence.state.value.activity is DiscordPresenceActivity.Playing &&
+                awayMs >= PLAYING_PRESENCE_RETURN_MS
+        if (discordRichPresence.state.value.isConfigured && returnFromPlay) {
             discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
         }
         viewModelScope.launch { sessionTracker.settlePendingSession() }
@@ -8657,6 +8678,11 @@ class HomeViewModel @Inject constructor(
         const val PHOTO_SLIDESHOW_INTERVAL_MS = 4_000L
         /** GitHub release polling floor, so resuming the shell repeatedly does not hammer the API. */
         const val UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+        /**
+         * Pause/resume shorter than this is the launch handoff, not a return from the game.
+         * Under that, Discord stays on Playing {title}.
+         */
+        const val PLAYING_PRESENCE_RETURN_MS = 1_500L
     }
 
     private fun refreshInstalledApps() {

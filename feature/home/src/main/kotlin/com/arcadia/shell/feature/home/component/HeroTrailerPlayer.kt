@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
@@ -324,6 +325,9 @@ private fun YouTubeTrailerEmbed(
     }
 
     key(videoId) {
+        // YouTube still draws the video title / watch-on-YouTube chrome with controls=0.
+        // Overscan the iframe so that bar sits outside the trailer plate.
+        Box(modifier = modifier.clipToBounds()) {
         AndroidView(
             factory = { ctx ->
                 YouTubePlayerView(ctx).apply {
@@ -342,6 +346,7 @@ private fun YouTubeTrailerEmbed(
                         .mute(1)
                         .rel(0)
                         .ivLoadPolicy(3)
+                        .ccLoadPolicy(0)
                         .fullscreen(0)
                         .build()
 
@@ -398,8 +403,14 @@ private fun YouTubeTrailerEmbed(
                 // AnimatedVisibility finishes — avoids leaking Chromium processes.
                 runCatching { view.release() }
             },
-            modifier = modifier,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = YOUTUBE_CHROME_OVERSCAN
+                    scaleY = YOUTUBE_CHROME_OVERSCAN
+                },
         )
+        }
     }
 }
 
@@ -443,3 +454,5 @@ private fun YouTubeUnavailableFallback(
 }
 
 private const val TAG = "HeroTrailer"
+/** Crops YouTube's title bar and watermark off the trailer plate. */
+private const val YOUTUBE_CHROME_OVERSCAN = 1.24f

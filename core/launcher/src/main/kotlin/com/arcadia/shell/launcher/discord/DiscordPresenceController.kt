@@ -255,7 +255,9 @@ class DiscordPresenceController @Inject constructor(
                 )
             }
         }
-        schedulePublish(immediate = false)
+        // Playing must publish before the emulator Activity pauses the shell, or the 450ms
+        // debounce is cancelled by onAppBackground and Discord never leaves Browsing XOrA.
+        schedulePublish(immediate = activity is DiscordPresenceActivity.Playing)
     }
 
     /**
