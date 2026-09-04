@@ -900,7 +900,6 @@ class HomeViewModel @Inject constructor(
             .launchIn(viewModelScope)
 
         vitaShortcutTrayOpen
-            .distinctUntilChanged()
             .onEach { gamepadDispatcher.vitaBubbleLaunchSfx = it }
             .launchIn(viewModelScope)
 
