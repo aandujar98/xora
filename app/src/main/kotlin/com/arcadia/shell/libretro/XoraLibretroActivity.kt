@@ -349,11 +349,11 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun refreshExpandTopology() {
-        val secondary = DisplayTopologyMonitor(this).current().secondary?.displayId
-        secondaryDisplayId = secondary
+        val presentation = DisplayTopologyMonitor(this).current().presentationDisplay?.displayId
+        secondaryDisplayId = presentation
         expandActive = xoraSettings.expandDualDisplay &&
             platformId in DUAL_SCREEN_PLATFORMS &&
-            secondary != null
+            presentation != null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -833,7 +833,8 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
                 val expand = xora.expandDualDisplay &&
                     platformId in DUAL_SCREEN_PLATFORMS &&
-                    DisplayTopologyMonitor(this@XoraLibretroActivity).current().secondary != null
+                    DisplayTopologyMonitor(this@XoraLibretroActivity)
+                        .current().presentationDisplay != null
                 LibretroNative.nativeClearCoreVariables()
                 LibretroNative.nativeSetNetplayUsername(xora.netplayNickname)
                 XoraCoreOptions.variablesFor(

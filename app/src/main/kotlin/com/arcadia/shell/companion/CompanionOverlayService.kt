@@ -97,7 +97,7 @@ class CompanionOverlayService : Service() {
             val darkTheme = settings.themeMode.resolveDarkTheme(isSystemInDarkTheme())
             val fitDisplay = topologyMonitor.current().displays
                 .firstOrNull { it.displayId == displayId }
-                ?: topologyMonitor.current().secondary
+                ?: topologyMonitor.current().presentationDisplay
             val layoutScale = if (settings.uiFitMode == UiFitMode.Auto) {
                 computeUiLayoutScale(fitDisplay)
             } else {
