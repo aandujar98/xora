@@ -1,8 +1,14 @@
 package com.arcadia.shell.feature.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -49,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.datastore.XmbTitleStyle
+import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.rememberReduceMotion
@@ -86,6 +93,10 @@ private const val SUBTITLE_SIZE = 40f
 private const val RULE_X = 687f
 private const val RULE_WIDTH = 1157f
 private const val RULE_THICKNESS = 4f
+private const val TITLE_TOP_Y = TITLE_CENTER_Y - TITLE_SIZE / 2f
+/** Rule Y relative to the title block, so logos can grow without moving playtime. */
+private const val TITLE_TO_RULE_Y = (ROW_CENTER_Y - RULE_THICKNESS / 2f) - TITLE_TOP_Y
+private const val TITLE_TO_SUBTITLE_Y = (SUBTITLE_CENTER_Y - SUBTITLE_SIZE / 2f) - TITLE_TOP_Y
 private const val CHECK_DIAMETER = 42f
 private const val CHECK_GAP = 24f
 private const val ARROW_CENTER_X = 96f
@@ -219,81 +230,95 @@ fun XoraCardBrowsePane(
                 }
             }
 
-        if (focused != null && settledId == focused.id) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy((CHECK_GAP * unit).dp),
-                modifier = Modifier.offset(
-                    x = designX(TITLE_X),
-                    y = designY(TITLE_CENTER_Y - (TITLE_SIZE / 2f)),
-                ),
-            ) {
-                val logoPath = focused.logoPath
-                    ?.takeIf { mode == CardBrowseMode.Roms && titleStyle == XmbTitleStyle.TitleIcons }
-                if (logoPath != null) {
-                    ArtworkImage(
-                        path = logoPath,
-                        contentDescription = focused.title,
-                        fallbackText = focused.title,
-                        contentScale = ContentScale.Fit,
-                        decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
-                        modifier = Modifier
-                            .height((TITLE_SIZE * 1.6f * unit).dp)
-                            .widthIn(max = (RULE_WIDTH * 0.6f * unit).dp),
-                    )
+        val copyEnter = fadeIn(tween(ArcadiaMotion.Slow, easing = FastOutSlowInEasing)) +
+            slideInHorizontally(tween(ArcadiaMotion.Slow, easing = FastOutSlowInEasing)) { it / 5 }
+        val copyExit = fadeOut(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)) +
+            slideOutHorizontally(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)) { -it / 8 }
+        AnimatedContent(
+            targetState = focused?.takeIf { it.id == settledId },
+            transitionSpec = {
+                if (reduceMotion) {
+                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
                 } else {
-                    BrowseHeadline(
-                        text = focused.title,
-                        sizeDesignUnits = TITLE_SIZE,
-                        unit = unit,
-                        maxWidthDesignUnits = RULE_WIDTH - CHECK_DIAMETER - CHECK_GAP,
-                        fontFamily = XoraFonts.Secondary,
-                    )
+                    copyEnter togetherWith copyExit
                 }
-                // Systems: core ready. DSP: account linked.
-                if ((mode == CardBrowseMode.Systems || mode == CardBrowseMode.DspAccounts) &&
-                    focused.ready
+            },
+            contentKey = { it?.id },
+            label = "cardBrowseCopy",
+            modifier = Modifier.offset(
+                x = designX(TITLE_X),
+                y = designY(TITLE_CENTER_Y - (TITLE_SIZE / 2f)),
+            ),
+        ) { item ->
+            if (item == null) return@AnimatedContent
+            Box {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy((CHECK_GAP * unit).dp),
                 ) {
-                    ReadyCheck(diameter = (CHECK_DIAMETER * unit).dp)
+                    val logoPath = item.logoPath
+                        ?.takeIf {
+                            mode == CardBrowseMode.Roms && titleStyle == XmbTitleStyle.TitleIcons
+                        }
+                    if (logoPath != null) {
+                        ArtworkImage(
+                            path = logoPath,
+                            contentDescription = item.title,
+                            fallbackText = item.title,
+                            contentScale = ContentScale.Fit,
+                            decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
+                            modifier = Modifier
+                                .height((TITLE_SIZE * 1.6f * unit).dp)
+                                .widthIn(max = (RULE_WIDTH * 0.6f * unit).dp),
+                        )
+                    } else {
+                        BrowseHeadline(
+                            text = item.title,
+                            sizeDesignUnits = TITLE_SIZE,
+                            unit = unit,
+                            maxWidthDesignUnits = RULE_WIDTH - CHECK_DIAMETER - CHECK_GAP,
+                            fontFamily = XoraFonts.Secondary,
+                        )
+                    }
+                    // Systems: core ready. DSP: account linked.
+                    if ((mode == CardBrowseMode.Systems || mode == CardBrowseMode.DspAccounts) &&
+                        item.ready
+                    ) {
+                        ReadyCheck(diameter = (CHECK_DIAMETER * unit).dp)
+                    }
                 }
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = ((RULE_X - TITLE_X) * unit).dp,
+                            y = (TITLE_TO_RULE_Y * unit).dp,
+                        )
+                        .size(
+                            width = (RULE_WIDTH * unit).dp,
+                            height = (RULE_THICKNESS * unit).dp,
+                        )
+                        .xmbAssetShadow(
+                            unit = unit,
+                            shape = RectangleShape,
+                            alpha = XoraForegroundShadow.TitleAlpha,
+                        )
+                        .background(Color.White),
+                )
+                BrowseHeadline(
+                    text = when (mode) {
+                        CardBrowseMode.Systems -> "Total Games: ${item.gameCount}"
+                        CardBrowseMode.Roms -> "Playtime: ${formatXmbPlaytime(item.playTimeMs)}"
+                        CardBrowseMode.DspAccounts -> item.subtitle.orEmpty()
+                        CardBrowseMode.MusicAlbums -> "Total Tracks: ${item.gameCount}"
+                        CardBrowseMode.MusicTracks -> item.subtitle.orEmpty()
+                    },
+                    sizeDesignUnits = SUBTITLE_SIZE,
+                    unit = unit,
+                    maxWidthDesignUnits = RULE_WIDTH,
+                    fontFamily = XoraFonts.Secondary,
+                    modifier = Modifier.offset(y = (TITLE_TO_SUBTITLE_Y * unit).dp),
+                )
             }
-
-            Box(
-                modifier = Modifier
-                    .offset(
-                        x = designX(RULE_X),
-                        y = designY(ROW_CENTER_Y - (RULE_THICKNESS / 2f)),
-                    )
-                    .size(
-                        width = (RULE_WIDTH * unit).dp,
-                        height = (RULE_THICKNESS * unit).dp,
-                    )
-                    .xmbAssetShadow(
-                        unit = unit,
-                        shape = RectangleShape,
-                        alpha = XoraForegroundShadow.TitleAlpha,
-                    )
-                    .background(Color.White),
-            )
-
-            BrowseHeadline(
-                text = when (mode) {
-                    CardBrowseMode.Systems -> "Total Games: ${focused.gameCount}"
-                    CardBrowseMode.Roms -> "Playtime: ${formatXmbPlaytime(focused.playTimeMs)}"
-                    CardBrowseMode.DspAccounts -> focused.subtitle.orEmpty()
-                    CardBrowseMode.MusicAlbums -> "Total Tracks: ${focused.gameCount}"
-                    CardBrowseMode.MusicTracks -> focused.subtitle.orEmpty()
-                },
-                sizeDesignUnits = SUBTITLE_SIZE,
-                unit = unit,
-                maxWidthDesignUnits = RULE_WIDTH,
-                fontFamily = XoraFonts.Secondary,
-                modifier = Modifier.offset(
-                    x = designX(TITLE_X),
-                    y = designY(SUBTITLE_CENTER_Y - (SUBTITLE_SIZE / 2f)),
-                ),
-            )
-
         }
     }
 }

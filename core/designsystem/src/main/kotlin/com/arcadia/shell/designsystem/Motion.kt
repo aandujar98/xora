@@ -58,6 +58,13 @@ object ArcadiaMotion {
      * decoded before the outgoing has finished leaving — a short fade reads as a dip to empty.
      */
     const val HeroCrossfade = 460
+    /**
+     * Extra scale on the incoming ROM hero while it crossfades. Kept well under
+     * [LaunchBackdropZoom] so a launch still reads as a bigger move.
+     */
+    const val HeroBrowseZoom = 0.06f
+    /** Ken Burns zoom — a little longer than the fade so they mix. */
+    const val HeroBrowseZoomMs = 780
 }
 
 /**

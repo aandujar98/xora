@@ -6,6 +6,8 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -411,7 +413,7 @@ private fun SoftHeroBackdrop(
         if (!reduceMotion) delay(XMB_GAME_SELECT_SETTLE_MS)
         committed = target
     }
-    Box(modifier = modifier) {
+    Box(modifier = modifier.clipToBounds()) {
         Crossfade(
             targetState = committed,
             animationSpec = tween(
@@ -420,6 +422,7 @@ private fun SoftHeroBackdrop(
             ),
             label = "verticalRomHero",
         ) { artPath ->
+            val browseZoom = rememberHeroBrowseZoom(artPath)
             if (artPath.isNotBlank()) {
                 ArtworkImage(
                     path = artPath,
@@ -428,7 +431,12 @@ private fun SoftHeroBackdrop(
                     contentScale = ContentScale.Crop,
                     cacheInMemory = true,
                     decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = browseZoom
+                            scaleY = browseZoom
+                        },
                 )
             }
         }
@@ -531,8 +539,10 @@ private fun VerticalDetailPane(
     mediaWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
-    val exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
+    val enter = fadeIn(arcadiaTween(ArcadiaMotion.Slow)) +
+        slideInHorizontally(arcadiaTween(ArcadiaMotion.Slow)) { it / 5 }
+    val exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) +
+        slideOutHorizontally(arcadiaTween(ArcadiaMotion.Fast)) { -it / 8 }
     val settledId = rememberXmbSettledFocus(game?.id, settleMs = XMB_GAME_SELECT_SETTLE_MS)
     val settledGame = game.takeIf { it?.id == settledId }
 

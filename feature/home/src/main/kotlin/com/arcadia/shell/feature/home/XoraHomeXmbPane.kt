@@ -501,11 +501,11 @@ fun XoraXmbHeroDetail(
     val heroGame = xmb.focusGame
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
-    val titleEnter = fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
+    val titleEnter = fadeIn(tween(ArcadiaMotion.Slow, easing = FastOutSlowInEasing)) +
         slideInHorizontally(tween(ArcadiaMotion.Slow, easing = FastOutSlowInEasing)) { it / 5 } +
         scaleIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing), initialScale = 0.97f)
-    val titleExit = fadeOut(tween(120, easing = FastOutSlowInEasing)) +
-        slideOutHorizontally(tween(120, easing = FastOutSlowInEasing)) { -it / 14 }
+    val titleExit = fadeOut(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)) +
+        slideOutHorizontally(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)) { -it / 8 }
 
     val cinematic = rememberLaunchCinematic(state.isLaunching)
     val chromeAlpha = cinematic.chromeAlpha
@@ -642,7 +642,11 @@ fun XoraXmbHeroDetail(
             AnimatedContent(
                 targetState = Triple(
                     xmb.focusTitle,
-                    xmb.focusSubtitle,
+                    if (xmb.depth == XoraXmbDepth.Roms && heroGame != null) {
+                        "Playtime: ${formatXmbPlaytime(heroGame.playTimeMs)}"
+                    } else {
+                        xmb.focusSubtitle
+                    },
                     heroGame?.id to heroGame?.logoImagePath,
                 ),
                 transitionSpec = { titleEnter togetherWith titleExit },
@@ -810,32 +814,42 @@ private fun XoraRomHeroBackdrop(
             easing = FastOutSlowInEasing,
         ),
         label = "xmbRomHero",
-        modifier = modifier,
+        modifier = modifier.clipToBounds(),
     ) { path ->
+        val browseZoom = rememberHeroBrowseZoom(path)
         Box(modifier = Modifier.fillMaxSize()) {
             if (path.isNotBlank()) {
-                if (path.isVideoMediaPath()) {
-                    LoopingWallpaperVideo(
-                        uri = if (path.startsWith("file:", ignoreCase = true) ||
-                            path.startsWith("content:", ignoreCase = true) ||
-                            path.startsWith("http", ignoreCase = true)
-                        ) {
-                            path
-                        } else {
-                            "file://$path"
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = browseZoom
+                            scaleY = browseZoom
                         },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    ArtworkImage(
-                        path = path,
-                        contentDescription = null,
-                        fallbackText = "",
-                        contentScale = ContentScale.Crop,
-                        cacheInMemory = true,
-                        decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                ) {
+                    if (path.isVideoMediaPath()) {
+                        LoopingWallpaperVideo(
+                            uri = if (path.startsWith("file:", ignoreCase = true) ||
+                                path.startsWith("content:", ignoreCase = true) ||
+                                path.startsWith("http", ignoreCase = true)
+                            ) {
+                                path
+                            } else {
+                                "file://$path"
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        ArtworkImage(
+                            path = path,
+                            contentDescription = null,
+                            fallbackText = "",
+                            contentScale = ContentScale.Crop,
+                            cacheInMemory = true,
+                            decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
                 Box(
                     modifier = Modifier
@@ -864,6 +878,33 @@ private fun XoraRomHeroBackdrop(
             }
         }
     }
+}
+
+/**
+ * Incoming ROM hero starts at 1× and eases in a few percent while the crossfade mixes it
+ * with the outgoing plate. Reduce-motion snaps to the settled scale.
+ */
+@Composable
+internal fun rememberHeroBrowseZoom(path: String): Float {
+    val reduceMotion = rememberReduceMotion()
+    val settled = 1f + ArcadiaMotion.HeroBrowseZoom
+    val zoom = remember(path) { Animatable(if (reduceMotion || path.isBlank()) settled else 1f) }
+    LaunchedEffect(path, reduceMotion) {
+        if (path.isBlank()) {
+            zoom.snapTo(1f)
+            return@LaunchedEffect
+        }
+        if (reduceMotion) {
+            zoom.snapTo(settled)
+            return@LaunchedEffect
+        }
+        zoom.snapTo(1f)
+        zoom.animateTo(
+            settled,
+            tween(ArcadiaMotion.HeroBrowseZoomMs, easing = FastOutSlowInEasing),
+        )
+    }
+    return zoom.value
 }
 
 @Composable
