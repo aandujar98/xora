@@ -70,10 +70,18 @@ enum class ThemeMode {
 
 /** How an idle game trailer is shown on the hero artwork pane. */
 enum class TrailerDisplayMode {
+    /** Trailer replaces the focused Game Icon cover art. */
+    InIcon,
     /** Trailer replaces the full hero artwork behind UI chrome. */
     FullBackground,
     /** Trailer plays in a lower-right picture-in-picture region. */
     CornerPip,
+}
+
+/** What plays inside a focused Game Icon after idle. Trailers stay the default. */
+enum class GameIconIdleMedia {
+    Trailer,
+    Screenshot,
 }
 
 /**
@@ -184,14 +192,25 @@ data class ShellSettings(
     val trailerScrapeEnabled: Boolean = true,
     /** Which provider(s) to use when [trailerScrapeEnabled] is on. */
     val trailerSourcePreference: TrailerSourcePreference = TrailerSourcePreference.Auto,
-    val trailerDisplayMode: TrailerDisplayMode = TrailerDisplayMode.FullBackground,
+    val trailerDisplayMode: TrailerDisplayMode = TrailerDisplayMode.InIcon,
     /** Seconds without input before an idle trailer may start. */
     val trailerIdleSeconds: Int = DEFAULT_TRAILER_IDLE_SECONDS,
+    /** Idle media inside the focused Game Icon. Trailers remain the default. */
+    val gameIconIdleMedia: GameIconIdleMedia = GameIconIdleMedia.Trailer,
     /**
      * Absolute path to a user-picked Home wallpaper. Null / blank uses the active theme's
      * backdrop.
      */
     val homeWallpaperPath: String? = null,
+    /** Horizontal wallpaper pan (`-1` left … `1` right), same bias as cover art. */
+    val wallpaperAlignX: Float = 0f,
+    /** Vertical wallpaper pan (`-1` top … `1` bottom). */
+    val wallpaperAlignY: Float = 0f,
+    /**
+     * Absolute path to a gallery still cropped into the Games column Folder_IMG window.
+     * Null / blank shows the checker placeholder.
+     */
+    val homeFolderImagePath: String? = null,
     /**
      * Absolute path to a user-picked looping BGM file. Null / blank uses the active
      * launcher theme's asset BGM when present, otherwise the bundled default
@@ -220,6 +239,11 @@ data class ShellSettings(
      * installs keep working until the user picks an emulator.
      */
     val n64UseMupen64PlusNext: Boolean = false,
+    /**
+     * When true, games marked hidden still appear in library lists (with a Hidden
+     * subtitle) so they can be unhidden. Off by default.
+     */
+    val showHiddenGames: Boolean = false,
 )
 
 /**
@@ -387,10 +411,16 @@ class ShellPreferences @Inject constructor(
                 ?: TrailerSourcePreference.Auto,
             trailerDisplayMode = prefs[Keys.TRAILER_DISPLAY_MODE]
                 ?.let { name -> runCatching { TrailerDisplayMode.valueOf(name) }.getOrNull() }
-                ?: TrailerDisplayMode.FullBackground,
+                ?: TrailerDisplayMode.InIcon,
             trailerIdleSeconds = (prefs[Keys.TRAILER_IDLE_SECONDS] ?: DEFAULT_TRAILER_IDLE_SECONDS)
                 .coerceIn(5, 60),
+            gameIconIdleMedia = prefs[Keys.GAME_ICON_IDLE_MEDIA]
+                ?.let { name -> runCatching { GameIconIdleMedia.valueOf(name) }.getOrNull() }
+                ?: GameIconIdleMedia.Trailer,
             homeWallpaperPath = prefs[Keys.HOME_WALLPAPER_PATH]?.takeIf { it.isNotBlank() },
+            wallpaperAlignX = (prefs[Keys.WALLPAPER_ALIGN_X] ?: 0f).coerceIn(-1f, 1f),
+            wallpaperAlignY = (prefs[Keys.WALLPAPER_ALIGN_Y] ?: 0f).coerceIn(-1f, 1f),
+            homeFolderImagePath = prefs[Keys.HOME_FOLDER_IMAGE_PATH]?.takeIf { it.isNotBlank() },
             customBgmPath = prefs[Keys.CUSTOM_BGM_PATH]?.takeIf { it.isNotBlank() },
             musicLibraryPath = prefs[Keys.MUSIC_LIBRARY_PATH]?.takeIf { it.isNotBlank() },
             shellThemeId = prefs[Keys.SHELL_THEME_ID]?.takeIf { it.isNotBlank() }
@@ -398,6 +428,7 @@ class ShellPreferences @Inject constructor(
             notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true,
             notificationSoundEnabled = prefs[Keys.NOTIFICATION_SOUND_ENABLED] ?: true,
             n64UseMupen64PlusNext = prefs[Keys.N64_USE_MUPEN64PLUS_NEXT] ?: false,
+            showHiddenGames = prefs[Keys.SHOW_HIDDEN_GAMES] ?: false,
         )
     }
 
@@ -599,6 +630,57 @@ class ShellPreferences @Inject constructor(
         prefs[Keys.FAVORITE_PHOTO_IDS] = encodeStringIdSet(next)
     }
 
+    /**
+     * Library game ids the user chose to hide. Hidden titles stay in the database;
+     * they are only filtered from lists unless [ShellSettings.showHiddenGames] is on.
+     */
+    val hiddenGameIds: Flow<Set<String>> = dataStore.data.map { prefs ->
+        decodeStringIdSet(prefs[Keys.HIDDEN_GAME_IDS].orEmpty())
+    }
+
+    suspend fun setGameHidden(gameId: String, hidden: Boolean) = edit { prefs ->
+        val current = decodeStringIdSet(prefs[Keys.HIDDEN_GAME_IDS].orEmpty())
+        val next = if (hidden) current + gameId else current - gameId
+        prefs[Keys.HIDDEN_GAME_IDS] = encodeStringIdSet(next)
+    }
+
+    /** Per-game cover-art pan inside the Game Icon, biases in `-1f..1f`. */
+    val gameArtAlignments: Flow<Map<String, GameArtAlignment>> = dataStore.data.map { prefs ->
+        decodeGameArtAlignments(prefs[Keys.GAME_ART_ALIGNMENTS].orEmpty())
+    }
+
+    suspend fun setGameArtAlignment(gameId: String, alignment: GameArtAlignment?) = edit { prefs ->
+        val current = decodeGameArtAlignments(prefs[Keys.GAME_ART_ALIGNMENTS].orEmpty())
+        val next = if (alignment == null || alignment.isIdentity) {
+            current - gameId
+        } else {
+            current + (gameId to alignment.clamped())
+        }
+        prefs[Keys.GAME_ART_ALIGNMENTS] = encodeGameArtAlignments(next)
+    }
+
+    /**
+     * User-typed names, keyed by game id.
+     *
+     * Deliberately not a database column: the database falls back to a destructive migration, so
+     * adding one would drop every library, playtime and favourite on upgrade. Living out here also
+     * means a re-scrape cannot quietly overwrite a name the user chose by hand.
+     */
+    val gameTitleOverrides: Flow<Map<String, String>> = dataStore.data.map { prefs ->
+        decodeGameTitleOverrides(prefs[Keys.GAME_TITLE_OVERRIDES].orEmpty())
+    }
+
+    suspend fun setGameTitleOverride(gameId: String, title: String?) = edit { prefs ->
+        val current = decodeGameTitleOverrides(prefs[Keys.GAME_TITLE_OVERRIDES].orEmpty())
+        val cleaned = title?.trim()?.takeIf { it.isNotEmpty() }
+        val next = if (cleaned == null) current - gameId else current + (gameId to cleaned)
+        prefs[Keys.GAME_TITLE_OVERRIDES] = encodeGameTitleOverrides(next)
+    }
+
+    suspend fun setShowHiddenGames(enabled: Boolean) = edit {
+        it[Keys.SHOW_HIDDEN_GAMES] = enabled
+    }
+
     suspend fun setSecondaryDisplayRole(role: ScreenRole) = edit { it[Keys.SECONDARY_ROLE] = role.name }
 
     suspend fun setDisplayMode(mode: DisplayMode) = edit {
@@ -676,9 +758,29 @@ class ShellPreferences @Inject constructor(
         it[Keys.TRAILER_IDLE_SECONDS] = seconds.coerceIn(5, 60)
     }
 
+    suspend fun setGameIconIdleMedia(media: GameIconIdleMedia) = edit {
+        it[Keys.GAME_ICON_IDLE_MEDIA] = media.name
+    }
+
     suspend fun setHomeWallpaperPath(path: String?) = edit {
         if (path.isNullOrBlank()) it.remove(Keys.HOME_WALLPAPER_PATH)
         else it[Keys.HOME_WALLPAPER_PATH] = path
+    }
+
+    suspend fun setWallpaperAlignment(alignment: GameArtAlignment?) = edit { prefs ->
+        val next = (alignment ?: GameArtAlignment()).clamped()
+        if (next.isIdentity) {
+            prefs.remove(Keys.WALLPAPER_ALIGN_X)
+            prefs.remove(Keys.WALLPAPER_ALIGN_Y)
+        } else {
+            prefs[Keys.WALLPAPER_ALIGN_X] = next.x
+            prefs[Keys.WALLPAPER_ALIGN_Y] = next.y
+        }
+    }
+
+    suspend fun setHomeFolderImagePath(path: String?) = edit {
+        if (path.isNullOrBlank()) it.remove(Keys.HOME_FOLDER_IMAGE_PATH)
+        else it[Keys.HOME_FOLDER_IMAGE_PATH] = path
     }
 
     suspend fun setCustomBgmPath(path: String?) = edit {
@@ -849,6 +951,24 @@ class ShellPreferences @Inject constructor(
             merged.remove(merged.first())
         }
         prefs[Keys.DISMISSED_SHELL_NOTIFICATION_IDS] = merged
+    }
+
+    /** Wall-clock time of the last GitHub release check, so resume does not poll every time. */
+    val lastUpdateCheckAt: Flow<Long> = dataStore.data.map { prefs ->
+        prefs[Keys.LAST_UPDATE_CHECK_AT] ?: 0L
+    }
+
+    suspend fun setLastUpdateCheckAt(timestamp: Long) = edit {
+        it[Keys.LAST_UPDATE_CHECK_AT] = timestamp
+    }
+
+    /** Newest version already announced by a notification, so one release toasts once. */
+    val announcedUpdateVersion: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.ANNOUNCED_UPDATE_VERSION].orEmpty()
+    }
+
+    suspend fun setAnnouncedUpdateVersion(version: String) = edit {
+        it[Keys.ANNOUNCED_UPDATE_VERSION] = version.trim().take(64)
     }
 
     suspend fun setXoraPreferredControllerName(name: String) = edit {
@@ -1180,6 +1300,7 @@ class ShellPreferences @Inject constructor(
         val TRAILER_SOURCE_PREFERENCE = stringPreferencesKey("trailer_source_preference")
         val TRAILER_DISPLAY_MODE = stringPreferencesKey("trailer_display_mode")
         val TRAILER_IDLE_SECONDS = intPreferencesKey("trailer_idle_seconds")
+        val GAME_ICON_IDLE_MEDIA = stringPreferencesKey("game_icon_idle_media")
         val TRAILER_PIPELINE_V2 = booleanPreferencesKey("trailer_pipeline_v2")
         val SS_USER = stringPreferencesKey("screenscraper_user")
         val SS_PASSWORD = stringPreferencesKey("screenscraper_password")
@@ -1209,7 +1330,14 @@ class ShellPreferences @Inject constructor(
         val CIRCLE_PINS = stringPreferencesKey("circle_pins")
         /** JSON array of MediaStore photo ids favourited in the Photo Viewer. */
         val FAVORITE_PHOTO_IDS = stringPreferencesKey("favorite_photo_ids")
+        val HIDDEN_GAME_IDS = stringPreferencesKey("hidden_game_ids")
+        val GAME_ART_ALIGNMENTS = stringPreferencesKey("game_art_alignments")
+        val GAME_TITLE_OVERRIDES = stringPreferencesKey("game_title_overrides")
+        val SHOW_HIDDEN_GAMES = booleanPreferencesKey("show_hidden_games")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
+        val WALLPAPER_ALIGN_X = floatPreferencesKey("wallpaper_align_x")
+        val WALLPAPER_ALIGN_Y = floatPreferencesKey("wallpaper_align_y")
+        val HOME_FOLDER_IMAGE_PATH = stringPreferencesKey("home_folder_image_path")
         val CUSTOM_BGM_PATH = stringPreferencesKey("custom_bgm_path")
         val MUSIC_LIBRARY_PATH = stringPreferencesKey("music_library_path")
         val SHELL_THEME_ID = stringPreferencesKey("shell_theme_id")
@@ -1260,6 +1388,8 @@ class ShellPreferences @Inject constructor(
         val HOME_SHORTCUT_GRID_COLUMNS = intPreferencesKey("home_shortcut_grid_columns")
         val HOME_SHORTCUT_GRID_ROWS = intPreferencesKey("home_shortcut_grid_rows")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+        val LAST_UPDATE_CHECK_AT = longPreferencesKey("last_update_check_at")
+        val ANNOUNCED_UPDATE_VERSION = stringPreferencesKey("announced_update_version")
     }
 }
 
@@ -1395,6 +1525,83 @@ internal fun decodeStringIdSet(raw: String): Set<String> {
     }.getOrDefault(emptySet())
 }
 
+/** Cover-art pan inside a Game Icon. Compose [BiasAlignment] uses `-1..1` on each axis. */
+data class GameArtAlignment(
+    val x: Float = 0f,
+    val y: Float = 0f,
+) {
+    val isIdentity: Boolean get() = x == 0f && y == 0f
+
+    fun clamped(): GameArtAlignment = GameArtAlignment(
+        x = x.coerceIn(-1f, 1f),
+        y = y.coerceIn(-1f, 1f),
+    )
+
+    fun nudged(dx: Float, dy: Float): GameArtAlignment = GameArtAlignment(
+        x = (x + dx).coerceIn(-1f, 1f),
+        y = (y + dy).coerceIn(-1f, 1f),
+    )
+}
+
+/** One D-pad / button step when panning cover art inside the icon. */
+const val GAME_ART_ALIGN_STEP = 0.12f
+
+internal fun encodeGameArtAlignments(map: Map<String, GameArtAlignment>): String {
+    val obj = JSONObject()
+    map.forEach { (id, alignment) ->
+        if (id.isBlank() || alignment.isIdentity) return@forEach
+        obj.put(
+            id,
+            JSONObject()
+                .put("x", alignment.x.toDouble())
+                .put("y", alignment.y.toDouble()),
+        )
+    }
+    return obj.toString()
+}
+
+internal fun decodeGameArtAlignments(raw: String): Map<String, GameArtAlignment> {
+    if (raw.isBlank()) return emptyMap()
+    return runCatching {
+        val obj = JSONObject(raw)
+        buildMap {
+            obj.keys().forEach { id ->
+                val entry = obj.optJSONObject(id) ?: return@forEach
+                val alignment = GameArtAlignment(
+                    x = entry.optDouble("x", 0.0).toFloat(),
+                    y = entry.optDouble("y", 0.0).toFloat(),
+                ).clamped()
+                if (!alignment.isIdentity) put(id, alignment)
+            }
+        }
+    }.getOrDefault(emptyMap())
+}
+
+/** Longer than any real title, but short enough that a pasted essay cannot bloat the store. */
+const val GAME_TITLE_MAX_LENGTH = 120
+
+internal fun encodeGameTitleOverrides(map: Map<String, String>): String {
+    val obj = JSONObject()
+    map.forEach { (id, title) ->
+        val cleaned = title.trim().take(GAME_TITLE_MAX_LENGTH)
+        if (id.isNotBlank() && cleaned.isNotEmpty()) obj.put(id, cleaned)
+    }
+    return obj.toString()
+}
+
+internal fun decodeGameTitleOverrides(raw: String): Map<String, String> {
+    if (raw.isBlank()) return emptyMap()
+    return runCatching {
+        val obj = JSONObject(raw)
+        buildMap {
+            obj.keys().forEach { id ->
+                val title = obj.optString(id).trim().take(GAME_TITLE_MAX_LENGTH)
+                if (title.isNotEmpty()) put(id, title)
+            }
+        }
+    }.getOrDefault(emptyMap())
+}
+
 internal fun encodeCirclePins(pins: List<CirclePin>): String {
     val array = JSONArray()
     pins.forEach { pin ->
@@ -1432,7 +1639,7 @@ const val DEFAULT_BGM_VOLUME = 0.35f
 /** Default UI navigation SFX level — audible even when BGM is turned down. */
 const val DEFAULT_UI_SFX_VOLUME = 0.7f
 
-const val DEFAULT_TRAILER_IDLE_SECONDS = 10
+const val DEFAULT_TRAILER_IDLE_SECONDS = 5
 
 /** Matches [com.arcadia.shell.designsystem.ShellThemeId.Default.id]. */
 const val DEFAULT_SHELL_THEME_ID = "default"

@@ -6,51 +6,65 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlin.math.min
 
 /**
- * Tight hover drop shadow for XMB foreground assets (icons, box art, plates).
- *
- * Stays against the silhouette: a couple of pixels down/right, soft blur, no spread.
+ * XMB drop shadow: 10px right, 10px down, 15px blur (1080p design units), 50% opacity
+ * (25% when the parent icon is already faded to 50%).
  */
 object XoraForegroundShadow {
-    val OffsetX: Dp = 3.dp
-    val OffsetY: Dp = 4.dp
+    const val DesignOffset = 10f
+    const val DesignBlur = 15f
+    /** Layout pad so an alpha offscreen layer still fits offset + blur on every side. */
+    const val DesignExtent = DesignOffset + DesignBlur
+    val OffsetX: Dp = DesignOffset.dp
+    val OffsetY: Dp = DesignOffset.dp
     val Spread: Dp = 0.dp
-    val Blur: Dp = 16.dp
-    const val Alpha: Float = 0.6f
+    val Blur: Dp = DesignBlur.dp
+    const val Alpha: Float = 0.50f
+    /** Hover title / rule line shadow — darker so white copy holds on bright wallpaper. */
+    const val TitleAlpha: Float = 0.65f
+    const val InactiveAlpha: Float = 0.25f
+    val PlateBlur: Dp = DesignBlur.dp
+    const val PlateAlpha: Float = Alpha
     val Ink: Color = Color.Black
 }
 
-/** Shape-based drop shadow that matches [XoraForegroundShadow] exactly. */
-fun Modifier.xoraForegroundShadow(shape: Shape): Modifier = dropShadow(shape) {
-    radius = XoraForegroundShadow.Blur.toPx()
+fun Modifier.xoraForegroundShadow(
+    shape: Shape,
+    alpha: Float = XoraForegroundShadow.Alpha,
+    offset: Dp = XoraForegroundShadow.OffsetX,
+    blur: Dp = XoraForegroundShadow.Blur,
+): Modifier = dropShadow(shape) {
+    radius = blur.toPx()
     spread = XoraForegroundShadow.Spread.toPx()
-    offset = Offset(
-        XoraForegroundShadow.OffsetX.toPx(),
-        XoraForegroundShadow.OffsetY.toPx(),
-    )
+    this.offset = Offset(offset.toPx(), offset.toPx())
     color = XoraForegroundShadow.Ink
-    alpha = XoraForegroundShadow.Alpha
+    this.alpha = alpha
 }
 
+/** 1080p-scaled XMB shadow (10 / 10 / 15) so it stays pixel-true at any density. */
+fun Modifier.xmbAssetShadow(
+    unit: Float,
+    shape: Shape,
+    alpha: Float = XoraForegroundShadow.Alpha,
+): Modifier = xoraForegroundShadow(
+    shape = shape,
+    alpha = alpha,
+    offset = (XoraForegroundShadow.DesignOffset * unit).dp,
+    blur = (XoraForegroundShadow.DesignBlur * unit).dp,
+)
+
 /**
- * Silhouette pass for vector glyphs using the same offset / spread as the tile shadow.
- * Callers draw the real asset on top. Draws outside the current size on purpose.
+ * Offset silhouette for callers that still draw a shadow in-canvas.
+ * Vector XMB glyphs rasterize a shape-following blur instead.
  */
 fun DrawScope.drawXoraForegroundSilhouette(drawGlyph: DrawScope.() -> Unit) {
-    val ox = XoraForegroundShadow.OffsetX.toPx()
-    val oy = XoraForegroundShadow.OffsetY.toPx()
-    val spreadPx = XoraForegroundShadow.Spread.toPx()
-    translate(ox, oy) {
-        val dim = min(size.width, size.height)
-        val scale = if (dim > 0f) (dim + spreadPx * 2f) / dim else 1f
-        scale(scale, scale, pivot = Offset(size.width / 2f, size.height / 2f)) {
-            drawGlyph()
-        }
-    }
+    translate(
+        XoraForegroundShadow.OffsetX.toPx(),
+        XoraForegroundShadow.OffsetY.toPx(),
+        drawGlyph,
+    )
 }

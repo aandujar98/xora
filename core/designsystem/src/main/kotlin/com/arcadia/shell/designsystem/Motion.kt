@@ -9,11 +9,14 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.TweenSpec
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -34,13 +37,48 @@ object ArcadiaMotion {
     const val Slow = 320
     /** Theme wallpaper / BGM soft mix when switching packs. */
     const val ThemeCrossfade = THEME_CROSSFADE_MS
-    /** Library / pill chrome exit when launching into an emulator. */
-    const val Launch = 420
+    /** UI chrome fade. The backdrop is already drifting under it. */
+    const val Launch = 500
     /**
-     * Hero artwork hold as the cinematic transition plate before the emulator starts.
-     * Chrome may finish sliding out earlier; the ROM launch waits for this full beat.
+     * Backdrop zoom. Long and linear so it reads as a slow push rather than a move that starts,
+     * accelerates and lands — a short eased zoom of any size reads as a punch.
      */
-    const val LaunchHold = 3_000
+    const val LaunchZoom = 2000
+    /** The drift starts under the chrome fade, so the whole plate is one continuous move. */
+    const val LaunchZoomAt = 200
+    /** Wallpaper starts dissolving this many ms after launch begins. */
+    const val LaunchWallpaperFadeAt = 2100
+    /** Wallpaper dissolve into black before the emulator Activity takes over. */
+    const val LaunchWallpaperFade = 700
+    /**
+     * Whole cinematic plate before the emulator Activity is started: the backdrop drifts in, the
+     * chrome clears, then the wallpaper dissolves from [LaunchWallpaperFadeAt]. Ends as that
+     * dissolve does, so the emulator's own fade-in continues one movement instead of following a
+     * beat of dead black.
+     */
+    const val LaunchHold = 2800
+    /**
+     * Ken Burns push on wallpaper / hero art. Small on purpose: enough to feel the screen breathe
+     * into the game, not enough to crop the art or read as a lurch.
+     */
+    const val LaunchBackdropZoom = 0.05f
+    /** White plate dissolve from the boot clip into the XMB. */
+    const val BootWhiteFade = 560
+    /**
+     * Hero backdrop dissolve as the focused ROM changes. Long enough that the incoming art has
+     * decoded before the outgoing has finished leaving — a short fade reads as a dip to empty.
+     */
+    const val HeroCrossfade = 460
+    /**
+     * Extra scale on the incoming ROM hero while it crossfades. A light drift only —
+     * well under [LaunchBackdropZoom] so a launch still reads as a bigger move.
+     */
+    const val HeroBrowseZoom = 0.025f
+    /** Ken Burns while the new hero fades in — short so it does not linger. */
+    const val HeroBrowseZoomMs = 520
+    /** Title / playtime fade+slide when the focused ROM changes. */
+    const val HeroCopy = 520
+    const val HeroCopyExit = 340
 }
 
 /**
@@ -195,3 +233,61 @@ fun <T> arcadiaTween(durationMillis: Int = ArcadiaMotion.Medium): TweenSpec<T> =
         durationMillis = motionMillis(durationMillis),
         easing = FastOutSlowInEasing,
     )
+
+/** Chrome fade, delayed wallpaper zoom, and wallpaper dissolve for a game launch. */
+data class LaunchCinematicProgress(
+    val chrome: Float,
+    val zoom: Float,
+    val wallpaperFade: Float,
+) {
+    val chromeAlpha: Float get() = (1f - chrome).coerceIn(0f, 1f)
+    val wallpaperAlpha: Float get() = (1f - wallpaperFade).coerceIn(0f, 1f)
+}
+
+@Composable
+fun rememberLaunchCinematic(isLaunching: Boolean): LaunchCinematicProgress {
+    val reduce = rememberReduceMotion()
+    val snapMs = if (reduce) 0 else ArcadiaMotion.Fast
+    val chrome by animateFloatAsState(
+        targetValue = if (isLaunching) 1f else 0f,
+        animationSpec = if (isLaunching && !reduce) {
+            tween(ArcadiaMotion.Launch, easing = FastOutSlowInEasing)
+        } else {
+            tween(snapMs, easing = FastOutSlowInEasing)
+        },
+        label = "launchChromeFade",
+    )
+    val zoom by animateFloatAsState(
+        targetValue = if (isLaunching) 1f else 0f,
+        animationSpec = if (isLaunching && !reduce) {
+            tween(
+                durationMillis = ArcadiaMotion.LaunchZoom,
+                delayMillis = ArcadiaMotion.LaunchZoomAt,
+                // Linear: an eased push spends its middle third moving fast, which is exactly the
+                // lurch a slow zoom is trying to avoid.
+                easing = LinearEasing,
+            )
+        } else {
+            tween(snapMs, easing = FastOutSlowInEasing)
+        },
+        label = "launchZoom",
+    )
+    val wallpaperFade by animateFloatAsState(
+        targetValue = if (isLaunching) 1f else 0f,
+        animationSpec = if (isLaunching && !reduce) {
+            tween(
+                durationMillis = ArcadiaMotion.LaunchWallpaperFade,
+                delayMillis = ArcadiaMotion.LaunchWallpaperFadeAt,
+                easing = FastOutSlowInEasing,
+            )
+        } else {
+            tween(snapMs, easing = FastOutSlowInEasing)
+        },
+        label = "launchWallpaperFade",
+    )
+    return LaunchCinematicProgress(
+        chrome = chrome,
+        zoom = zoom,
+        wallpaperFade = wallpaperFade,
+    )
+}

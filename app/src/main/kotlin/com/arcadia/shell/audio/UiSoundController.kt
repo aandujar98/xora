@@ -13,6 +13,8 @@ import com.arcadia.shell.datastore.DEFAULT_UI_SFX_VOLUME
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.input.GamepadDispatcher
 import com.arcadia.shell.input.NavAction
+import com.arcadia.shell.input.UiOneShot
+import com.arcadia.shell.input.UiOneShotPlayer
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,8 +28,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Short UI navigation one-shots (cursor / confirm / cancel). Kept separate from
- * [BackgroundMusicController] so BGM mute does not silence menu clicks.
+ * Short UI navigation one-shots (cursor / confirm / cancel / LT-RT chrome). Kept
+ * separate from [BackgroundMusicController] so BGM mute does not silence menu clicks.
  *
  * Hooks [GamepadDispatcher.actions] once so every screen that consumes NavActions gets the same
  * feedback without each ViewModel knowing about audio. D-pad keys, hat switches, and the left
@@ -55,6 +57,11 @@ class UiSoundController @Inject constructor(
     private var notificationId: Int = 0
     /** Online invite sent/received and player-joined cue (`error_popup.wav`). */
     private var netplayInviteId: Int = 0
+    private var friendsTabId: Int = 0
+    private var profileTabId: Int = 0
+    private var navCloseId: Int = 0
+    /** Vita shortcut bubble confirm (`bubble_launch.wav`). */
+    private var bubbleLaunchId: Int = 0
 
     private var volume: Float = DEFAULT_UI_SFX_VOLUME
     private var notificationSoundEnabled: Boolean = true
@@ -120,6 +127,16 @@ class UiSoundController @Inject constructor(
                 if (foreground) playFor(action)
             }
         }
+        gamepadDispatcher.uiOneShotPlayer = UiOneShotPlayer { shot ->
+            if (foreground) {
+                when (shot) {
+                    UiOneShot.FriendsTab -> play(friendsTabId)
+                    UiOneShot.ProfileTab -> play(profileTabId)
+                    UiOneShot.NavClose -> play(navCloseId)
+                    UiOneShot.BubbleLaunch -> play(bubbleLaunchId)
+                }
+            }
+        }
     }
 
     fun onForeground() {
@@ -141,6 +158,10 @@ class UiSoundController @Inject constructor(
         ngId = 0
         notificationId = 0
         netplayInviteId = 0
+        friendsTabId = 0
+        profileTabId = 0
+        navCloseId = 0
+        bubbleLaunchId = 0
     }
 
     /** Banner appear chime — friend online, download complete, RetroAchievement unlock. */
@@ -153,13 +174,13 @@ class UiSoundController @Inject constructor(
         play(if (netplayInviteId != 0) netplayInviteId else okId)
     }
 
-    /** Select / confirm one-shot — launcher Confirm and XOrA Emulator overlay activate. */
+    /** Select / confirm one-shot (`select.wav`) — launcher Confirm and XOrA Emulator overlay. */
     fun playConfirm() = play(okId)
 
-    /** Cancel / back one-shot. */
+    /** Cancel / back one-shot (`nav_back.wav`). */
     fun playCancel() = play(ngId)
 
-    /** Cursor / focus-move one-shot. */
+    /** Cursor / focus-move one-shot (`selection.wav`). */
     fun playCursor() = play(cursorId)
 
     private fun playFor(action: NavAction) {
@@ -170,8 +191,6 @@ class UiSoundController @Inject constructor(
             NavAction.Down,
             NavAction.PreviousPlatform,
             NavAction.NextPlatform,
-            NavAction.ToggleAccountPanel,
-            NavAction.ToggleSystemPanel,
             NavAction.ToggleAchievementsPanel,
             -> {
                 if (shouldSuppressDuplicateCursor(action)) return
@@ -179,7 +198,12 @@ class UiSoundController @Inject constructor(
                 cursorId
             }
 
-            NavAction.Confirm -> okId
+            NavAction.ToggleAccountPanel,
+            NavAction.ToggleSystemPanel,
+            -> return
+
+            NavAction.Confirm ->
+                if (gamepadDispatcher.vitaBubbleLaunchSfx) return else okId
 
             NavAction.Menu ->
                 // Flag is still the pre-toggle state when this action is observed.
@@ -188,7 +212,9 @@ class UiSoundController @Inject constructor(
             NavAction.ToggleGuide ->
                 // Flag is still the pre-toggle state when this action is observed.
                 if (gamepadDispatcher.guideOpen) ngId else okId
-            NavAction.Cancel -> ngId
+            NavAction.Cancel ->
+                // LT/RT window dismiss is [UiOneShot.NavClose] from Home; skip the generic click.
+                if (gamepadDispatcher.heroPanelClosesOnCancel) return else ngId
 
             NavAction.Options,
             NavAction.ScrapeMenu,
@@ -241,11 +267,15 @@ class UiSoundController @Inject constructor(
                 )
                 .build()
                 .also { created ->
-                    cursorId = created.loadQuietly(R.raw.snd_cursor)
-                    okId = created.loadQuietly(R.raw.snd_system_ok)
-                    ngId = created.loadQuietly(R.raw.snd_system_ng)
+                    cursorId = created.loadQuietly(R.raw.selection)
+                    okId = created.loadQuietly(R.raw.select)
+                    ngId = created.loadQuietly(R.raw.nav_back)
                     notificationId = created.loadQuietly(R.raw.notif_banner)
                     netplayInviteId = created.loadQuietly(R.raw.error_popup)
+                    friendsTabId = created.loadQuietly(R.raw.friends_tab)
+                    profileTabId = created.loadQuietly(R.raw.profile_tab)
+                    navCloseId = created.loadQuietly(R.raw.nav_close)
+                    bubbleLaunchId = created.loadQuietly(R.raw.bubble_launch)
                 }
         }.getOrNull()
         soundPool = pool

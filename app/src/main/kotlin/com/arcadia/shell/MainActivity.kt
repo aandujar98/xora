@@ -28,6 +28,8 @@ import com.arcadia.shell.datastore.resolveDarkTheme
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.display.DisplayRefresh
 import com.arcadia.shell.display.ImmersiveMode
+import com.arcadia.shell.display.applyXoraScreenOrientation
+import com.arcadia.shell.feature.home.GameSoundBitePlayer
 import com.arcadia.shell.feature.home.HomeViewModel
 import com.arcadia.shell.home.ShellViewModel
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
@@ -45,6 +47,7 @@ class MainActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels()
 
     @Inject lateinit var backgroundMusic: BackgroundMusicController
+    @Inject lateinit var gameSoundBitePlayer: GameSoundBitePlayer
     @Inject lateinit var onboardingMusic: OnboardingMusicController
     @Inject lateinit var uiSounds: UiSoundController
     @Inject lateinit var discordRichPresence: DiscordRichPresence
@@ -60,6 +63,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyXoraScreenOrientation()
         enableEdgeToEdge()
         ImmersiveMode.apply(window)
         DisplayRefresh.preferSixtyHertz(window)
@@ -77,14 +81,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             val shellState by shellViewModel.uiState.collectAsStateWithLifecycle()
             val homeState by homeViewModel.uiState.collectAsStateWithLifecycle()
+            val soundBiteHoldsBgm by gameSoundBitePlayer.holdsBackgroundMusic
+                .collectAsStateWithLifecycle()
             val darkTheme = shellState.themeMode.resolveDarkTheme(isSystemInDarkTheme())
-
-            LaunchedEffect(homeState.trailer.active) {
-                backgroundMusic.setTrailerDucked(homeState.trailer.active)
-            }
 
             LaunchedEffect(homeState.music.nowPlaying.isPlaying) {
                 backgroundMusic.setLibraryMusicActive(homeState.music.nowPlaying.isPlaying)
+            }
+            LaunchedEffect(soundBiteHoldsBgm) {
+                backgroundMusic.setSoundBiteActive(soundBiteHoldsBgm)
+            }
+
+            LaunchedEffect(homeState.bootIntroOpen, homeState.homeIntroReveal) {
+                backgroundMusic.setBootIntroActive(
+                    homeState.bootIntroOpen && !homeState.homeIntroReveal,
+                )
             }
 
             LaunchedEffect(shellState.prefsReady, shellState.showOnboarding) {
@@ -164,7 +175,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) ImmersiveMode.apply(window)
+        if (hasFocus) {
+            ImmersiveMode.apply(window)
+            homeViewModel.onShellRegainedFocus()
+        }
     }
 
     override fun onPause() {

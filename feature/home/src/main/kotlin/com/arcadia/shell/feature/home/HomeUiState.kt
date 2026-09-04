@@ -3,6 +3,8 @@ package com.arcadia.shell.feature.home
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.GameArtAlignment
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
@@ -107,8 +109,16 @@ data class HomeHubUiState(
      * and skips the tile-size step — used by the Vita bubble tray.
      */
     val vitaShortcutPinMode: Boolean = false,
+    /** Isolated confirm page after a Vita bubble flips into the game. */
+    val vitaShortcutLaunch: VitaShortcutLaunchUi? = null,
+    /** Bubble currently flipping into the launch page. */
+    val vitaShortcutDepartingIndex: Int? = null,
+    /** A was pressed on the launch page: the LiveArea start gate peels itself off. */
+    val vitaShortcutPeelRequested: Boolean = false,
     /** Absolute path to custom wallpaper, or null for the bundled default. */
     val wallpaperPath: String? = null,
+    val wallpaperAlignX: Float = 0f,
+    val wallpaperAlignY: Float = 0f,
     /** Absolute path to custom BGM, or null for the bundled default. */
     val customBgmPath: String? = null,
     /** Most recently played non-app game for the Continue shard. */
@@ -127,12 +137,31 @@ data class HomeHubUiState(
     val shortcutTargetPicker: ShortcutTargetPickerUiState? = null,
 )
 
+/** Isolated Vita shortcut launch page — wallpaper + one game icon + title. */
+data class VitaShortcutLaunchUi(
+    val shortcut: HomeShortcut,
+    val wallpaperPath: String?,
+    val iconPath: String?,
+    val game: Game? = null,
+    val artAlignX: Float = 0f,
+    val artAlignY: Float = 0f,
+    /** Short system code for the LiveArea panel's badge ("PSP", "SNES", …). */
+    val systemLabel: String = "",
+    /** Circular icons on the panel's "Recently played" row. */
+    val recentGames: List<Game> = emptyList(),
+    /** How many more recently played titles the row could not show. */
+    val recentOverflow: Int = 0,
+)
+
 /** Idle trailer overlay for the hero pane. */
 data class HeroTrailerState(
     val active: Boolean = false,
     /** Encoded trailer string from [com.arcadia.shell.model.TrailerRefs]. */
     val trailerUrl: String? = null,
-    val displayMode: TrailerDisplayMode = TrailerDisplayMode.FullBackground,
+    val displayMode: TrailerDisplayMode = TrailerDisplayMode.InIcon,
+    val iconIdleMedia: GameIconIdleMedia = GameIconIdleMedia.Trailer,
+    /** Screenshot / fanart paths for Game Icon idle media. */
+    val screenshotPaths: List<String> = emptyList(),
 )
 
 data class LibraryTab(
@@ -234,6 +263,10 @@ data class HomeUiState(
     val selectedTabIndex: Int = 0,
     val games: List<Game> = emptyList(),
     val selectedGameIndex: Int = 0,
+    /** Game ids the user hid from library lists. */
+    val hiddenGameIds: Set<String> = emptySet(),
+    /** Per-game cover pan inside the Game Icon. */
+    val gameArtAlignments: Map<String, GameArtAlignment> = emptyMap(),
     /** Single-screen vertical selector vs dual-screen horizontal XMB. */
     val displayMode: DisplayMode = DisplayMode.Dual,
     /** Column count for the RSS feed grid (nav math + layout). */
@@ -258,6 +291,8 @@ data class HomeUiState(
         emptyList(),
     val notificationUnreadCount: Int = 0,
     val notificationHistorySelectedIndex: Int = 0,
+    /** True while a toast is occupying the Friends pill slot. */
+    val activeNotificationPresent: Boolean = false,
     /** RT profile card chrome (status, favorite game, pickers). */
     val systemProfile: SystemProfileCardState = SystemProfileCardState(),
     val achievementsPanelExpanded: Boolean = false,
@@ -272,6 +307,8 @@ data class HomeUiState(
     val rss: RssUiState = RssUiState(),
     val guide: GuideUiState = GuideUiState(),
     val startSettings: StartSettingsUiState = StartSettingsUiState(),
+    /** Settings → Update window (check GitHub, download, install). */
+    val systemUpdate: SystemUpdateUiState = SystemUpdateUiState(),
     val insight: GameInsightUiState = GameInsightUiState(),
     val raLibrary: RaLibraryUiState = RaLibraryUiState(),
     /** Recent + favourite titles for the expanded account panel quick-launch list. */
@@ -283,6 +320,15 @@ data class HomeUiState(
     val profileEditRequest: Int = 0,
     /** Wake/resume greeting overlay on the primary display. */
     val welcomeBackOpen: Boolean = false,
+    /** Cold-start boot clip overlay (fully closed → opened). */
+    val bootIntroOpen: Boolean = false,
+    /** Gamepad / caller asked the boot overlay to skip to the white fade. */
+    val bootIntroSkip: Boolean = false,
+    /**
+     * False while the boot clip is still playing so XMB icons stay hidden, then true to bounce
+     * them in as the white plate fades.
+     */
+    val homeIntroReveal: Boolean = true,
     /** Latest online netplay invite waiting for Accept / Decline. */
     val pendingNetplayInvite: NetplayInvitePrompt? = null,
     val netplayInvitePromptOpen: Boolean = false,
@@ -294,6 +340,8 @@ data class HomeUiState(
     val guideOpen: Boolean get() = guide.open
 
     val startSettingsOpen: Boolean get() = startSettings.open
+
+    val systemUpdateOpen: Boolean get() = systemUpdate.open
 
     /**
      * True when there are neither ROM folders nor a synced Apps tab yet. Apps alone are enough to
@@ -334,8 +382,14 @@ sealed interface HomeEvent {
     data class OpenGameOptions(val gameId: String) : HomeEvent
     /** Select button: ROM options (customize + saves + scrape) for [gameId]. */
     data class OpenScrapeMenu(val gameId: String) : HomeEvent
+    /** Select / Options on an album or track: custom cover and wallpaper. */
+    data class OpenMusicCustomize(val mediaId: String, val title: String) : HomeEvent
     /** Best-effort: reorder the shell task to the front when Guide opens. */
     data object BringShellToFront : HomeEvent
+    /** Open system settings so XOrA can install the downloaded APK. */
+    data object RequestUnknownAppSources : HomeEvent
+    /** Launch the package installer for a FileProvider APK URI. */
+    data class InstallApk(val uri: android.net.Uri) : HomeEvent
 }
 
 /**
@@ -358,6 +412,12 @@ sealed interface HomeMediaPickerRequest {
     data class GameBoxArt(val gameId: String) : HomeMediaPickerRequest
     data class GameBackground(val gameId: String) : HomeMediaPickerRequest
     data class GameSoundBite(val gameId: String) : HomeMediaPickerRequest
+    data class GameIdleVideo(val gameId: String) : HomeMediaPickerRequest
+    data class MusicCover(val mediaId: String) : HomeMediaPickerRequest
+    data class MusicWallpaper(val mediaId: String) : HomeMediaPickerRequest
+
+    /** Gallery still for the Games column Folder_IMG window. */
+    data object HomeFolderImage : HomeMediaPickerRequest
 }
 
 /**
@@ -426,6 +486,9 @@ data class PhotosUiState(
     val isLoading: Boolean = false,
     /** Null until the rung has been opened once and access was checked. */
     val access: PhotoAccess? = null,
+    /** MediaStore bucket id when opened from a Folder_Photo row; null is the full library. */
+    val albumFilter: String? = null,
+    val albumTitle: String? = null,
     /** MediaStore ids the user favourited (persisted in preferences, never in the files). */
     val favoriteIds: Set<String> = emptySet(),
     val loadError: String? = null,
@@ -444,6 +507,9 @@ data class PhotosUiState(
     val focusedIsFavorite: Boolean get() = focusedPhoto?.id?.let { it in favoriteIds } == true
     val pageCount: Int get() = if (photos.isEmpty()) 1 else (photos.size + PHOTO_PAGE_SIZE - 1) / PHOTO_PAGE_SIZE
     val currentPage: Int get() = focusedIndex / PHOTO_PAGE_SIZE
+    /** Options / viewer / edit / delete sit above the gallery and must clear LT/RT chrome. */
+    val chromeOverlayOpen: Boolean
+        get() = optionsOpen || fullscreenOpen || deleteConfirmOpen || edit != null
 }
 
 /** 2 rows × 5 columns per gallery page, matching the concept layout. */

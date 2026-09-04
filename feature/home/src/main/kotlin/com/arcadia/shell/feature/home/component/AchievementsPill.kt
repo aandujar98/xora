@@ -8,6 +8,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,18 +44,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -78,7 +80,9 @@ import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.feature.home.AchievementsUiState
+import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaGameProgress
@@ -88,10 +92,10 @@ import com.arcadia.shell.retroachievements.RaProfile
 private val CollapsedBarShape = RoundedCornerShape(20.dp)
 private val DividerColor = Color.White.copy(alpha = 0.28f)
 
-// Expanded card, authored against the XOrA "X+" Figma frame (741×326 at 2×).
-private val CardShape = RoundedCornerShape(15.dp)
+// 30% of the 30dp modal corner — same glass, a tighter rectangle.
+private val CardShape = RoundedCornerShape(9.dp)
 private val CardEdge = Color.White.copy(alpha = 0.25f)
-private val CardInk = Color(0xFFEBEBEB)
+private val CardInk = Color.White
 private val EarnedBadgeEdge = Color(0xFFEFBD17)
 private val ScoreGoldTop = Color(0xFFFFC95E)
 private val ScoreGoldBottom = Color(0xFFFF9B1B)
@@ -101,7 +105,6 @@ private val BoxArtSize = 67.dp
 private val TrophyBadgeSize = 28.dp
 private val TrophyBadgeShape = RoundedCornerShape(3.dp)
 private const val TROPHY_BADGE_SLOTS = 7
-private const val TROPHY_BADGE_EARNED_SLOTS = 5
 private val PlayerAvatarSize = 25.dp
 private val CardTextShadow = Shadow(
     color = Color.Black.copy(alpha = 0.5f),
@@ -166,14 +169,7 @@ fun AchievementsPill(
             Column(
                 modifier = Modifier
                     .padding(top = 8.dp)
-                    .xoraForegroundShadow(CardShape)
-                    .liquidGlass(
-                        shape = CardShape,
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                        shimmer = true,
-                    )
-                    .border(1.5.dp, CardEdge, CardShape)
+                    .xoraModalGlass(CardShape)
                     .clickable(onClick = onToggle)
                     .padding(vertical = 10.dp)
                     .fillMaxWidth()
@@ -387,15 +383,12 @@ private fun ExpandedRaSummary(
     }
 }
 
-/** Five earned slots then locked ones, so the strip keeps the designed 5 gold + 2 dim rhythm. */
+/** Fill every slot from earned first, then remaining locked — never pad blanks while badges exist. */
 private fun trophyBadgeSlots(progress: RaGameProgress): List<RaAchievement?> {
-    val earned = progress.achievements.filter { it.earned }.take(TROPHY_BADGE_EARNED_SLOTS)
+    val earned = progress.achievements.filter { it.earned }
     val locked = progress.achievements.filterNot { it.earned }
-    return buildList {
-        addAll(earned)
-        addAll(locked.take(TROPHY_BADGE_SLOTS - size))
-        while (size < TROPHY_BADGE_SLOTS) add(null)
-    }
+    val filled = (earned + locked).take(TROPHY_BADGE_SLOTS)
+    return filled + List(TROPHY_BADGE_SLOTS - filled.size) { null }
 }
 
 @Composable
@@ -428,11 +421,14 @@ private fun TrophyBadge(achievement: RaAchievement?) {
     val context = LocalContext.current
     val earned = achievement?.earned == true
     val edge = if (earned) EarnedBadgeEdge else CardEdge
+    val grayMatrix = remember {
+        ColorMatrix().apply { setToSaturation(0f) }
+    }
     Box(
         modifier = Modifier
             .size(TrophyBadgeSize)
             .clip(TrophyBadgeShape)
-            .background(Color.White.copy(alpha = if (earned) 0.12f else 0.2f))
+            .background(Color.Black.copy(alpha = if (earned) 0.12f else 0.45f))
             .border(1.5.dp, edge, TrophyBadgeShape),
     ) {
         if (achievement != null) {
@@ -443,8 +439,27 @@ private fun TrophyBadge(achievement: RaAchievement?) {
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                alpha = if (earned) 1f else 0.4f,
+                colorFilter = if (earned) null else ColorFilter.colorMatrix(grayMatrix),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (earned) {
+                            Modifier
+                        } else {
+                            Modifier.drawWithContent {
+                                drawContent()
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        listOf(
+                                            Color.White.copy(alpha = 0.28f),
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.35f),
+                                        ),
+                                    ),
+                                )
+                            }
+                        },
+                    ),
             )
         }
     }
@@ -842,52 +857,13 @@ private fun TrophyGlyph(
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
 ) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val stroke = Stroke(width = w * 0.12f, cap = StrokeCap.Round)
-        val cupTop = h * 0.12f
-        val cupBottom = h * 0.55f
-        val cupPath = Path().apply {
-            moveTo(w * 0.28f, cupTop)
-            lineTo(w * 0.72f, cupTop)
-            quadraticTo(w * 0.78f, h * 0.38f, w * 0.58f, cupBottom)
-            lineTo(w * 0.42f, cupBottom)
-            quadraticTo(w * 0.22f, h * 0.38f, w * 0.28f, cupTop)
-            close()
-        }
-        drawPath(cupPath, color = tint)
-        drawArc(
-            color = tint,
-            startAngle = 90f,
-            sweepAngle = 180f,
-            useCenter = false,
-            topLeft = Offset(w * 0.08f, h * 0.18f),
-            size = Size(w * 0.28f, h * 0.28f),
-            style = stroke,
-        )
-        drawArc(
-            color = tint,
-            startAngle = 270f,
-            sweepAngle = 180f,
-            useCenter = false,
-            topLeft = Offset(w * 0.64f, h * 0.18f),
-            size = Size(w * 0.28f, h * 0.28f),
-            style = stroke,
-        )
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(w * 0.44f, cupBottom),
-            size = Size(w * 0.12f, h * 0.18f),
-            cornerRadius = CornerRadius(w * 0.04f),
-        )
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(w * 0.30f, h * 0.78f),
-            size = Size(w * 0.40f, h * 0.14f),
-            cornerRadius = CornerRadius(w * 0.04f),
-        )
-    }
+    Image(
+        painter = painterResource(R.drawable.trophy),
+        contentDescription = null,
+        colorFilter = ColorFilter.tint(tint),
+        contentScale = ContentScale.Fit,
+        modifier = modifier,
+    )
 }
 
 @Composable

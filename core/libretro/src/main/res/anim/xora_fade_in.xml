@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Continues the shell's wallpaper dissolve rather than starting a new beat, so the duration
+     matches ArcadiaMotion.LaunchWallpaperFade. -->
 <alpha xmlns:android="http://schemas.android.com/apk/res/android"
-    android:duration="480"
+    android:duration="700"
     android:fromAlpha="0.0"
     android:interpolator="@android:interpolator/decelerate_cubic"
     android:toAlpha="1.0" />

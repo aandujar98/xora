@@ -1,7 +1,6 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -20,7 +19,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -30,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.rememberLaunchCinematic
+import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ButtonHintBar
 import com.arcadia.shell.feature.home.component.hintsForGuide
 import com.arcadia.shell.feature.home.component.hintsForPage
@@ -37,6 +37,7 @@ import com.arcadia.shell.feature.home.component.hintsForSocialMenu
 import com.arcadia.shell.feature.home.component.hintsForStartSettings
 import com.arcadia.shell.feature.home.component.hintsForSystemMenu
 import com.arcadia.shell.model.ShortcutSpan
+import com.arcadia.shell.retroachievements.RaGameLookup
 
 /**
  * The single-display layout: hero above, Home page below (hub, XMB, or RSS feed).
@@ -78,10 +79,13 @@ fun HomeScreen(
     onSelectRaPlatformFilter: (String?) -> Unit,
     onActivateRaLibrary: () -> Unit,
     onRetryRaLibrary: () -> Unit,
+    onSelectRaCheevoIndex: (Int) -> Unit = {},
+    onCloseRaGameDetail: () -> Unit = {},
     onSelectHomeShard: (HomeShard) -> Unit = {},
     onActivateHomeShard: (HomeShard) -> Unit = {},
     onSelectHomeShortcut: (Int) -> Unit = {},
     onActivateHomeShortcut: (Int) -> Unit = {},
+    onLaunchVitaShortcut: () -> Unit = {},
     onAddHomeShortcut: () -> Unit = {},
     onSelectXoraCategory: (Int) -> Unit = {},
     onSelectXoraItem: (Int) -> Unit = {},
@@ -135,13 +139,8 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
 ) {
     val contentTween = arcadiaTween<Float>(ArcadiaMotion.Medium)
-    val launchProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-        label = "libraryLaunchChrome",
-    )
-    val libraryChromeAlpha = 1f - launchProgress
-    val librarySlidePx = launchProgress * 96f
+    val cinematic = rememberLaunchCinematic(state.isLaunching)
+    val launchProgress = cinematic.chrome
 
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         AnimatedContent(
@@ -187,10 +186,13 @@ fun HomeScreen(
                                 onSelectRaPlatformFilter = onSelectRaPlatformFilter,
                                 onActivateRaLibrary = onActivateRaLibrary,
                                 onRetryRaLibrary = onRetryRaLibrary,
+                                onSelectRaCheevoIndex = onSelectRaCheevoIndex,
+                                onCloseRaGameDetail = onCloseRaGameDetail,
                                 onSelectHomeShard = onSelectHomeShard,
                                 onActivateHomeShard = onActivateHomeShard,
                                 onSelectHomeShortcut = onSelectHomeShortcut,
                                 onActivateHomeShortcut = onActivateHomeShortcut,
+                                onLaunchVitaShortcut = onLaunchVitaShortcut,
                                 onAddHomeShortcut = onAddHomeShortcut,
                                 onSelectXoraCategory = onSelectXoraCategory,
                                 onSelectXoraItem = onSelectXoraItem,
@@ -262,10 +264,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .graphicsLayer {
-                                    alpha = libraryChromeAlpha
-                                    translationY = librarySlidePx
-                                },
+                                .graphicsLayer { alpha = 1f - launchProgress },
                         ) {
                             HomePageContent(
                                 state = state,
@@ -280,10 +279,13 @@ fun HomeScreen(
                                 onSelectRaPlatformFilter = onSelectRaPlatformFilter,
                                 onActivateRaLibrary = onActivateRaLibrary,
                                 onRetryRaLibrary = onRetryRaLibrary,
+                                onSelectRaCheevoIndex = onSelectRaCheevoIndex,
+                                onCloseRaGameDetail = onCloseRaGameDetail,
                                 onSelectHomeShard = onSelectHomeShard,
                                 onActivateHomeShard = onActivateHomeShard,
                                 onSelectHomeShortcut = onSelectHomeShortcut,
                                 onActivateHomeShortcut = onActivateHomeShortcut,
+                                onLaunchVitaShortcut = onLaunchVitaShortcut,
                                 onAddHomeShortcut = onAddHomeShortcut,
                                 onSelectXoraCategory = onSelectXoraCategory,
                                 onSelectXoraItem = onSelectXoraItem,
@@ -413,9 +415,12 @@ fun HomeScreen(
                             },
                             showHomeWallpaper = state.homePage == HomePage.Home,
                             homeWallpaperPath = state.homeHub.wallpaperPath,
+                            wallpaperAlignX = state.homeHub.wallpaperAlignX,
+                            wallpaperAlignY = state.homeHub.wallpaperAlignY,
                             onToggleAccountPanel = onToggleAccountPanel,
                             onToggleSystemPanel = onToggleSystemPanel,
                                 onOpenNotifications = onOpenNotifications,
+                            activeNotificationPresent = state.activeNotificationPresent,
                             onToggleAchievementsPanel = onToggleAchievementsPanel,
                             onSelectSocialTab = onSelectSocialTab,
                             onSelectAccountRow = onSelectAccountRow,
@@ -457,10 +462,13 @@ fun HomeScreen(
                             onSelectRaPlatformFilter = onSelectRaPlatformFilter,
                             onActivateRaLibrary = onActivateRaLibrary,
                             onRetryRaLibrary = onRetryRaLibrary,
+                            onSelectRaCheevoIndex = onSelectRaCheevoIndex,
+                            onCloseRaGameDetail = onCloseRaGameDetail,
                             onSelectHomeShard = onSelectHomeShard,
                             onActivateHomeShard = onActivateHomeShard,
                             onSelectHomeShortcut = onSelectHomeShortcut,
                             onActivateHomeShortcut = onActivateHomeShortcut,
+                            onLaunchVitaShortcut = onLaunchVitaShortcut,
                             onAddHomeShortcut = onAddHomeShortcut,
                             onSelectXoraCategory = onSelectXoraCategory,
                             onSelectXoraItem = onSelectXoraItem,
@@ -497,10 +505,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(GRID_WEIGHT)
-                                .graphicsLayer {
-                                    alpha = libraryChromeAlpha
-                                    translationY = librarySlidePx
-                                },
+                                .graphicsLayer { alpha = 1f - launchProgress },
                         )
                     }
 
@@ -518,15 +523,13 @@ fun HomeScreen(
                                     displayMode = state.displayMode,
                                     homeHub = state.homeHub,
                                     xmbDepth = state.xoraXmb.depth,
+                                    raGameDetailOpen = state.raLibrary.gameDetailOpen,
                                 )
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 40.dp, max = 72.dp)
-                                .graphicsLayer {
-                                    alpha = libraryChromeAlpha
-                                    translationY = librarySlidePx
-                                },
+                                .graphicsLayer { alpha = 1f - launchProgress },
                         )
                     }
                 }
@@ -555,10 +558,13 @@ fun HomePageContent(
     onSelectRaPlatformFilter: (String?) -> Unit = {},
     onActivateRaLibrary: () -> Unit = {},
     onRetryRaLibrary: () -> Unit = {},
+    onSelectRaCheevoIndex: (Int) -> Unit = {},
+    onCloseRaGameDetail: () -> Unit = {},
     onSelectHomeShard: (HomeShard) -> Unit = {},
     onActivateHomeShard: (HomeShard) -> Unit = {},
     onSelectHomeShortcut: (Int) -> Unit = {},
     onActivateHomeShortcut: (Int) -> Unit = {},
+    onLaunchVitaShortcut: () -> Unit = {},
     onAddHomeShortcut: () -> Unit = {},
     onSelectXoraCategory: (Int) -> Unit = {},
     onSelectXoraItem: (Int) -> Unit = {},
@@ -679,6 +685,13 @@ fun HomePageContent(
                         onSignOutRetroAchievements = onSignOutRetroAchievements,
                         onPhotoCommand = onPhotoCommand,
                         onDashboardCommand = onDashboardCommand,
+                        onSelectRaLibraryIndex = onSelectRaLibraryIndex,
+                        onSelectRaLibraryTab = onSelectRaLibraryTab,
+                        onSelectRaPlatformFilter = onSelectRaPlatformFilter,
+                        onActivateRaLibrary = onActivateRaLibrary,
+                        onRetryRaLibrary = onRetryRaLibrary,
+                        onSelectRaCheevoIndex = onSelectRaCheevoIndex,
+                        onCloseRaGameDetail = onCloseRaGameDetail,
                         onToggleNowPlaying = onToggleNowPlaying,
                         onSkipPreviousTrack = onSkipPreviousTrack,
                         onSkipNextTrack = onSkipNextTrack,
@@ -688,12 +701,54 @@ fun HomePageContent(
                         showPillChrome = state.displayMode == DisplayMode.Single,
                         modifier = Modifier.fillMaxSize(),
                         overlayContent = {
+                            val launch = state.homeHub.vitaShortcutLaunch
+                            val departingIndex = state.homeHub.vitaShortcutDepartingIndex
+                            // White fade sits under the zooming bubble so the flip can dissolve
+                            // into the launch plate once it covers the panel.
+                            VitaShortcutLaunchPage(
+                                visible = trayOpen && (launch != null || departingIndex != null),
+                                launch = launch,
+                                homeWallpaperPath = state.homeHub.wallpaperPath,
+                                peelRequested = state.homeHub.vitaShortcutPeelRequested,
+                                raProgress = (state.achievements.gameLookup as? RaGameLookup.Matched)
+                                    ?.progress,
+                                holdWhite = departingIndex != null,
+                                isLaunching = state.isLaunching,
+                                wallpaperAlignX = state.homeHub.wallpaperAlignX,
+                                wallpaperAlignY = state.homeHub.wallpaperAlignY,
+                                onConfirm = {
+                                    onActivateHomeShortcut(state.homeHub.shortcutIndex)
+                                },
+                                onPeeled = onLaunchVitaShortcut,
+                                modifier = Modifier.fillMaxSize(),
+                                achievementsContent = {
+                                    if (launch?.game != null) {
+                                        AchievementsPill(
+                                            expanded = state.achievementsPanelExpanded &&
+                                                !state.isLaunching,
+                                            state = state.achievements,
+                                            onToggle = onToggleAchievementsPanel,
+                                            onSelectTab = onSelectAchievementsTab,
+                                            onLogin = onLoginRetroAchievements,
+                                            onLoginWithApiKey =
+                                                onLoginRetroAchievementsWithApiKey,
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(
+                                                    horizontal = 16.dp,
+                                                    vertical = 12.dp,
+                                                ),
+                                        )
+                                    }
+                                },
+                            )
                             VitaShortcutTray(
                                 visible = trayOpen,
                                 shortcuts = state.homeHub.shortcuts,
                                 selectedIndex = state.homeHub.shortcutIndex,
                                 editMode = state.homeHub.shortcutsEditMode,
-                                xmbCategoryIndex = state.xoraXmb.categoryIndex,
+                                departingIndex = departingIndex,
+                                suppressIdleBubbles = launch != null,
                                 onSelect = onSelectHomeShortcut,
                                 onActivate = onActivateHomeShortcut,
                                 onAddSlot = onAddHomeShortcut,
@@ -748,6 +803,8 @@ fun HomePageContent(
                 onSelectPlatformFilter = onSelectRaPlatformFilter,
                 onActivate = onActivateRaLibrary,
                 onRetry = onRetryRaLibrary,
+                onSelectCheevoIndex = onSelectRaCheevoIndex,
+                onCloseGameDetail = onCloseRaGameDetail,
                 modifier = Modifier.fillMaxSize(),
             )
         }

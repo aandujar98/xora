@@ -2,7 +2,9 @@ package com.arcadia.shell
 
 import android.app.Activity
 import android.app.ActivityManager
+import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
@@ -10,7 +12,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -24,6 +25,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,7 +46,11 @@ import com.arcadia.shell.datastore.resolveDarkTheme
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.SkyBackground
+import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.rememberLaunchCinematic
+import com.arcadia.shell.designsystem.xoraSwipeNavigate
+import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.display.SecondaryDisplayPane
 import com.arcadia.shell.feature.home.ChooseEmulatorSheet
 import com.arcadia.shell.feature.home.GameCompanionPane
@@ -58,7 +64,14 @@ import com.arcadia.shell.feature.home.HomePageContent
 import com.arcadia.shell.feature.home.HomeScreen
 import com.arcadia.shell.feature.home.HomeUiState
 import com.arcadia.shell.feature.home.HomeViewModel
-import com.arcadia.shell.feature.home.RomOptionsSheet
+import com.arcadia.shell.feature.home.MusicCustomizeSheet
+import com.arcadia.shell.feature.home.ArtPickerUiState
+import com.arcadia.shell.feature.home.RomEditorActions
+import com.arcadia.shell.feature.home.RomEditorPane
+import com.arcadia.shell.feature.home.component.LocalShellSheetNav
+import com.arcadia.shell.feature.home.component.ShellSheetNav
+import com.arcadia.shell.model.TrailerRefs
+import com.arcadia.shell.scraper.ArtSlot
 import com.arcadia.shell.feature.home.ThemesSheet
 import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.feature.home.XoraXmbHeroDetail
@@ -69,7 +82,9 @@ import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
 import com.arcadia.shell.feature.home.component.DiscordConversationWindow
 import com.arcadia.shell.feature.home.component.XoraConversationWindow
 import com.arcadia.shell.feature.home.component.StartSettingsPanel
+import com.arcadia.shell.feature.home.component.SystemUpdatePanel
 import com.arcadia.shell.feature.home.component.WelcomeBackOverlay
+import com.arcadia.shell.feature.home.component.BootIntroOverlay
 import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.feature.settings.OnboardingExternalAuthRequest
 import com.arcadia.shell.feature.settings.OnboardingScreen
@@ -102,17 +117,23 @@ fun ArcadiaShell(
     val state by homeViewModel.uiState.collectAsStateWithLifecycle()
     val gameCompanion by homeViewModel.gameCompanion.collectAsStateWithLifecycle()
     var route by rememberSaveable { mutableStateOf(ShellRoute.Home) }
+    var pendingBootAfterOnboarding by remember { mutableStateOf(false) }
     var optionsGameId by rememberSaveable { mutableStateOf<String?>(null) }
     var scrapeMenuGameId by rememberSaveable { mutableStateOf<String?>(null) }
+    var musicCustomizeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var musicCustomizeTitle by rememberSaveable { mutableStateOf("") }
     var chooseEmulatorPlatformId by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val routeTween = arcadiaTween<Float>(ArcadiaMotion.Medium)
     // Game options dialog blocks the dispatcher; bottom sheets keep it on so SheetNavCapture works.
     val dialogOverlayOpen = optionsGameId != null
-    val sheetOverlayOpen = scrapeMenuGameId != null || chooseEmulatorPlatformId != null
+    val sheetOverlayOpen = scrapeMenuGameId != null ||
+        chooseEmulatorPlatformId != null ||
+        musicCustomizeId != null
     val overlayOpen = dialogOverlayOpen || sheetOverlayOpen
     val context = LocalContext.current
     var pendingGameMediaId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingMusicMediaId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingPlatformBannerId by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Activity Result launchers must live only in this Activity-rooted composition. Home hub /
@@ -133,6 +154,11 @@ fun ArcadiaShell(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) homeViewModel.setHomeWallpaper(uri)
+    }
+    val folderImagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) homeViewModel.setHomeFolderImage(uri)
     }
     val bgmPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -198,6 +224,27 @@ fun ArcadiaShell(
         pendingGameMediaId = null
         if (uri != null && gameId != null) homeViewModel.setGameSoundBite(gameId, uri)
     }
+    val gameIdleVideoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val gameId = pendingGameMediaId
+        pendingGameMediaId = null
+        if (uri != null && gameId != null) homeViewModel.setGameIdleVideo(gameId, uri)
+    }
+    val musicCoverPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        val mediaId = pendingMusicMediaId
+        pendingMusicMediaId = null
+        if (uri != null && mediaId != null) homeViewModel.setMusicCover(mediaId, uri)
+    }
+    val musicWallpaperPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val mediaId = pendingMusicMediaId
+        pendingMusicMediaId = null
+        if (uri != null && mediaId != null) homeViewModel.setMusicWallpaper(mediaId, uri)
+    }
 
     LaunchedEffect(homeViewModel) {
         homeViewModel.mediaPickerRequestFlow.collect { request ->
@@ -238,6 +285,23 @@ fun ArcadiaShell(
                         pendingGameMediaId = request.gameId
                         gameSoundBitePicker.launch("audio/*")
                     }
+                    is HomeMediaPickerRequest.GameIdleVideo -> {
+                        pendingGameMediaId = request.gameId
+                        gameIdleVideoPicker.launch(arrayOf("video/*"))
+                    }
+                    is HomeMediaPickerRequest.MusicCover -> {
+                        pendingMusicMediaId = request.mediaId
+                        musicCoverPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    }
+                    is HomeMediaPickerRequest.MusicWallpaper -> {
+                        pendingMusicMediaId = request.mediaId
+                        musicWallpaperPicker.launch(arrayOf("image/*", "video/*"))
+                    }
+                    HomeMediaPickerRequest.HomeFolderImage -> folderImagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
                 }
             }
         }
@@ -279,8 +343,8 @@ fun ArcadiaShell(
             route == ShellRoute.Home && !dialogOverlayOpen && !shellState.showOnboarding
     }
 
-    // Idle trailers are Home-only; Settings, options, Guide, Start config, welcome-back, and launch overlay must return to artwork.
-    LaunchedEffect(route, overlayOpen, state.isLaunching, state.guideOpen, state.startSettingsOpen, state.welcomeBackOpen, shellState.showOnboarding) {
+    // Idle trailers are Home-only; Settings, options, Guide, Start config, welcome-back, boot, and launch overlay must return to artwork.
+    LaunchedEffect(route, overlayOpen, state.isLaunching, state.guideOpen, state.startSettingsOpen, state.welcomeBackOpen, state.bootIntroOpen, shellState.showOnboarding) {
         homeViewModel.setTrailerGateAllowed(
             allowed = route == ShellRoute.Home &&
                 !overlayOpen &&
@@ -288,14 +352,25 @@ fun ArcadiaShell(
                 !state.guideOpen &&
                 !state.startSettingsOpen &&
                 !state.welcomeBackOpen &&
+                !state.bootIntroOpen &&
                 !shellState.showOnboarding,
         )
     }
 
-    // Drop a queued wake greeting if onboarding or Settings owns the shell.
-    LaunchedEffect(state.welcomeBackOpen, route, shellState.showOnboarding) {
-        if (state.welcomeBackOpen && (shellState.showOnboarding || route != ShellRoute.Home)) {
-            homeViewModel.dismissWelcomeBack()
+    // Drop a queued wake greeting / boot clip if Settings owns the shell. Onboarding Finish
+    // starts the boot clip on the way to Home, so do not cancel it just because the prefs
+    // flag has not flipped yet.
+    LaunchedEffect(state.welcomeBackOpen, state.bootIntroOpen, route) {
+        if (route != ShellRoute.Home) {
+            if (state.welcomeBackOpen) homeViewModel.dismissWelcomeBack()
+            if (state.bootIntroOpen) homeViewModel.dismissBootIntro()
+        }
+    }
+
+    LaunchedEffect(pendingBootAfterOnboarding, shellState.showOnboarding, route) {
+        if (pendingBootAfterOnboarding && !shellState.showOnboarding && route == ShellRoute.Home) {
+            pendingBootAfterOnboarding = false
+            homeViewModel.playBootIntroAfterOnboarding()
         }
     }
 
@@ -326,7 +401,43 @@ fun ArcadiaShell(
                 }.onFailure { homeViewModel.onPhotoDeleteResult(confirmed = false) }
                 is HomeEvent.OpenGameOptions -> optionsGameId = event.gameId
                 is HomeEvent.OpenScrapeMenu -> scrapeMenuGameId = event.gameId
+                is HomeEvent.OpenMusicCustomize -> {
+                    musicCustomizeId = event.mediaId
+                    musicCustomizeTitle = event.title
+                }
                 HomeEvent.BringShellToFront -> bringShellToFront(context)
+                HomeEvent.RequestUnknownAppSources -> {
+                    val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    runCatching { context.startActivity(intent) }
+                        .onFailure {
+                            snackbarHostState.showSnackbar("Open system settings and allow XOrA to install apps.")
+                        }
+                }
+                is HomeEvent.InstallApk -> {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(event.uri, "application/vnd.android.package-archive")
+                        addFlags(
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_ACTIVITY_NEW_TASK,
+                        )
+                    }
+                    context.packageManager.queryIntentActivities(intent, 0).forEach { resolve ->
+                        context.grantUriPermission(
+                            resolve.activityInfo.packageName,
+                            event.uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        )
+                    }
+                    runCatching { context.startActivity(intent) }
+                        .onFailure {
+                            snackbarHostState.showSnackbar(
+                                it.message ?: "Could not open the package installer.",
+                            )
+                        }
+                }
             }
         }
     }
@@ -365,6 +476,7 @@ fun ArcadiaShell(
         OnboardingScreen(
             brandIcon = painterResource(R.mipmap.ic_launcher_foreground),
             onFinished = {
+                pendingBootAfterOnboarding = true
                 onOnboardingFinished()
                 route = ShellRoute.Home
             },
@@ -380,8 +492,27 @@ fun ArcadiaShell(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         val contentModifier = Modifier.fillMaxSize().padding(padding)
+        val swipeEnabled = route == ShellRoute.Home &&
+            !state.bootIntroOpen &&
+            !state.welcomeBackOpen &&
+            !state.isLaunching
+        val swipeModifier = if (swipeEnabled) {
+            Modifier.xoraSwipeNavigate { direction ->
+                homeViewModel.onTouchNav(direction.toNavAction())
+            }
+        } else {
+            Modifier
+        }
 
-        Box(modifier = contentModifier) {
+        val sheetNav = remember(homeViewModel) {
+            object : ShellSheetNav {
+                override val actions = homeViewModel.sheetNavActionFlow
+                override fun setCapturing(capturing: Boolean) =
+                    homeViewModel.setBottomSheetNavOpen(capturing)
+            }
+        }
+        CompositionLocalProvider(LocalShellSheetNav provides sheetNav) {
+        Box(modifier = contentModifier.then(swipeModifier)) {
             // Keep Home mounted under Setup so the dim settings plate can show wallpaper through.
             if (shellState.useDualLayout) {
                 PaneForRole(
@@ -422,10 +553,13 @@ fun ArcadiaShell(
                     onSelectRaPlatformFilter = homeViewModel::selectRaPlatformFilter,
                     onActivateRaLibrary = homeViewModel::activateRaLibrarySelection,
                     onRetryRaLibrary = homeViewModel::refreshRaLibrary,
+                    onSelectRaCheevoIndex = homeViewModel::selectRaCheevoIndex,
+                    onCloseRaGameDetail = homeViewModel::closeRaGameDetail,
                     onSelectHomeShard = homeViewModel::selectHomeShard,
                     onActivateHomeShard = homeViewModel::activateHomeShard,
                     onSelectHomeShortcut = homeViewModel::selectHomeShortcut,
                     onActivateHomeShortcut = { homeViewModel.activateHomeShortcut(it) },
+                    onLaunchVitaShortcut = { homeViewModel.completeVitaShortcutLaunch() },
                     onAddHomeShortcut = homeViewModel::openAddShortcutChooser,
                     onSelectXoraCategory = homeViewModel::selectXoraCategory,
                     onSelectXoraItem = homeViewModel::selectXoraItem,
@@ -496,6 +630,14 @@ fun ArcadiaShell(
                             onOpenHomeSettings = onOpenHomeSettings,
                         )
                     },
+                    backdrop = {
+                        Image(
+                            painter = painterResource(R.drawable.sora_settings_hero),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    },
                 )
             }
 
@@ -510,12 +652,26 @@ fun ArcadiaShell(
                     homeViewModel = homeViewModel,
                     modifier = Modifier.fillMaxSize(),
                 )
+                SystemUpdatePanel(
+                    state = state.systemUpdate,
+                    onPrimary = homeViewModel::activateSystemUpdatePrimary,
+                    onSelectButton = homeViewModel::selectSystemUpdateButton,
+                    onDismiss = homeViewModel::closeSystemUpdate,
+                    modifier = Modifier.fillMaxSize(),
+                )
                 ThemesCustomizeOverlay(
                     state = state,
                     homeViewModel = homeViewModel,
                     modifier = Modifier.fillMaxSize(),
                 )
                 // Primary Activity only — same rule as Start settings / notification banners.
+                BootIntroOverlay(
+                    visible = state.bootIntroOpen && !shellState.showOnboarding,
+                    skip = state.bootIntroSkip,
+                    onRevealHome = homeViewModel::revealHomeAfterBoot,
+                    onFinished = homeViewModel::dismissBootIntro,
+                    modifier = Modifier.fillMaxSize(),
+                )
                 WelcomeBackOverlay(
                     visible = state.welcomeBackOpen && !shellState.showOnboarding,
                     profile = state.profile,
@@ -547,6 +703,7 @@ fun ArcadiaShell(
                 DiscordConversationWindow(
                     open = state.socialMenu.isDiscordDmOpen,
                     thread = state.socialMenu.discordDm,
+                    friends = state.socialMenu.discord.friends,
                     onDraftChange = homeViewModel::updateConversationReplyDraft,
                     onSend = homeViewModel::sendOpenDiscordDm,
                     onAttachMedia = homeViewModel::requestDiscordAttachment,
@@ -562,6 +719,7 @@ fun ArcadiaShell(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+        }
         }
     }
 
@@ -580,7 +738,17 @@ fun ArcadiaShell(
                         modifier = Modifier.fillMaxSize(),
                     )
 
-                    ShellRoute.Home -> Box(modifier = Modifier.fillMaxSize()) {
+                    ShellRoute.Home -> Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .xoraSwipeNavigate(
+                                enabled = !state.bootIntroOpen &&
+                                    !state.welcomeBackOpen &&
+                                    !state.isLaunching,
+                            ) { direction ->
+                                homeViewModel.onTouchNav(direction.toNavAction())
+                            },
+                    ) {
                         val companion = gameCompanion
                         if (companion != null) {
                             // A game owns the primary screen, so this pane becomes its companion.
@@ -612,6 +780,7 @@ fun ArcadiaShell(
                             DiscordConversationWindow(
                                 open = state.socialMenu.isDiscordDmOpen,
                                 thread = state.socialMenu.discordDm,
+                                friends = state.socialMenu.discord.friends,
                                 onDraftChange = homeViewModel::updateConversationReplyDraft,
                                 onSend = homeViewModel::sendOpenDiscordDm,
                                 onAttachMedia = homeViewModel::requestDiscordAttachment,
@@ -664,42 +833,111 @@ fun ArcadiaShell(
             }
             val saveTick by homeViewModel.romSaveRefreshTick()
                 .collectAsStateWithLifecycle()
+            val mediaEpoch by homeViewModel.customMediaEpochFlow.collectAsStateWithLifecycle()
             val saves by produceState(emptyList<GameSaveEntry>(), game.id, saveTick, game.filePath) {
                 value = homeViewModel.listSavesForGame(game)
             }
+            val idlePath by produceState(
+                homeViewModel.idleVideoPath(game.id),
+                game.id,
+                mediaEpoch,
+            ) {
+                value = homeViewModel.idleVideoPath(game.id)
+            }
+            val titleOverrides by homeViewModel.gameTitleOverrides
+                .collectAsStateWithLifecycle()
+            var artPicker by remember(game.id) { mutableStateOf(ArtPickerUiState()) }
+            var pickerSlot by remember(game.id) { mutableStateOf<ArtSlot?>(null) }
+            // One lookup per slot per visit; the grid renders remote urls and only the chosen
+            // one is ever downloaded.
+            LaunchedEffect(pickerSlot, game.id) {
+                val slot = pickerSlot ?: return@LaunchedEffect
+                if (artPicker.result != null) return@LaunchedEffect
+                artPicker = ArtPickerUiState(loading = true)
+                artPicker = ArtPickerUiState(
+                    loading = false,
+                    result = homeViewModel.artCandidatesFor(game),
+                )
+                if (slot != pickerSlot) artPicker = ArtPickerUiState()
+            }
             SheetNavCapture(homeViewModel)
-            RomOptionsSheet(
+            RomEditorPane(
                 game = game,
+                customTitle = titleOverrides[gameId],
                 saves = saves,
+                hidden = gameId in state.hiddenGameIds,
+                trailer = TrailerRefs.parse(game.trailerUrl),
+                trailerResolving = false,
                 gamePreference = gamePref,
                 platformPreference = platformPref,
                 currentEmulatorLabel = emulatorLabel,
+                artAlignX = state.gameArtAlignments[gameId]?.x ?: 0f,
+                artAlignY = state.gameArtAlignments[gameId]?.y ?: 0f,
+                artPicker = artPicker,
                 navActions = homeViewModel.sheetNavActionFlow,
-                onDismiss = { scrapeMenuGameId = null },
-                onToggleFavorite = { favorite -> homeViewModel.setFavorite(gameId, favorite) },
-                onPickBoxArt = { homeViewModel.pickGameBoxArt(gameId) },
-                onPickBackground = { homeViewModel.pickGameBackground(gameId) },
-                onPickSoundBite = { homeViewModel.pickGameSoundBite(gameId) },
-                onClearBoxArt = { homeViewModel.clearGameBoxArt(gameId) },
-                onClearBackground = { homeViewModel.clearGameBackground(gameId) },
-                onClearSoundBite = { homeViewModel.clearGameSoundBite(gameId) },
-                onPreviewSoundBite = { homeViewModel.previewGameSoundBite(gameId) },
-                onImportSaves = { homeViewModel.importSavesForGame(gameId) },
-                onDeleteSave = { entry -> homeViewModel.deleteSaveForGame(entry) },
-                onSetGamePreference = { pref ->
-                    homeViewModel.setGameScraperPreference(gameId, pref)
-                },
-                onSetPlatformPreference = { pref ->
-                    homeViewModel.setPlatformScraperPreference(game.platformId, pref)
-                },
-                onChooseEmulator = {
-                    scrapeMenuGameId = null
-                    chooseEmulatorPlatformId = game.platformId
-                },
-                onRescrapeGame = { homeViewModel.rescrapeGame(gameId) },
-                onRescrapePlatform = { homeViewModel.rescrapePlatform(game.platformId) },
+                actions = RomEditorActions(
+                    onDismiss = { scrapeMenuGameId = null },
+                    onRename = { homeViewModel.renameGame(gameId, it) },
+                    onResetName = { homeViewModel.resetGameName(gameId) },
+                    onToggleFavorite = { homeViewModel.setFavorite(gameId, it) },
+                    onToggleHidden = { homeViewModel.setGameHidden(gameId, it) },
+                    onUploadArt = { slot -> homeViewModel.pickArtFromDevice(gameId, slot) },
+                    onApplyCandidate = { slot, candidate ->
+                        homeViewModel.applyArtCandidate(gameId, slot, candidate)
+                    },
+                    onClearArt = { slot -> homeViewModel.clearArt(gameId, slot) },
+                    onNudgeCover = { dx, dy ->
+                        homeViewModel.nudgeGameArtAlignment(gameId, dx, dy)
+                    },
+                    onResetCover = { homeViewModel.resetGameArtAlignment(gameId) },
+                    onPickSoundBite = { homeViewModel.pickGameSoundBite(gameId) },
+                    onClearSoundBite = { homeViewModel.clearGameSoundBite(gameId) },
+                    onPreviewSoundBite = { homeViewModel.previewGameSoundBite(gameId) },
+                    onUploadTrailer = { homeViewModel.pickGameIdleVideo(gameId) },
+                    onUseYouTubeTrailer = { homeViewModel.useYouTubeTrailer(gameId) },
+                    onClearTrailer = { homeViewModel.clearGameTrailer(gameId) },
+                    onImportSaves = { homeViewModel.importSavesForGame(gameId) },
+                    onDeleteSave = { entry -> homeViewModel.deleteSaveForGame(entry) },
+                    onSetGamePreference = { homeViewModel.setGameScraperPreference(gameId, it) },
+                    onSetPlatformPreference = {
+                        homeViewModel.setPlatformScraperPreference(game.platformId, it)
+                    },
+                    onChooseEmulator = {
+                        scrapeMenuGameId = null
+                        chooseEmulatorPlatformId = game.platformId
+                    },
+                    onRescrapeGame = { homeViewModel.rescrapeGame(gameId) },
+                    onRescrapePlatform = { homeViewModel.rescrapePlatform(game.platformId) },
+                ),
+                onArtPickerSlotChange = { pickerSlot = it; if (it == null) artPicker = ArtPickerUiState() },
             )
         }
+    }
+
+    musicCustomizeId?.let { mediaId ->
+        val mediaEpoch by homeViewModel.customMediaEpochFlow.collectAsStateWithLifecycle()
+        val coverPath by produceState(homeViewModel.musicCoverPath(mediaId), mediaId, mediaEpoch) {
+            value = homeViewModel.musicCoverPath(mediaId)
+        }
+        val wallpaperPath by produceState(
+            homeViewModel.musicWallpaperPath(mediaId),
+            mediaId,
+            mediaEpoch,
+        ) {
+            value = homeViewModel.musicWallpaperPath(mediaId)
+        }
+        SheetNavCapture(homeViewModel)
+        MusicCustomizeSheet(
+            title = musicCustomizeTitle,
+            coverPath = coverPath,
+            wallpaperPath = wallpaperPath,
+            navActions = homeViewModel.sheetNavActionFlow,
+            onDismiss = { musicCustomizeId = null },
+            onPickCover = { homeViewModel.pickMusicCover(mediaId) },
+            onPickWallpaper = { homeViewModel.pickMusicWallpaper(mediaId) },
+            onClearCover = { homeViewModel.clearMusicCover(mediaId) },
+            onClearWallpaper = { homeViewModel.clearMusicWallpaper(mediaId) },
+        )
     }
 
     chooseEmulatorPlatformId?.let { platformId ->
@@ -813,6 +1051,10 @@ private fun ThemesCustomizeOverlay(
             onRequestBgm = homeViewModel::requestBgmPicker,
             onClearBgm = homeViewModel::clearCustomBgm,
             onManageShortcuts = homeViewModel::openShortcutEditorFromThemes,
+            wallpaperAlignX = state.homeHub.wallpaperAlignX,
+            wallpaperAlignY = state.homeHub.wallpaperAlignY,
+            onNudgeWallpaper = homeViewModel::nudgeWallpaperAlignment,
+            onResetWallpaper = homeViewModel::resetWallpaperAlignment,
         )
     }
 }
@@ -911,10 +1153,13 @@ private fun PaneForRole(
                         },
                         showHomeWallpaper = false,
                         homeWallpaperPath = state.homeHub.wallpaperPath,
+                        wallpaperAlignX = state.homeHub.wallpaperAlignX,
+                        wallpaperAlignY = state.homeHub.wallpaperAlignY,
                         onToggleAccountPanel = homeViewModel::toggleAccountPanel,
                         onToggleSystemPanel = homeViewModel::toggleSystemPanel,
                         onOpenNotifications = homeViewModel::openNotificationHistory,
                         notificationUnreadCount = state.notificationUnreadCount,
+                        activeNotificationPresent = state.activeNotificationPresent,
                         onToggleAchievementsPanel = homeViewModel::toggleAchievementsPanel,
                         onSelectSocialTab = homeViewModel::selectSocialMenuTab,
                         onSelectAccountRow = homeViewModel::selectAccountPanelRow,
@@ -947,11 +1192,7 @@ private fun PaneForRole(
             }
 
             ScreenRole.Grid -> {
-                val launchProgress by animateFloatAsState(
-                    targetValue = if (state.isLaunching) 1f else 0f,
-                    animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-                    label = "dualLibraryLaunchChrome",
-                )
+                val launchProgress = rememberLaunchCinematic(state.isLaunching).chrome
                 HomePageContent(
                     state = state,
                     onSelectTab = homeViewModel::selectTab,
@@ -971,10 +1212,13 @@ private fun PaneForRole(
                     onSelectRaPlatformFilter = homeViewModel::selectRaPlatformFilter,
                     onActivateRaLibrary = homeViewModel::activateRaLibrarySelection,
                     onRetryRaLibrary = homeViewModel::refreshRaLibrary,
+                    onSelectRaCheevoIndex = homeViewModel::selectRaCheevoIndex,
+                    onCloseRaGameDetail = homeViewModel::closeRaGameDetail,
                     onSelectHomeShard = homeViewModel::selectHomeShard,
                     onActivateHomeShard = homeViewModel::activateHomeShard,
                     onSelectHomeShortcut = homeViewModel::selectHomeShortcut,
                     onActivateHomeShortcut = { homeViewModel.activateHomeShortcut(it) },
+                    onLaunchVitaShortcut = { homeViewModel.completeVitaShortcutLaunch() },
                     onAddHomeShortcut = homeViewModel::openAddShortcutChooser,
                     onSelectXoraCategory = homeViewModel::selectXoraCategory,
                     onSelectXoraItem = homeViewModel::selectXoraItem,
@@ -1054,4 +1298,11 @@ private fun PaneForRole(
             }
         }
     }
+}
+
+private fun XoraSwipeDirection.toNavAction(): NavAction = when (this) {
+    XoraSwipeDirection.Left -> NavAction.Left
+    XoraSwipeDirection.Right -> NavAction.Right
+    XoraSwipeDirection.Up -> NavAction.Up
+    XoraSwipeDirection.Down -> NavAction.Down
 }

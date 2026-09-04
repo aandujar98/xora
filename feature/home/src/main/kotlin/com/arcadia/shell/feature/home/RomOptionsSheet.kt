@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.datastore.GAME_ART_ALIGN_STEP
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
@@ -64,13 +65,22 @@ fun RomOptionsSheet(
     navActions: Flow<NavAction>,
     onDismiss: () -> Unit,
     onToggleFavorite: (Boolean) -> Unit,
+    hidden: Boolean = false,
+    onToggleHidden: (Boolean) -> Unit = {},
+    artAlignX: Float = 0f,
+    artAlignY: Float = 0f,
+    onNudgeCover: (Float, Float) -> Unit = { _, _ -> },
+    onResetCover: () -> Unit = {},
     onPickBoxArt: () -> Unit,
     onPickBackground: () -> Unit,
     onPickSoundBite: () -> Unit,
+    onPickIdleVideo: () -> Unit,
     onClearBoxArt: () -> Unit,
     onClearBackground: () -> Unit,
     onClearSoundBite: () -> Unit,
+    onClearIdleVideo: () -> Unit,
     onPreviewSoundBite: () -> Unit,
+    idleVideoPath: String? = null,
     onImportSaves: () -> Unit,
     onDeleteSave: (GameSaveEntry) -> Unit,
     onSetGamePreference: (ScraperPreference) -> Unit,
@@ -159,13 +169,22 @@ fun RomOptionsSheet(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            FilterChip(
-                selected = game.favorite,
-                onClick = { onToggleFavorite(!game.favorite) },
-                label = {
-                    Text(if (game.favorite) "Favourited ★" else "Add to favourites")
-                },
-            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = game.favorite,
+                    onClick = { onToggleFavorite(!game.favorite) },
+                    label = {
+                        Text(if (game.favorite) "Favourited ★" else "Add to favourites")
+                    },
+                )
+                FilterChip(
+                    selected = hidden,
+                    onClick = { onToggleHidden(!hidden) },
+                    label = {
+                        Text(if (hidden) "Hidden from library" else "Hide from library")
+                    },
+                )
+            }
 
             SectionLabel("Customize")
             MediaRow(
@@ -190,6 +209,36 @@ fun RomOptionsSheet(
                 },
                 extraLabel = "Preview",
             )
+            MediaRow(
+                title = "Idle video",
+                status = pathStatus(idleVideoPath),
+                onChange = onPickIdleVideo,
+                onClear = onClearIdleVideo.takeIf { !idleVideoPath.isNullOrBlank() },
+            )
+
+            SectionLabel("Cover position")
+            Text(
+                text = "Pan box art inside the Game Icon. Does not move the plate.",
+                style = MaterialTheme.typography.bodySmall,
+                color = glass.contentMuted,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { onNudgeCover(-GAME_ART_ALIGN_STEP, 0f) }) { Text("Left") }
+                TextButton(onClick = { onNudgeCover(0f, -GAME_ART_ALIGN_STEP) }) { Text("Up") }
+                TextButton(onClick = { onNudgeCover(0f, GAME_ART_ALIGN_STEP) }) { Text("Down") }
+                TextButton(onClick = { onNudgeCover(GAME_ART_ALIGN_STEP, 0f) }) { Text("Right") }
+                TextButton(onClick = onResetCover) { Text("Reset") }
+            }
+            if (artAlignX != 0f || artAlignY != 0f) {
+                Text(
+                    text = "Offset ${"%.2f".format(Locale.US, artAlignX)}, ${"%.2f".format(Locale.US, artAlignY)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = glass.contentMuted,
+                )
+            }
 
             SectionLabel("Save files")
             Text(
@@ -450,9 +499,11 @@ fun ScrapeOptionsSheet(
         onPickBoxArt = {},
         onPickBackground = {},
         onPickSoundBite = {},
+        onPickIdleVideo = {},
         onClearBoxArt = {},
         onClearBackground = {},
         onClearSoundBite = {},
+        onClearIdleVideo = {},
         onPreviewSoundBite = {},
         onImportSaves = {},
         onDeleteSave = {},

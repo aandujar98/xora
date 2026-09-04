@@ -9,17 +9,21 @@ import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,6 +43,7 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -57,35 +62,63 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.times
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.designsystem.ArcadiaMotion
-import com.arcadia.shell.designsystem.GlassIntensity
-import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.arcadiaTween
-import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.motionMillis
+import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.supportsGlassBlurEffect
 import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.designsystem.xoraModalGlass
+import com.arcadia.shell.designsystem.xoraTextScale
+import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.SystemFavoriteGame
 import com.arcadia.shell.feature.home.SystemPanelRow
 import com.arcadia.shell.feature.home.SystemProfileCardState
@@ -96,30 +129,119 @@ import com.arcadia.shell.retroachievements.RaRecentUnlock
 import com.arcadia.shell.xoranetwork.xoraAppearanceLabel
 import kotlinx.coroutines.delay
 import java.text.DateFormat
+import java.text.NumberFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.sin
 
 private val ScoreAmber = Color(0xFFFFA22B)
 private val OnlineGreen = Color(0xFF37D6A0)
 private val AwayAmber = Color(0xFFFFC24B)
 private val BusyRose = Color(0xFFFF5C6C)
 private val FocusRing = Color(0xFF4AE39A)
-private val BadgeBorder = Color(0xFFF0A030)
+private val BadgeBorder = Color(0xFFFECF67)
 
-/** Frosted plate rim, matching the expanded RetroAchievements card. */
-private val CardEdge = Color.White.copy(alpha = 0.25f)
-private val OutlineInk = Color(0xFF10202A)
-private val BubbleFill = Color(0xFFE8EAEA)
-private val BubbleInk = Color(0xFF4A4F52)
-private val PlaytimeGreen = Color(0xFF5FE06A)
-private val FooterInk = Color(0xFF9FB0B8)
+/** Frosted plate rim — thicker glass edge on the profile modal. */
+private val OutlineInk = Color.Black
+private val BubbleInk = Color(0xFF474747)
+private val FooterInk = Color.White.copy(alpha = 0.50f)
+private val DullFillTop = Color.White
+private val DullFillBottom = Color(0xFFA1A1A1)
+private val ChromeStrokeTop = Color.White
+private val ChromeStrokeBottom = Color(0xFFB0B0B0)
+private val PlaytimeFillTop = Color(0xFFADFF7B)
+private val PlaytimeFillBottom = Color(0xFF30C942)
+
+private val DullFillBrush = Brush.verticalGradient(listOf(DullFillTop, DullFillBottom))
+private val ChromeStrokeBrush = Brush.verticalGradient(listOf(ChromeStrokeTop, ChromeStrokeBottom))
+private val PlaytimeFillBrush = Brush.verticalGradient(listOf(PlaytimeFillTop, PlaytimeFillBottom))
+private val StatusBubbleFillBrush = Brush.verticalGradient(
+    listOf(ChromeStrokeTop, ChromeStrokeBottom),
+)
+
+private val CardStroke = 3.dp
+private val CardAssetShadowDp = 4.dp
+private val CardShadowInk = Color(0xFF000000)
+private val Game0Border = 3.dp
+private val FavoritePlateW = 210.dp
+private val FavoritePlateH = 108.dp
+private val FavoritePlateRadius = 12.dp
+private val ProfileCardWidth = 464.dp
+/** Figma 464×444 (nodes 363:1927 / 710:1769). Live card wraps its content instead of this frame. */
+private val ProfileCardHeight = 444.dp
+private val ProfileCardRadius = 24.dp
+private val ProfileCardPadStart = 22.dp
+private val ProfileCardPadEnd = 22.dp
+private val ProfileCardPadTop = 16.dp
+private val ProfileCardPadBottom = 4.dp
+private val ProfileIdentityGap = 10.dp
+private val StatusBubbleTextSize = 16.sp
+private val RecentlyEarnedBadgeSlots = 6
+private val RecentlyEarnedBadgeSize = 60.dp
+private val RecentlyEarnedBadgeGap = 12.dp
+private val RecentlyEarnedLabelGap = 10.dp
+private val FavoriteLabelGap = 10.dp
+private val HeaderToRecentGap = 16.dp
+private val RecentToFavoriteGap = 12.dp
+private val FavoriteToFooterGap = 6.dp
+private val PresenceDotSize = 12.dp
+private val TrophyGlyphW = 24.dp
+private val TrophyGlyphH = TrophyGlyphW * (120f / 130f)
+
+private fun vibrantFillBrush(accent: Color): Brush =
+    Brush.verticalGradient(listOf(lerp(accent, Color.White, 0.42f), accent))
 
 /** Collapsed RT chrome is the profile picture alone, tucked into the corner. */
 private val CollapsedAvatarSize = 88.dp
 
 /** Figma crops the disc on both screen edges; this clears the pane padding to get there. */
 private val CollapsedAvatarBleed = 24.dp
+
+/** Expanded header disc — Figma 464×444 card (nodes 363:1927 / 710:1686). */
+private val ProfileAvatarSelectedSize = 96.dp
+
+/** Selected drop shadow: X4 Y4 B4 S0. Idle chrome stays 10 / 10 / 15. */
+private val ProfileBubbleSelectedShadow = 4.dp
+
+/** Two horizontal coin-flips as the bubble settles into the expanded header. */
+private const val ProfileBubbleFlipDeg = 720f
+/** 20% longer than the original 500ms settle, same end easing. */
+private const val ProfileBubbleFlipMs = 600
+
+/** Stronger ease-out so the last degrees of the flip settle instead of hitting a wall. */
+private val ProfileBubbleEasing = CubicBezierEasing(0.12f, 0.82f, 0.08f, 1f)
+
+/** Card inner padding the selected bubble must land in (header top-left). */
+private val ProfileBubbleSelectedInsetStart = 22.dp
+private val ProfileBubbleSelectedInsetTop = 19.dp
+
+/**
+ * Afterimage samples along the coin-flip. White discs share the live bubble's Y-spin so
+ * the trail reads as a lagged echo, not a stacked face or a flat ribbon.
+ */
+private const val ProfileBubbleEchoCount = 24
+private const val ProfileBubbleEchoSpan = 0.22f
+private val ProfileBubbleEchoLags = FloatArray(ProfileBubbleEchoCount) { i ->
+    val t = (i + 1f) / ProfileBubbleEchoCount
+    t * t * ProfileBubbleEchoSpan
+}
+private val ProfileBubbleEchoInk = Color.White
+
+/** Slim bubble depth as a fraction of diameter — keeps the flip from collapsing to a line. */
+private const val ProfileBubbleThickness = 0.24f
+private const val ProfileBubbleAnimCamera = 8f
+private const val ProfileBubbleRestCamera = 16f
+
+/**
+ * Figma Make top-right bubble: inner 188.044 over Ellipse56 182.495, rotated 165°,
+ * mix-blend soft-light. Same PNG as the Vita tray glass ([R.drawable.vita_bubble_glass]).
+ */
+private const val UserBubbleOverAvatar = 188.044f / 182.495f
+private const val UserBubbleRotationDeg = 165f
 
 @Composable
 fun SystemPill(
@@ -132,6 +254,7 @@ fun SystemPill(
     systemProfile: SystemProfileCardState,
     expanded: Boolean,
     selectedRowIndex: Int,
+    hideCollapsedChrome: Boolean = false,
     onToggle: () -> Unit,
     onSelectRow: (Int) -> Unit,
     onActivateRow: (Int?) -> Unit,
@@ -146,7 +269,6 @@ fun SystemPill(
     var charging by remember { mutableStateOf(isCharging(context)) }
     var wifiConnected by remember { mutableStateOf(isWifiConnected(context)) }
     val listState = rememberLazyListState()
-    val maxPanelHeight = LocalConfiguration.current.screenHeightDp.dp * 0.90f
 
     val systemRows = remember(
         systemProfile.favoritePickerOpen,
@@ -203,33 +325,24 @@ fun SystemPill(
     )
     val displayName = (raUsername?.takeIf { it.isNotBlank() } ?: profile.displayName)
         .uppercase(Locale.getDefault())
-
-    Column(
-        modifier = modifier.widthIn(max = if (expanded) 380.dp else 300.dp),
-        horizontalAlignment = Alignment.End,
-    ) {
-        // Collapsed status chrome hides while the card is open; RT / B restores it.
-        AnimatedVisibility(
-            visible = !expanded,
-            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
-            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
-        ) {
-            // Just the avatar, pushed past the pane padding so it tucks into the screen corner;
-            // status readouts live in the expanded card footer.
-            ProfileAvatar(
-                displayName = profile.displayName,
-                presetId = profile.avatarPresetId,
-                size = CollapsedAvatarSize,
-                imageModel = avatarImageModel,
-                borderColor = Color.White.copy(alpha = 0.9f),
-                onClick = onToggle,
-                modifier = Modifier
-                    .offset(x = CollapsedAvatarBleed, y = -CollapsedAvatarBleed)
-                    .xoraForegroundShadow(CircleShape),
-            )
+    val editSelected = expanded &&
+        systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.EditProfile
+    val onEditProfile = {
+        val idx = systemRows.indexOfFirst { it is SystemPanelRow.EditProfile }
+        if (idx >= 0) {
+            onSelectRow(idx)
+            onActivateRow(idx)
         }
+    }
 
-        AnimatedVisibility(
+    BoxWithConstraints(modifier = modifier) {
+        val cardWidth = min(ProfileCardWidth, maxWidth)
+        Column(
+            modifier = Modifier.widthIn(max = if (expanded) cardWidth else min(300.dp, maxWidth)),
+            horizontalAlignment = Alignment.End,
+        ) {
+        Box {
+        androidx.compose.animation.AnimatedVisibility(
             visible = expanded,
             enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + expandVertically(
                 expandFrom = Alignment.Top,
@@ -240,30 +353,54 @@ fun SystemPill(
                 animationSpec = arcadiaTween<IntSize>(ArcadiaMotion.Fast),
             ),
         ) {
-            val cardShape = RoundedCornerShape(30.dp)
-            val cardScroll = rememberScrollState()
+            val cardShape = RoundedCornerShape(ProfileCardRadius)
+            val pickerScroll = rememberScrollState()
+            BoxWithConstraints {
+            val available = maxHeight
+            val picking = systemProfile.favoritePickerOpen
+            val footerReserve = 18.dp + FavoriteToFooterGap + ProfileCardPadBottom
             Column(
                 modifier = Modifier
-                    .padding(top = 8.dp)
-                    .widthIn(max = 380.dp)
-                    .heightIn(max = maxPanelHeight)
-                    .xoraForegroundShadow(cardShape)
-                    .liquidGlass(
-                        shape = cardShape,
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                        shimmer = true,
+                    .width(cardWidth)
+                    .then(
+                        if (picking) {
+                            Modifier.heightIn(
+                                min = ProfileCardHeight.coerceAtMost(available),
+                                max = available,
+                            )
+                        } else {
+                            // Wrap the header + strips + favorite plate so the window grows
+                            // with its content instead of clipping Favorite Game at a fixed frame.
+                            Modifier.heightIn(max = available)
+                        },
                     )
-                    .border(1.5.dp, CardEdge, cardShape)
+                    .xoraModalGlass(cardShape)
                     .fillMaxWidth(),
             ) {
                 Column(
                     modifier = Modifier
-                        .weight(1f, fill = false)
-                        .verticalScroll(cardScroll)
-                        .padding(horizontal = 18.dp, vertical = 16.dp)
+                        .then(
+                            if (picking) {
+                                Modifier.weight(1f, fill = true)
+                            } else {
+                                Modifier.heightIn(
+                                    max = (available - footerReserve).coerceAtLeast(0.dp),
+                                )
+                            },
+                        )
+                        .then(
+                            if (picking) {
+                                Modifier
+                            } else {
+                                Modifier.verticalScroll(pickerScroll)
+                            },
+                        )
+                        .padding(
+                            start = ProfileCardPadStart,
+                            end = ProfileCardPadEnd,
+                            top = ProfileCardPadTop,
+                        )
                         .fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                 if (systemProfile.favoritePickerOpen) {
                     FavoritePickerPanel(
@@ -277,12 +414,9 @@ fun SystemPill(
                     ProfileCardHeader(
                         displayName = displayName,
                         usernameAccent = usernameAccent,
-                        profile = profile,
-                        avatarImageModel = avatarImageModel,
                         raScore = raScore,
                         systemProfile = systemProfile,
                         statusSelected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.Status,
-                        editSelected = systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.EditProfile,
                         onSelectStatus = {
                             val idx = systemRows.indexOfFirst { it is SystemPanelRow.Status }
                             if (idx >= 0) onSelectRow(idx)
@@ -294,19 +428,17 @@ fun SystemPill(
                                 onActivateRow(idx)
                             }
                         },
-                        onEditProfile = {
-                            val idx = systemRows.indexOfFirst { it is SystemPanelRow.EditProfile }
-                            if (idx >= 0) {
-                                onSelectRow(idx)
-                                onActivateRow(idx)
-                            }
-                        },
+                        onEditProfile = onEditProfile,
                         onStatusDraftChange = onStatusDraftChange,
                         onSaveCustomStatus = onSaveCustomStatus,
                         onClearCustomStatus = onClearCustomStatus,
                     )
 
+                    Spacer(modifier = Modifier.height(HeaderToRecentGap))
+
                     RecentlyEarnedStrip(unlocks = recentAchievements)
+
+                    Spacer(modifier = Modifier.height(RecentToFavoriteGap))
 
                     FavoriteGameSection(
                         favorite = systemProfile.favorite,
@@ -320,30 +452,282 @@ fun SystemPill(
                         },
                     )
                 }
-
+                }
                 ProfileCardFooter(
                     wifiConnected = wifiConnected,
                     timeText = timeText,
                     dateText = dateShort,
                     batteryPercent = batteryPercent,
                     charging = charging,
+                    modifier = Modifier.padding(
+                        start = ProfileCardPadStart,
+                        end = ProfileCardPadEnd,
+                        top = FavoriteToFooterGap,
+                        bottom = ProfileCardPadBottom,
+                    ),
                 )
-                }
+            }
             }
         }
+
+            androidx.compose.animation.AnimatedVisibility(
+                visible = expanded || !hideCollapsedChrome,
+                enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+                exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
+                modifier = Modifier.align(Alignment.TopEnd),
+            ) {
+                ProfileSelectBubble(
+                    expanded = expanded,
+                    editSelected = editSelected,
+                    profile = profile,
+                    avatarImageModel = avatarImageModel,
+                    cardWidth = cardWidth,
+                    onClick = if (expanded) onEditProfile else onToggle,
+                )
+            }
+        }
+        }
     }
+}
+
+@Composable
+private fun ProfileSelectBubble(
+    expanded: Boolean,
+    editSelected: Boolean,
+    profile: LocalProfile,
+    avatarImageModel: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    cardWidth: Dp = ProfileCardWidth,
+) {
+    val reduceMotion = rememberReduceMotion()
+    val progress by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = motionMillis(ProfileBubbleFlipMs),
+            easing = ProfileBubbleEasing,
+        ),
+        label = "profileBubbleSelect",
+    )
+    val userBubbleGlass = ImageBitmap.imageResource(R.drawable.vita_bubble_glass)
+    val moving = !reduceMotion && progress > 0.02f && progress < 0.98f
+    val canBlurTrail = supportsGlassBlurEffect()
+    val spinDeg = ProfileBubbleFlipDeg * progress
+    val spinRad = Math.toRadians(spinDeg.toDouble())
+    val spinSin = sin(spinRad).toFloat()
+    val absCos = abs(cos(spinRad)).toFloat()
+    val volumeScaleX = if (moving) {
+        absCos * (1f - ProfileBubbleThickness) + ProfileBubbleThickness
+    } else {
+        1f
+    }
+    val faceAlpha = if (moving) {
+        ((absCos - 0.06f) / 0.22f).coerceIn(0.22f, 1f)
+    } else {
+        1f
+    }
+    val bubbleSize = profileBubbleSize(progress)
+    val shadow = XoraForegroundShadow.DesignOffset +
+        (ProfileBubbleSelectedShadow.value - XoraForegroundShadow.DesignOffset) * progress
+
+    Box(
+        modifier = modifier.graphicsLayer { clip = false },
+        contentAlignment = Alignment.TopEnd,
+    ) {
+        if (moving) {
+            val echoCount = ProfileBubbleEchoLags.size
+            for (index in echoCount - 1 downTo 0) {
+                val lag = ProfileBubbleEchoLags[index]
+                val echoProgress = (progress - lag).coerceIn(0f, 1f)
+                val trailT = index / (echoCount - 1f).coerceAtLeast(1f)
+                ProfileBubbleEcho(
+                    progress = echoProgress,
+                    trailT = trailT,
+                    canBlur = canBlurTrail,
+                    cardWidth = cardWidth,
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .profileBubblePlacement(progress, cardWidth)
+                .size(bubbleSize)
+                .graphicsLayer { clip = false },
+        ) {
+            if (moving) {
+                ProfileBubbleVolumeShell(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = volumeScaleX
+                            cameraDistance = ProfileBubbleAnimCamera * density
+                            transformOrigin = TransformOrigin.Center
+                            clip = false
+                        },
+                )
+            }
+            ProfileAvatar(
+                displayName = profile.displayName,
+                presetId = profile.avatarPresetId,
+                size = bubbleSize,
+                imageModel = avatarImageModel,
+                borderColor = Color.White.copy(alpha = 0.9f),
+                onClick = onClick,
+                modifier = Modifier
+                    .then(
+                        if (editSelected) {
+                            Modifier.border(2.5.dp, FocusRing, CircleShape)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .xoraForegroundShadow(
+                        shape = CircleShape,
+                        offset = shadow.dp,
+                        blur = shadow.dp,
+                    )
+                    .graphicsLayer {
+                        rotationY = spinDeg
+                        cameraDistance = (if (moving) {
+                            ProfileBubbleAnimCamera
+                        } else {
+                            ProfileBubbleRestCamera
+                        }) * density
+                        alpha = faceAlpha
+                        transformOrigin = TransformOrigin.Center
+                        clip = false
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        if (moving) {
+                            val w = size.width
+                            val h = size.height
+                            val recede = spinSin
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    0.40f to Color.Transparent,
+                                    1.00f to Color.Black.copy(alpha = 0.22f * abs(recede)),
+                                    center = Offset(w * (0.50f - 0.16f * recede), h * 0.52f),
+                                    radius = size.minDimension * 0.62f,
+                                ),
+                            )
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    0.00f to Color.White.copy(alpha = 0.40f),
+                                    0.50f to Color.White.copy(alpha = 0.08f),
+                                    1.00f to Color.Transparent,
+                                    center = Offset(
+                                        w * (0.30f + 0.22f * recede),
+                                        h * 0.28f,
+                                    ),
+                                    radius = size.minDimension * 0.34f,
+                                ),
+                            )
+                        }
+                        withTransform({
+                            rotate(UserBubbleRotationDeg)
+                            val factor = (size.minDimension * UserBubbleOverAvatar) /
+                                userBubbleGlass.width
+                            scale(factor, factor)
+                        }) {
+                            drawImage(
+                                image = userBubbleGlass,
+                                topLeft = Offset(
+                                    (size.width - userBubbleGlass.width) / 2f,
+                                    (size.height - userBubbleGlass.height) / 2f,
+                                ),
+                                blendMode = BlendMode.Softlight,
+                            )
+                        }
+                    },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileBubbleEcho(
+    progress: Float,
+    trailT: Float,
+    canBlur: Boolean,
+    cardWidth: Dp = ProfileCardWidth,
+) {
+    val fade = (exp(-3.4f * trailT * trailT) * 0.28f * (1f - progress * 0.18f))
+        .coerceAtLeast(0.03f)
+    val taper = 1f - 0.08f * trailT
+    val echoSize = profileBubbleSize(progress) * taper
+    Box(
+        modifier = Modifier
+            .profileBubblePlacement(progress, cardWidth)
+            .size(echoSize)
+            .graphicsLayer {
+                rotationY = ProfileBubbleFlipDeg * progress
+                cameraDistance = ProfileBubbleAnimCamera * density
+                alpha = fade
+                transformOrigin = TransformOrigin.Center
+                clip = false
+                compositingStrategy = CompositingStrategy.Offscreen
+                if (canBlur) {
+                    renderEffect = BlurEffect(
+                        4f + 10f * trailT,
+                        4f + 10f * trailT,
+                        TileMode.Decal,
+                    )
+                }
+            }
+            .clip(CircleShape)
+            .background(ProfileBubbleEchoInk),
+    )
+}
+
+@Composable
+private fun ProfileBubbleVolumeShell(modifier: Modifier = Modifier) {
+    val density = LocalDensity.current
+    val strokePx = with(density) { CardStroke.toPx() }
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .drawBehind {
+                drawCircle(brush = StatusBubbleFillBrush)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0.00f to Color.White.copy(alpha = 0.55f),
+                        0.55f to Color.White.copy(alpha = 0.14f),
+                        1.00f to Color.White.copy(alpha = 0.04f),
+                    ),
+                )
+                drawCircle(
+                    brush = ChromeStrokeBrush,
+                    style = Stroke(width = strokePx, join = StrokeJoin.Round),
+                )
+            },
+    )
+}
+
+private fun profileBubbleSize(progress: Float): Dp {
+    val start = CollapsedAvatarSize.value
+    val end = ProfileAvatarSelectedSize.value
+    return (start + (end - start) * progress).dp
+}
+
+private fun Modifier.profileBubblePlacement(progress: Float, cardWidth: Dp = ProfileCardWidth): Modifier {
+    val selectedSize = ProfileAvatarSelectedSize.value
+    val endX = -(cardWidth.value - ProfileBubbleSelectedInsetStart.value - selectedSize)
+    val startX = CollapsedAvatarBleed.value
+    val x = startX + (endX - startX) * progress
+    val y = -CollapsedAvatarBleed.value +
+        (ProfileBubbleSelectedInsetTop.value + CollapsedAvatarBleed.value) * progress
+    return offset(x = x.dp, y = y.dp)
 }
 
 @Composable
 private fun ProfileCardHeader(
     displayName: String,
     usernameAccent: Color,
-    profile: LocalProfile,
-    avatarImageModel: String?,
     raScore: Int?,
     systemProfile: SystemProfileCardState,
     statusSelected: Boolean,
-    editSelected: Boolean,
     onSelectStatus: () -> Unit,
     onActivateStatus: () -> Unit,
     onEditProfile: () -> Unit,
@@ -351,114 +735,60 @@ private fun ProfileCardHeader(
     onSaveCustomStatus: () -> Unit,
     onClearCustomStatus: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.Top,
+    val identityStart = ProfileAvatarSelectedSize + ProfileIdentityGap
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = identityStart),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.Start,
     ) {
-        ProfileAvatar(
-            displayName = profile.displayName,
-            presetId = profile.avatarPresetId,
-            size = 78.dp,
-            imageModel = avatarImageModel,
-            borderColor = Color.White.copy(alpha = 0.85f),
-            onClick = onEditProfile,
-            modifier = Modifier
-                .then(
-                    if (editSelected) {
-                        Modifier.border(2.5.dp, FocusRing, CircleShape)
-                    } else {
-                        Modifier
-                    },
-                ),
+        StatusBubble(
+            text = systemProfile.statusLine,
+            selected = statusSelected,
+            editing = systemProfile.statusEditorOpen,
+            draft = systemProfile.statusDraft,
+            isCustom = systemProfile.isCustomStatus,
+            onSelect = onSelectStatus,
+            onActivate = onActivateStatus,
+            onDraftChange = onStatusDraftChange,
+            onSave = onSaveCustomStatus,
+            onClear = onClearCustomStatus,
+            modifier = Modifier.fillMaxWidth(),
         )
 
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.Start,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            StatusBubble(
-                text = systemProfile.statusLine,
-                selected = statusSelected,
-                editing = systemProfile.statusEditorOpen,
-                draft = systemProfile.statusDraft,
-                isCustom = systemProfile.isCustomStatus,
-                onSelect = onSelectStatus,
-                onActivate = onActivateStatus,
-                onDraftChange = onStatusDraftChange,
-                onSave = onSaveCustomStatus,
-                onClear = onClearCustomStatus,
+            PresenceDot(color = xoraPresenceColor(systemProfile))
+            CardTitleText(
+                text = displayName,
+                fontSize = 20.sp,
+                fillBrush = vibrantFillBrush(usernameAccent),
+                modifier = Modifier.clickable(onClick = onEditProfile),
             )
+        }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-            ) {
-                val presenceColor = xoraPresenceColor(systemProfile)
-                Box(
-                    modifier = Modifier
-                        .size(13.dp)
-                        .clip(CircleShape)
-                        .background(presenceColor)
-                        .border(1.5.dp, OutlineInk.copy(alpha = 0.55f), CircleShape),
-                )
-                XoraOutlinedText(
-                    text = displayName,
-                    fontFamily = XoraFonts.Title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 26.sp,
-                    fillColor = usernameAccent,
-                    outlineColor = OutlineInk,
-                    letterSpacing = XoraFonts.TitleLetterSpacing,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .clickable(onClick = onEditProfile),
-                )
-            }
-            if (systemProfile.xoraNetworkSignedIn) {
-                val presenceColor = xoraPresenceColor(systemProfile)
-                val presenceLabel = xoraAppearanceLabel(
-                    systemProfile.xoraPresenceMode,
-                    systemProfile.xoraNetworkOnline,
-                ).uppercase()
-                Text(
-                    text = "$presenceLabel · XOrA NETWORK",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = presenceColor,
-                    maxLines = 1,
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                TrophyMiniGlyph(tint = Color.White, modifier = Modifier.size(20.dp))
-                XoraOutlinedText(
-                    text = "POINTS",
-                    fontFamily = XoraFonts.Title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
-                    fillColor = Color.White,
-                    outlineColor = OutlineInk,
-                    letterSpacing = XoraFonts.TitleLetterSpacing,
-                    maxLines = 1,
-                )
-                XoraOutlinedText(
-                    text = formatPoints(raScore),
-                    fontFamily = XoraFonts.Title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp,
-                    fillColor = ScoreAmber,
-                    outlineColor = OutlineInk,
-                    letterSpacing = XoraFonts.TitleLetterSpacing,
-                    maxLines = 1,
-                )
-            }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TrophyMiniGlyph()
+            CardTitleText(
+                text = "POINTS",
+                fontSize = 14.sp,
+                fillBrush = DullFillBrush,
+                letterSpacing = 0.sp,
+            )
+            CardTitleText(
+                text = formatPoints(raScore),
+                fontSize = 18.sp,
+                fillBrush = vibrantFillBrush(ScoreAmber),
+                letterSpacing = 0.sp,
+                overflow = TextOverflow.Visible,
+                softWrap = false,
+            )
         }
     }
 }
@@ -466,30 +796,85 @@ private fun ProfileCardHeader(
 /** Section label — blocky white with the XOrA dark outline. */
 @Composable
 private fun CardSectionLabel(text: String) {
-    XoraOutlinedText(
+    CardTitleText(
         text = text,
-        fontFamily = XoraFonts.Title,
-        fontWeight = FontWeight.Bold,
-        fontSize = 15.sp,
-        fillColor = Color.White,
-        outlineColor = OutlineInk,
-        letterSpacing = XoraFonts.TitleLetterSpacing,
-        maxLines = 1,
+        fontSize = 14.sp,
+        fillBrush = DullFillBrush,
     )
 }
 
-/** Tail under the status bubble, pointing back down toward the avatar. */
 @Composable
-private fun BubbleTail(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(width = 18.dp, height = 10.dp)) {
-        val path = Path().apply {
-            moveTo(size.width * 0.15f, 0f)
-            lineTo(size.width, 0f)
-            lineTo(0f, size.height)
-            close()
-        }
-        drawPath(path, color = BubbleFill)
+private fun CardTitleText(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    fillBrush: Brush,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 1,
+    letterSpacing: androidx.compose.ui.unit.TextUnit = XoraFonts.TitleLetterSpacing,
+    overflow: TextOverflow = TextOverflow.Ellipsis,
+    softWrap: Boolean = true,
+) {
+    XoraOutlinedText(
+        text = text,
+        modifier = modifier,
+        fontFamily = XoraFonts.Title,
+        fontWeight = FontWeight.Bold,
+        fontSize = fontSize,
+        fillBrush = fillBrush,
+        outlineColor = OutlineInk,
+        outlineWidth = CardStroke,
+        letterSpacing = letterSpacing,
+        shadow = cardAssetShadow(),
+        maxLines = maxLines,
+        overflow = overflow,
+        softWrap = softWrap,
+    )
+}
+
+@Composable
+private fun cardAssetShadow(): Shadow {
+    val px = with(LocalDensity.current) { CardAssetShadowDp.toPx() }
+    return Shadow(
+        color = CardShadowInk.copy(alpha = 0.50f),
+        offset = Offset(px, px),
+        blurRadius = px,
+    )
+}
+
+private val StatusTailWidth = 14.dp
+private val StatusTailHeight = 8.dp
+private val StatusBubbleCorner = 16.dp
+private val StatusTailStart = 12.dp
+
+private fun speechBubblePath(
+    size: Size,
+    tailW: Float,
+    tailH: Float,
+    corner: Float,
+    tailLeft: Float,
+): Path {
+    val bodyH = (size.height - tailH).coerceAtLeast(corner * 2f)
+    val radius = corner.coerceAtMost(minOf(size.width, bodyH) / 2f)
+    val body = Path().apply {
+        addRoundRect(
+            RoundRect(
+                left = 0f,
+                top = 0f,
+                right = size.width,
+                bottom = bodyH,
+                radiusX = radius,
+                radiusY = radius,
+            ),
+        )
     }
+    val tail = Path().apply {
+        val attachY = bodyH - 0.5f
+        moveTo(tailLeft + tailW * 0.18f, attachY)
+        lineTo(tailLeft + tailW, attachY)
+        lineTo(tailLeft, bodyH + tailH)
+        close()
+    }
+    return Path().apply { op(body, tail, PathOperation.Union) }
 }
 
 @Composable
@@ -504,84 +889,122 @@ private fun StatusBubble(
     onDraftChange: (String) -> Unit,
     onSave: () -> Unit,
     onClear: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val density = LocalDensity.current
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val statusSize = StatusBubbleTextSize
+    val tailW = with(density) { StatusTailWidth.toPx() }
+    val tailH = with(density) { StatusTailHeight.toPx() }
+    val corner = with(density) { StatusBubbleCorner.toPx() }
+    val tailLeft = with(density) { StatusTailStart.toPx() }
+    val strokePx = with(density) { CardStroke.toPx() }
+    val bubbleShape = remember(tailW, tailH, corner, tailLeft) {
+        GenericShape { size, _ ->
+            addPath(speechBubblePath(size, tailW, tailH, corner, tailLeft))
+        }
+    }
     LaunchedEffect(selected) {
         if (selected) {
             delay(16)
             bringIntoViewRequester.bringIntoView()
         }
     }
-    Column(horizontalAlignment = Alignment.Start) {
-        Column(
-            modifier = Modifier
-                .bringIntoViewRequester(bringIntoViewRequester)
-                .clip(shape)
-                .background(BubbleFill)
-                .then(
-                    if (selected) {
-                        Modifier.border(2.dp, FocusRing, shape)
-                    } else {
-                        Modifier
-                    },
-                )
-                .clickable {
-                    onSelect()
-                    if (!editing) onActivate()
+    Column(
+        modifier = modifier
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .padding(CardStroke)
+            .xoraForegroundShadow(
+                shape = bubbleShape,
+                offset = CardAssetShadowDp,
+                blur = CardAssetShadowDp,
+            )
+            .drawBehind {
+                val path = speechBubblePath(size, tailW, tailH, corner, tailLeft)
+                if (selected) {
+                    drawPath(
+                        path,
+                        color = FocusRing,
+                        style = Stroke(width = (strokePx + 2.dp.toPx()) * 2f, join = StrokeJoin.Round),
+                    )
                 }
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (editing) {
-                BasicTextField(
-                    value = draft,
-                    onValueChange = onDraftChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = BubbleInk),
-                    cursorBrush = SolidColor(BubbleInk),
-                    modifier = Modifier.widthIn(min = 160.dp),
-                    decorationBox = { inner ->
-                        Box {
-                            if (draft.isBlank()) {
-                                Text(
-                                    text = "Custom status…",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = BubbleInk.copy(alpha = 0.5f),
-                                )
-                            }
-                            inner()
-                        }
-                    },
+                drawPath(
+                    path,
+                    color = Color.Black,
+                    style = Stroke(width = strokePx * 2f, join = StrokeJoin.Round),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = onSave) {
-                        Text("Save", color = BubbleInk, fontWeight = FontWeight.Bold)
-                    }
-                    if (isCustom || draft.isNotBlank()) {
-                        TextButton(onClick = onClear) {
-                            Text("Clear", color = BubbleInk.copy(alpha = 0.7f))
-                        }
-                    }
-                }
-            } else {
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = BubbleInk,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                drawPath(path, brush = StatusBubbleFillBrush)
             }
+            .clip(bubbleShape)
+            .clickable {
+                onSelect()
+                if (!editing) onActivate()
+            }
+            .padding(
+                start = 12.dp,
+                end = 12.dp,
+                top = 8.dp,
+                bottom = 6.dp + StatusTailHeight,
+            ),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (editing) {
+            BasicTextField(
+                value = draft,
+                onValueChange = onDraftChange,
+                singleLine = true,
+                textStyle = TextStyle(
+                    fontFamily = XoraFonts.XmbLabel,
+                    fontSize = statusSize,
+                    color = BubbleInk,
+                ),
+                cursorBrush = SolidColor(BubbleInk),
+                modifier = Modifier.widthIn(min = 160.dp),
+                decorationBox = { inner ->
+                    Box {
+                        if (draft.isBlank()) {
+                            Text(
+                                text = "Custom status…",
+                                style = TextStyle(
+                                    fontFamily = XoraFonts.XmbLabel,
+                                    fontSize = statusSize,
+                                    color = BubbleInk.copy(alpha = 0.5f),
+                                ),
+                            )
+                        }
+                        inner()
+                    }
+                },
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onSave) {
+                    Text("Save", color = BubbleInk, fontWeight = FontWeight.Bold)
+                }
+                if (isCustom || draft.isNotBlank()) {
+                    TextButton(onClick = onClear) {
+                        Text("Clear", color = BubbleInk.copy(alpha = 0.7f))
+                    }
+                }
+            }
+        } else {
+            Text(
+                text = text,
+                style = TextStyle(
+                    fontFamily = XoraFonts.XmbLabel,
+                    fontSize = statusSize * xoraTextScale(),
+                    color = BubbleInk,
+                    letterSpacing = 0.sp,
+                ),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        BubbleTail(modifier = Modifier.padding(start = 14.dp))
     }
 }
 
 @Composable
 private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(RecentlyEarnedLabelGap)) {
         CardSectionLabel("RECENTLY EARNED")
         if (unlocks.isEmpty()) {
             Text(
@@ -590,15 +1013,19 @@ private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
                 color = Color.White.copy(alpha = 0.55f),
             )
         } else {
-            val scroll = rememberScrollState()
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(scroll),
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(RecentlyEarnedBadgeGap),
             ) {
-                unlocks.take(8).forEach { unlock ->
-                    AchievementBadge(unlock = unlock)
+                val shown = unlocks.take(RecentlyEarnedBadgeSlots)
+                shown.forEach { unlock ->
+                    AchievementBadge(
+                        unlock = unlock,
+                        modifier = Modifier.size(RecentlyEarnedBadgeSize),
+                    )
+                }
+                repeat(RecentlyEarnedBadgeSlots - shown.size) {
+                    Spacer(modifier = Modifier.size(RecentlyEarnedBadgeSize))
                 }
             }
         }
@@ -606,12 +1033,14 @@ private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
 }
 
 @Composable
-private fun AchievementBadge(unlock: RaRecentUnlock) {
+private fun AchievementBadge(
+    unlock: RaRecentUnlock,
+    modifier: Modifier = Modifier,
+) {
     val platformContext = LocalPlatformContext.current
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(8.dp)
     Box(
-        modifier = Modifier
-            .size(56.dp)
+        modifier = modifier
             .clip(shape)
             .background(Color.Black.copy(alpha = 0.25f))
             .border(2.dp, BadgeBorder, shape),
@@ -644,32 +1073,45 @@ private fun FavoriteGameSection(
             bringIntoViewRequester.bringIntoView()
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(FavoriteLabelGap)) {
         CardSectionLabel("FAVORITE GAME")
-        val artShape = RoundedCornerShape(10.dp)
+        val artShape = RoundedCornerShape(FavoritePlateRadius)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(FavoritePlateH)
                 .bringIntoViewRequester(bringIntoViewRequester)
-                .clip(RoundedCornerShape(14.dp))
                 .then(
                     if (selected) {
-                        Modifier.border(2.dp, FocusRing, RoundedCornerShape(14.dp))
+                        Modifier.border(2.dp, FocusRing, RoundedCornerShape(12.dp))
                     } else {
                         Modifier
                     },
                 )
-                .clickable(onClick = onClick)
-                .padding(4.dp),
+                .clickable(onClick = onClick),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            val density = LocalDensity.current
+            val strokePx = with(density) { Game0Border.toPx() }
+            val cornerPx = with(density) { FavoritePlateRadius.toPx() }
             Box(
                 modifier = Modifier
-                    .size(width = 150.dp, height = 88.dp)
+                    .size(width = FavoritePlateW, height = FavoritePlateH)
+                    .xoraForegroundShadow(
+                        shape = artShape,
+                        offset = CardAssetShadowDp,
+                        blur = CardAssetShadowDp,
+                    )
+                    .drawBehind {
+                        drawRoundRect(
+                            brush = ChromeStrokeBrush,
+                            cornerRadius = CornerRadius(cornerPx, cornerPx),
+                            style = Stroke(width = strokePx * 2f, join = StrokeJoin.Round),
+                        )
+                    }
                     .clip(artShape)
-                    .background(Color.Black.copy(alpha = 0.3f))
-                    .border(1.5.dp, Color.White.copy(alpha = 0.55f), artShape),
+                    .background(Color.Black.copy(alpha = 0.3f)),
                 contentAlignment = Alignment.Center,
             ) {
                 if (favorite != null && favorite.imageIconUrl.isNotBlank()) {
@@ -694,48 +1136,42 @@ private fun FavoriteGameSection(
             ) {
                 Text(
                     text = favorite?.title ?: "Add favorite",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontFamily = XoraFonts.Secondary,
+                    style = TextStyle(
+                        fontFamily = XoraFonts.XmbLabel,
+                        fontSize = 18.sp,
+                        color = Color.White,
+                        shadow = cardAssetShadow(),
                     ),
-                    color = Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (favorite == null) {
-                    Text(
-                        text = "Pick from your RetroAchievements list",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.6f),
+                    CardTitleText(
+                        text = "PICK FROM YOUR LIST",
+                        fontSize = 14.sp,
+                        fillBrush = DullFillBrush,
+                        maxLines = 1,
                     )
                 } else {
+                    val (amount, unit) = playtimeParts(favorite.playTimeMs)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        ClockMiniGlyph(tint = Color.White, modifier = Modifier.size(18.dp))
-                        val hours = TimeUnit.MILLISECONDS.toHours(favorite.playTimeMs)
-                        XoraOutlinedText(
-                            text = if (favorite.playTimeMs >= 60_000L) "$hours" else "—",
-                            fontFamily = XoraFonts.Title,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 24.sp,
-                            fillColor = PlaytimeGreen,
-                            outlineColor = OutlineInk,
-                            letterSpacing = XoraFonts.TitleLetterSpacing,
-                            maxLines = 1,
+                        ClockMiniGlyph(
+                            tint = PlaytimeFillTop,
+                            modifier = Modifier.size(20.dp),
                         )
-                        if (favorite.playTimeMs >= 60_000L) {
-                            XoraOutlinedText(
-                                text = "HR",
-                                fontFamily = XoraFonts.Title,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                fillColor = Color.White,
-                                outlineColor = OutlineInk,
-                                letterSpacing = XoraFonts.TitleLetterSpacing,
-                                maxLines = 1,
-                            )
-                        }
+                        CardTitleText(
+                            text = amount,
+                            fontSize = 20.sp,
+                            fillBrush = PlaytimeFillBrush,
+                        )
+                        CardTitleText(
+                            text = unit,
+                            fontSize = 14.sp,
+                            fillBrush = PlaytimeFillBrush,
+                        )
                     }
                 }
             }
@@ -939,73 +1375,113 @@ private fun ProfileCardFooter(
     dateText: String,
     batteryPercent: Int,
     charging: Boolean,
+    modifier: Modifier = Modifier,
 ) {
+    val footerSize = 12.sp
+    val footerStyle = TextStyle(
+        fontFamily = XoraFonts.XmbLabel,
+        fontSize = footerSize,
+        color = FooterInk,
+        shadow = cardAssetShadow(),
+    )
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(18.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         WifiGlyph(
             connected = wifiConnected,
             tint = FooterInk,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(14.dp),
         )
-        Text(
-            text = timeText,
-            style = MaterialTheme.typography.titleMedium.copy(fontFamily = XoraFonts.Secondary),
-            color = FooterInk,
-        )
-        Box(
-            modifier = Modifier
-                .width(1.5.dp)
-                .height(18.dp)
-                .background(FooterInk.copy(alpha = 0.45f)),
-        )
-        Text(
-            text = dateText,
-            style = MaterialTheme.typography.titleMedium.copy(fontFamily = XoraFonts.Secondary),
-            color = FooterInk,
-        )
+        Spacer(modifier = Modifier.weight(1f))
+        Text(text = timeText, style = footerStyle)
+        Text(text = "  |  ", style = footerStyle)
+        Text(text = dateText, style = footerStyle)
         Spacer(modifier = Modifier.weight(1f))
         BatteryGlyph(
             percent = batteryPercent,
             charging = charging,
             tint = FooterInk,
-            modifier = Modifier.size(width = 26.dp, height = 15.dp),
+            modifier = Modifier.size(width = 20.dp, height = 12.dp),
         )
+        Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
-            style = MaterialTheme.typography.titleMedium.copy(fontFamily = XoraFonts.Secondary),
-            color = FooterInk,
+            style = footerStyle,
         )
     }
 }
 
 @Composable
-private fun TrophyMiniGlyph(tint: Color, modifier: Modifier = Modifier.size(14.dp)) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val cup = Path().apply {
-            moveTo(w * 0.28f, h * 0.12f)
-            lineTo(w * 0.72f, h * 0.12f)
-            quadraticTo(w * 0.78f, h * 0.38f, w * 0.58f, h * 0.55f)
-            lineTo(w * 0.42f, h * 0.55f)
-            quadraticTo(w * 0.22f, h * 0.38f, w * 0.28f, h * 0.12f)
-            close()
-        }
-        drawPath(cup, color = tint)
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(w * 0.44f, h * 0.55f),
-            size = Size(w * 0.12f, h * 0.18f),
-            cornerRadius = CornerRadius(w * 0.04f),
+private fun PresenceDot(color: Color, modifier: Modifier = Modifier) {
+    val density = LocalDensity.current
+    val strokePx = with(density) { CardStroke.toPx() }
+    Canvas(
+        modifier = modifier
+            .size(PresenceDotSize)
+            .xoraForegroundShadow(
+                shape = CircleShape,
+                offset = CardAssetShadowDp,
+                blur = CardAssetShadowDp,
+            ),
+    ) {
+        val radius = (size.minDimension - strokePx) / 2f
+        drawCircle(color = color, radius = radius)
+        drawCircle(
+            brush = ChromeStrokeBrush,
+            radius = radius,
+            style = Stroke(width = strokePx),
         )
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(w * 0.30f, h * 0.78f),
-            size = Size(w * 0.40f, h * 0.14f),
-            cornerRadius = CornerRadius(w * 0.04f),
+    }
+}
+
+@Composable
+private fun TrophyMiniGlyph(modifier: Modifier = Modifier) {
+    val painter = painterResource(R.drawable.xmb_figma_trophy)
+    val stroke = CardStroke
+    val dirs = listOf(
+        -1 to 0, 1 to 0, 0 to -1, 0 to 1,
+        -1 to -1, 1 to -1, -1 to 1, 1 to 1,
+    )
+    Box(
+        modifier = modifier
+            .size(width = TrophyGlyphW, height = TrophyGlyphH)
+            .graphicsLayer { clip = false }
+            .xoraForegroundShadow(
+                shape = RoundedCornerShape(4.dp),
+                offset = CardAssetShadowDp,
+                blur = CardAssetShadowDp,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        dirs.forEach { (dx, dy) ->
+            Image(
+                painter = painter,
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(CardShadowInk),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .size(width = TrophyGlyphW, height = TrophyGlyphH)
+                    .offset(stroke * dx, stroke * dy)
+                    .graphicsLayer { clip = false },
+            )
+        }
+        Image(
+            painter = painter,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .size(width = TrophyGlyphW, height = TrophyGlyphH)
+                .graphicsLayer {
+                    clip = false
+                    compositingStrategy = CompositingStrategy.Offscreen
+                }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(brush = DullFillBrush, blendMode = BlendMode.SrcIn)
+                },
         )
     }
 }
@@ -1118,21 +1594,30 @@ private fun xoraPresenceColor(systemProfile: SystemProfileCardState): Color {
 }
 
 private fun formatPoints(score: Int?): String {
-    if (score == null) return "—"
-    return "%,d".format(Locale.US, score)
+    val n = (score ?: 0).coerceAtLeast(0)
+    return NumberFormat.getIntegerInstance(Locale.US).format(n)
 }
 
-private fun readBatteryPercent(context: Context): Int {
+private fun playtimeParts(playTimeMs: Long): Pair<String, String> {
+    val hours = TimeUnit.MILLISECONDS.toHours(playTimeMs)
+    return if (hours >= 1L) {
+        hours.toString() to "HR"
+    } else {
+        TimeUnit.MILLISECONDS.toMinutes(playTimeMs).toString() to "MIN"
+    }
+}
+
+internal fun readBatteryPercent(context: Context): Int {
     val manager = context.getSystemService(BatteryManager::class.java) ?: return 0
     return manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(0, 100)
 }
 
-private fun isCharging(context: Context): Boolean {
+internal fun isCharging(context: Context): Boolean {
     val manager = context.getSystemService(BatteryManager::class.java) ?: return false
     return manager.isCharging
 }
 
-private fun isWifiConnected(context: Context): Boolean {
+internal fun isWifiConnected(context: Context): Boolean {
     val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
     val network = cm.activeNetwork ?: return false
     val caps = cm.getNetworkCapabilities(network) ?: return false

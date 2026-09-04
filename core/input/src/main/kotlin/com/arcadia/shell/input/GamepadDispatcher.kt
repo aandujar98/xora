@@ -61,6 +61,28 @@ class GamepadDispatcher @Inject constructor() {
     @Volatile
     var startSettingsOpen: Boolean = false
 
+    /**
+     * True when B will dismiss the LT friends or RT profile window rather than step back
+     * inside it. The audio layer skips the generic cancel click so [UiOneShot.NavClose]
+     * can play instead.
+     */
+    @Volatile
+    var heroPanelClosesOnCancel: Boolean = false
+
+    /**
+     * True while the Vita shortcut tray is open on a bubble (not the isolated launch
+     * page). Confirm then plays [UiOneShot.BubbleLaunch] instead of the generic ok click.
+     */
+    @Volatile
+    var vitaBubbleLaunchSfx: Boolean = false
+
+    /**
+     * App audio layer registers here so Home can fire LT/RT open/close one-shots (including
+     * touch toggles) without feature modules depending on `:app`.
+     */
+    @Volatile
+    var uiOneShotPlayer: UiOneShotPlayer? = null
+
     private val _actions = MutableSharedFlow<NavAction>(extraBufferCapacity = 64)
     val actions: SharedFlow<NavAction> = _actions.asSharedFlow()
 

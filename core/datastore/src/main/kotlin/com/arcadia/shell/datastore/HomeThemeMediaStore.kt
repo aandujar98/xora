@@ -26,6 +26,9 @@ class HomeThemeMediaStore @Inject constructor(
     private val shortcutArtDir: File
         get() = File(context.filesDir, SHORTCUT_ART_DIR).also { it.mkdirs() }
 
+    private val folderDir: File
+        get() = File(context.filesDir, FOLDER_DIR).also { it.mkdirs() }
+
     /**
      * Import still image, animated GIF, or looping video (mp4/webm) as Home wallpaper.
      */
@@ -50,6 +53,14 @@ class HomeThemeMediaStore @Inject constructor(
         uri = uri,
         dir = shortcutArtDir,
         stem = "shortcut_$id",
+        defaultExt = "jpg",
+        imageOnly = true,
+    )
+
+    suspend fun importFolderImage(uri: Uri): String = importNamed(
+        uri = uri,
+        dir = folderDir,
+        stem = FOLDER_STEM,
         defaultExt = "jpg",
         imageOnly = true,
     )
@@ -148,8 +159,10 @@ class HomeThemeMediaStore @Inject constructor(
         const val WALLPAPER_DIR = "home_wallpaper"
         const val BGM_DIR = "home_bgm"
         const val SHORTCUT_ART_DIR = "home_shortcut_art"
+        const val FOLDER_DIR = "home_folder"
         private const val WALLPAPER_STEM = "wallpaper"
         private const val BGM_STEM = "bgm"
+        private const val FOLDER_STEM = "folder"
         private val WALLPAPER_IMAGE_EXTS = setOf("jpg", "jpeg", "png", "webp", "gif")
         private val WALLPAPER_VIDEO_EXTS = setOf("mp4", "webm", "mkv", "mov")
     }

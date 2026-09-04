@@ -31,11 +31,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.datastore.GAME_ART_ALIGN_STEP
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.ShellTheme
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import java.util.Locale
 
 enum class ThemesSheetTab { Presets, Customize }
 
@@ -62,6 +64,10 @@ fun ThemesSheet(
     onRequestBgm: () -> Unit,
     onClearBgm: () -> Unit,
     onManageShortcuts: () -> Unit,
+    wallpaperAlignX: Float = 0f,
+    wallpaperAlignY: Float = 0f,
+    onNudgeWallpaper: (Float, Float) -> Unit = { _, _ -> },
+    onResetWallpaper: () -> Unit = {},
     initialTab: ThemesSheetTab = ThemesSheetTab.Customize,
 ) {
     val glass = rememberGlassTokens(GlassTone.Surface)
@@ -132,6 +138,10 @@ fun ThemesSheet(
                     onRequestBgm = onRequestBgm,
                     onClearBgm = onClearBgm,
                     onManageShortcuts = onManageShortcuts,
+                    wallpaperAlignX = wallpaperAlignX,
+                    wallpaperAlignY = wallpaperAlignY,
+                    onNudgeWallpaper = onNudgeWallpaper,
+                    onResetWallpaper = onResetWallpaper,
                 )
             }
 
@@ -239,6 +249,10 @@ private fun CustomizeContent(
     onRequestBgm: () -> Unit,
     onClearBgm: () -> Unit,
     onManageShortcuts: () -> Unit,
+    wallpaperAlignX: Float,
+    wallpaperAlignY: Float,
+    onNudgeWallpaper: (Float, Float) -> Unit,
+    onResetWallpaper: () -> Unit,
 ) {
     SectionLabel("Wallpaper", content)
     Text(
@@ -262,6 +276,36 @@ private fun CustomizeContent(
         ) {
             Text(text = "Restore theme wallpaper")
         }
+    }
+    Text(
+        text = "Pan the wallpaper. Same control as cover art inside a Game Icon.",
+        color = Color.White.copy(alpha = 0.55f),
+    )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = { onNudgeWallpaper(-GAME_ART_ALIGN_STEP, 0f) }) {
+            Text("Left", color = content)
+        }
+        TextButton(onClick = { onNudgeWallpaper(0f, -GAME_ART_ALIGN_STEP) }) {
+            Text("Up", color = content)
+        }
+        TextButton(onClick = { onNudgeWallpaper(0f, GAME_ART_ALIGN_STEP) }) {
+            Text("Down", color = content)
+        }
+        TextButton(onClick = { onNudgeWallpaper(GAME_ART_ALIGN_STEP, 0f) }) {
+            Text("Right", color = content)
+        }
+        TextButton(onClick = onResetWallpaper) {
+            Text("Reset", color = content)
+        }
+    }
+    if (wallpaperAlignX != 0f || wallpaperAlignY != 0f) {
+        Text(
+            text = "Offset ${"%.2f".format(Locale.US, wallpaperAlignX)}, ${"%.2f".format(Locale.US, wallpaperAlignY)}",
+            color = Color.White.copy(alpha = 0.45f),
+        )
     }
 
     SectionLabel("Background music", content, topPad = true)

@@ -12,15 +12,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import coil3.ImageLoader
+import coil3.BitmapImage
 import coil3.SingletonImageLoader
 import coil3.asDrawable
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.size.Size
+import coil3.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
@@ -57,42 +59,66 @@ private suspend fun extractDominantAccent(context: Context, model: Any): Color? 
                 .allowHardware(false)
                 .build()
             val result = loader.execute(request) as? SuccessResult ?: return@runCatching null
-            val drawable = result.image.asDrawable(context.resources)
-            val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return@runCatching null
+            val bitmap = bitmapFromCoil(context, result) ?: return@runCatching null
             sampleVibrantColor(bitmap)
         }.getOrNull()
     }
 
+private fun bitmapFromCoil(context: Context, result: SuccessResult): Bitmap? {
+    val image = result.image
+    if (image is BitmapImage) return image.bitmap
+    runCatching { return image.toBitmap() }
+    val drawable = image.asDrawable(context.resources)
+    return (drawable as? BitmapDrawable)?.bitmap
+}
+
 /**
- * Picks a saturated, mid-brightness sample so the username stays readable on dark glass.
+ * Center-weighted hue of the disc so a pink icon yields a pink username, not a blue shirt/sky
+ * sample from the rim.
  */
 internal fun sampleVibrantColor(bitmap: Bitmap): Color? {
-    val step = max(1, min(bitmap.width, bitmap.height) / 24)
-    var bestScore = 0f
-    var bestArgb = 0
-    var found = false
+    val width = bitmap.width
+    val height = bitmap.height
+    if (width <= 0 || height <= 0) return null
+    val step = max(1, min(width, height) / 32)
+    val cx = (width - 1) / 2f
+    val cy = (height - 1) / 2f
+    val radius = min(width, height) / 2f
+
+    val bucketCount = 18
+    val sumR = FloatArray(bucketCount)
+    val sumG = FloatArray(bucketCount)
+    val sumB = FloatArray(bucketCount)
+    val weight = FloatArray(bucketCount)
 
     var y = 0
-    while (y < bitmap.height) {
+    while (y < height) {
         var x = 0
-        while (x < bitmap.width) {
-            val pixel = bitmap.getPixel(x, y)
-            val a = (pixel ushr 24) and 0xFF
-            if (a >= 160) {
-                val r = (pixel shr 16) and 0xFF
-                val g = (pixel shr 8) and 0xFF
-                val b = pixel and 0xFF
-                val maxC = max(r, max(g, b)).toFloat()
-                val minC = min(r, min(g, b)).toFloat()
-                val lightness = (maxC + minC) / (2f * 255f)
-                val saturation = if (maxC <= 0f) 0f else (maxC - minC) / maxC
-                // Prefer vivid mid-tones; skip near-black / near-white.
-                if (lightness in 0.18f..0.82f && saturation >= 0.12f) {
-                    val score = saturation * 1.35f + (1f - kotlin.math.abs(lightness - 0.52f))
-                    if (!found || score > bestScore) {
-                        bestScore = score
-                        bestArgb = pixel or 0xFF000000.toInt()
-                        found = true
+        while (x < width) {
+            val dx = x - cx
+            val dy = y - cy
+            val dist = hypot(dx, dy)
+            if (dist <= radius * 0.92f) {
+                val pixel = bitmap.getPixel(x, y)
+                val a = (pixel ushr 24) and 0xFF
+                if (a >= 160) {
+                    val r = (pixel shr 16) and 0xFF
+                    val g = (pixel shr 8) and 0xFF
+                    val b = pixel and 0xFF
+                    val maxC = max(r, max(g, b)).toFloat()
+                    val minC = min(r, min(g, b)).toFloat()
+                    val lightness = (maxC + minC) / (2f * 255f)
+                    val saturation = if (maxC <= 0f) 0f else (maxC - minC) / maxC
+                    if (lightness in 0.12f..0.88f && saturation >= 0.08f) {
+                        val hue = hueDegrees(r, g, b)
+                        val bucket = ((hue / 360f) * bucketCount).toInt().coerceIn(0, bucketCount - 1)
+                        val centerW = 1.35f - (dist / radius)
+                        val score = saturation * 1.1f + (1f - kotlin.math.abs(lightness - 0.52f))
+                        val w = centerW * score
+                        sumR[bucket] += r * w
+                        sumG[bucket] += g * w
+                        sumB[bucket] += b * w
+                        weight[bucket] += w
                     }
                 }
             }
@@ -101,16 +127,45 @@ internal fun sampleVibrantColor(bitmap: Bitmap): Color? {
         y += step
     }
 
-    if (!found) return null
-    val color = Color(bestArgb)
-    // Lift very dark accents so pink/green usernames stay punchy on charcoal glass.
+    var best = -1
+    var bestWeight = 0f
+    for (i in weight.indices) {
+        if (weight[i] > bestWeight) {
+            bestWeight = weight[i]
+            best = i
+        }
+    }
+    if (best < 0 || bestWeight <= 0f) return null
+    val color = Color(
+        red = (sumR[best] / bestWeight / 255f).coerceIn(0f, 1f),
+        green = (sumG[best] / bestWeight / 255f).coerceIn(0f, 1f),
+        blue = (sumB[best] / bestWeight / 255f).coerceIn(0f, 1f),
+    )
     return boostForUsername(color)
+}
+
+private fun hueDegrees(r: Int, g: Int, b: Int): Float {
+    val rf = r / 255f
+    val gf = g / 255f
+    val bf = b / 255f
+    val maxC = max(rf, max(gf, bf))
+    val minC = min(rf, min(gf, bf))
+    val delta = maxC - minC
+    if (delta <= 1e-5f) return 0f
+    val hue = when (maxC) {
+        rf -> ((gf - bf) / delta) % 6f
+        gf -> (bf - rf) / delta + 2f
+        else -> (rf - gf) / delta + 4f
+    }
+    var deg = hue * 60f
+    if (deg < 0f) deg += 360f
+    return deg
 }
 
 private fun boostForUsername(color: Color): Color {
     val hsv = FloatArray(3)
     android.graphics.Color.colorToHSV(color.toArgb(), hsv)
-    hsv[1] = hsv[1].coerceIn(0.45f, 0.95f)
-    hsv[2] = hsv[2].coerceIn(0.62f, 0.96f)
+    hsv[1] = hsv[1].coerceIn(0.28f, 0.92f)
+    hsv[2] = hsv[2].coerceIn(0.58f, 0.96f)
     return Color(android.graphics.Color.HSVToColor(hsv))
 }

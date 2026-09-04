@@ -212,13 +212,16 @@ internal class DiscordSocialSdkBridge {
             return
         }
         // ActivityTypes::Playing == 0 in Social SDK.
+        // Discord rejects state/details unless they are 2–128 characters — pass null, not "".
+        val safeDetails = details?.trim()?.takeIf { it.length >= 2 }
+        val safeState = state?.trim()?.takeIf { it.length >= 2 }
         runCatching {
-            Log.i(TAG, "nativeSetActivity details=$details state=$state name=$name")
+            Log.i(TAG, "nativeSetActivity details=$safeDetails state=$safeState name=$name")
             nativeSetActivity(
                 activityType = 0,
                 name = name,
-                state = state,
-                details = details,
+                state = safeState,
+                details = safeDetails,
                 startSecs = startUnixSeconds,
                 endSecs = 0L,
                 largeImage = null,

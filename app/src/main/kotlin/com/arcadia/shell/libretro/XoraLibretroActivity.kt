@@ -1,16 +1,26 @@
 package com.arcadia.shell.libretro
 
 import android.Manifest
+import android.app.AppOpsManager
+import android.app.UiModeManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.res.Configuration
+import android.provider.Settings
+import android.os.PowerManager
+import android.view.accessibility.AccessibilityManager
+import android.widget.ScrollView
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
+import android.util.Log
+import android.view.PixelCopy
 import android.graphics.drawable.GradientDrawable
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.hardware.input.InputManager
 import android.media.AudioAttributes
@@ -19,6 +29,7 @@ import android.media.AudioTrack
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -77,12 +88,16 @@ import com.arcadia.shell.display.DisplayRefresh
 import com.arcadia.shell.display.DisplayTopologyMonitor
 import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.SecondaryDisplayPane
+import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.EmulatorMenuAction
 import com.arcadia.shell.feature.home.EmulatorSaveSlotUi
+import com.arcadia.shell.feature.home.GameCompanionController
 import com.arcadia.shell.feature.home.LocalInGameXmbController
 import com.arcadia.shell.feature.home.NetplayInvitePrompt
 import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
 import com.arcadia.shell.feature.home.XoraInGameXmbController
+import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
+import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
 import com.arcadia.shell.feature.home.component.NetplaySeatOption
 import com.arcadia.shell.feature.home.component.NetplaySeatPickerDialog
@@ -130,6 +145,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -173,6 +189,8 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var avatarStore: ProfileAvatarStore
     @Inject lateinit var xoraNetwork: XoraNetworkRepository
     @Inject lateinit var xoraCookies: XoraNetworkAuthCookies
+    @Inject lateinit var discordRichPresence: DiscordRichPresence
+    @Inject lateinit var gameCompanionController: GameCompanionController
 
     @Volatile private var menuOpen = false
     /** True while the in-game menu is showing or the user left Pause on. */
@@ -259,6 +277,40 @@ class XoraLibretroActivity : ComponentActivity() {
     private val bitmapLock = Any()
     /** Keeps pinning the window opaque while this activity is in the foreground. */
     private var washGuardJob: Job? = null
+    private var washFramePosted = false
+    /** The window background drawable only needs loading once; reloading it churns the decor. */
+    private var opaqueWindowBackgroundSet = false
+    /** Force-dark is a render-time lift: views still report black, PixelCopy comes back grey. */
+    private var forceDarkPinned = false
+    /**
+     * Overlay-hide and display-pipeline pins have no cheap getters. Re-assert on resume / focus,
+     * not every vsync — [setHideOverlayWindows] talks to WindowManager.
+     */
+    private var displayPipelinePinned = false
+    /**
+     * Host for RA unlock banners and the dual-screen pane. It is added directly above the game
+     * stage and below the side menu, which is the one z-band that tints the framebuffer without
+     * touching the overlay — so it is kept GONE unless it genuinely has something to show.
+     */
+    private var bannerOverlay: ComposeView? = null
+    @Volatile private var bannerHostNeeded = false
+    /** Long-press the profile disc: on-screen wash report. Removed on tap. */
+    private var washReport: View? = null
+    private val washFrameCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            washFramePosted = false
+            if (isFinishing || activityInBackground) return
+            reconcileMenuState()
+            pinOpaqueWindow()
+            if (!menuOpen) pinGameplaySurface()
+            if (seatPickerOpen || invitePromptOpen) {
+                dialogOverlay?.bringToFront()
+            } else {
+                keepProfileChipOnTop()
+            }
+            postWashFrame()
+        }
+    }
 
     /**
      * Dedicated emu thread for every Libretro JNI call (load / run / serialize / unload).
@@ -279,6 +331,8 @@ class XoraLibretroActivity : ComponentActivity() {
     private var romFilePath: String? = null
     private var selectHeld = false
     private var startHeld = false
+    /** Latches the Select+Start chord so one press is one toggle, not one per auto-repeat. */
+    private var chordFired = false
     private var xoraSettings = XoraEmulatorSettings()
     private var raSettings = RetroAchievementsSettings()
     private var expandActive by mutableStateOf(false)
@@ -304,6 +358,7 @@ class XoraLibretroActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyXoraScreenOrientation()
         // Reinforce theme animations (some OEMs ignore windowAnimationStyle on NEW_TASK).
         @Suppress("DEPRECATION")
         overridePendingTransition(
@@ -336,6 +391,7 @@ class XoraLibretroActivity : ComponentActivity() {
         window.setFormat(PixelFormat.OPAQUE)
         val root = FrameLayout(this).apply {
             setBackgroundColor(AndroidColor.BLACK)
+            isForceDarkAllowed = false
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -376,6 +432,8 @@ class XoraLibretroActivity : ComponentActivity() {
             )
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         }
+        bannerOverlay = banners
+        banners.visibility = View.GONE
         root.addView(banners)
 
         val xmb = ComposeView(this).apply {
@@ -554,6 +612,14 @@ class XoraLibretroActivity : ComponentActivity() {
             val settings by preferences.settings.collectAsStateWithLifecycle(
                 initialValue = ShellSettings(),
             )
+            // An always-VISIBLE Compose host over a live framebuffer is a wash waiting to happen,
+            // and this one has nothing to draw the vast majority of a session. Show it only while
+            // a banner is up or the dual-screen pane is mounted.
+            val activeBanner by shellNotifications.active.collectAsStateWithLifecycle()
+            LaunchedEffect(activeBanner, expandActive) {
+                bannerHostNeeded = activeBanner != null || expandActive
+                syncBannerHost()
+            }
             val xora by preferences.xoraEmulatorSettings.collectAsStateWithLifecycle(
                 initialValue = XoraEmulatorSettings(),
             )
@@ -857,7 +923,9 @@ class XoraLibretroActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         activityInBackground = false
+        displayPipelinePinned = false
         applyOpaqueWindow()
+        pinGameplaySurfaceRepeatedly()
         DisplayRefresh.preferSixtyHertz(window)
         startWashGuard()
         if (gameLoaded) restartAudio()
@@ -881,13 +949,29 @@ class XoraLibretroActivity : ComponentActivity() {
         super.onWindowFocusChanged(hasFocus)
         // Regaining focus is exactly when a toast or system window has just gone away, which is
         // when the wash used to appear — so restore the whole window state, not just immersive.
-        if (hasFocus && !menuOpen) applyOpaqueWindow()
+        if (!hasFocus) {
+            // Key-ups are not delivered once focus moves, so the chord halves would stay latched
+            // and every later key press would toggle the menu.
+            selectHeld = false
+            startHeld = false
+            chordFired = false
+        }
+        if (hasFocus) {
+            displayPipelinePinned = false
+            reconcileMenuState()
+            pinDisplayPipeline()
+            if (!menuOpen) {
+                applyOpaqueWindow()
+                pinGameplaySurfaceRepeatedly()
+            }
+        }
     }
 
     override fun onPause() {
         // Always snapshot before Android may kill us. Skipping this on configuration
         // changes used to reboot every core after a clamshell close / fold.
         activityInBackground = true
+        displayPipelinePinned = false
         persistSessionForBackground()
         stopWashGuard()
         uiSounds.onBackground()
@@ -983,8 +1067,16 @@ class XoraLibretroActivity : ComponentActivity() {
                         return true
                     }
                 }
+                // Edge-triggered. Chord keys are exempt from the repeat filter above, so a
+                // level-triggered test fired toggleMenu() on every auto-repeat while the chord was
+                // held — flipping the menu open/closed ~20x a second and leaving menuOpen wherever
+                // the release happened to land. A stale `true` then silently gates off every wash
+                // defence in this file, which is exactly the tint that would not go away.
                 if (selectHeld && startHeld) {
-                    toggleMenu()
+                    if (!chordFired) {
+                        chordFired = true
+                        toggleMenu()
+                    }
                     return true
                 }
                 if (keyCode == KeyEvent.KEYCODE_BACK) {
@@ -1021,6 +1113,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     KeyEvent.KEYCODE_NUMPAD_ENTER,
                     -> startHeld = false
                 }
+                if (!selectHeld || !startHeld) chordFired = false
                 if (menuOpen) {
                     val mappedBit = LibretroPad.padButtonFor(event, customMappings)
                     val consumed = LibretroPad.run { event.isFromGameController(customMappings) } ||
@@ -1200,16 +1293,13 @@ class XoraLibretroActivity : ComponentActivity() {
 
     private fun openMenu() {
         if (menuOpen || isFinishing) return
-        val overlay = xmbOverlay ?: return
+        if (xmbOverlay == null) return
         refreshSaveSlots()
         refreshAchievementList()
         menuOpen = true
         releasePointer()
         syncPaused()
-        overlay.visibility = View.VISIBLE
-        overlay.alpha = 1f
-        overlay.setBackgroundColor(AndroidColor.BLACK)
-        overlay.bringToFront()
+        attachMenuOverlay()
         keepProfileChipOnTop()
         uiSounds.playConfirm()
     }
@@ -1260,11 +1350,22 @@ class XoraLibretroActivity : ComponentActivity() {
         hideSoftKeyboard()
         syncPaused()
         dissolveWashLayers()
+        detachMenuOverlay()
         menuMessageJob?.cancel()
         menuMessage = null
+        // Sleep/wake is what actually clears this wash: SurfaceFlinger drops the display
+        // mode and HWUI destroys the overlay's hardware layer. Do both here.
+        flushHardwareLayer(xmbOverlay)
+        flushHardwareLayer(window.decorView)
+        DisplayRefresh.rebind(window)
+        opaqueWindowBackgroundSet = false
+        forceDarkPinned = false
+        displayPipelinePinned = false
         applyOpaqueWindow()
-        pinGameplaySurface()
+        pinGameplaySurfaceRepeatedly()
         keepProfileChipOnTop()
+        postWashFrame()
+        gameRoot?.postDelayed({ showWashProbeIfSystemHit() }, WASH_CHECK_DELAY_MS)
     }
 
     private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
@@ -2111,14 +2212,27 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun applyOpaqueWindow() {
         pinOpaqueWindow()
         if (!menuOpen) {
-            pinGameplaySurface()
+            pinGameplaySurfaceAndRepaint()
             window.decorView.requestFocus()
         }
     }
 
+    /**
+     * Runs on every vsync, so every write here has to be conditional.
+     *
+     * The unconditional version of this was its own wash: `setFormat`, `setBackgroundDrawable*`
+     * and the bar-colour setters each dispatch window attributes to WindowManager, and
+     * `ImmersiveMode.apply` posts a fresh insets request. Firing all of that 60 times a second
+     * kept the window in a permanent relayout / insets animation, and a window caught mid-relayout
+     * blends what is behind it through *everything* it holds — the game and the opaque side menu
+     * alike, which is exactly what the tint looked like. Read first, write only on a real mismatch.
+     */
     private fun pinOpaqueWindow() {
         if (isFinishing) return
-        window.setFormat(PixelFormat.OPAQUE)
+        if (window.attributes.format != PixelFormat.OPAQUE) {
+            window.setFormat(PixelFormat.OPAQUE)
+        }
+        // Window.setFlags already no-ops when nothing changed.
         @Suppress("DEPRECATION")
         window.clearFlags(
             WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
@@ -2127,46 +2241,85 @@ class XoraLibretroActivity : ComponentActivity() {
         )
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            window.isNavigationBarContrastEnforced = false
-            window.isStatusBarContrastEnforced = false
+            if (window.isNavigationBarContrastEnforced) {
+                window.isNavigationBarContrastEnforced = false
+            }
+            if (window.isStatusBarContrastEnforced) {
+                window.isStatusBarContrastEnforced = false
+            }
         }
         @Suppress("DEPRECATION")
         run {
-            window.statusBarColor = AndroidColor.BLACK
-            window.navigationBarColor = AndroidColor.BLACK
+            if (window.statusBarColor != AndroidColor.BLACK) {
+                window.statusBarColor = AndroidColor.BLACK
+            }
+            if (window.navigationBarColor != AndroidColor.BLACK) {
+                window.navigationBarColor = AndroidColor.BLACK
+            }
         }
-        window.setBackgroundDrawableResource(android.R.color.black)
-        window.decorView.setBackgroundColor(AndroidColor.BLACK)
-        ImmersiveMode.apply(window)
-        gameRoot?.setBackgroundColor(AndroidColor.BLACK)
+        if (!opaqueWindowBackgroundSet) {
+            opaqueWindowBackgroundSet = true
+            window.setBackgroundDrawableResource(android.R.color.black)
+        }
+        if (!forceDarkPinned) {
+            forceDarkPinned = true
+            disableForceDark(window.decorView)
+        }
+        paintBlack(window.decorView)
+        // A window animation left mid-flight parks LayoutParams.alpha below 1, and the bright
+        // shell behind then blends straight through the emulator window. Nothing reset it, so
+        // that wash outlived every clear we had, the profile disc included.
+        val attrs = window.attributes
+        if (attrs.alpha != 1f || attrs.dimAmount != 0f) {
+            attrs.alpha = 1f
+            attrs.dimAmount = 0f
+            window.attributes = attrs
+        }
+        ImmersiveMode.keepHidden(window)
+        pinDisplayPipeline()
+        clearParentWashLayers()
+        paintBlack(gameRoot)
         stage?.apply {
-            setLayerType(View.LAYER_TYPE_NONE, null)
-            setBackgroundColor(AndroidColor.BLACK)
-            alpha = 1f
+            if (layerType != View.LAYER_TYPE_NONE) setLayerType(View.LAYER_TYPE_NONE, null)
+            paintBlack(this)
+            if (alpha != 1f) alpha = 1f
+        }
+    }
+
+    /** setBackgroundColor mutates and invalidates unconditionally, so check the colour first. */
+    private fun paintBlack(view: View?) {
+        view ?: return
+        if ((view.background as? ColorDrawable)?.color != AndroidColor.BLACK) {
+            view.setBackgroundColor(AndroidColor.BLACK)
         }
     }
 
     /**
      * Gameplay-only pin: overlay closed, user is playing. Drive leftover overlay opacity all
      * the way to transparent so a white scrim cannot sit on the framebuffer.
+     *
+     * Every presented frame calls this. A timer alone loses the race: the wash is reapplied
+     * from the compositor side, so anything slower than the present rate lets it show through.
+     * All the setters below no-op when the value already matches, so a clean frame costs
+     * a handful of field reads inside a callback that was going to run anyway.
      */
     private fun pinGameplaySurface() {
         if (isFinishing || menuOpen) return
         dissolveWashLayers()
-        gameRoot?.setBackgroundColor(AndroidColor.BLACK)
-        primaryGameView?.apply {
-            setLayerType(View.LAYER_TYPE_NONE, null)
-            setBackgroundColor(AndroidColor.BLACK)
-            alpha = 1f
-            colorFilter = null
-            imageAlpha = 255
-            visibility = View.VISIBLE
-        }
+        paintBlack(gameRoot)
+        pinGameImage(primaryGameView)
+        pinGameImage(secondaryGameView)
         stage?.apply {
-            setBackgroundColor(AndroidColor.BLACK)
-            alpha = 1f
-            visibility = View.VISIBLE
+            paintBlack(this)
+            if (alpha != 1f) alpha = 1f
+            if (visibility != View.VISIBLE) visibility = View.VISIBLE
         }
+    }
+
+    /** [pinGameplaySurface] plus the chip restack and a framebuffer repaint, for event paths. */
+    private fun pinGameplaySurfaceAndRepaint() {
+        if (isFinishing || menuOpen) return
+        pinGameplaySurface()
         keepProfileChipOnTop()
         synchronized(bitmapLock) {
             val src = gameBitmap
@@ -2177,10 +2330,91 @@ class XoraLibretroActivity : ComponentActivity() {
         }
     }
 
+    private fun pinGameImage(view: ImageView?) {
+        view?.apply {
+            if (layerType != View.LAYER_TYPE_NONE) setLayerType(View.LAYER_TYPE_NONE, null)
+            paintBlack(this)
+            if (alpha != 1f) alpha = 1f
+            if (colorFilter != null) colorFilter = null
+            if (imageTintList != null) imageTintList = null
+            if (backgroundTintList != null) backgroundTintList = null
+            if (imageAlpha != 255) imageAlpha = 255
+            (drawable as? BitmapDrawable)?.bitmap?.takeIf { it.hasAlpha() }?.setHasAlpha(false)
+            if (visibility != View.VISIBLE) visibility = View.VISIBLE
+        }
+    }
+
+    /**
+     * OEM wash often lands a few frames after Resume / menu close. Re-pin now and again
+     * shortly after so the leftover scrim cannot sit on the framebuffer.
+     */
+    private fun pinGameplaySurfaceRepeatedly() {
+        pinGameplaySurfaceAndRepaint()
+        val root = gameRoot ?: return
+        val again: Runnable = Runnable {
+            displayPipelinePinned = false
+            pinDisplayPipeline()
+            pinGameplaySurfaceAndRepaint()
+        }
+        root.post(again)
+        root.postDelayed(again, 50)
+        root.postDelayed(again, 160)
+        root.postDelayed(again, 400)
+    }
+
     /**
      * If a wash is still attached, fade it to fully transparent instead of leaving it opaque
      * and GONE (some OEMs still composite a GONE ComposeView).
      */
+    private fun attachMenuOverlay() {
+        val overlay = xmbOverlay ?: return
+        val root = gameRoot ?: return
+        if (overlay.parent == null) {
+            val dialogs = dialogOverlay
+            val chip = profileChip
+            val index = when {
+                dialogs?.parent === root -> root.indexOfChild(dialogs)
+                chip?.parent === root -> root.indexOfChild(chip)
+                else -> root.childCount
+            }.coerceAtLeast(0)
+            root.addView(overlay, index)
+        }
+        overlay.visibility = View.VISIBLE
+        overlay.alpha = 1f
+        overlay.setBackgroundColor(AndroidColor.BLACK)
+        overlay.isClickable = true
+        overlay.isFocusable = false
+        overlay.bringToFront()
+    }
+
+    /**
+     * GONE is not enough on some handhelds: HWUI keeps compositing the last frame of a
+     * detached-but-still-parented ComposeView. Sleep/wake destroys that layer because the
+     * view tree's hardware resources go with the surface. [ViewGroup.removeView] is the
+     * same teardown without leaving the activity.
+     */
+    private fun detachMenuOverlay() {
+        val overlay = xmbOverlay ?: return
+        overlay.alpha = 0f
+        overlay.visibility = View.GONE
+        overlay.setBackgroundColor(AndroidColor.TRANSPARENT)
+        overlay.isClickable = false
+        overlay.isFocusable = false
+        if (overlay.hasComposition) overlay.disposeComposition()
+        flushHardwareLayer(overlay)
+        (overlay.parent as? ViewGroup)?.removeView(overlay)
+    }
+
+    private fun flushHardwareLayer(view: View?) {
+        view ?: return
+        if (view.layerType != View.LAYER_TYPE_NONE) {
+            view.setLayerType(View.LAYER_TYPE_NONE, null)
+        } else {
+            view.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            view.setLayerType(View.LAYER_TYPE_NONE, null)
+        }
+    }
+
     private fun dissolveWashLayers() {
         if (isFinishing) return
         val attrs = window.attributes
@@ -2188,18 +2422,110 @@ class XoraLibretroActivity : ComponentActivity() {
             attrs.dimAmount = 0f
             window.attributes = attrs
         }
-        xmbOverlay?.apply {
-            alpha = 0f
-            visibility = View.GONE
-            setBackgroundColor(AndroidColor.TRANSPARENT)
-            isClickable = false
-            isFocusable = false
+        if (xmbOverlay?.parent != null) {
+            detachMenuOverlay()
         }
+        // The dialog host is MATCH_PARENT and stacks above the stage. syncDialogOverlay is the
+        // only thing that ever hid it, so a seat picker / invite that lost its close published a
+        // full-screen Compose sheet the gameplay pin never looked at.
+        if (!seatPickerOpen && !invitePromptOpen) {
+            dialogOverlay?.apply {
+                if (visibility != View.GONE) visibility = View.GONE
+                alpha = 0f
+                setBackgroundColor(AndroidColor.TRANSPARENT)
+                isClickable = false
+                if (hasComposition) disposeComposition()
+            }
+        }
+        syncBannerHost()
+        clearParentWashLayers()
+    }
+
+    /**
+     * Keeps the banner host out of the compositor whenever it has nothing to show.
+     *
+     * GONE rather than transparent on purpose: a ComposeView with a live composition still hands
+     * HWUI a layer to blend, and blending anything over the framebuffer is exactly the artefact
+     * this window keeps growing back.
+     */
+    private fun syncBannerHost() {
+        val host = bannerOverlay ?: return
+        val want = if (bannerHostNeeded) View.VISIBLE else View.GONE
+        if (host.visibility != want) host.visibility = want
+        if (!bannerHostNeeded) {
+            if (host.alpha != 0f) host.alpha = 0f
+            if (host.layerType != View.LAYER_TYPE_NONE) {
+                host.setLayerType(View.LAYER_TYPE_NONE, null)
+            }
+            if (host.hasComposition) host.disposeComposition()
+        } else if (host.alpha != 1f) {
+            host.alpha = 1f
+        }
+    }
+
+    /**
+     * The layers every earlier pin missed: the stage's *parents*. A stale hardware layer, a
+     * leftover foreground scrim (windowContentOverlay lives on the content parent), or a sub-1
+     * alpha on the decor / content / root tints everything underneath, and no amount of
+     * resetting the game ImageView or the overlay below it can shift that.
+     */
+    private fun clearParentWashLayers() {
+        val decor = window.decorView
+        clearWashOn(decor)
+        clearWashOn(findViewById<View>(android.R.id.content))
+        clearWashOn(gameRoot)
+    }
+
+    private fun clearWashOn(view: View?) {
+        view ?: return
+        if (view.alpha != 1f) view.alpha = 1f
+        if (view.foreground != null) view.foreground = null
+        if (view.backgroundTintList != null) view.backgroundTintList = null
+        if (view.foregroundTintList != null) view.foregroundTintList = null
+        if (view.layerType != View.LAYER_TYPE_NONE) view.setLayerType(View.LAYER_TYPE_NONE, null)
+        view.overlay.clear()
+        if (view.isForceDarkAllowed) view.isForceDarkAllowed = false
+    }
+
+    private fun disableForceDark(view: View?) {
+        view ?: return
+        if (view.isForceDarkAllowed) view.isForceDarkAllowed = false
+        if (Build.VERSION.SDK_INT >= 31) view.setRenderEffect(null)
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) disableForceDark(view.getChildAt(i))
+        }
+    }
+
+    private fun restoreShellPresence() {
+        if (discordRichPresence.state.value.activity is DiscordPresenceActivity.Playing) {
+            discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
+        }
+        gameCompanionController.endSession()
+    }
+
+    /**
+     * Every gameplay reset in this file is gated on [menuOpen]. A flag that can outlive the view it
+     * describes therefore switches all of them off at once and nothing says so, so reconcile it
+     * against the overlay that is actually on screen.
+     */
+    private fun reconcileMenuState() {
+        if (!menuOpen || isFinishing) return
+        val overlay = xmbOverlay ?: return
+        val showing = overlay.parent != null &&
+            overlay.visibility == View.VISIBLE &&
+            overlay.alpha > 0.01f
+        if (showing) return
+        menuOpen = false
+        syncPaused()
+        pinGameplaySurfaceRepeatedly()
     }
 
     /** Tap the profile disc — the kill switch when the automatic pin still leaves a wash. */
     private fun clearWhiteTintFromProfileTap() {
         if (isFinishing) return
+        // The kill switch never takes the lesser path: reconcile first, because a stale menu flag
+        // is precisely what stops the real clear below from running.
+        reconcileMenuState()
         pinOpaqueWindow()
         if (menuOpen) {
             val attrs = window.attributes
@@ -2210,10 +2536,351 @@ class XoraLibretroActivity : ComponentActivity() {
             showMenuMessage("White tint cleared")
         } else {
             dissolveWashLayers()
-            pinGameplaySurface()
+            pinGameplaySurfaceRepeatedly()
         }
         keepProfileChipOnTop()
         uiSounds.playConfirm()
+        DisplayRefresh.rebind(window)
+        displayPipelinePinned = false
+        pinDisplayPipeline()
+    }
+
+    /**
+     * The wash PixelCopy cannot see: other windows and the display colour pipeline.
+     *
+     * [Window.setHideOverlayWindows] drops `TYPE_APPLICATION_OVERLAY` dimmers / filters that sit
+     * on this display. [Window.setPreferMinimalPostProcessing] asks the panel to skip extra
+     * colour transforms (vivid modes, motion processing) that lift blacks after our buffer is
+     * already clean. Companion overlay lives on the second display, so hiding overlays here
+     * does not take that panel down.
+     */
+    private fun pinDisplayPipeline() {
+        if (isFinishing) return
+        if (window.colorMode != ActivityInfo.COLOR_MODE_DEFAULT) {
+            window.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
+        }
+        if (displayPipelinePinned) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setPreferMinimalPostProcessing(true)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && xoraSettings.blockOverlayWash) {
+            runCatching { window.setHideOverlayWindows(true) }
+        }
+        displayPipelinePinned = true
+    }
+
+    /**
+     * Answers the one question reading the code cannot: is the wash inside this window or not?
+     *
+     * [PixelCopy] reads back what *this window* actually composited. Comparing the centre of the
+     * game rect against the same pixel in [gameBitmap] — the frame we handed the ImageView — splits
+     * the problem in half. If the readback matches the source, nothing in our view tree tinted it
+     * and the wash is above the window (system dim, an accessibility or OEM overlay, a display
+     * colour transform). If it does not match, the wash is ours, and the layer dump says which view.
+     */
+    private fun runWashDiagnostics(auto: Boolean = false) {
+        val root = gameRoot ?: return
+        val view = primaryGameView ?: return
+        // Measuring our own overlay would blame a leftover report for the wash.
+        hideWashReport()
+        val report = StringBuilder()
+
+        val attrs = window.attributes
+        report.appendLine("WINDOW")
+        report.appendLine("  alpha=${attrs.alpha} dim=${attrs.dimAmount} format=${attrs.format}")
+        report.appendLine("  flags=0x${Integer.toHexString(attrs.flags)}")
+        report.appendLine("  colorMode=${window.colorMode} wide=${window.isWideColorGamut}")
+        report.appendLine("  menuOpen=$menuOpen paused=$paused")
+        report.appendLine(collectSystemWashProbe(includeOverlayApps = true).asText())
+
+        report.appendLine("LAYERS >=40% of window, front to back")
+        val covering = mutableListOf<String>()
+        collectCoveringViews(window.decorView, root.width * root.height, covering)
+        if (covering.isEmpty()) report.appendLine("  (none)") else covering.forEach {
+            report.appendLine("  $it")
+        }
+
+        val location = IntArray(2)
+        view.getLocationInWindow(location)
+        val sampleX = location[0] + view.width / 2
+        val sampleY = location[1] + view.height / 2
+        val expected = synchronized(bitmapLock) {
+            val src = gameBitmap
+            if (src != null && !src.isRecycled && src.width > 0 && src.height > 0) {
+                src.getPixel(src.width / 2, src.height / 2)
+            } else {
+                null
+            }
+        }
+
+        val shot = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+        PixelCopy.request(window, shot, { result ->
+            var washDetected = false
+            report.appendLine("PIXEL AT GAME CENTRE (${sampleX}, ${sampleY})")
+            if (result != PixelCopy.SUCCESS) {
+                report.appendLine("  readback failed: $result")
+            } else {
+                val actual = runCatching { shot.getPixel(sampleX, sampleY) }.getOrNull()
+                report.appendLine("  source frame  = ${hexColor(expected)}")
+                report.appendLine("  composited    = ${hexColor(actual)}")
+                if (expected != null && actual != null) {
+                    val dr = AndroidColor.red(actual) - AndroidColor.red(expected)
+                    val dg = AndroidColor.green(actual) - AndroidColor.green(expected)
+                    val db = AndroidColor.blue(actual) - AndroidColor.blue(expected)
+                    report.appendLine("  delta         = r$dr g$dg b$db")
+                    washDetected = dr > WASH_DELTA && dg > WASH_DELTA && db > WASH_DELTA
+                    report.appendLine(
+                        if (washDetected) {
+                            "  => WASH IS INSIDE THIS WINDOW. Blame a layer listed above."
+                        } else {
+                            "  => window buffer is clean. If you still see a tint, it is " +
+                                "applied AFTER this window. See SYSTEM / OVERLAY APPS above."
+                        },
+                    )
+                }
+            }
+            shot.recycle()
+            Log.i("XoraWash", report.toString())
+            if (!auto) {
+                copyWashReport(report.toString())
+                showWashReport(report.toString())
+            }
+        }, root.handler)
+    }
+
+    private data class WashSystemProbe(
+        val lines: List<String>,
+        val hits: List<String>,
+    ) {
+        fun asText(): String = buildString {
+            appendLine("SYSTEM")
+            lines.forEach { appendLine("  $it") }
+            appendLine("VERDICT")
+            if (hits.isEmpty()) {
+                appendLine("  no Extra Dim / Night Light / inversion / colour-correction flag is on.")
+                appendLine("  if the tint is still visible, it is an OEM colour profile or a")
+                appendLine("  3rd-party overlay we cannot see from this process.")
+            } else {
+                hits.forEach { appendLine("  ON  $it") }
+            }
+        }
+    }
+
+    /**
+     * Reads the flags the PixelCopy dump cannot see: Extra Dim, Night Light, colour inversion,
+     * colour correction, night UI, battery saver, and apps that hold SYSTEM_ALERT_WINDOW.
+     */
+    private fun collectSystemWashProbe(includeOverlayApps: Boolean): WashSystemProbe {
+        val lines = mutableListOf<String>()
+        val hits = mutableListOf<String>()
+
+        fun flag(key: String): String =
+            runCatching {
+                when (Settings.Secure.getInt(contentResolver, key, -1)) {
+                    1 -> "ON"
+                    0 -> "off"
+                    else -> "n/a"
+                }
+            }.getOrElse { "n/a" }
+
+        fun hit(label: String, on: Boolean) {
+            if (on) hits.add(label)
+        }
+
+        val extraDim = flag("reduce_bright_colors_activated")
+        val extraDimLevel = runCatching {
+            Settings.Secure.getInt(contentResolver, "reduce_bright_colors_level", -1)
+        }.getOrDefault(-1)
+        val nightLight = flag("night_display_activated")
+        val inversion = flag("accessibility_display_inversion_enabled")
+        val daltonizer = flag("accessibility_display_daltonizer_enabled")
+        val highContrast = flag("high_text_contrast_enabled").let { v ->
+            if (v != "n/a") v else flag("accessibility_high_text_contrast_enabled")
+        }
+        lines += "extra dim (reduce_bright_colors) = $extraDim" +
+            if (extraDimLevel >= 0) " level=$extraDimLevel" else ""
+        lines += "night light                     = $nightLight"
+        lines += "colour inversion                = $inversion"
+        lines += "colour correction               = $daltonizer"
+        lines += "high contrast                   = $highContrast"
+        hit("Extra Dim — Settings → Display → Extra dim", extraDim == "ON")
+        hit("Night Light — Settings → Display → Night Light", nightLight == "ON")
+        hit("Colour inversion — Settings → Accessibility → Colour inversion", inversion == "ON")
+        hit("Colour correction — Settings → Accessibility → Colour correction", daltonizer == "ON")
+        hit("High contrast text — Settings → Accessibility", highContrast == "ON")
+
+        val uiMode = getSystemService(UiModeManager::class.java)
+        val nightMode = when (uiMode?.nightMode) {
+            UiModeManager.MODE_NIGHT_YES -> "YES"
+            UiModeManager.MODE_NIGHT_NO -> "no"
+            UiModeManager.MODE_NIGHT_AUTO -> "auto"
+            UiModeManager.MODE_NIGHT_CUSTOM -> "custom"
+            else -> "n/a"
+        }
+        val cfgNight = when (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) {
+            Configuration.UI_MODE_NIGHT_YES -> "YES"
+            Configuration.UI_MODE_NIGHT_NO -> "no"
+            else -> "undefined"
+        }
+        lines += "ui nightMode / config           = $nightMode / $cfgNight"
+        if (nightMode == "YES" || cfgNight == "YES") {
+            hit("Dark theme / night UI mode", true)
+        }
+
+        val power = getSystemService(PowerManager::class.java)
+        val saver = power?.isPowerSaveMode == true
+        lines += "battery saver                   = ${if (saver) "ON" else "off"}"
+        hit("Battery saver (can grey the panel)", saver)
+
+        val a11y = getSystemService(AccessibilityManager::class.java)
+        val a11yOn = a11y?.isEnabled == true
+        val services = a11y?.getEnabledAccessibilityServiceList(
+            android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK,
+        ).orEmpty()
+        lines += "accessibility enabled           = $a11yOn services=${services.size}"
+        services.take(8).forEach { info ->
+            val id = info.id.ifBlank { info.resolveInfo?.serviceInfo?.packageName }.orEmpty()
+            lines += "  a11y $id"
+            if (id.isNotBlank()) hit("Accessibility service $id", true)
+        }
+
+        val display = window.decorView.display
+        val mode = display?.mode
+        lines += "display mode                    = ${mode?.physicalWidth}x${mode?.physicalHeight}" +
+            "@${mode?.refreshRate?.let { "%.1f".format(it) }}Hz id=${mode?.modeId}"
+        lines += "display wideColor / hdr         = ${display?.isWideColorGamut} / " +
+            "${display?.hdrCapabilities?.supportedHdrTypes?.contentToString() ?: "[]"}"
+        lines += "window colorMode                = ${window.colorMode}"
+        val brightness = runCatching {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, -1)
+        }.getOrDefault(-1)
+        val brightMode = runCatching {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, -1)
+        }.getOrDefault(-1)
+        lines += "brightness / auto               = $brightness / " +
+            if (brightMode == Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC) "auto" else "manual"
+
+        if (includeOverlayApps) {
+            val overlays = overlayCapablePackages()
+            lines += "apps allowed to draw overlays   = ${overlays.size}"
+            overlays.take(12).forEach { lines += "  overlay $it" }
+            overlays.filterNot {
+                it == packageName || it.startsWith("com.android.") || it.startsWith("android")
+            }.forEach { hit("Overlay app $it (Settings → Apps → Special access → Display over other apps)", true) }
+        }
+
+        return WashSystemProbe(lines, hits)
+    }
+
+    private fun overlayCapablePackages(): List<String> {
+        val appOps = getSystemService(AppOpsManager::class.java) ?: return emptyList()
+        val apps = runCatching {
+            packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+        }.getOrDefault(emptyList())
+        return apps.mapNotNull { app ->
+            val mode = runCatching {
+                appOps.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW,
+                    app.uid,
+                    app.packageName,
+                )
+            }.getOrDefault(AppOpsManager.MODE_DEFAULT)
+            if (mode == AppOpsManager.MODE_ALLOWED) app.packageName else null
+        }.sorted()
+    }
+
+    private fun showWashProbeIfSystemHit() {
+        if (isFinishing || menuOpen) return
+        val probe = collectSystemWashProbe(includeOverlayApps = true)
+        Log.i("XoraWash", probe.asText())
+        if (probe.hits.isEmpty()) return
+        showWashReport(
+            buildString {
+                appendLine("WASH PROBE — overlay just closed")
+                probe.hits.forEach { appendLine("ON  $it") }
+                appendLine()
+                appendLine("These sit above the emulator window. Sleep/wake")
+                appendLine("clears a leftover compositor state; turning the")
+                appendLine("flag off stops it coming back.")
+                appendLine("Long-press the profile disc for the full dump")
+                appendLine("(also copied to the clipboard). Tap to dismiss.")
+            },
+        )
+    }
+
+    private fun copyWashReport(text: String) {
+        runCatching {
+            getSystemService(ClipboardManager::class.java)
+                ?.setPrimaryClip(ClipData.newPlainText("XOrA wash probe", text))
+        }
+    }
+
+    private fun collectCoveringViews(view: View, windowArea: Int, out: MutableList<String>) {
+        if (windowArea <= 0) return
+        if (view.visibility != View.VISIBLE) return
+        if (view.width * view.height * 100 >= windowArea * 40) {
+            val bg = (view.background as? ColorDrawable)
+                ?.let { "#" + Integer.toHexString(it.color) }
+                ?: view.background?.javaClass?.simpleName
+                ?: "none"
+            val tint = (view as? ImageView)?.imageTintList?.defaultColor?.let {
+                "#" + Integer.toHexString(it)
+            } ?: "none"
+            out.add(
+                "${view.javaClass.simpleName} ${view.width}x${view.height} " +
+                    "alpha=${view.alpha} layer=${view.layerType} bg=$bg " +
+                    "fg=${view.foreground?.javaClass?.simpleName ?: "none"} " +
+                    "elev=${view.elevation} forceDark=${view.isForceDarkAllowed} tint=$tint",
+            )
+        }
+        if (view is ViewGroup) {
+            for (i in view.childCount - 1 downTo 0) {
+                collectCoveringViews(view.getChildAt(i), windowArea, out)
+            }
+        }
+    }
+
+    private fun hexColor(color: Int?): String =
+        if (color == null) "n/a" else "#" + Integer.toHexString(color).padStart(8, '0')
+
+    private fun hideWashReport() {
+        val root = gameRoot ?: return
+        washReport?.let { root.removeView(it) }
+        washReport = null
+    }
+
+    /** On-screen because the whole point is to read it on the handheld the wash happens on. */
+    private fun showWashReport(text: String) {
+        val root = gameRoot ?: return
+        hideWashReport()
+        val density = resources.displayMetrics.density
+        val pad = (12 * density).toInt()
+        val view = TextView(this).apply {
+            setBackgroundColor(AndroidColor.argb(210, 0, 0, 0))
+            setTextColor(AndroidColor.WHITE)
+            textSize = 10f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(pad, pad, pad, pad)
+            this.text = text
+            isForceDarkAllowed = false
+        }
+        val host = ScrollView(this).apply {
+            isForceDarkAllowed = false
+            isClickable = true
+            setBackgroundColor(AndroidColor.argb(210, 0, 0, 0))
+            layoutParams = FrameLayout.LayoutParams(
+                (root.width * 0.78f).toInt().coerceAtLeast((420 * density).toInt()),
+                (root.height * 0.70f).toInt().coerceAtLeast((220 * density).toInt()),
+                Gravity.TOP or Gravity.START,
+            ).apply {
+                leftMargin = pad
+                topMargin = pad
+            }
+            addView(view)
+            setOnClickListener { hideWashReport() }
+        }
+        washReport = host
+        root.addView(host)
     }
 
     private fun keepProfileChipOnTop() {
@@ -2273,6 +2940,10 @@ class XoraLibretroActivity : ComponentActivity() {
             contentDescription = "Clear white tint"
             elevation = 24f * density
             setOnClickListener { clearWhiteTintFromProfileTap() }
+            setOnLongClickListener {
+                runWashDiagnostics()
+                true
+            }
         }
         chip.addView(image)
         chip.addView(letter)
@@ -2338,35 +3009,36 @@ class XoraLibretroActivity : ComponentActivity() {
 
     /**
      * Runs while the activity is RESUMED — overlay open **and** closed / playing.
-     * A 250 ms ticker is enough to catch OEM white-wash; vsync pinning was waking
-     * both AMOLED panels every frame for work that does not need to be that hot.
+     * Vsync is used so the pin is not starved by the frame present queue. A 250 ms
+     * ticker loses that race and the wash shows through.
      */
     private fun startWashGuard() {
         washGuardJob?.cancel()
         washGuardJob = lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                while (true) {
-                    runWashGuardTick()
-                    delay(WASH_GUARD_MS)
+                postWashFrame()
+                try {
+                    awaitCancellation()
+                } finally {
+                    Choreographer.getInstance().removeFrameCallback(washFrameCallback)
+                    washFramePosted = false
                 }
             }
         }
+        postWashFrame()
     }
 
     private fun stopWashGuard() {
         washGuardJob?.cancel()
         washGuardJob = null
+        Choreographer.getInstance().removeFrameCallback(washFrameCallback)
+        washFramePosted = false
     }
 
-    private fun runWashGuardTick() {
-        if (isFinishing || activityInBackground) return
-        pinOpaqueWindow()
-        if (!menuOpen) pinGameplaySurface()
-        if (seatPickerOpen || invitePromptOpen) {
-            dialogOverlay?.bringToFront()
-        } else {
-            keepProfileChipOnTop()
-        }
+    private fun postWashFrame() {
+        if (washFramePosted || isFinishing || activityInBackground) return
+        washFramePosted = true
+        Choreographer.getInstance().postFrameCallback(washFrameCallback)
     }
 
     private fun restartAudio() {
@@ -2890,20 +3562,24 @@ class XoraLibretroActivity : ComponentActivity() {
                     var top = gameBitmap
                     if (top == null || top.width != w || top.height != topH || top.isRecycled) {
                         top = Bitmap.createBitmap(w, topH, Bitmap.Config.ARGB_8888)
+                        top.setHasAlpha(false)
                         gameBitmap = top
                         primaryGameView?.setImageBitmap(top)
                     }
                     top.setPixels(pixels, 0, w, 0, 0, w, topH)
+                    top.setHasAlpha(false)
 
                     var bottom = bottomBitmap
                     if (bottom == null || bottom.width != w || bottom.height != bottomH ||
                         bottom.isRecycled
                     ) {
                         bottom = Bitmap.createBitmap(w, bottomH, Bitmap.Config.ARGB_8888)
+                        bottom.setHasAlpha(false)
                         bottomBitmap = bottom
                         secondaryGameView?.setImageBitmap(bottom)
                     }
                     bottom.setPixels(pixels, topH * w, w, 0, 0, w, bottomH)
+                    bottom.setHasAlpha(false)
                     stage?.let { stageView ->
                         if (stageView.contentWidthPx != w || stageView.contentHeightPx != topH) {
                             stageView.contentWidthPx = w
@@ -2918,10 +3594,12 @@ class XoraLibretroActivity : ComponentActivity() {
                     var bmp = gameBitmap
                     if (bmp == null || bmp.width != w || bmp.height != h || bmp.isRecycled) {
                         bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        bmp.setHasAlpha(false)
                         gameBitmap = bmp
                         primaryGameView?.setImageBitmap(bmp)
                     }
                     bmp.setPixels(pixels, 0, w, 0, 0, w, h)
+                    bmp.setHasAlpha(false)
                     stage?.let { stageView ->
                         if (stageView.contentWidthPx != w || stageView.contentHeightPx != h) {
                             stageView.contentWidthPx = w
@@ -2933,6 +3611,7 @@ class XoraLibretroActivity : ComponentActivity() {
             primaryGameView?.invalidate()
             secondaryGameView?.invalidate()
             frameTick++
+            if (!menuOpen) pinGameplaySurface()
         }
     }
 
@@ -2966,6 +3645,7 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             primaryGameView?.invalidate()
             frameTick++
+            if (!menuOpen) pinGameplaySurface()
         }
     }
 
@@ -2979,6 +3659,7 @@ class XoraLibretroActivity : ComponentActivity() {
         xoraNetwork.setPlayingLine(null)
         xoraNetwork.setRealtimeEnabled(false)
         closeMenu()
+        restoreShellPresence()
         super.finish()
         @Suppress("DEPRECATION")
         overridePendingTransition(
@@ -3021,6 +3702,7 @@ class XoraLibretroActivity : ComponentActivity() {
         inputManager = null
         netplaySession?.stop()
         netplaySession = null
+        restoreShellPresence()
         stopWashGuard()
         closeMenu()
         runJob?.cancel()
@@ -3048,9 +3730,11 @@ class XoraLibretroActivity : ComponentActivity() {
     companion object {
         /** Loop tick while paused / backgrounded, where no frames are produced. */
         private const val IDLE_TICK_MS = 200L
-        /** OEM white-wash pin. Does not need vsync; 4 Hz is enough to catch a leftover scrim. */
-        private const val WASH_GUARD_MS = 250L
         private const val MENU_MESSAGE_MS = 2_600L
+        /** Per-channel lift over the source frame before a readback counts as washed. */
+        private const val WASH_DELTA = 6
+        /** Long enough for the close animation and a fresh frame to land. */
+        private const val WASH_CHECK_DELAY_MS = 700L
         private val chordKeys = setOf(
             KeyEvent.KEYCODE_BUTTON_SELECT,
             KeyEvent.KEYCODE_BUTTON_START,

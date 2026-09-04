@@ -162,6 +162,7 @@ class ShellSystemNotifier @Inject constructor(
     private fun channelFor(notification: ShellNotification): String = when (notification) {
         is ShellNotification.GameDownloading,
         is ShellNotification.InstallComplete,
+        is ShellNotification.UpdateAvailable,
         -> CHANNEL_DOWNLOADS
         else -> CHANNEL_SOCIAL
     }
@@ -169,6 +170,7 @@ class ShellSystemNotifier @Inject constructor(
     private fun groupFor(notification: ShellNotification): String = when (notification) {
         is ShellNotification.GameDownloading,
         is ShellNotification.InstallComplete,
+        is ShellNotification.UpdateAvailable,
         -> GROUP_DOWNLOADS
         else -> GROUP_SOCIAL
     }
@@ -185,6 +187,7 @@ class ShellSystemNotifier @Inject constructor(
         -> NotificationCompat.CATEGORY_SOCIAL
         is ShellNotification.AchievementUnlocked,
         is ShellNotification.RetroAchievementsSignedIn,
+        is ShellNotification.UpdateAvailable,
         -> NotificationCompat.CATEGORY_STATUS
         is ShellNotification.GameDownloading,
         is ShellNotification.InstallComplete,

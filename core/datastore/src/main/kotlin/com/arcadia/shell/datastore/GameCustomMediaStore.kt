@@ -10,7 +10,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Imports per-ROM custom box art, background (hero), and sound bites into app-private storage.
+ * Imports per-ROM (and per-album / per-track) custom box art, background (hero / wallpaper,
+ * still or video), idle trailers, and sound bites into app-private storage.
  */
 @Singleton
 class GameCustomMediaStore @Inject constructor(
@@ -28,11 +29,22 @@ class GameCustomMediaStore @Inject constructor(
     suspend fun importSoundBite(gameId: String, uri: Uri): String =
         importNamed(uri, stemFor(gameId, "bite"), defaultExt = "mp3", imageOnly = false)
 
+    suspend fun importIdleVideo(gameId: String, uri: Uri): String =
+        importNamed(uri, stemFor(gameId, "idle"), defaultExt = "mp4", imageOnly = false)
+
     fun clearBoxArt(gameId: String) = clearStem(stemFor(gameId, "box"))
 
     fun clearBackground(gameId: String) = clearStem(stemFor(gameId, "hero"))
 
     fun clearSoundBite(gameId: String) = clearStem(stemFor(gameId, "bite"))
+
+    fun clearIdleVideo(gameId: String) = clearStem(stemFor(gameId, "idle"))
+
+    fun findBoxArt(gameId: String): String? = findStem(stemFor(gameId, "box"))
+
+    fun findBackground(gameId: String): String? = findStem(stemFor(gameId, "hero"))
+
+    fun findIdleVideo(gameId: String): String? = findStem(stemFor(gameId, "idle"))
 
     private fun stemFor(gameId: String, kind: String): String {
         val safe = gameId.lowercase().replace(Regex("[^a-z0-9._-]"), "_").take(80)
@@ -44,6 +56,12 @@ class GameCustomMediaStore @Inject constructor(
             ?.filter { it.isFile && it.name.startsWith("$stem.") }
             ?.forEach { it.delete() }
     }
+
+    private fun findStem(stem: String): String? =
+        root.listFiles()
+            ?.filter { it.isFile && it.name.startsWith("$stem.") && it.length() > 0L }
+            ?.maxByOrNull { it.lastModified() }
+            ?.absolutePath
 
     private suspend fun importNamed(
         uri: Uri,
@@ -92,6 +110,10 @@ class GameCustomMediaStore @Inject constructor(
             mime.contains("webp") -> "webp"
             mime.contains("gif") -> "gif"
             mime.contains("jpeg") || mime.contains("jpg") -> "jpg"
+            mime.contains("mp4") || mime.contains("mpeg4") -> "mp4"
+            mime.contains("webm") -> "webm"
+            mime.contains("matroska") || mime.contains("mkv") -> "mkv"
+            mime.contains("quicktime") -> "mov"
             mime.contains("mpeg") || mime.contains("mp3") -> "mp3"
             mime.contains("ogg") -> "ogg"
             mime.contains("wav") -> "wav"

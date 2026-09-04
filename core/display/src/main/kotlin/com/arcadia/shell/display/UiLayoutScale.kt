@@ -18,7 +18,13 @@ fun computeUiLayoutScale(display: ShellDisplay?): Float {
     val longPx = max(display.widthPx, display.heightPx).toFloat()
     val byShort = shortPx / REF_SHORT_PX
     val byLong = longPx / REF_LONG_PX
-    val resolutionScale = min(byShort, byLong)
+    // Square panels (RG Rotate, Cube) are not a 16:9 strip. Scaling by the missing long edge
+    // would shrink chrome as if the device were a tiny 720×1280.
+    val resolutionScale = if (isNearSquarePanel(display.widthPx, display.heightPx)) {
+        byShort
+    } else {
+        min(byShort, byLong)
+    }
 
     // Soften extreme DPI so a sharp 1080p handheld does not blow up chrome vs a 1080p TV.
     val density = (display.densityDpi / 160f).coerceIn(1f, 4f)

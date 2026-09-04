@@ -87,8 +87,11 @@ fun hintsForPage(
     displayMode: DisplayMode = DisplayMode.Dual,
     homeHub: HomeHubUiState? = null,
     xmbDepth: XoraXmbDepth? = null,
+    raGameDetailOpen: Boolean = false,
 ): List<Pair<String, String>> = when (page) {
     HomePage.Home -> when {
+        homeHub?.vitaShortcutTrayOpen == true && homeHub.vitaShortcutLaunch != null ->
+            VitaShortcutLaunchHints
         homeHub?.vitaShortcutTrayOpen == true && homeHub.shortcutsEditMode ->
             VitaShortcutTrayEditHints
         homeHub?.vitaShortcutTrayOpen == true -> VitaShortcutTrayHints
@@ -100,6 +103,8 @@ fun hintsForPage(
         xmbDepth == XoraXmbDepth.NowPlaying -> XoraNowPlayingHints
         xmbDepth == XoraXmbDepth.Photos -> XoraPhotoHints
         xmbDepth == XoraXmbDepth.Dashboard -> XoraDashboardHints
+        xmbDepth == XoraXmbDepth.RaLibrary && raGameDetailOpen -> RaCheevoGridHints
+        xmbDepth == XoraXmbDepth.RaLibrary -> RaLibraryHints
         else -> XoraXmbHints
     }
     HomePage.GameSelector -> if (displayMode == DisplayMode.Single) {
@@ -108,13 +113,14 @@ fun hintsForPage(
         GameSelectorHints
     }
     HomePage.RssFeed -> RssFeedHints
-    HomePage.RaLibrary -> RaLibraryHints
+    HomePage.RaLibrary -> if (raGameDetailOpen) RaCheevoGridHints else RaLibraryHints
 }
 
 /** Classic XOrA XMB: LB/RB cycle categories; Start focuses Settings. */
 val XoraXmbHints: List<Pair<String, String>> = listOf(
     "L/R" to "Category",
     "U/D" to "Item",
+    "Swipe" to "Move",
     "LB/RB" to "Category",
     "A" to "Select",
     "B" to "Back",
@@ -143,6 +149,7 @@ val XoraMusicBrowseHints: List<Pair<String, String>> = listOf(
     "U/D" to "Browse",
     "A" to "Open",
     "B" to "Back",
+    "Select" to "Customize",
     "LT" to "Circle",
     "RT" to "Profile / Alerts",
     "Start" to "Settings",
@@ -201,8 +208,18 @@ val XoraRomBrowseHints: List<Pair<String, String>> = listOf(
 )
 
 /** Vita bubble tray over Home XMB. */
+val VitaShortcutLaunchHints: List<Pair<String, String>> = listOf(
+    "A" to "Peel to start",
+    "Drag corner" to "Peel",
+    "B" to "Back",
+    "X" to "Achievements",
+    "LT" to "Circle",
+    "RT" to "Profile / Alerts",
+)
+
 val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
     "L/R" to "Shortcut",
+    "U/D" to "Page",
     "A" to "Open",
     "Select" to "Edit",
     "Y" to "Close",
@@ -214,6 +231,7 @@ val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
 
 val VitaShortcutTrayEditHints: List<Pair<String, String>> = listOf(
     "L/R" to "Shortcut",
+    "U/D" to "Page",
     "A" to "Add / Remove",
     "Select" to "Done",
     "Y" to "Close",
@@ -295,10 +313,17 @@ val RssFeedHints: List<Pair<String, String>> = listOf(
 val RaLibraryHints: List<Pair<String, String>> = listOf(
     "U/D" to "Game",
     "L/R" to "Tab",
-    "A" to "Open in library",
+    "LB/RB" to "Platform",
+    "A" to "Cheevos",
     "B" to "Back",
-    "LB/RB" to "Home",
-    "X" to "This game",
+    "LT" to "Social",
+    "Start+Select" to "Guide",
+)
+
+val RaCheevoGridHints: List<Pair<String, String>> = listOf(
+    "U/D/L/R" to "Cheevo",
+    "LB/RB" to "Platform",
+    "B" to "Games",
     "LT" to "Social",
     "Start+Select" to "Guide",
 )
@@ -340,6 +365,7 @@ val SystemMenuHints: List<Pair<String, String>> = listOf(
 val StartSettingsHints: List<Pair<String, String>> = listOf(
     "U/D" to "Move",
     "L/R" to "Category",
+    "Swipe" to "Scroll",
     "LB/RB" to "Category",
     "A" to "Activate",
     "B" to "Close",

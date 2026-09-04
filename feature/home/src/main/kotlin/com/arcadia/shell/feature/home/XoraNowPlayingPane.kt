@@ -27,10 +27,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.arcadia.shell.designsystem.GlassIntensity
-import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
-import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.feature.home.component.CoverArt
 import com.arcadia.shell.feature.home.component.ProgressTrack
 import com.arcadia.shell.launcher.music.NowPlayingState
@@ -82,10 +80,8 @@ fun XoraNowPlayingPane(
                     width = (CARD_WIDTH * unit).dp,
                     height = (CARD_HEIGHT * unit).dp,
                 )
-                .liquidGlass(
+                .xoraModalGlass(
                     shape = RoundedCornerShape((CARD_RADIUS * unit).dp),
-                    tone = GlassTone.OverMedia,
-                    intensity = GlassIntensity.Strong,
                 ),
         )
 

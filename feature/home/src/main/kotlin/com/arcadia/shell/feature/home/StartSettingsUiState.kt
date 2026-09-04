@@ -1,6 +1,7 @@
 package com.arcadia.shell.feature.home
 
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.ThemeMode
@@ -69,6 +70,7 @@ sealed interface StartSettingsAction {
     data object SwitchDisplayMode : StartSettingsAction
     data object CycleSecondaryRole : StartSettingsAction
     data object CycleTrailerDisplay : StartSettingsAction
+    data object CycleGameIconIdleMedia : StartSettingsAction
     data object CycleThemeMode : StartSettingsAction
     data object CycleFeedColumns : StartSettingsAction
     data object CycleUiTextScale : StartSettingsAction
@@ -125,6 +127,7 @@ sealed interface StartSettingsAction {
     data object EditHome : StartSettingsAction
     data object EditProfile : StartSettingsAction
     data object ScanEmulators : StartSettingsAction
+    data object InstallLatestUpdate : StartSettingsAction
     data object OpenAllSettings : StartSettingsAction
     data object Reboot : StartSettingsAction
     data object PowerDown : StartSettingsAction
@@ -187,10 +190,20 @@ fun buildStartSettingsRows(
             id = "trailer_display",
             title = "Trailer display",
             subtitle = when (settings.trailerDisplayMode) {
+                TrailerDisplayMode.InIcon -> "Game icon"
                 TrailerDisplayMode.FullBackground -> "Full background"
                 TrailerDisplayMode.CornerPip -> "Corner PIP"
             },
             action = StartSettingsAction.CycleTrailerDisplay,
+        ),
+        StartSettingsRow.Action(
+            id = "game_icon_idle",
+            title = "Game Icon idle",
+            subtitle = when (settings.gameIconIdleMedia) {
+                GameIconIdleMedia.Trailer -> "Trailers"
+                GameIconIdleMedia.Screenshot -> "Screenshots"
+            },
+            action = StartSettingsAction.CycleGameIconIdleMedia,
         ),
         StartSettingsRow.Action(
             id = "theme",
@@ -204,7 +217,7 @@ fun buildStartSettingsRows(
         ),
         StartSettingsRow.Action(
             id = "feed_columns",
-            title = "Feed columns",
+            title = "Library columns",
             subtitle = settings.gridColumns.toString(),
             action = StartSettingsAction.CycleFeedColumns,
         ),
@@ -532,6 +545,12 @@ fun buildStartSettingsRows(
             title = "Scan for emulators",
             subtitle = "Detect Cemu, Eden, Dolphin, RetroArch cores…",
             action = StartSettingsAction.ScanEmulators,
+        ),
+        StartSettingsRow.Action(
+            id = "update",
+            title = "Update",
+            subtitle = "Check for a new XOrA version",
+            action = StartSettingsAction.InstallLatestUpdate,
         ),
         StartSettingsRow.Action(
             id = "all_settings",

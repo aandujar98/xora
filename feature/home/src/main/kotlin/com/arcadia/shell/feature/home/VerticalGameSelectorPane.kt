@@ -1,10 +1,9 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,9 +35,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -54,9 +56,13 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LiquidGlassSurface
-import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.launchBackdropScale
+import com.arcadia.shell.designsystem.ArcadiaArt
+import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
@@ -69,6 +75,7 @@ import com.arcadia.shell.feature.home.component.xmb.XmbGameTile
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import kotlinx.coroutines.delay
 
 /**
  * Full-bleed single-screen vertical XMB.
@@ -115,16 +122,12 @@ fun VerticalGameSelectorPane(
     onSignOutRetroAchievements: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val launchProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-        label = "verticalSelectorLaunch",
-    )
+    val cinematic = rememberLaunchCinematic(state.isLaunching)
+    val launchProgress = cinematic.chrome
     val accountExpanded = state.accountPanelExpanded && !state.isLaunching
     val systemExpanded = state.systemPanelExpanded && !state.isLaunching
     val achievementsExpanded = state.achievementsPanelExpanded && !state.isLaunching
-    val chromeAlpha = 1f - launchProgress
-    val chromeSlidePx = launchProgress * 72f
+    val artworkScale = launchBackdropScale(cinematic.zoom)
     var profileEditing by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.profileEditRequest) {
@@ -135,73 +138,105 @@ fun VerticalGameSelectorPane(
         state.trailer.active && state.trailer.displayMode == TrailerDisplayMode.FullBackground
 
     // Wallpaper base → ROM hero on top when scraped art exists (never the reverse).
-    Box(modifier = modifier.fillMaxSize()) {
-        HomeWallpaper(
-            customPath = state.homeHub.wallpaperPath,
-            dim = false,
-            modifier = Modifier.fillMaxSize(),
-        )
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val metrics = remember(maxHeight, maxWidth) {
-                VerticalSelectorMetrics.from(maxHeight, maxWidth)
-            }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+                .graphicsLayer { alpha = cinematic.wallpaperAlpha },
+        ) {
+            HomeWallpaper(
+                customPath = state.homeHub.wallpaperPath,
+                dim = false,
+                dimBlendMode = BlendMode.Multiply,
+                alignX = state.homeHub.wallpaperAlignX,
+                alignY = state.homeHub.wallpaperAlignY,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = artworkScale
+                        scaleY = artworkScale
+                    },
+            )
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val paneWidth = maxWidth
+                val paneHeight = maxHeight
+                val metrics = remember(paneHeight, paneWidth) {
+                    VerticalSelectorMetrics.from(paneHeight, paneWidth)
+                }
 
-            SoftHeroBackdrop(
-                game = state.selectedGame,
-                dimForTrailer = fullBackgroundTrailer,
-                modifier = Modifier.fillMaxSize(),
-            )
-            HeroTrailerLayer(
-                state = state.trailer,
-                modifier = Modifier.fillMaxSize(),
-            )
-            if (fullBackgroundTrailer) {
+                SoftHeroBackdrop(
+                    game = state.selectedGame,
+                    scrimAlpha = 1f - launchProgress,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = artworkScale
+                            scaleY = artworkScale
+                        },
+                )
+                HeroTrailerLayer(
+                    state = state.trailer,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = artworkScale
+                            scaleY = artworkScale
+                        },
+                )
+                if (fullBackgroundTrailer) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = 1f - launchProgress }
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Black.copy(alpha = 0.22f),
+                                        Color.Black.copy(alpha = 0.40f),
+                                    ),
+                                ),
+                            ),
+                    )
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Black.copy(alpha = 0.22f),
-                                    Color.Black.copy(alpha = 0.40f),
+                        .graphicsLayer { alpha = 1f - launchProgress },
+                ) {
+                    // Soft high-key veil for title legibility — keeps hero visible full-bleed.
+                    val density = LocalDensity.current
+                    val washCenter = with(density) {
+                        Offset(paneWidth.toPx() * 0.55f, paneHeight.toPx() * 0.35f)
+                    }
+                    val washRadius = with(density) { paneWidth.toPx() * 0.85f }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.10f),
+                                        Color.White.copy(alpha = 0.03f),
+                                        Color.Transparent,
+                                    ),
+                                    center = washCenter,
+                                    radius = washRadius,
                                 ),
                             ),
-                        ),
-                )
-            }
-
-            // Soft high-key veil for title legibility — keeps hero visible full-bleed.
-            val density = LocalDensity.current
-            val washCenter = with(density) {
-                Offset(maxWidth.toPx() * 0.55f, maxHeight.toPx() * 0.35f)
-            }
-            val washRadius = with(density) { maxWidth.toPx() * 0.85f }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = 0.28f),
-                                Color.White.copy(alpha = 0.08f),
-                                Color.Transparent,
-                            ),
-                            center = washCenter,
-                            radius = washRadius,
-                        ),
-                    ),
-            )
+                    )
 
             if (state.games.isEmpty()) {
                 VerticalEmptyNotice(
                     isScanning = state.scanProgress.isRunning,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = metrics.topChrome, bottom = 12.dp)
-                        .graphicsLayer {
-                            alpha = chromeAlpha
-                            translationY = chromeSlidePx
-                        },
+                        .padding(top = metrics.topChrome, bottom = 12.dp),
                 )
             } else {
                 Row(
@@ -212,11 +247,7 @@ fun VerticalGameSelectorPane(
                             end = 20.dp,
                             top = metrics.topChrome,
                             bottom = 8.dp,
-                        )
-                        .graphicsLayer {
-                            alpha = chromeAlpha
-                            translationY = chromeSlidePx
-                        },
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     VerticalGameColumn(
@@ -249,6 +280,7 @@ fun VerticalGameSelectorPane(
                 profileAvatarModel = state.profileAvatarModel,
                 accountRows = state.accountPanelRows,
                 selectedRowIndex = state.accountPanelSelectedIndex,
+                hideCollapsedChrome = state.activeNotificationPresent,
                 onToggle = onToggleAccountPanel,
                 onSelectTab = onSelectSocialTab,
                 onSelectRow = onSelectAccountRow,
@@ -258,11 +290,7 @@ fun VerticalGameSelectorPane(
                 onClearNotifications = onClearNotifications,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                    .graphicsLayer {
-                        alpha = chromeAlpha
-                        translationY = -chromeSlidePx
-                    },
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
             )
             SystemPill(
                 profile = state.profile,
@@ -282,11 +310,7 @@ fun VerticalGameSelectorPane(
                 onClearCustomStatus = onClearCustomStatus,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                    .graphicsLayer {
-                        alpha = chromeAlpha
-                        translationY = -chromeSlidePx
-                    },
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
             )
 
             AchievementsPill(
@@ -301,12 +325,10 @@ fun VerticalGameSelectorPane(
                     .padding(
                         end = 20.dp,
                         bottom = metrics.mediaHeight + 20.dp,
-                    )
-                    .graphicsLayer {
-                        alpha = chromeAlpha
-                        translationY = chromeSlidePx
-                    },
+                    ),
             )
+
+                }
 
             if (profileEditing) {
                 ProfileEditSheet(
@@ -325,6 +347,7 @@ fun VerticalGameSelectorPane(
                     onClearAvatar = onClearAvatar,
                     xoraSignedIn = state.dashboard.network.signedIn,
                 )
+            }
             }
         }
     }
@@ -370,33 +393,59 @@ private data class VerticalSelectorMetrics(
 @Composable
 private fun SoftHeroBackdrop(
     game: Game?,
-    dimForTrailer: Boolean,
     modifier: Modifier = Modifier,
+    scrimAlpha: Float = 1f,
 ) {
-    Box(modifier = modifier) {
-        val artPath = game?.heroImagePath ?: game?.boxArtPath
-        // Skip the opaque empty fallback so the home wallpaper underneath stays visible.
-        if (!artPath.isNullOrBlank() && !dimForTrailer) {
-            ArtworkImage(
-                path = artPath,
-                contentDescription = null,
-                fallbackText = "",
-                contentScale = ContentScale.Crop,
-                cacheInMemory = false,
-                decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
-                modifier = Modifier.fillMaxSize(),
-            )
+    val reduceMotion = rememberReduceMotion()
+    val target = game?.heroImagePath ?: game?.boxArtPath ?: ""
+    var committed by remember { mutableStateOf(target) }
+    LaunchedEffect(target, reduceMotion) {
+        if (target == committed) return@LaunchedEffect
+        if (target.isBlank()) {
+            committed = ""
+            return@LaunchedEffect
+        }
+        if (!reduceMotion) delay(XMB_GAME_SELECT_SETTLE_MS)
+        committed = target
+    }
+    Box(modifier = modifier.clipToBounds()) {
+        Crossfade(
+            targetState = committed,
+            animationSpec = tween(
+                durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                easing = FastOutSlowInEasing,
+            ),
+            label = "verticalRomHero",
+        ) { artPath ->
+            val browseZoom = rememberHeroBrowseZoom(artPath)
+            if (artPath.isNotBlank()) {
+                ArtworkImage(
+                    path = artPath,
+                    contentDescription = null,
+                    fallbackText = "",
+                    contentScale = ContentScale.Crop,
+                    cacheInMemory = true,
+                    decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = browseZoom
+                            scaleY = browseZoom
+                        },
+                )
+            }
         }
         // Light legibility wash over full-opacity ROM art — never dims the artwork itself.
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer { alpha = scrimAlpha }
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0.0f to Color.Black.copy(alpha = 0.12f),
+                            0.0f to Color.Black.copy(alpha = 0.10f),
                             0.45f to Color.Transparent,
-                            1.0f to Color.Black.copy(alpha = 0.18f),
+                            1.0f to Color.Black.copy(alpha = 0.10f),
                         ),
                     ),
                 ),
@@ -485,8 +534,9 @@ private fun VerticalDetailPane(
     mediaWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
-    val exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
+    val reduceMotion = rememberReduceMotion()
+    val settledId = rememberXmbSettledFocus(game?.id, settleMs = XMB_GAME_SELECT_SETTLE_MS)
+    val settledGame = game.takeIf { it?.id != null && it.id == settledId }
 
     Box(modifier = modifier) {
         Column(
@@ -498,18 +548,22 @@ private fun VerticalDetailPane(
             Spacer(modifier = Modifier.weight(0.22f))
 
             AnimatedContent(
-                targetState = game?.id to (game?.logoImagePath to game?.title),
-                transitionSpec = { enter togetherWith exit },
+                targetState = settledGame,
+                transitionSpec = { xmbCopyTransition(reduceMotion) },
+                contentKey = { it?.id },
                 label = "verticalFocusedTitle",
                 modifier = Modifier.fillMaxWidth(),
-            ) { (_, logoAndTitle) ->
-                val (logoPath, title) = logoAndTitle
+            ) { shown ->
+                if (shown == null) return@AnimatedContent
+                val logoPath = shown.logoImagePath
+                val title = shown.title
+                if (title.isBlank() && logoPath.isNullOrBlank()) return@AnimatedContent
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (!logoPath.isNullOrBlank()) {
                         ArtworkImage(
                             path = logoPath,
                             contentDescription = title,
-                            fallbackText = title.orEmpty(),
+                            fallbackText = title,
                             contentScale = ContentScale.Fit,
                             cacheInMemory = false,
                             decodeMaxEdgePx = 720,
@@ -520,22 +574,25 @@ private fun VerticalDetailPane(
                         )
                     } else {
                         Text(
-                            text = title.orEmpty(),
+                            text = title,
                             style = MaterialTheme.typography.headlineLarge.copy(
                                 fontSize = 36.sp,
                                 lineHeight = 42.sp,
                                 letterSpacing = (-0.5).sp,
+                                shadow = Shadow(
+                                    color = Color.Black.copy(alpha = XoraForegroundShadow.TitleAlpha),
+                                    offset = Offset(2f, 2f),
+                                    blurRadius = 6f,
+                                ),
                             ),
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = Color.White,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.widthIn(max = 560.dp),
                         )
                     }
-                    if (game != null) {
-                        PlaytimePill(playTimeMs = game.playTimeMs)
-                    }
+                    PlaytimePill(playTimeMs = shown.playTimeMs)
                 }
             }
 
@@ -555,12 +612,11 @@ private fun VerticalDetailPane(
 
 @Composable
 private fun PlaytimePill(playTimeMs: Long) {
-    val glass = rememberGlassTokens(GlassTone.OverMedia)
     Text(
         text = "Playtime: ${formatPlaytime(playTimeMs)}",
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.SemiBold,
-        color = glass.content,
+        color = Color.White,
         modifier = Modifier
             .liquidGlass(
                 shape = ArcadiaGlass.PillShape,
@@ -645,7 +701,7 @@ private fun VerticalEmptyNotice(isScanning: Boolean, modifier: Modifier = Modifi
                 "No games here yet. Run a scan from Settings, or press Start."
             },
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(24.dp),
         )
@@ -672,7 +728,7 @@ private const val CASE_HEIGHT_OVER_WIDTH = 1.5f
 private const val XMB_FOCUS_SCALE = 1.14f
 private const val XMB_NEAR_SCALE = 0.94f
 /** Landscape media preview (~16:10). */
-private const val MEDIA_WIDTH_OVER_HEIGHT = 16f / 10f
+private const val MEDIA_WIDTH_OVER_HEIGHT = ArcadiaArt.BoxArtAspect
 private const val MEDIA_ASPECT = 10f / 16f
 /** Media preview vs focused case width (~20% larger). */
 private const val MEDIA_SIZE_SCALE = 1.2f

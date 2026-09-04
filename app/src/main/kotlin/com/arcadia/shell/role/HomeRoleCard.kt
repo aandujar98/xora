@@ -1,19 +1,29 @@
 package com.arcadia.shell.role
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.designsystem.ArcadiaGlass
+import com.arcadia.shell.designsystem.GlassIntensity
+import com.arcadia.shell.designsystem.GlassTone
+import com.arcadia.shell.designsystem.LiquidGlassSurface
+import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.R as DsR
 
 /**
  * Opt-in for replacing the device home screen, in two deliberate steps.
@@ -29,16 +39,34 @@ fun HomeRoleCard(
     onOpenHomeSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(modifier = modifier.fillMaxWidth()) {
+    LiquidGlassSurface(
+        modifier = modifier.fillMaxWidth(),
+        shape = ArcadiaGlass.CardShape,
+        tone = GlassTone.OverMedia,
+        intensity = GlassIntensity.Standard,
+    ) {
         Column(
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                text = "Home screen",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Image(
+                    painter = painterResource(DsR.drawable.xmb_figma_device),
+                    contentDescription = null,
+                    modifier = Modifier.size(26.dp),
+                )
+                Text(
+                    text = "Home screen",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = XoraFonts.XmbLabel,
+                    ),
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                )
+            }
             Text(
                 text = when {
                     state.isDefaultHome ->
@@ -52,8 +80,10 @@ fun HomeRoleCard(
                             "into your library. It stays hidden from the launcher chooser until " +
                             "you enable it here."
                 },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = XoraFonts.Secondary,
+                ),
+                color = Color.White.copy(alpha = 0.72f),
             )
 
             Row(

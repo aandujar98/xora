@@ -3,11 +3,10 @@ package com.arcadia.shell.feature.home.component
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,7 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -44,7 +46,6 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.designsystem.ArcadiaMotion
@@ -71,25 +72,40 @@ fun HeroTrailerLayer(
     state: HeroTrailerState,
     modifier: Modifier = Modifier,
 ) {
-    val ref = remember(state.trailerUrl) { TrailerRefs.parse(state.trailerUrl) }
-    val enter = fadeIn(arcadiaTween(ArcadiaMotion.Slow))
-    val exit = fadeOut(arcadiaTween(ArcadiaMotion.Medium))
+    val parsed = remember(state.trailerUrl) { TrailerRefs.parse(state.trailerUrl) }
+    var ready by remember(state.trailerUrl) { mutableStateOf(false) }
+    val show = state.active && parsed != null
+    val fade by animateFloatAsState(
+        targetValue = if (show && ready) 1f else 0f,
+        animationSpec = if (show && ready) {
+            arcadiaTween(ArcadiaMotion.Slow)
+        } else {
+            arcadiaTween(ArcadiaMotion.Medium)
+        },
+        label = "trailerFade",
+    )
+    var held by remember { mutableStateOf(parsed) }
+    if (parsed != null) held = parsed
+    val trailer = held ?: return
+    if (!show && fade <= 0.01f) return
 
-    AnimatedVisibility(
-        visible = state.active && ref != null,
-        enter = enter,
-        exit = exit,
-        modifier = modifier,
+    Box(
+        modifier = modifier.graphicsLayer {
+            alpha = fade
+            compositingStrategy = CompositingStrategy.Offscreen
+        },
     ) {
-        val trailer = ref ?: return@AnimatedVisibility
         when (state.displayMode) {
+            TrailerDisplayMode.InIcon -> {
+                // Hosted by the focused Game Icon plate / ROM card, not this wallpaper layer.
+            }
             TrailerDisplayMode.FullBackground -> {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-                    TrailerSurface(
-                        ref = trailer,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+                // Stay transparent until the first frame so hero art does not pop to black.
+                TrailerSurface(
+                    ref = trailer,
+                    onReady = { ready = true },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
             TrailerDisplayMode.CornerPip -> {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -103,10 +119,11 @@ fun HeroTrailerLayer(
                             .width(pipWidth)
                             .height(pipHeight)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color.Black),
+                            .background(Color.Black.copy(alpha = fade)),
                     ) {
                         TrailerSurface(
                             ref = trailer,
+                            onReady = { ready = true },
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -119,17 +136,27 @@ fun HeroTrailerLayer(
 @Composable
 private fun TrailerSurface(
     ref: TrailerRef,
+    onReady: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (ref) {
-        is TrailerRef.Direct -> DirectTrailerPlayer(uri = ref.uri, modifier = modifier)
-        is TrailerRef.YouTube -> YouTubeTrailerEmbed(videoIds = ref.videoIds, modifier = modifier)
+        is TrailerRef.Direct -> DirectTrailerPlayer(
+            uri = ref.uri,
+            onReady = onReady,
+            modifier = modifier,
+        )
+        is TrailerRef.YouTube -> YouTubeTrailerEmbed(
+            videoIds = ref.videoIds,
+            onReady = onReady,
+            modifier = modifier,
+        )
     }
 }
 
 @Composable
 private fun DirectTrailerPlayer(
     uri: String,
+    onReady: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -170,6 +197,10 @@ private fun DirectTrailerPlayer(
                             if (playbackState == Player.STATE_READY) {
                                 Log.i(TAG, "ExoPlayer ready")
                             }
+                        }
+
+                        override fun onRenderedFirstFrame() {
+                            onReady()
                         }
                     },
                 )
@@ -231,15 +262,15 @@ private fun DirectTrailerPlayer(
 
     AndroidView(
         factory = { ctx ->
-            PlayerView(ctx).apply {
-                this.player = player
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                )
-            }
+            (LayoutInflater.from(ctx)
+                .inflate(com.arcadia.shell.feature.home.R.layout.xora_backdrop_player, null) as PlayerView)
+                .apply {
+                    this.player = player
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
+                }
         },
         update = { it.player = player },
         onRelease = { view ->
@@ -258,6 +289,7 @@ private fun DirectTrailerPlayer(
 @Composable
 private fun YouTubeTrailerEmbed(
     videoIds: List<String>,
+    onReady: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -293,6 +325,9 @@ private fun YouTubeTrailerEmbed(
     }
 
     key(videoId) {
+        // YouTube still draws the video title / watch-on-YouTube chrome with controls=0.
+        // Overscan the iframe so that bar sits outside the trailer plate.
+        Box(modifier = modifier.clipToBounds()) {
         AndroidView(
             factory = { ctx ->
                 YouTubePlayerView(ctx).apply {
@@ -311,6 +346,7 @@ private fun YouTubeTrailerEmbed(
                         .mute(1)
                         .rel(0)
                         .ivLoadPolicy(3)
+                        .ccLoadPolicy(0)
                         .fullscreen(0)
                         .build()
 
@@ -331,6 +367,7 @@ private fun YouTubeTrailerEmbed(
                                     PlayerConstants.PlayerState.PLAYING -> {
                                         // Re-assert mute in case the IFrame unmuted after buffering.
                                         youTubePlayer.mute()
+                                        onReady()
                                     }
                                     PlayerConstants.PlayerState.ENDED -> {
                                         youTubePlayer.mute()
@@ -366,8 +403,14 @@ private fun YouTubeTrailerEmbed(
                 // AnimatedVisibility finishes — avoids leaking Chromium processes.
                 runCatching { view.release() }
             },
-            modifier = modifier,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = YOUTUBE_CHROME_OVERSCAN
+                    scaleY = YOUTUBE_CHROME_OVERSCAN
+                },
         )
+        }
     }
 }
 
@@ -411,3 +454,5 @@ private fun YouTubeUnavailableFallback(
 }
 
 private const val TAG = "HeroTrailer"
+/** Crops YouTube's title bar and watermark off the trailer plate. */
+private const val YOUTUBE_CHROME_OVERSCAN = 1.24f

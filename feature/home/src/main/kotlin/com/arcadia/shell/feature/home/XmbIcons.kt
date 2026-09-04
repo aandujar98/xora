@@ -1,27 +1,62 @@
 package com.arcadia.shell.feature.home
 
+import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.XoraForegroundShadow
-import com.arcadia.shell.designsystem.drawXoraForegroundSilhouette
+import com.arcadia.shell.feature.home.component.ArtworkImage
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+/** How much wider than the glyph box the XOrA wordmark is allowed to run. */
+private const val XORA_MARK_WIDTH_SCALE = 1.7f
+
+/** XMB glyph body and 4px rim, matching the Figma icons. */
+internal val XmbGlyphFill = Color(0xFFEBEBEB)
+internal val XmbGlyphStroke = Color.White
+internal const val XmbGlyphStrokeDesignPx = 4f
 
 /** Stable glyph ids for XMB rows that are not ROM box art. */
 enum class XmbIcon {
@@ -40,10 +75,20 @@ enum class XmbIcon {
     Scrape,
     Social,
     Notifications,
+    /** Settings → Update. */
+    Update,
     Trophy,
     Continue,
     Favorite,
     Folder,
+    /** Folder shell with the Photo glyph in the window — image albums under Photos. */
+    FolderPhoto,
+    /** Folder shell with the Video glyph in the window — video albums under Videos. */
+    FolderVideo,
+    /** Folder shell with the Music glyph in the window — on-device albums under Music. */
+    FolderMusic,
+    /** Handheld / Device glyph — Games column entry into the full library. */
+    Device,
     Photo,
     Video,
     NowPlaying,
@@ -56,9 +101,13 @@ enum class XmbIcon {
     Repeat,
     PreviousTrack,
     NextTrack,
+    /** XMB card-browse back chevron (B). */
+    Back,
     Play,
     Pause,
     Friends,
+    /** XOrA Network → Dashboard. */
+    Dashboard,
     Store,
     News,
     System,
@@ -73,8 +122,92 @@ fun XoraXmbCategory.toXmbIcon(): XmbIcon = when (this) {
     XoraXmbCategory.Settings -> XmbIcon.Settings
     XoraXmbCategory.Games -> XmbIcon.Games
     XoraXmbCategory.Media -> XmbIcon.Media
+    XoraXmbCategory.Videos -> XmbIcon.Video
     XoraXmbCategory.Music -> XmbIcon.Music
-    XoraXmbCategory.Network -> XmbIcon.Xora
+    XoraXmbCategory.Network -> XmbIcon.Network
+}
+
+/** Folder_IMG and the Photos / Videos / Music content-folder variants. */
+fun XmbIcon.isFolderGlyph(): Boolean =
+    this == XmbIcon.Folder ||
+        this == XmbIcon.FolderPhoto ||
+        this == XmbIcon.FolderVideo ||
+        this == XmbIcon.FolderMusic
+
+/** Glyph drawn in the folder window when no cover art is attached. */
+fun XmbIcon.folderWindowIcon(): XmbIcon? = when (this) {
+    XmbIcon.FolderPhoto -> XmbIcon.Photo
+    XmbIcon.FolderVideo -> XmbIcon.Video
+    XmbIcon.FolderMusic -> XmbIcon.Music
+    else -> null
+}
+
+/** Filled Figma glyphs, ICONS-2 bitmaps, and the XOrA wordmark. */
+fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
+    XmbIcon.Profiles -> R.drawable.xmb_user_home
+    XmbIcon.Settings -> R.drawable.xmb_figma_settings
+    XmbIcon.Games, XmbIcon.GamePad, XmbIcon.Emulator -> R.drawable.xmb_figma_game
+    XmbIcon.Media, XmbIcon.Photo -> R.drawable.xmb_figma_photo
+    XmbIcon.Music -> R.drawable.xmb_figma_music
+    XmbIcon.Video -> R.drawable.xmb_figma_video
+    XmbIcon.Network -> R.drawable.xmb_figma_network
+    XmbIcon.User, XmbIcon.Guest -> R.drawable.xmb_user
+    XmbIcon.General -> R.drawable.xmb_settings_device
+    XmbIcon.Display -> R.drawable.xmb_settings_display
+    XmbIcon.Themes -> R.drawable.xmb_settings_theme
+    XmbIcon.Sound -> R.drawable.xmb_settings_sound
+    XmbIcon.Scrape -> R.drawable.xmb_settings_layout
+    XmbIcon.Social -> R.drawable.xmb_settings_chat
+    XmbIcon.Notifications -> R.drawable.xmb_stack
+    XmbIcon.Update -> R.drawable.xmb_update
+    XmbIcon.Trophy -> R.drawable.xmb_figma_trophy
+    XmbIcon.Device -> R.drawable.xmb_storage
+    XmbIcon.Folder -> R.drawable.xmb_folder_img
+    XmbIcon.FolderPhoto -> R.drawable.xmb_folder_photo
+    XmbIcon.FolderVideo -> R.drawable.xmb_folder_video
+    XmbIcon.FolderMusic -> R.drawable.xmb_folder_music
+    XmbIcon.NowPlaying -> R.drawable.xmb_media_play
+    XmbIcon.Playlist -> R.drawable.xmb_media_add
+    XmbIcon.Dashboard -> R.drawable.xmb_user_edit
+    XmbIcon.Store -> R.drawable.xmb_user_storage
+    XmbIcon.News -> R.drawable.xmb_www
+    XmbIcon.Back -> R.drawable.xmb_arrow_back
+    XmbIcon.Xora -> R.drawable.ic_xora_logo
+    else -> null
+}
+
+/** Native viewport of each glyph, used to contain-fit into the tab / column boxes. */
+fun XmbIcon.intrinsicDesignSize(): Pair<Float, Float> = when (this) {
+    XmbIcon.Profiles -> 157f to 139f
+    XmbIcon.Settings -> 118.25f to 86.59f
+    XmbIcon.Games, XmbIcon.GamePad, XmbIcon.Emulator -> 209f to 137f
+    XmbIcon.Media, XmbIcon.Photo -> 107.68f to 92.24f
+    XmbIcon.Music -> 111.16f to 122.19f
+    XmbIcon.Video -> 128.56f to 86.20f
+    XmbIcon.Network -> 92.20f to 92.20f
+    XmbIcon.User, XmbIcon.Guest -> 134f to 134f
+    XmbIcon.General -> 151f to 137f
+    XmbIcon.Display -> 162f to 146f
+    XmbIcon.Themes -> 192f to 122f
+    XmbIcon.Sound -> 146f to 135f
+    XmbIcon.Scrape -> 152f to 153f
+    XmbIcon.Social -> 158f to 181f
+    XmbIcon.Notifications -> 121f to 61f
+    XmbIcon.Update -> 171f to 136f
+    XmbIcon.Trophy -> 130f to 120f
+    XmbIcon.Device -> 131f to 91f
+    XmbIcon.Folder -> 277f to 196f
+    XmbIcon.FolderPhoto -> 222f to 195f
+    XmbIcon.FolderVideo -> 308f to 195f
+    XmbIcon.FolderMusic -> 177f to 195f
+    XmbIcon.NowPlaying -> 97f to 130f
+    XmbIcon.Playlist -> 145f to 130f
+    XmbIcon.Dashboard -> 136f to 133f
+    XmbIcon.Store -> 120f to 135f
+    XmbIcon.News -> 172f to 141f
+    XmbIcon.Back -> 24f to 28f
+    XmbIcon.Xora -> 90f * XORA_MARK_WIDTH_SCALE to 90f
+    else -> 90f to 90f
 }
 
 @Composable
@@ -83,51 +216,402 @@ fun XmbVectorIcon(
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
     size: Dp = 28.dp,
+    width: Dp = if (icon == XmbIcon.Xora) size * XORA_MARK_WIDTH_SCALE else size,
+    height: Dp = size,
     /** Soft black halo so glyphs stay readable over bright hero art (no glass / reflection). */
     outlined: Boolean = true,
     /** When false, a parent plate / tile already casts [XoraForegroundShadow]. */
     castShadow: Boolean = true,
     /** PS3-style frosted glass body (white→ice-blue gradient + top gloss) instead of flat tint. */
     glass: Boolean = false,
+    /** 1080p design-px white rim around the glyph. 0 skips the rim (XML fill only). */
+    strokeWidth: Dp = 0.dp,
+    shadowOffsetX: Dp = XoraForegroundShadow.OffsetX,
+    shadowOffsetY: Dp = XoraForegroundShadow.OffsetY,
+    shadowBlur: Dp = XoraForegroundShadow.Blur,
+    shadowAlpha: Float = XoraForegroundShadow.Alpha,
 ) {
-    Canvas(modifier = modifier.size(size)) {
-        val stroke = Stroke(
-            width = size.toPx() * (if (glass) 0.095f else 0.075f),
-            cap = StrokeCap.Round,
-            join = StrokeJoin.Round,
-        )
-        if (castShadow) {
-            val shadowInk = XoraForegroundShadow.Ink.copy(alpha = XoraForegroundShadow.Alpha)
-            drawXoraForegroundSilhouette {
-                drawXmbIconContent(icon, shadowInk, stroke)
+    val vectorRes = icon.vectorDrawableRes()
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val context = LocalContext.current
+    // Focused ROM rows interpolate their glyph size every frame; rasterizing on the exact Dp
+    // would re-blur a bitmap per frame. A whole-dp step is invisible under a 12dp blur.
+    val shadowHeight = height.value.roundToInt().coerceAtLeast(1).dp
+    val shadowWidth = width.value.roundToInt().coerceAtLeast(1).dp
+    val shadow = remember(
+        icon,
+        shadowWidth,
+        shadowHeight,
+        shadowBlur,
+        shadowOffsetX,
+        shadowOffsetY,
+        strokeWidth,
+        glass,
+        castShadow,
+        density.density,
+        density.fontScale,
+    ) {
+        if (!castShadow) {
+            null
+        } else {
+            rasterizeXmbGlyphShadow(
+                density,
+                layoutDirection,
+                context,
+                icon,
+                shadowWidth,
+                shadowHeight,
+                glass,
+                shadowBlur,
+                shadowOffsetX,
+                shadowOffsetY,
+                strokeWidth,
+            )
+        }
+    }
+    Box(
+        // requiredSize, not size: the XOrA wordmark is wider than its slot, and a coerced box
+        // would paint the mark smaller than the silhouette rasterized above it.
+        modifier = modifier
+            .requiredSize(width = width, height = height)
+            .graphicsLayer { clip = false },
+        contentAlignment = Alignment.TopStart,
+    ) {
+        if (shadow != null) {
+            val shadowW = with(density) { shadow.image.width.toDp() }
+            val shadowH = with(density) { shadow.image.height.toDp() }
+            Canvas(
+                modifier = Modifier
+                    .requiredSize(shadowW, shadowH)
+                    .graphicsLayer {
+                        clip = false
+                        // SE offset is baked into the raster so we never add a negative
+                        // extractAlpha inset on top of it (that parked every shadow NW).
+                        translationX = shadow.drawX
+                        translationY = shadow.drawY
+                        alpha = shadowAlpha
+                    },
+            ) {
+                drawImage(image = shadow.image)
             }
         }
-        if (glass) {
-            drawGlassIcon(icon, stroke)
-            return@Canvas
+        if (vectorRes != null) {
+            Canvas(modifier = Modifier.requiredSize(width = width, height = height)) {
+                val drawable = context.getDrawable(vectorRes) ?: return@Canvas
+                val box = drawContext.size
+                drawStyledXmbDrawable(
+                    drawable = drawable,
+                    widthPx = box.width,
+                    heightPx = box.height,
+                    strokePx = strokeWidth.toPx(),
+                )
+            }
+            return@Box
         }
-        if (outlined) {
-            val outline = size.toPx() * 0.055f
-            val ink = Color.Black
-            // 8-direction outline so strokes and fills both get a solid black edge.
-            val offsets = arrayOf(
-                Offset(-outline, 0f),
-                Offset(outline, 0f),
-                Offset(0f, -outline),
-                Offset(0f, outline),
-                Offset(-outline, -outline),
-                Offset(outline, -outline),
-                Offset(-outline, outline),
-                Offset(outline, outline),
+        Canvas(modifier = Modifier.size(width = width, height = height)) {
+            val stroke = Stroke(
+                width = size.toPx() * (if (glass) 0.095f else 0.075f),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
             )
-            for (o in offsets) {
-                translate(o.x, o.y) {
-                    drawXmbIconContent(icon, ink, stroke)
+            if (glass) {
+                drawGlassIcon(icon, stroke)
+                return@Canvas
+            }
+            if (strokeWidth > 0.dp || outlined) {
+                val outline = if (strokeWidth > 0.dp) {
+                    strokeWidth.toPx()
+                } else {
+                    size.toPx() * 0.055f
+                }
+                val ink = if (strokeWidth > 0.dp) XmbGlyphStroke else Color.Black
+                val offsets = arrayOf(
+                    Offset(-outline, 0f),
+                    Offset(outline, 0f),
+                    Offset(0f, -outline),
+                    Offset(0f, outline),
+                    Offset(-outline, -outline),
+                    Offset(outline, -outline),
+                    Offset(-outline, outline),
+                    Offset(outline, outline),
+                )
+                for (o in offsets) {
+                    translate(o.x, o.y) {
+                        drawXmbIconContent(icon, ink, stroke)
+                    }
+                }
+            }
+            drawXmbIconContent(
+                icon,
+                if (strokeWidth > 0.dp) XmbGlyphFill else tint,
+                stroke,
+            )
+        }
+    }
+}
+
+/**
+ * Inner checkerboard of [R.drawable.xmb_folder_img] (277×196), just inside the recessed
+ * rails. Photo / video folder covers crop into this whole window so the checker does not
+ * show around the thumbnail.
+ */
+private const val FOLDER_WINDOW_LEFT = 0.065f
+private const val FOLDER_WINDOW_TOP = 0.245f
+private const val FOLDER_WINDOW_RIGHT = 0.931f
+private const val FOLDER_WINDOW_BOTTOM = 0.908f
+
+/**
+ * Folder_IMG: the ICONS-2 folder glyph with a checker in its window, or a gallery image cropped
+ * into that whole checker when the folder has a cover. Content folders (Photos / Videos / Music)
+ * draw the matching glyph in the window when no cover is set.
+ */
+@Composable
+fun XmbFolderImgIcon(
+    artPath: String?,
+    modifier: Modifier = Modifier,
+    width: Dp,
+    height: Dp,
+    windowIcon: XmbIcon? = null,
+    castShadow: Boolean = true,
+    shadowOffsetX: Dp = XoraForegroundShadow.OffsetX,
+    shadowOffsetY: Dp = XoraForegroundShadow.OffsetY,
+    shadowBlur: Dp = XoraForegroundShadow.Blur,
+    shadowAlpha: Float = XoraForegroundShadow.Alpha,
+    strokeWidth: Dp = 0.dp,
+) {
+    Box(
+        modifier = modifier
+            .requiredSize(width = width, height = height)
+            .graphicsLayer { clip = false },
+    ) {
+        XmbVectorIcon(
+            icon = XmbIcon.Folder,
+            width = width,
+            height = height,
+            glass = false,
+            outlined = false,
+            castShadow = castShadow,
+            shadowOffsetX = shadowOffsetX,
+            shadowOffsetY = shadowOffsetY,
+            shadowBlur = shadowBlur,
+            shadowAlpha = shadowAlpha,
+            strokeWidth = strokeWidth,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = width * FOLDER_WINDOW_LEFT,
+                    top = height * FOLDER_WINDOW_TOP,
+                    end = width * (1f - FOLDER_WINDOW_RIGHT),
+                    bottom = height * (1f - FOLDER_WINDOW_BOTTOM),
+                )
+                .clip(RoundedCornerShape(width * 0.04f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!artPath.isNullOrBlank()) {
+                ArtworkImage(
+                    path = artPath,
+                    contentDescription = null,
+                    fallbackText = "",
+                    contentScale = ContentScale.Crop,
+                    cacheInMemory = true,
+                    decodeMaxEdgePx = 256,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else if (windowIcon != null) {
+                val (designW, designH) = windowIcon.intrinsicDesignSize()
+                val innerW = width * (FOLDER_WINDOW_RIGHT - FOLDER_WINDOW_LEFT)
+                val innerH = height * (FOLDER_WINDOW_BOTTOM - FOLDER_WINDOW_TOP)
+                val scale = min(innerW.value / designW, innerH.value / designH) * 0.78f
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF3A3A3A)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    XmbVectorIcon(
+                        icon = windowIcon,
+                        width = (designW * scale).dp,
+                        height = (designH * scale).dp,
+                        glass = false,
+                        outlined = false,
+                        castShadow = false,
+                        strokeWidth = 0.dp,
+                    )
+                }
+            } else {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val cells = 8
+                    val cellW = size.width / cells
+                    val cellH = size.height / cells
+                    val light = Color(0xFFD9D9D9)
+                    val dark = Color(0xFF9A9A9A)
+                    for (row in 0 until cells) {
+                        for (col in 0 until cells) {
+                            drawRect(
+                                color = if ((row + col) % 2 == 0) light else dark,
+                                topLeft = Offset(col * cellW, row * cellH),
+                                size = Size(cellW + 0.5f, cellH + 0.5f),
+                            )
+                        }
+                    }
                 }
             }
         }
-        drawXmbIconContent(icon, tint, stroke)
     }
+}
+
+private data class XmbGlyphShadow(
+    val image: ImageBitmap,
+    val drawX: Float,
+    val drawY: Float,
+)
+
+/**
+ * Blur the glyph's own alpha so the drop shadow follows the icon, not the square slot.
+ * [Bitmap.extractAlpha] runs the mask filter in software, where it actually applies.
+ *
+ * The south-east drop is painted into this bitmap. Callers must draw it at [XmbGlyphShadow.drawX]
+ * / [XmbGlyphShadow.drawY] with no extra offset: adding extractAlpha's negative inset on top of
+ * a +10/+10 translation is what made every previous pass read as north-west.
+ */
+private fun rasterizeXmbGlyphShadow(
+    density: Density,
+    layoutDirection: LayoutDirection,
+    context: android.content.Context,
+    icon: XmbIcon,
+    width: Dp,
+    height: Dp,
+    glass: Boolean,
+    blur: Dp,
+    offsetX: Dp,
+    offsetY: Dp,
+    strokeWidth: Dp,
+): XmbGlyphShadow {
+    val widthPx = with(density) { width.toPx() }
+    val heightPx = with(density) { height.toPx() }
+    val blurPx = with(density) { blur.toPx() }.coerceAtLeast(1f)
+    val seX = with(density) { offsetX.toPx() }.coerceAtLeast(0f)
+    val seY = with(density) { offsetY.toPx() }.coerceAtLeast(0f)
+    val strokePx = with(density) { strokeWidth.toPx() }.coerceAtLeast(0f)
+    val bmpW = widthPx.roundToInt().coerceAtLeast(1)
+    val bmpH = heightPx.roundToInt().coerceAtLeast(1)
+    val src = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
+    val androidCanvas = android.graphics.Canvas(src)
+    val vectorRes = icon.vectorDrawableRes()
+    if (vectorRes != null) {
+        context.getDrawable(vectorRes)?.let { drawable ->
+            drawStyledXmbDrawable(
+                canvas = androidCanvas,
+                drawable = drawable,
+                widthPx = widthPx,
+                heightPx = heightPx,
+                strokePx = strokePx,
+            )
+        }
+    } else {
+        CanvasDrawScope().draw(
+            density = density,
+            layoutDirection = layoutDirection,
+            canvas = ComposeCanvas(androidCanvas),
+            size = Size(widthPx, heightPx),
+        ) {
+            val stroke = Stroke(
+                width = heightPx * (if (glass) 0.095f else 0.075f),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            )
+            if (strokePx > 0f) {
+                val offsets = arrayOf(
+                    Offset(-strokePx, 0f),
+                    Offset(strokePx, 0f),
+                    Offset(0f, -strokePx),
+                    Offset(0f, strokePx),
+                    Offset(-strokePx, -strokePx),
+                    Offset(strokePx, -strokePx),
+                    Offset(-strokePx, strokePx),
+                    Offset(strokePx, strokePx),
+                )
+                for (o in offsets) {
+                    translate(o.x, o.y) {
+                        drawXmbIconContent(icon, XmbGlyphStroke, stroke)
+                    }
+                }
+                drawXmbIconContent(icon, XmbGlyphFill, stroke)
+            } else {
+                drawXmbIconContent(icon, Color.Black, stroke)
+            }
+        }
+    }
+    val blurPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        isFilterBitmap = true
+        maskFilter = BlurMaskFilter(blurPx, BlurMaskFilter.Blur.NORMAL)
+    }
+    val alpha = src.extractAlpha(blurPaint, null)
+    src.recycle()
+    // Ignore extractAlpha's offsetXY / plate growth. Those values are negative (NW of
+    // the source). Compositing the blur at +seX/+seY with the dest origin on the glyph
+    // is the only placement that cannot read as a north-west drop.
+    val destW = (seX.roundToInt() + alpha.width).coerceAtLeast(1)
+    val destH = (seY.roundToInt() + alpha.height).coerceAtLeast(1)
+    val tinted = Bitmap.createBitmap(destW, destH, Bitmap.Config.ARGB_8888)
+    android.graphics.Canvas(tinted).drawBitmap(
+        alpha,
+        seX,
+        seY,
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.BLACK
+        },
+    )
+    alpha.recycle()
+    return XmbGlyphShadow(
+        image = tinted.asImageBitmap(),
+        drawX = 0f,
+        drawY = 0f,
+    )
+}
+
+/** Fill #EBEBEB with a 4px (design) white rim, using the same drawable the screen shows. */
+private fun DrawScope.drawStyledXmbDrawable(
+    drawable: Drawable,
+    widthPx: Float,
+    heightPx: Float,
+    strokePx: Float,
+) {
+    drawStyledXmbDrawable(
+        canvas = drawContext.canvas.nativeCanvas,
+        drawable = drawable,
+        widthPx = widthPx,
+        heightPx = heightPx,
+        strokePx = strokePx,
+    )
+}
+
+private fun drawStyledXmbDrawable(
+    canvas: android.graphics.Canvas,
+    drawable: Drawable,
+    widthPx: Float,
+    heightPx: Float,
+    strokePx: Float,
+) {
+    drawable.mutate()
+    // Bitmap glyphs already include their own rim; insetting them clips the art.
+    val inset = if (drawable is BitmapDrawable || strokePx <= 0f) {
+        0
+    } else {
+        (strokePx / 2f).roundToInt()
+    }
+    drawable.setBounds(
+        inset,
+        inset,
+        (widthPx.roundToInt() - inset).coerceAtLeast(inset + 1),
+        (heightPx.roundToInt() - inset).coerceAtLeast(inset + 1),
+    )
+    drawable.colorFilter = null
+    drawable.draw(canvas)
 }
 
 /**
@@ -144,10 +628,10 @@ private fun DrawScope.drawGlassIcon(icon: XmbIcon, stroke: Stroke) {
     drawXmbIconContent(icon, Color.White, stroke)
     drawRect(
         brush = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0.98f),
-            0.40f to Color(0xFFE2F1FC).copy(alpha = 0.94f),
-            0.72f to Color(0xFFB7DBF6).copy(alpha = 0.90f),
-            1f to Color(0xFF84B9E9).copy(alpha = 0.88f),
+            0f to Color.White,
+            0.34f to Color(0xFFEAF5FE),
+            0.66f to Color(0xFFB9DCF7),
+            1f to Color(0xFF7FB4E6),
         ),
         topLeft = bounds.topLeft,
         size = bounds.size,
@@ -155,14 +639,30 @@ private fun DrawScope.drawGlassIcon(icon: XmbIcon, stroke: Stroke) {
     )
     canvas.restore()
 
-    // Gloss: extra white sheen fading out by mid-height — the "reflection" on the glass.
+    // Gloss: hard white sheen across the top third — the "reflection" on the glass.
     canvas.saveLayer(bounds, Paint())
     drawXmbIconContent(icon, Color.White, stroke)
     drawRect(
         brush = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0.55f),
-            0.45f to Color.Transparent,
+            0f to Color.White.copy(alpha = 0.85f),
+            0.30f to Color.White.copy(alpha = 0.18f),
+            0.52f to Color.Transparent,
             1f to Color.Transparent,
+        ),
+        topLeft = bounds.topLeft,
+        size = bounds.size,
+        blendMode = BlendMode.SrcIn,
+    )
+    canvas.restore()
+
+    // Rim light: refraction catching the bottom edge, which is what sells solid glyphs as glass.
+    canvas.saveLayer(bounds, Paint())
+    drawXmbIconContent(icon, Color.White, stroke)
+    drawRect(
+        brush = Brush.verticalGradient(
+            0f to Color.Transparent,
+            0.74f to Color.Transparent,
+            1f to Color.White.copy(alpha = 0.6f),
         ),
         topLeft = bounds.topLeft,
         size = bounds.size,
@@ -174,11 +674,11 @@ private fun DrawScope.drawGlassIcon(icon: XmbIcon, stroke: Stroke) {
 private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Stroke) {
     when (icon) {
         XmbIcon.Profiles -> drawProfiles(tint, stroke)
-        XmbIcon.Settings -> drawSettingsToolbox(tint, stroke)
-        XmbIcon.Games -> drawController(tint, stroke)
-        XmbIcon.Media -> drawCamera(tint, stroke)
-        XmbIcon.Music -> drawNote(tint, stroke)
-        XmbIcon.Network -> drawGlobe(tint, stroke)
+        XmbIcon.Settings -> drawFigmaGlyph(FigmaGlyph.SETTINGS, tint)
+        XmbIcon.Games -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
+        XmbIcon.Media -> drawFigmaGlyph(FigmaGlyph.PHOTO, tint)
+        XmbIcon.Music -> drawFigmaGlyph(FigmaGlyph.MUSIC, tint)
+        XmbIcon.Network -> drawFigmaGlyph(FigmaGlyph.NETWORK, tint)
         XmbIcon.User -> drawUser(tint, stroke)
         XmbIcon.Guest -> drawGuest(tint, stroke)
         XmbIcon.General -> drawGear(tint, stroke)
@@ -188,14 +688,20 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Scrape -> drawScrape(tint, stroke)
         XmbIcon.Social -> drawChat(tint, stroke)
         XmbIcon.Notifications -> drawBell(tint, stroke)
+        XmbIcon.Update -> drawGear(tint, stroke)
         XmbIcon.Trophy -> drawTrophy(tint, stroke)
-        XmbIcon.Emulator -> drawController(tint, stroke)
+        XmbIcon.Emulator -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
         XmbIcon.Continue -> drawPlay(tint, stroke)
         XmbIcon.Favorite -> drawStar(tint, stroke)
-        XmbIcon.Folder -> drawFolder(tint, stroke)
-        XmbIcon.Photo -> drawCamera(tint, stroke)
-        XmbIcon.Video -> drawFilm(tint, stroke)
-        XmbIcon.NowPlaying -> drawNote(tint, stroke)
+        XmbIcon.Folder,
+        XmbIcon.FolderPhoto,
+        XmbIcon.FolderVideo,
+        XmbIcon.FolderMusic,
+        -> drawFolder(tint, stroke)
+        XmbIcon.Device -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
+        XmbIcon.Photo -> drawFigmaGlyph(FigmaGlyph.PHOTO, tint)
+        XmbIcon.Video -> drawFigmaGlyph(FigmaGlyph.VIDEO, tint)
+        XmbIcon.NowPlaying -> drawFigmaGlyph(FigmaGlyph.MUSIC, tint)
         XmbIcon.Playlist -> drawList(tint, stroke)
         XmbIcon.Dsp -> drawWave(tint, stroke)
         XmbIcon.Spotify -> drawSpotify(tint, stroke)
@@ -205,13 +711,15 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Repeat -> drawRepeat(tint, stroke)
         XmbIcon.PreviousTrack -> drawSkip(tint, stroke, forward = false)
         XmbIcon.NextTrack -> drawSkip(tint, stroke, forward = true)
+        XmbIcon.Back -> drawSkip(tint, stroke, forward = false)
         XmbIcon.Play -> drawPlay(tint, stroke)
         XmbIcon.Pause -> drawPause(tint, stroke)
         XmbIcon.Friends -> drawFriends(tint, stroke)
+        XmbIcon.Dashboard -> drawFriends(tint, stroke)
         XmbIcon.Store -> drawBag(tint, stroke)
         XmbIcon.News -> drawNews(tint, stroke)
         XmbIcon.System -> drawSystemCube(tint, stroke)
-        XmbIcon.GamePad -> drawController(tint, stroke)
+        XmbIcon.GamePad -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)
         XmbIcon.Xora -> drawXoraWordmark(tint, stroke)
     }
 }
@@ -266,55 +774,6 @@ private fun DrawScope.drawProfiles(tint: Color, stroke: Stroke) {
     )
 }
 
-private fun DrawScope.drawSettingsToolbox(tint: Color, stroke: Stroke) {
-    val w = size.width
-    val h = size.height
-    drawRoundRect(
-        color = tint,
-        topLeft = Offset(w * 0.18f, h * 0.38f),
-        size = Size(w * 0.64f, h * 0.42f),
-        cornerRadius = CornerRadius(w * 0.06f),
-        style = stroke,
-    )
-    drawRoundRect(
-        color = tint,
-        topLeft = Offset(w * 0.32f, h * 0.22f),
-        size = Size(w * 0.36f, h * 0.2f),
-        cornerRadius = CornerRadius(w * 0.04f),
-        style = stroke,
-    )
-    drawLine(tint, Offset(w * 0.18f, h * 0.52f), Offset(w * 0.82f, h * 0.52f), strokeWidth = stroke.width)
-}
-
-private fun DrawScope.drawController(tint: Color, stroke: Stroke) {
-    val w = size.width
-    val h = size.height
-    drawRoundRect(
-        color = tint,
-        topLeft = Offset(w * 0.12f, h * 0.32f),
-        size = Size(w * 0.76f, h * 0.4f),
-        cornerRadius = CornerRadius(w * 0.18f),
-        style = stroke,
-    )
-    drawCircle(tint, radius = w * 0.055f, center = Offset(w * 0.32f, h * 0.52f))
-    drawCircle(tint, radius = w * 0.04f, center = Offset(w * 0.68f, h * 0.46f), style = stroke)
-    drawCircle(tint, radius = w * 0.04f, center = Offset(w * 0.76f, h * 0.54f), style = stroke)
-}
-
-private fun DrawScope.drawCamera(tint: Color, stroke: Stroke) {
-    val w = size.width
-    val h = size.height
-    drawRoundRect(
-        color = tint,
-        topLeft = Offset(w * 0.16f, h * 0.32f),
-        size = Size(w * 0.68f, h * 0.44f),
-        cornerRadius = CornerRadius(w * 0.08f),
-        style = stroke,
-    )
-    drawCircle(tint, radius = w * 0.12f, center = Offset(w * 0.5f, h * 0.54f), style = stroke)
-    drawCircle(tint, radius = w * 0.04f, center = Offset(w * 0.72f, h * 0.42f))
-}
-
 private fun DrawScope.drawNote(tint: Color, stroke: Stroke) {
     val w = size.width
     val h = size.height
@@ -323,20 +782,6 @@ private fun DrawScope.drawNote(tint: Color, stroke: Stroke) {
     drawLine(tint, Offset(w * 0.72f, h * 0.16f), Offset(w * 0.72f, h * 0.58f), strokeWidth = stroke.width * 1.2f)
     drawCircle(tint, radius = w * 0.09f, center = Offset(w * 0.3f, h * 0.72f))
     drawCircle(tint, radius = w * 0.09f, center = Offset(w * 0.64f, h * 0.62f))
-}
-
-private fun DrawScope.drawGlobe(tint: Color, stroke: Stroke) {
-    val w = size.width
-    val c = Offset(w * 0.5f, size.height * 0.5f)
-    val r = w * 0.32f
-    drawCircle(tint, radius = r, center = c, style = stroke)
-    drawOval(
-        color = tint,
-        topLeft = Offset(c.x - r * 0.45f, c.y - r),
-        size = Size(r * 0.9f, r * 2f),
-        style = stroke,
-    )
-    drawLine(tint, Offset(c.x - r, c.y), Offset(c.x + r, c.y), strokeWidth = stroke.width)
 }
 
 private fun DrawScope.drawUser(tint: Color, stroke: Stroke) {
@@ -531,23 +976,6 @@ private fun DrawScope.drawFolder(tint: Color, stroke: Stroke) {
         CornerRadius(w * 0.04f),
         style = stroke,
     )
-}
-
-private fun DrawScope.drawFilm(tint: Color, stroke: Stroke) {
-    val w = size.width
-    val h = size.height
-    drawRoundRect(
-        tint,
-        Offset(w * 0.22f, h * 0.18f),
-        Size(w * 0.56f, h * 0.64f),
-        CornerRadius(w * 0.04f),
-        style = stroke,
-    )
-    for (i in 0 until 4) {
-        val y = h * (0.28f + i * 0.14f)
-        drawLine(tint, Offset(w * 0.28f, y), Offset(w * 0.36f, y), strokeWidth = stroke.width)
-        drawLine(tint, Offset(w * 0.64f, y), Offset(w * 0.72f, y), strokeWidth = stroke.width)
-    }
 }
 
 private fun DrawScope.drawList(tint: Color, stroke: Stroke) {

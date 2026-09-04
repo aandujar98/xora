@@ -19,6 +19,8 @@ import com.arcadia.shell.datastore.CirclePinSource
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.GameArtAlignment
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.GameCustomMediaStore
 import com.arcadia.shell.datastore.HomeThemeMediaStore
 import com.arcadia.shell.datastore.LocalProfile
@@ -53,6 +55,7 @@ import com.arcadia.shell.feature.home.component.steamPersonaToPresence
 import com.arcadia.shell.feature.home.rss.RssFeedClient
 import com.arcadia.shell.input.GamepadDispatcher
 import com.arcadia.shell.input.NavAction
+import com.arcadia.shell.input.UiOneShot
 import com.arcadia.shell.launcher.DetectedEmulator
 import com.arcadia.shell.launcher.GameLauncher
 import com.arcadia.shell.launcher.InstalledAppSync
@@ -70,10 +73,12 @@ import com.arcadia.shell.launcher.music.MusicLibrary
 import com.arcadia.shell.launcher.music.MusicSource
 import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.launcher.music.NowPlayingController
+import com.arcadia.shell.launcher.photos.DeviceMediaFolder
 import com.arcadia.shell.launcher.photos.DevicePhoto
 import com.arcadia.shell.launcher.photos.PhotoAccess
 import com.arcadia.shell.launcher.photos.PhotoEditor
 import com.arcadia.shell.launcher.photos.PhotoLibrary
+import com.arcadia.shell.launcher.videos.VideoLibrary
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
@@ -116,6 +121,11 @@ import com.arcadia.shell.xoranetwork.XoraPresenceMode
 import com.arcadia.shell.xoranetwork.parseXoraPresenceMode
 import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scanner.StorageAccess
+import com.arcadia.shell.datastore.GAME_TITLE_MAX_LENGTH
+import com.arcadia.shell.scraper.ArtCandidate
+import com.arcadia.shell.scraper.ArtCandidateFinder
+import com.arcadia.shell.scraper.ArtCandidateResult
+import com.arcadia.shell.scraper.ArtSlot
 import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.MusicArtRepository
 import com.arcadia.shell.scraper.PlatformArtRepository
@@ -165,11 +175,13 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import java.util.UUID
 import javax.inject.Inject
@@ -181,6 +193,7 @@ import javax.inject.Inject
  * second physical display. That is what makes hero art on one screen track grid movement on the
  * other with no synchronisation code of its own.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
@@ -200,6 +213,7 @@ class HomeViewModel @Inject constructor(
     private val gameSaveCatalog: GameSaveCatalog,
     private val gameSoundBitePlayer: GameSoundBitePlayer,
     private val trailerResolver: TrailerResolver,
+    private val artCandidateFinder: ArtCandidateFinder,
     private val scraperScheduler: ScraperScheduler,
     private val libraryHashScheduler: LibraryHashScheduler,
     private val platformArtRepository: PlatformArtRepository,
@@ -216,6 +230,7 @@ class HomeViewModel @Inject constructor(
     private val musicLibrary: MusicLibrary,
     private val musicArtRepository: MusicArtRepository,
     private val photoLibrary: PhotoLibrary,
+    private val videoLibrary: VideoLibrary,
     private val photoEditor: PhotoEditor,
     private val nowPlayingController: NowPlayingController,
     private val conversationRepository: ConversationRepository,
@@ -227,6 +242,7 @@ class HomeViewModel @Inject constructor(
     private val gameCompanionController: GameCompanionController,
     private val xoraNetwork: XoraNetworkRepository,
     val gamepadDispatcher: GamepadDispatcher,
+    private val githubReleaseUpdater: GithubReleaseUpdater,
 ) : ViewModel() {
 
     /** Companion bottom-screen session, non-null only while a qualifying game is running. */
@@ -239,9 +255,15 @@ class HomeViewModel @Inject constructor(
     private val homeHubSection = MutableStateFlow(HomeHubSection.ShardMenu)
     private val homeShard = MutableStateFlow(HomeShard.Continue)
     private val xoraCategoryIndex = MutableStateFlow(XoraXmbCategory.Games.ordinal)
-    private val xoraItemIndex = MutableStateFlow(0)
+    private val xoraItemIndex = MutableStateFlow(GAMES_ITEM_RECENTS)
     private val xoraDepth = MutableStateFlow(XoraXmbDepth.Category)
     private val xoraDrilledPlatformId = MutableStateFlow<String?>(null)
+    /** Last hovered item in each XMB folder, restored when backing out. */
+    private val xoraReturnItemIndex = mutableMapOf<XoraXmbDepth, Int>()
+    /** Last hovered ROM in each platform folder, restored when re-entering that system. */
+    private val xoraReturnRomIndex = mutableMapOf<String, Int>()
+    /** Drill-in parents so Cancel returns to the folder the user actually left. */
+    private val xoraReturnStack = ArrayDeque<XoraXmbDepth>()
     private val homeShortcutIndex = MutableStateFlow(0)
     private val homeShortcutsEditMode = MutableStateFlow(false)
     private val homeShortcuts = MutableStateFlow<List<HomeShortcut>>(emptyList())
@@ -252,6 +274,12 @@ class HomeViewModel @Inject constructor(
     private val vitaShortcutTrayOpen = MutableStateFlow(false)
     /** Restrict add-shortcut sheet to apps/ROMs and skip tile-size when pinning from the tray. */
     private val vitaShortcutPinMode = MutableStateFlow(false)
+    private val vitaShortcutLaunch = MutableStateFlow<VitaShortcutLaunchUi?>(null)
+    private val vitaShortcutDepartingIndex = MutableStateFlow<Int?>(null)
+    /** A / plate tap asked for the start gate to peel itself; the page runs the animation. */
+    private val vitaShortcutPeelRequested = MutableStateFlow(false)
+    /** Watches the launch that a peeled gate started, so the page knows when to stand down. */
+    private var vitaLaunchHandoff: Job? = null
     private val themesOpen = MutableStateFlow(false)
     /** Which Themes sheet tab to show when [themesOpen] becomes true. */
     private val themesSheetTab = MutableStateFlow(ThemesSheetTab.Customize)
@@ -307,9 +335,16 @@ class HomeViewModel @Inject constructor(
     private val startSettingsOpen = MutableStateFlow(false)
     private val startSettingsCategory = MutableStateFlow(StartSettingsCategory.Display)
     private val startSettingsRowIndex = MutableStateFlow(0)
+    private val systemUpdate = MutableStateFlow(SystemUpdateUiState())
+    /** Release the last check found, kept out of UI state because only the download needs it. */
+    private var pendingUpdateRelease: GithubApkRelease? = null
+    private var downloadedUpdateApk: java.io.File? = null
     private val raSettingsState = MutableStateFlow(RetroAchievementsSettings())
     private val xoraEmulatorSettingsState = MutableStateFlow(XoraEmulatorSettings())
     private val welcomeBackOpen = MutableStateFlow(false)
+    private val bootIntroOpen = MutableStateFlow(false)
+    private val bootIntroSkip = MutableStateFlow(false)
+    private val homeIntroReveal = MutableStateFlow(true)
     private val isScraping = MutableStateFlow(false)
     private val lastInputAt = MutableStateFlow(SystemClock.elapsedRealtime())
     /** False while Settings / options dialog own the shell, or the host asks to pause trailers. */
@@ -322,8 +357,8 @@ class HomeViewModel @Inject constructor(
     /** True when the last pause happened while the display was not interactive (screen off). */
     private var pausedWhileScreenOff: Boolean = false
     /**
-     * Process-start greeting candidate. Consumed on the first [onResumed] that can decide
-     * (onboarding complete → show; incomplete → skip without showing later for this cold start).
+     * Process-start boot candidate. Consumed on the first [onResumed] that can decide
+     * (onboarding complete → play boot clip; incomplete → skip without showing later).
      */
     private var pendingColdStartWelcome: Boolean = true
 
@@ -415,14 +450,21 @@ class HomeViewModel @Inject constructor(
     }
 
     private val chromeFlow = combine(
-        preferences.settings,
+        combine(
+            preferences.settings,
+            preferences.hiddenGameIds,
+            preferences.gameArtAlignments,
+        ) { settings, hidden, alignments -> Triple(settings, hidden, alignments) },
         scanner.progress,
         selection,
         transientFlow,
         panelFlow,
-    ) { settings, progress, currentSelection, transient, panels ->
+    ) { prefs, progress, currentSelection, transient, panels ->
+        val (settings, hiddenGameIds, artAlignments) = prefs
         ChromeState(
             settings = settings,
+            hiddenGameIds = hiddenGameIds,
+            artAlignments = artAlignments,
             progress = progress,
             selection = currentSelection,
             resolvedPlayerName = transient.first,
@@ -455,6 +497,8 @@ class HomeViewModel @Inject constructor(
 
     private data class ChromeState(
         val settings: ShellSettings,
+        val hiddenGameIds: Set<String> = emptySet(),
+        val artAlignments: Map<String, GameArtAlignment> = emptyMap(),
         val progress: ScanProgress,
         val selection: Selection,
         val resolvedPlayerName: String?,
@@ -624,15 +668,25 @@ class HomeViewModel @Inject constructor(
             shortcutGridColumns,
             shortcutGridRows,
             shortcutCustomizeChrome,
-            vitaShortcutTrayOpen,
-            vitaShortcutPinMode,
-        ) { columns, rows, chrome, trayOpen, pinMode ->
+            combine(
+                vitaShortcutTrayOpen,
+                vitaShortcutPinMode,
+                vitaShortcutLaunch,
+                vitaShortcutDepartingIndex,
+                vitaShortcutPeelRequested,
+            ) { open, pin, launch, departing, peel ->
+                VitaTrayChrome(open, pin, launch, departing, peel)
+            },
+        ) { columns, rows, chrome, tray ->
             HomeHubLayout(
                 columns = columns,
                 rows = rows,
                 customizeChrome = chrome,
-                vitaShortcutTrayOpen = trayOpen,
-                vitaShortcutPinMode = pinMode,
+                vitaShortcutTrayOpen = tray.open,
+                vitaShortcutPinMode = tray.pin,
+                vitaShortcutLaunch = tray.launch,
+                vitaShortcutDepartingIndex = tray.departingIndex,
+                vitaShortcutPeelRequested = tray.peelRequested,
             )
         },
     ) { core, layout ->
@@ -646,6 +700,9 @@ class HomeViewModel @Inject constructor(
             customizeChrome = layout.customizeChrome,
             vitaShortcutTrayOpen = layout.vitaShortcutTrayOpen,
             vitaShortcutPinMode = layout.vitaShortcutPinMode,
+            vitaShortcutLaunch = layout.vitaShortcutLaunch,
+            vitaShortcutDepartingIndex = layout.vitaShortcutDepartingIndex,
+            vitaShortcutPeelRequested = layout.vitaShortcutPeelRequested,
         )
     }
 
@@ -662,6 +719,17 @@ class HomeViewModel @Inject constructor(
         val customizeChrome: ShortcutCustomizeChrome,
         val vitaShortcutTrayOpen: Boolean,
         val vitaShortcutPinMode: Boolean,
+        val vitaShortcutLaunch: VitaShortcutLaunchUi?,
+        val vitaShortcutDepartingIndex: Int?,
+        val vitaShortcutPeelRequested: Boolean,
+    )
+
+    private data class VitaTrayChrome(
+        val open: Boolean,
+        val pin: Boolean,
+        val launch: VitaShortcutLaunchUi?,
+        val departingIndex: Int?,
+        val peelRequested: Boolean,
     )
 
     private data class HomeHubNav(
@@ -674,6 +742,9 @@ class HomeViewModel @Inject constructor(
         val customizeChrome: ShortcutCustomizeChrome,
         val vitaShortcutTrayOpen: Boolean,
         val vitaShortcutPinMode: Boolean,
+        val vitaShortcutLaunch: VitaShortcutLaunchUi?,
+        val vitaShortcutDepartingIndex: Int?,
+        val vitaShortcutPeelRequested: Boolean,
     )
 
     private val addShortcutChromeFlow = combine(
@@ -719,7 +790,13 @@ class HomeViewModel @Inject constructor(
     }
 
     private val homeThemeFlow = combine(
-        preferences.settings.map { it.homeWallpaperPath to it.customBgmPath },
+        preferences.settings.map {
+            Triple(
+                it.homeWallpaperPath,
+                it.customBgmPath,
+                GameArtAlignment(it.wallpaperAlignX, it.wallpaperAlignY),
+            )
+        },
         homeShortcuts,
         homeHubNavFlow,
         addShortcutChromeFlow,
@@ -731,6 +808,8 @@ class HomeViewModel @Inject constructor(
         val themes = themesAndXora.first
         HomeThemeChrome(
             wallpaperPath = themePaths.first,
+            wallpaperAlignX = themePaths.third.x,
+            wallpaperAlignY = themePaths.third.y,
             customBgmPath = themePaths.second,
             shortcuts = shortcuts,
             nav = nav,
@@ -746,6 +825,8 @@ class HomeViewModel @Inject constructor(
 
     private data class HomeThemeChrome(
         val wallpaperPath: String?,
+        val wallpaperAlignX: Float,
+        val wallpaperAlignY: Float,
         val customBgmPath: String?,
         val shortcuts: List<HomeShortcut>,
         val nav: HomeHubNav,
@@ -779,7 +860,17 @@ class HomeViewModel @Inject constructor(
         val readyPlatformIds: Set<String> = emptySet(),
         val spotifyLinked: Boolean = false,
         val music: MusicUiState = MusicUiState(),
+        val photoFolders: List<DeviceMediaFolder> = emptyList(),
+        val videoFolders: List<DeviceMediaFolder> = emptyList(),
+        val customMediaEpoch: Int = 0,
     )
+
+    private data class MediaFolders(
+        val photos: List<DeviceMediaFolder> = emptyList(),
+        val videos: List<DeviceMediaFolder> = emptyList(),
+    )
+
+    private val mediaFolders = MutableStateFlow(MediaFolders())
 
     /** Music browse rungs; the Now Playing state is owned by the shared controller. */
     private val musicUi = MutableStateFlow(MusicUiState())
@@ -794,6 +885,7 @@ class HomeViewModel @Inject constructor(
     }
     private var photoSlideshowJob: Job? = null
     private var photoControlsHideJob: Job? = null
+    private var raGameDetailJob: Job? = null
     private var pendingDeletePhotoId: String? = null
     /** Debounce for layer-changing photo actions so one press cannot fire through two layers. */
     private var lastPhotoLayerActionMs = 0L
@@ -807,20 +899,28 @@ class HomeViewModel @Inject constructor(
     private val xoraEmulatedPlatformIds: Set<String> =
         xoraCoreCatalog.all.mapTo(mutableSetOf()) { it.platformId }
 
+    private val customMediaEpoch = MutableStateFlow(0)
+
     private val platformChromeFlow = combine(
-        platformArtRepository.artByPlatformId,
-        platformArtStore.bannerByPlatformId,
-        spotifyTokenStore.linked,
-        musicFlow,
-    ) { scraped, custom, spotifyLinked, music ->
-        PlatformChrome(
-            // A banner the player picked themselves always beats the scraped system media.
-            artByPlatformId = scraped + custom,
-            readyPlatformIds = xoraEmulatedPlatformIds,
-            spotifyLinked = spotifyLinked,
-            music = music,
-        )
-    }
+        combine(
+            platformArtRepository.artByPlatformId,
+            platformArtStore.bannerByPlatformId,
+            spotifyTokenStore.linked,
+            musicFlow,
+            mediaFolders,
+        ) { scraped, custom, spotifyLinked, music, folders ->
+            PlatformChrome(
+                // A banner the player picked themselves always beats the scraped system media.
+                artByPlatformId = scraped + custom,
+                readyPlatformIds = xoraEmulatedPlatformIds,
+                spotifyLinked = spotifyLinked,
+                music = music,
+                photoFolders = folders.photos,
+                videoFolders = folders.videos,
+            )
+        },
+        customMediaEpoch,
+    ) { chrome, epoch -> chrome.copy(customMediaEpoch = epoch) }
 
     private val libraryUiState: StateFlow<HomeUiState> = combine(
         libraryFlow,
@@ -862,9 +962,23 @@ class HomeViewModel @Inject constructor(
         notificationHistorySelectedIndex,
         shellNotifications.history,
         shellNotifications.unreadCount,
-        combine(pendingNetplayInvite, netplayInvitePromptOpen, ::Pair),
+        combine(
+            pendingNetplayInvite,
+            netplayInvitePromptOpen,
+            shellNotifications.active,
+        ) { invite, prompt, active ->
+            Triple(invite, prompt, active != null)
+        },
     ) { open, selected, history, unread, invite ->
-        NotificationChrome(open, selected, history, unread, invite.first, invite.second)
+        NotificationChrome(
+            open,
+            selected,
+            history,
+            unread,
+            invite.first,
+            invite.second,
+            invite.third,
+        )
     }
 
     private data class NotificationChrome(
@@ -874,13 +988,27 @@ class HomeViewModel @Inject constructor(
         val unreadCount: Int,
         val pendingInvite: NetplayInvitePrompt?,
         val invitePromptOpen: Boolean,
+        val activePresent: Boolean,
+    )
+
+    private data class WakeChrome(
+        val welcomeBack: Boolean,
+        val bootIntro: Boolean,
+        val bootSkip: Boolean,
+        val homeIntroReveal: Boolean,
+        val notif: NotificationChrome,
     )
 
     private data class AuxChrome(
-        val welcomeAndNotif: Pair<Boolean, NotificationChrome>,
+        val welcomeBack: Boolean,
+        val bootIntro: Boolean,
+        val bootSkip: Boolean,
+        val homeIntroReveal: Boolean,
+        val notif: NotificationChrome,
         val systemProfile: SystemProfileCardState,
         val photos: PhotosUiState,
         val dashboard: XoraDashboardUiState,
+        val systemUpdate: SystemUpdateUiState,
     )
 
     val uiState: StateFlow<HomeUiState> = combine(
@@ -889,30 +1017,62 @@ class HomeViewModel @Inject constructor(
         insightUi,
         systemPanelSelectedIndex,
         combine(
-            combine(welcomeBackOpen, notificationChrome) { welcome, notif -> welcome to notif },
+            combine(
+                welcomeBackOpen,
+                bootIntroOpen,
+                bootIntroSkip,
+                homeIntroReveal,
+                notificationChrome,
+            ) { welcome, boot, skip, reveal, notif ->
+                WakeChrome(welcome, boot, skip, reveal, notif)
+            },
             systemProfileChromeFlow(),
             photosUi,
             dashboardFlow,
-        ) { welcomeAndNotif, systemProfile, photos, dashboard ->
-            AuxChrome(welcomeAndNotif, systemProfile, photos, dashboard)
+            systemUpdate,
+        ) { wake, systemProfile, photos, dashboard, update ->
+            AuxChrome(
+                welcomeBack = wake.welcomeBack,
+                bootIntro = wake.bootIntro,
+                bootSkip = wake.bootSkip,
+                homeIntroReveal = wake.homeIntroReveal,
+                notif = wake.notif,
+                systemProfile = systemProfile,
+                photos = photos,
+                dashboard = dashboard,
+                systemUpdate = update,
+            )
         },
     ) { base, trailer, insight, systemIndex, aux ->
-        val (welcomeBack, notif) = aux.welcomeAndNotif
         base.copy(
-            trailer = trailer,
+            trailer = trailer.copy(
+                iconIdleMedia = base.startSettings.settings.gameIconIdleMedia,
+                screenshotPaths = run {
+                    val focused = base.xoraXmb.focusGame ?: base.selectedGame
+                    val fromInsight = insight.screenshotPaths.takeIf {
+                        insight.gameId != null && insight.gameId == focused?.id
+                    }.orEmpty()
+                    fromInsight.ifEmpty { listOfNotNull(focused?.heroImagePath) }
+                },
+            ),
             insight = insight,
             systemPanelSelectedIndex = systemIndex,
-            welcomeBackOpen = welcomeBack,
-            notificationHistoryOpen = notif.open,
-            notificationHistory = notif.history,
-            notificationUnreadCount = notif.unreadCount,
-            notificationHistorySelectedIndex = notif.selectedIndex
-                .coerceIn(0, if (notif.history.isEmpty()) 0 else notif.history.size),
-            pendingNetplayInvite = notif.pendingInvite,
-            netplayInvitePromptOpen = notif.invitePromptOpen,
+            welcomeBackOpen = aux.welcomeBack,
+            bootIntroOpen = aux.bootIntro,
+            bootIntroSkip = aux.bootSkip,
+            homeIntroReveal = aux.homeIntroReveal,
+            notificationHistoryOpen = aux.notif.open,
+            notificationHistory = aux.notif.history,
+            notificationUnreadCount = aux.notif.unreadCount,
+            notificationHistorySelectedIndex = aux.notif.selectedIndex
+                .coerceIn(0, if (aux.notif.history.isEmpty()) 0 else aux.notif.history.size),
+            activeNotificationPresent = aux.notif.activePresent,
+            pendingNetplayInvite = aux.notif.pendingInvite,
+            netplayInvitePromptOpen = aux.notif.invitePromptOpen,
             systemProfile = aux.systemProfile,
             photos = aux.photos,
             dashboard = aux.dashboard,
+            systemUpdate = aux.systemUpdate,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -1054,6 +1214,34 @@ class HomeViewModel @Inject constructor(
             }
             .launchIn(viewModelScope)
 
+        // Keep the pre-action Cancel flag in sync so LT/RT window dismiss can use NavClose.
+        combine(
+            combine(accountPanelExpanded, systemPanelExpanded, ::Pair),
+            combine(notificationsOpen, conversationReply, discordRichPresence.dmThread) { notifications, reply, dm ->
+                Triple(notifications, reply.conversationKey != null, dm.peerUserId != null)
+            },
+            combine(systemFavoritePickerOpen, systemStatusEditorOpen, ::Pair),
+        ) { panels, nested, pickers ->
+            val (account, system) = panels
+            val (notifications, replyOpen, dmOpen) = nested
+            val (favoritePicker, statusEditor) = pickers
+            when {
+                account -> !notifications && !replyOpen && !dmOpen
+                system -> !favoritePicker && !statusEditor
+                else -> false
+            }
+        }
+            .distinctUntilChanged()
+            .onEach { gamepadDispatcher.heroPanelClosesOnCancel = it }
+            .launchIn(viewModelScope)
+
+        combine(vitaShortcutTrayOpen, vitaShortcutLaunch) { open, launch ->
+            open && launch == null
+        }
+            .distinctUntilChanged()
+            .onEach { gamepadDispatcher.vitaBubbleLaunchSfx = it }
+            .launchIn(viewModelScope)
+
         observeIdleTrailer()
 
         retroAchievements.credentials
@@ -1136,27 +1324,30 @@ class HomeViewModel @Inject constructor(
             }
         }
             .distinctUntilChanged()
-            .onEach { path ->
-                if (!path.isNullOrBlank()) gameSoundBitePlayer.play(path)
-                else gameSoundBitePlayer.stop()
+            .transformLatest { path ->
+                if (path.isNullOrBlank()) {
+                    gameSoundBitePlayer.stop()
+                    return@transformLatest
+                }
+                gameSoundBitePlayer.stop(releaseBackgroundMusic = false)
+                delay(XMB_FOCUS_SETTLE_MS)
+                emit(path)
             }
+            .onEach { path -> gameSoundBitePlayer.play(path) }
             .launchIn(viewModelScope)
 
-        // Track library browsing for Discord status bridge / future Social SDK presence.
-        uiState
-            .map { it.selectedGame }
-            .distinctUntilChangedBy { it?.id }
-            .onEach { game ->
-                if (!discordRichPresence.state.value.isConfigured) return@onEach
-                when {
-                    game == null -> discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
-                    else -> discordRichPresence.setActivity(
-                        DiscordPresenceActivity.Browsing(
-                            gameTitle = game.title,
-                            platformName = game.platform.displayName,
-                        ),
-                    )
+        // Menus stay on “Browsing XOrA”. Focusing a game must not publish its title.
+        // Also fires when the Application ID arrives so the first emit is not skipped as Idle.
+        combine(
+            uiState.map { it.selectedGame?.id }.distinctUntilChanged(),
+            discordRichPresence.state.map { it.isConfigured }.distinctUntilChanged(),
+        ) { _, configured -> configured }
+            .onEach { configured ->
+                if (!configured) return@onEach
+                if (discordRichPresence.state.value.activity is DiscordPresenceActivity.Playing) {
+                    return@onEach
                 }
+                discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
             }
             .launchIn(viewModelScope)
 
@@ -1201,7 +1392,11 @@ class HomeViewModel @Inject constructor(
         @OptIn(ExperimentalCoroutinesApi::class)
         combine(
             achievementsPanelExpanded,
-            uiState.map { it.selectedGame?.id }.distinctUntilChanged(),
+            uiState.map { state ->
+                state.homeHub.vitaShortcutLaunch?.game?.id
+                    ?: state.xoraXmb.focusGame?.id?.takeIf { state.xoraXmb.showsAchievementsCard }
+                    ?: state.selectedGame?.id
+            }.distinctUntilChanged(),
             achievementsUi.map { it.tab }.distinctUntilChanged(),
             retroAchievements.credentials,
         ) { expanded, gameId, tab, creds ->
@@ -1216,6 +1411,18 @@ class HomeViewModel @Inject constructor(
                     return@mapLatest
                 }
                 refreshAchievements(request.gameId, request.tab, request.signedIn)
+            }
+            .launchIn(viewModelScope)
+
+        uiState
+            .map { state ->
+                state.homePage == HomePage.Home &&
+                    !state.xoraXmb.showsAchievementsCard &&
+                    state.homeHub.vitaShortcutLaunch?.game == null
+            }
+            .distinctUntilChanged()
+            .onEach { hideHomeCard ->
+                if (hideHomeCard) achievementsPanelExpanded.value = false
             }
             .launchIn(viewModelScope)
 
@@ -1525,8 +1732,14 @@ class HomeViewModel @Inject constructor(
     }
 
     fun activateShellNotification(notification: ShellNotification) {
-        if (notification is ShellNotification.XoraNetplayInvite) {
-            openNetplayInvitePrompt(notification)
+        when (notification) {
+            is ShellNotification.XoraNetplayInvite -> openNetplayInvitePrompt(notification)
+            is ShellNotification.UpdateAvailable -> {
+                closeNotificationHistory()
+                shellNotifications.dismiss()
+                openSystemUpdate()
+            }
+            else -> Unit
         }
     }
 
@@ -1798,14 +2011,32 @@ class HomeViewModel @Inject constructor(
         theme: HomeThemeChrome,
         platformChrome: PlatformChrome = PlatformChrome(),
     ): HomeUiState {
+        val hiddenIds = chrome.hiddenGameIds
+        val showHidden = chrome.settings.showHiddenGames
+        val libraryGames = if (showHidden || hiddenIds.isEmpty()) {
+            allGames
+        } else {
+            allGames.filter { it.id !in hiddenIds }
+        }
+        val visibleSummaries = if (showHidden || hiddenIds.isEmpty()) {
+            summaries
+        } else {
+            val counts = libraryGames
+                .filter { !it.isAndroidApp }
+                .groupingBy { it.platformId }
+                .eachCount()
+            summaries.map { summary ->
+                summary.copy(gameCount = counts[summary.platform.id] ?: 0)
+            }
+        }
         val platformArtById = platformChrome.artByPlatformId
-        val tabs = buildTabs(allGames, summaries)
+        val tabs = buildTabs(libraryGames, visibleSummaries)
         val tabIndex = chrome.selection.tabIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
-        val games = gamesForTab(allGames, tabs.getOrNull(tabIndex))
+        val games = gamesForTab(libraryGames, tabs.getOrNull(tabIndex))
         val gameIndex = chrome.selection.gameIndex.coerceIn(0, (games.size - 1).coerceAtLeast(0))
         val rssIndex = rss.selectedIndex.coerceIn(0, (rss.items.size - 1).coerceAtLeast(0))
         val guideRows = buildGuideRows(
-            allGames = allGames,
+            allGames = libraryGames,
             raSignedIn = chrome.achievements.credentials.isConfigured,
             steam = social.steam,
         )
@@ -1820,14 +2051,14 @@ class HomeViewModel @Inject constructor(
             raSettings = raSettings,
         )
         val startRowIndex = startSettingsRowIndex.coerceIn(0, (startRows.size - 1).coerceAtLeast(0))
-        val quickLaunch = quickLaunchGames(allGames)
-        val continueGame = allGames
+        val quickLaunch = quickLaunchGames(libraryGames)
+        val continueGame = libraryGames
             .filter { !it.isAndroidApp && it.lastPlayedAt != null }
             .maxByOrNull { it.lastPlayedAt ?: 0L }
-        val favoriteGame = allGames
+        val favoriteGame = libraryGames
             .filter { !it.isAndroidApp && it.favorite }
             .maxByOrNull { it.lastPlayedAt ?: 0L }
-            ?: allGames.firstOrNull { !it.isAndroidApp && it.favorite }
+            ?: libraryGames.firstOrNull { !it.isAndroidApp && it.favorite }
         val gamesSecondarySlot = when (chrome.settings.gamesSecondarySlot) {
             "Favorite" -> GamesSecondarySlot.Favorite
             else -> GamesSecondarySlot.Continue
@@ -1836,7 +2067,13 @@ class HomeViewModel @Inject constructor(
         val xoraCategory = XoraXmbCategory.entries.getOrElse(theme.xora.categoryIndex) {
             XoraXmbCategory.Games
         }
-        val xoraItems = when (theme.xora.depth) {
+        val xoraListDepth = when (val depth = theme.xora.depth) {
+            XoraXmbDepth.RaLibrary -> xoraReturnStack.lastOrNull() ?: XoraXmbDepth.Category
+            else -> depth
+        }
+        val xoraItems = overlayGameArtAlignment(
+            items = overlayMusicCustomMedia(
+            items = when (xoraListDepth) {
             XoraXmbDepth.Category -> buildXoraCategoryItems(
                 category = xoraCategory,
                 profileName = chrome.profile.displayName,
@@ -1848,16 +2085,20 @@ class HomeViewModel @Inject constructor(
                     "${track.title} — ${track.artist}"
                 },
                 nowPlayingArtPath = platformChrome.music.nowPlayingArtPath,
+                photoFolders = platformChrome.photoFolders,
+                videoFolders = platformChrome.videoFolders,
+                musicFolders = platformChrome.music.albums,
             )
             XoraXmbDepth.Systems -> buildXoraSystemItems(
-                summaries = summaries,
+                summaries = visibleSummaries,
                 artByPlatformId = platformArtById,
                 readyPlatformIds = platformChrome.readyPlatformIds,
             )
             XoraXmbDepth.Roms -> {
                 val platformId = theme.xora.drilledPlatformId
                 buildXoraRomItems(
-                    allGames.filter { !it.isAndroidApp && it.platformId == platformId },
+                    games = libraryGames.filter { !it.isAndroidApp && it.platformId == platformId },
+                    hiddenIds = if (showHidden) hiddenIds else emptySet(),
                 )
             }
             XoraXmbDepth.Emulator -> buildXoraEmulatorItems(
@@ -1875,11 +2116,20 @@ class HomeViewModel @Inject constructor(
             XoraXmbDepth.Photos -> emptyList()
             // The dashboard pane draws itself; the rung carries no list.
             XoraXmbDepth.Dashboard -> emptyList()
-        }
+            // RA rides above a receding XMB; this rung carries no list.
+            XoraXmbDepth.RaLibrary -> emptyList()
+            },
+            epoch = platformChrome.customMediaEpoch,
+        ),
+            alignments = chrome.artAlignments,
+            continueGameId = continueGame?.id,
+            favoriteGameId = favoriteGame?.id,
+        )
         val xoraItemIndex = theme.xora.itemIndex.coerceIn(0, (xoraItems.size - 1).coerceAtLeast(0))
         val xoraSelected = xoraItems.getOrNull(xoraItemIndex)
         val xoraFocusGame = when (val action = xoraSelected?.action) {
-            is XoraXmbAction.LaunchGame -> allGames.find { it.id == action.gameId }
+            is XoraXmbAction.LaunchGame -> libraryGames.find { it.id == action.gameId }
+                ?: allGames.find { it.id == action.gameId }
             XoraXmbAction.LaunchContinueOrFavorite -> when (gamesSecondarySlot) {
                 GamesSecondarySlot.Continue -> continueGame
                 GamesSecondarySlot.Favorite -> favoriteGame
@@ -1936,7 +2186,12 @@ class HomeViewModel @Inject constructor(
                 shortcuts = theme.shortcuts,
                 vitaShortcutTrayOpen = theme.nav.vitaShortcutTrayOpen,
                 vitaShortcutPinMode = theme.nav.vitaShortcutPinMode,
+                vitaShortcutLaunch = theme.nav.vitaShortcutLaunch,
+                vitaShortcutDepartingIndex = theme.nav.vitaShortcutDepartingIndex,
+                vitaShortcutPeelRequested = theme.nav.vitaShortcutPeelRequested,
                 wallpaperPath = theme.wallpaperPath,
+                wallpaperAlignX = theme.wallpaperAlignX,
+                wallpaperAlignY = theme.wallpaperAlignY,
                 customBgmPath = theme.customBgmPath,
                 continueGame = continueGame,
                 themesOpen = theme.themesOpen,
@@ -1963,12 +2218,14 @@ class HomeViewModel @Inject constructor(
             selectedTabIndex = tabIndex,
             games = games,
             selectedGameIndex = gameIndex,
+            hiddenGameIds = hiddenIds,
+            gameArtAlignments = chrome.artAlignments,
             displayMode = chrome.settings.displayMode,
             gridColumns = chrome.settings.gridColumns.coerceIn(2, 6),
             scanProgress = chrome.progress,
             hasStorageAccess = storageAccess.hasAllFilesAccess,
             configuredRootCount = roots.size,
-            platformSummaries = summaries,
+            platformSummaries = visibleSummaries,
             resolvedPlayerName = chrome.resolvedPlayerName,
             isLaunching = chrome.isLaunching,
             profile = chrome.profile,
@@ -2263,12 +2520,20 @@ class HomeViewModel @Inject constructor(
             val enabled: Boolean,
             val mode: TrailerDisplayMode,
             val idleSeconds: Int,
+            val iconIdleMedia: GameIconIdleMedia,
             val gateAllowed: Boolean,
             val launching: Boolean,
             val panelsOpen: Boolean,
             val libraryEmpty: Boolean,
             val onGameSelector: Boolean,
             val inputAt: Long,
+        )
+
+        data class IdleTrailerPrefs(
+            val enabled: Boolean,
+            val mode: TrailerDisplayMode,
+            val idleSeconds: Int,
+            val iconIdleMedia: GameIconIdleMedia,
         )
 
         combine(
@@ -2297,16 +2562,22 @@ class HomeViewModel @Inject constructor(
                 )
             }.distinctUntilChanged(),
             preferences.settings.map { settings ->
-                Triple(settings.trailerEnabled, settings.trailerDisplayMode, settings.trailerIdleSeconds)
+                IdleTrailerPrefs(
+                    enabled = settings.trailerEnabled,
+                    mode = settings.trailerDisplayMode,
+                    idleSeconds = settings.trailerIdleSeconds,
+                    iconIdleMedia = settings.gameIconIdleMedia,
+                )
             }.distinctUntilChanged(),
             trailerGateAllowed,
             lastInputAt,
         ) { snap, trailerPrefs, gate, inputAt ->
             IdleWatch(
                 gameId = snap.gameId,
-                enabled = trailerPrefs.first,
-                mode = trailerPrefs.second,
-                idleSeconds = trailerPrefs.third,
+                enabled = trailerPrefs.enabled,
+                mode = trailerPrefs.mode,
+                idleSeconds = trailerPrefs.idleSeconds,
+                iconIdleMedia = trailerPrefs.iconIdleMedia,
                 gateAllowed = gate,
                 launching = snap.launching,
                 panelsOpen = snap.panelsOpen,
@@ -2326,6 +2597,10 @@ class HomeViewModel @Inject constructor(
                         !watch.panelsOpen &&
                         !watch.libraryEmpty
                     if (!canIdle) return@flow
+                    // Screenshots replace in-icon trailers immediately; full-bleed / PIP still idle.
+                    val skipInIconTrailer = watch.iconIdleMedia == GameIconIdleMedia.Screenshot &&
+                        watch.mode == TrailerDisplayMode.InIcon
+                    if (skipInIconTrailer) return@flow
 
                     delay(watch.idleSeconds.coerceIn(5, 60) * 1_000L)
                     Log.i(TAG, "Idle ${watch.idleSeconds}s elapsed; resolving trailer for $gameId")
@@ -2377,6 +2652,10 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun ensureTrailerUrl(gameId: String): String? {
+        gameCustomMediaStore.findIdleVideo(gameId)?.let { custom ->
+            Log.i(TAG, "Using custom idle video for $gameId")
+            return custom
+        }
         val game = libraryRepository.findById(gameId) ?: return null
         if (!game.trailerUrl.isNullOrBlank()) {
             Log.i(TAG, "Using stored trailer for ${game.fileName}: ${game.trailerUrl}")
@@ -2407,10 +2686,27 @@ class HomeViewModel @Inject constructor(
         return resolved
     }
 
+    /** Touch flicks land here so swipe and the pad share one routing table. */
+    fun onTouchNav(action: NavAction) {
+        noteUserActivity()
+        onNavAction(action)
+    }
+
     private fun onNavAction(action: NavAction) {
         val state = uiState.value
 
-        // Welcome-back wake screen: B / Cancel skips early; other nav is swallowed.
+        // The cinematic launch plate holds the screen for [ArcadiaMotion.LaunchHold]. The chrome
+        // has already faded off, so anything accepted here would move the shell invisibly and the
+        // player would come back from the game to a menu that had shifted under them.
+        if (state.isLaunching) return
+
+        // Welcome-back wake screen / boot clip: B / Cancel / A skips; other nav is swallowed.
+        if (state.bootIntroOpen) {
+            if (action == NavAction.Cancel || action == NavAction.Confirm) {
+                skipBootIntro()
+            }
+            return
+        }
         if (state.welcomeBackOpen) {
             if (action == NavAction.Cancel || action == NavAction.Confirm) {
                 dismissWelcomeBack()
@@ -2423,6 +2719,19 @@ class HomeViewModel @Inject constructor(
             when (action) {
                 NavAction.Confirm -> confirmNetplayInvitePrompt()
                 NavAction.Cancel -> dismissNetplayInvitePrompt()
+                else -> Unit
+            }
+            return
+        }
+
+        // System Update window sits above every other overlay while it is open.
+        if (state.systemUpdateOpen) {
+            noteUserActivity()
+            when (action) {
+                NavAction.Confirm -> activateSystemUpdatePrimary()
+                NavAction.Cancel -> closeSystemUpdate()
+                NavAction.Left, NavAction.Up -> selectSystemUpdateButton(0)
+                NavAction.Right, NavAction.Down -> selectSystemUpdateButton(1)
                 else -> Unit
             }
             return
@@ -2553,6 +2862,17 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        // Retro Achievements overlay captures the pad while the XMB is receded; LT/RT still work.
+        if (state.homePage == HomePage.Home && state.xoraXmb.depth == XoraXmbDepth.RaLibrary) {
+            when (action) {
+                NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+                else -> onRaLibraryNavAction(action)
+            }
+            return
+        }
+
         // On XOrA XMB home, LB/RB cycle categories. Elsewhere they retain page jumps.
         when (action) {
             NavAction.PreviousPlatform -> {
@@ -2613,12 +2933,14 @@ class HomeViewModel @Inject constructor(
             }
             NavAction.Cancel -> drillOutXora()
             NavAction.Options -> {
+                if (openMusicCustomizeIfFocused(xmb)) return
                 if (xmb.depth == XoraXmbDepth.Roms) {
                     xmb.focusGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
                         ?: state.selectedGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
                 }
             }
             NavAction.ScrapeMenu -> {
+                if (openMusicCustomizeIfFocused(xmb)) return
                 if (xmb.depth == XoraXmbDepth.Systems) {
                     (xmb.selectedItem?.action as? XoraXmbAction.DrillSystem)?.let {
                         requestPlatformBanner(it.platformId)
@@ -2676,6 +2998,9 @@ class HomeViewModel @Inject constructor(
 
     fun closeVitaShortcutTray() {
         noteUserActivity()
+        clearVitaShortcutPeel()
+        vitaShortcutLaunch.value = null
+        vitaShortcutDepartingIndex.value = null
         vitaShortcutTrayOpen.value = false
         vitaShortcutPinMode.value = false
         homeShortcutsEditMode.value = false
@@ -2683,8 +3008,137 @@ class HomeViewModel @Inject constructor(
         if (addShortcutOpen.value) dismissAddShortcutChooser()
     }
 
+    fun prepareVitaShortcutLaunch(index: Int? = null) {
+        noteUserActivity()
+        val hub = uiState.value.homeHub
+        if (index != null) selectHomeShortcut(index)
+        val shortcut = hub.shortcuts.getOrNull(homeShortcutIndex.value) ?: return
+        viewModelScope.launch {
+            clearVitaShortcutPeel()
+            vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
+            vitaShortcutDepartingIndex.value = null
+        }
+    }
+
+    private fun beginVitaShortcutDepart(index: Int, shortcut: HomeShortcut) {
+        playUiOneShot(UiOneShot.BubbleLaunch)
+        clearVitaShortcutPeel()
+        vitaShortcutDepartingIndex.value = index
+        viewModelScope.launch {
+            val resolveJob = launch {
+                vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
+            }
+            delay(VitaBubbleDepartMs.toLong())
+            resolveJob.join()
+            if (vitaShortcutDepartingIndex.value != index) return@launch
+            vitaShortcutDepartingIndex.value = null
+        }
+    }
+
+    /**
+     * A (or a tap on the plate) asks the LiveArea gate to peel itself. The page owns the
+     * animation, and calls back into [completeVitaShortcutLaunch] once the sticker is off — the
+     * same callback a finger-peel uses, so both routes take the identical path into the game.
+     */
+    fun confirmVitaShortcutLaunch() {
+        noteUserActivity()
+        if (vitaShortcutLaunch.value == null) return
+        vitaShortcutPeelRequested.value = true
+    }
+
+    /** The start gate has come away: hand off to the game behind the launch cinematic. */
+    fun completeVitaShortcutLaunch() {
+        val preview = vitaShortcutLaunch.value ?: return
+        if (isLaunching.value) return
+        playUiOneShot(UiOneShot.BubbleLaunch)
+        openHomeShortcut(preview.shortcut)
+        vitaLaunchHandoff?.cancel()
+        vitaLaunchHandoff = viewModelScope.launch {
+            // The page holds the title's artwork through the launch cinematic instead of
+            // snapping back to the tray, so the fade the player sees is the game's own art
+            // dissolving. A shortcut that opens a plain Activity instead — an app, a picture —
+            // never sets isLaunching, so the page gives it a moment and then stands down too.
+            val started = withTimeoutOrNull(VITA_LAUNCH_HANDOFF_MS) {
+                isLaunching.first { it }
+            } != null
+            if (started) isLaunching.first { !it }
+            // Launched, opened, or failed with a message already emitted: back to the tray.
+            vitaLaunchHandoff = null
+            vitaShortcutPeelRequested.value = false
+            vitaShortcutLaunch.value = null
+        }
+    }
+
+    fun cancelVitaShortcutLaunch() {
+        noteUserActivity()
+        // Once the cinematic is running the page belongs to the launch, not to Back.
+        if (isLaunching.value) return
+        clearVitaShortcutPeel()
+        vitaShortcutLaunch.value = null
+        vitaShortcutDepartingIndex.value = null
+    }
+
+    private fun clearVitaShortcutPeel() {
+        vitaLaunchHandoff?.cancel()
+        vitaLaunchHandoff = null
+        vitaShortcutPeelRequested.value = false
+    }
+
+    private suspend fun resolveVitaShortcutLaunch(shortcut: HomeShortcut): VitaShortcutLaunchUi {
+        val game = when (shortcut.kind) {
+            HomeShortcutKind.Game -> libraryRepository.observeGames().first()
+                .firstOrNull { it.id == shortcut.target }
+            HomeShortcutKind.AndroidApp -> libraryRepository.observeGames().first()
+                .firstOrNull { it.isAndroidApp && it.fileName == shortcut.target }
+                ?: libraryRepository.observeGames().first()
+                    .firstOrNull { it.isAndroidApp && it.id.contains(shortcut.target) }
+            else -> null
+        }
+        val wallpaper = game?.heroImagePath
+            ?: game?.boxArtPath
+            ?: shortcut.artPath
+            ?: shortcut.target.takeIf {
+                shortcut.kind == HomeShortcutKind.Picture || shortcut.kind == HomeShortcutKind.Gif
+            }
+        val icon = shortcut.artPath
+            ?: game?.boxArtPath
+            ?: game?.heroImagePath
+            ?: shortcut.target.takeIf { shortcut.kind == HomeShortcutKind.AndroidApp }
+                ?.let { "${InstalledAppSync.ICON_SCHEME}$it" }
+        val alignment = game?.id?.let { id ->
+            preferences.gameArtAlignments.first()[id]
+        } ?: GameArtAlignment()
+        // "Recently played" on the LiveArea panel: the Vita lists other players there, but a
+        // launcher's own answer is the titles most recently run, this one excluded.
+        val played = libraryRepository.observeGames().first()
+            .filter { it.lastPlayedAt != null && it.id != game?.id }
+            .sortedByDescending { it.lastPlayedAt }
+        return VitaShortcutLaunchUi(
+            shortcut = shortcut,
+            wallpaperPath = wallpaper,
+            iconPath = icon,
+            game = game,
+            artAlignX = alignment.x,
+            artAlignY = alignment.y,
+            systemLabel = game?.platform?.shortName.orEmpty(),
+            recentGames = played.take(VITA_PANEL_RECENT_SLOTS),
+            recentOverflow = (played.size - VITA_PANEL_RECENT_SLOTS).coerceAtLeast(0),
+        )
+    }
+
     private fun onVitaShortcutTrayNavAction(action: NavAction, state: HomeUiState) {
         val hub = state.homeHub
+        if (hub.vitaShortcutLaunch != null) {
+            when (action) {
+                NavAction.Confirm -> confirmVitaShortcutLaunch()
+                NavAction.Cancel -> cancelVitaShortcutLaunch()
+                NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+                else -> Unit
+            }
+            return
+        }
         when (action) {
             NavAction.Left -> moveVitaShortcutFocusHorizontal(-1, hub)
             NavAction.Right -> moveVitaShortcutFocusHorizontal(1, hub)
@@ -2722,26 +3176,18 @@ class HomeViewModel @Inject constructor(
         homeShortcutIndex.value = homeShortcutIndex.value.coerceIn(0, (count - 1).coerceAtLeast(0))
     }
 
-    /** Left/right walks the focused row, then carries over to the same row on the next page. */
+    /** Left/right stays on the focused row. Pages are reached with up/down. */
     private fun moveVitaShortcutFocusHorizontal(delta: Int, hub: HomeHubUiState) {
         noteUserActivity()
         val slotCount = vitaTraySlotCount(hub)
         val focus = hub.shortcutIndex.coerceIn(0, slotCount - 1)
         val page = focus / VITA_TRAY_PAGE_SIZE
         val rows = vitaTrayPageRows(slotCount, page)
-        val rowIndex = rows.indexOfFirst { focus in it }
-        if (rowIndex < 0) return
-        val row = rows[rowIndex]
+        val row = rows.firstOrNull { focus in it } ?: return
         val nextCol = row.indexOf(focus) + delta
         if (nextCol in row.indices) {
             homeShortcutIndex.value = row[nextCol]
-            return
         }
-        val nextPage = page + delta
-        if (nextPage !in 0 until vitaTrayPageCount(slotCount)) return
-        val nextRows = vitaTrayPageRows(slotCount, nextPage)
-        val landing = nextRows.getOrNull(rowIndex) ?: nextRows.lastOrNull() ?: return
-        homeShortcutIndex.value = if (delta > 0) landing.first() else landing.last()
     }
 
     private fun moveVitaShortcutFocusVertical(delta: Int, hub: HomeHubUiState) {
@@ -2752,18 +3198,30 @@ class HomeViewModel @Inject constructor(
         val rows = vitaTrayPageRows(slotCount, page)
         val rowIndex = rows.indexOfFirst { focus in it }
         if (rowIndex < 0) return
-        val targetRowIndex = (rowIndex + delta).coerceIn(0, rows.lastIndex)
-        if (targetRowIndex == rowIndex) return
         val sourceRow = rows[rowIndex]
-        val targetRow = rows[targetRowIndex]
         val sourceCol = sourceRow.indexOf(focus).coerceAtLeast(0)
-        // Rows are staggered and unequal, so hold the horizontal position proportionally.
-        val mappedCol = if (sourceRow.size <= 1 || targetRow.size <= 1) {
-            0
-        } else {
-            ((sourceCol.toFloat() / (sourceRow.size - 1)) * (targetRow.size - 1)).roundToInt()
-        }.coerceIn(0, targetRow.lastIndex)
-        homeShortcutIndex.value = targetRow[mappedCol]
+
+        fun landOn(targetRows: List<List<Int>>, targetRowIndex: Int) {
+            val targetRow = targetRows.getOrNull(targetRowIndex) ?: return
+            // Rows are staggered and unequal, so hold the horizontal position proportionally.
+            val mappedCol = if (sourceRow.size <= 1 || targetRow.size <= 1) {
+                0
+            } else {
+                ((sourceCol.toFloat() / (sourceRow.size - 1)) * (targetRow.size - 1)).roundToInt()
+            }.coerceIn(0, targetRow.lastIndex)
+            homeShortcutIndex.value = targetRow[mappedCol]
+        }
+
+        val targetRowIndex = rowIndex + delta
+        if (targetRowIndex in rows.indices) {
+            landOn(rows, targetRowIndex)
+            return
+        }
+        val nextPage = page + delta
+        if (nextPage !in 0 until vitaTrayPageCount(slotCount)) return
+        val nextRows = vitaTrayPageRows(slotCount, nextPage)
+        if (nextRows.isEmpty()) return
+        landOn(nextRows, if (delta > 0) 0 else nextRows.lastIndex)
     }
 
     private fun vitaTraySlotCount(hub: HomeHubUiState): Int {
@@ -2780,9 +3238,13 @@ class HomeViewModel @Inject constructor(
             return
         }
         xoraCategoryIndex.value = coerced
-        xoraItemIndex.value = 0
+        xoraItemIndex.value = defaultXoraCategoryItemIndex(
+            XoraXmbCategory.entries[coerced],
+        )
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
+        xoraReturnStack.clear()
+        onXoraCategoryLanded(XoraXmbCategory.entries[coerced])
     }
 
     fun selectXoraItem(index: Int) {
@@ -2805,16 +3267,20 @@ class HomeViewModel @Inject constructor(
             XoraXmbAction.GuestModeStub ->
                 emit(HomeEvent.ShowMessage("Guest Mode — coming soon."))
             is XoraXmbAction.OpenSettingsCategory -> openStartSettings(action.category)
+            XoraXmbAction.InstallLatestUpdate -> openSystemUpdate()
             XoraXmbAction.OpenRaLibrary -> openRaLibrary()
             XoraXmbAction.LaunchContinueOrFavorite -> launchContinueOrFavorite()
             XoraXmbAction.DrillAllGames -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
                 xoraDepth.value = XoraXmbDepth.Systems
-                xoraItemIndex.value = 0
+                xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.Systems)
                 xoraDrilledPlatformId.value = null
             }
+            XoraXmbAction.PickHomeFolderImage -> requestHomeFolderImage()
             XoraXmbAction.DrillXoraEmulator -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
                 xoraDepth.value = XoraXmbDepth.Emulator
-                xoraItemIndex.value = 0
+                xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.Emulator)
                 xoraDrilledPlatformId.value = null
             }
             is XoraXmbAction.ToggleXoraEmulatorSetting ->
@@ -2828,23 +3294,46 @@ class HomeViewModel @Inject constructor(
             XoraXmbAction.LoadGameState,
             XoraXmbAction.ResetGame,
             -> Unit
-            XoraXmbAction.OpenPhotos -> openPhotosRung()
-            XoraXmbAction.VideosStub ->
-                emit(HomeEvent.ShowMessage("Videos — coming soon."))
+            XoraXmbAction.OpenPhotos -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openPhotosRung()
+            }
+            is XoraXmbAction.OpenPhotoFolder -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openPhotosRung(folderId = action.folderId, folderTitle = item.title)
+            }
+            XoraXmbAction.VideosStub -> activateVideos()
+            is XoraXmbAction.OpenVideoFolder -> activateVideos(folderTitle = item.title)
             XoraXmbAction.OpenNowPlaying -> {
                 if (!nowPlayingController.state.value.hasTrack) {
                     emit(HomeEvent.ShowMessage("Nothing playing yet — pick a song from Music."))
                     return
                 }
+                rememberXoraFolder(XoraXmbDepth.Category)
                 xoraDepth.value = XoraXmbDepth.NowPlaying
                 xoraItemIndex.value = 0
             }
-            XoraXmbAction.DrillMusicAlbums -> openMusicRung(XoraXmbDepth.MusicAlbums)
-            XoraXmbAction.DrillAllSongs -> openMusicRung(XoraXmbDepth.MusicTracks)
-            is XoraXmbAction.DrillMusicAlbum -> openMusicRung(
-                depth = XoraXmbDepth.MusicTracks,
-                albumId = action.albumId,
-            )
+            XoraXmbAction.DrillMusicAlbums -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openMusicRung(
+                    XoraXmbDepth.MusicAlbums,
+                    itemIndex = restoreXoraItem(XoraXmbDepth.MusicAlbums),
+                )
+            }
+            XoraXmbAction.DrillAllSongs -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openMusicRung(
+                    XoraXmbDepth.MusicTracks,
+                    itemIndex = restoreXoraItem(XoraXmbDepth.MusicTracks),
+                )
+            }
+            is XoraXmbAction.DrillMusicAlbum -> {
+                rememberXoraFolder()
+                openMusicRung(
+                    depth = XoraXmbDepth.MusicTracks,
+                    albumId = action.albumId,
+                )
+            }
             is XoraXmbAction.PlayMusicTrack -> {
                 val tracks = musicUi.value.tracks
                 val track = tracks.firstOrNull { it.id == action.trackId } ?: return
@@ -2853,27 +3342,35 @@ class HomeViewModel @Inject constructor(
                 if (track.source == MusicSource.Spotify) {
                     playSpotifyTrack(track, alreadyQueued = true)
                 }
+                rememberXoraFolder()
                 xoraDepth.value = XoraXmbDepth.NowPlaying
                 xoraItemIndex.value = 0
             }
             XoraXmbAction.DrillDspAccounts -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
                 xoraDepth.value = XoraXmbDepth.DspAccounts
-                xoraItemIndex.value = 0
+                xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.DspAccounts)
                 xoraDrilledPlatformId.value = null
             }
             is XoraXmbAction.LinkDspAccount -> linkDspAccount(action.provider)
-            XoraXmbAction.OpenDashboard -> openDashboardRung()
+            XoraXmbAction.OpenDashboard -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openDashboardRung()
+            }
             XoraXmbAction.StoreStub ->
                 emit(HomeEvent.ShowMessage("XOrA Store — coming soon."))
             XoraXmbAction.OpenNews -> setHomePage(HomePage.RssFeed)
             is XoraXmbAction.DrillSystem -> {
+                rememberXoraFolder(XoraXmbDepth.Systems)
                 xoraDrilledPlatformId.value = action.platformId
                 xoraDepth.value = XoraXmbDepth.Roms
-                xoraItemIndex.value = 0
+                val restored = xoraReturnRomIndex[action.platformId] ?: 0
+                xoraItemIndex.value = restored
                 viewModelScope.launch {
-                    libraryRepository.observeGames().first()
-                        .firstOrNull { !it.isAndroidApp && it.platformId == action.platformId }
-                        ?.let { focusGameInLibrary(it) }
+                    val games = libraryRepository.observeGames().first()
+                        .filter { !it.isAndroidApp && it.platformId == action.platformId }
+                    games.getOrNull(restored)?.let { focusGameInLibrary(it) }
+                        ?: games.firstOrNull()?.let { focusGameInLibrary(it) }
                 }
             }
             is XoraXmbAction.LaunchGame -> {
@@ -2957,27 +3454,34 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /** Snapshot the hovered row before drilling into a folder so Cancel can land back on it. */
+    private fun rememberXoraFolder(depth: XoraXmbDepth = xoraDepth.value) {
+        xoraReturnItemIndex[depth] = xoraItemIndex.value
+        if (xoraReturnStack.lastOrNull() != depth) {
+            xoraReturnStack.addLast(depth)
+        }
+    }
+
+    private fun restoreXoraItem(depth: XoraXmbDepth, fallback: Int = 0): Int =
+        xoraReturnItemIndex[depth] ?: fallback
+
+    private fun xoraParentDepth(current: XoraXmbDepth): XoraXmbDepth = when (current) {
+        XoraXmbDepth.Roms -> XoraXmbDepth.Systems
+        XoraXmbDepth.MusicTracks ->
+            if (musicUi.value.drilledAlbumId != null) XoraXmbDepth.MusicAlbums
+            else XoraXmbDepth.Category
+        XoraXmbDepth.Category -> XoraXmbDepth.Category
+        else -> XoraXmbDepth.Category
+    }
+
     private fun drillOutXora() {
         noteUserActivity()
-        when (xoraDepth.value) {
-            XoraXmbDepth.Roms -> {
-                xoraDepth.value = XoraXmbDepth.Systems
-                xoraItemIndex.value = 0
-                xoraDrilledPlatformId.value = null
-            }
-            // A song rung reached from an album pops back to that album list, not to the category.
-            XoraXmbDepth.MusicTracks -> {
-                if (musicUi.value.drilledAlbumId != null) {
-                    openMusicRung(XoraXmbDepth.MusicAlbums)
-                } else {
-                    xoraDepth.value = XoraXmbDepth.Category
-                    xoraItemIndex.value = 0
-                }
-            }
-            XoraXmbDepth.NowPlaying -> {
-                xoraDepth.value = XoraXmbDepth.Category
-                xoraItemIndex.value = 0
-            }
+        val current = xoraDepth.value
+        if (current == XoraXmbDepth.Category) {
+            if (uiState.value.anyHeroPanelExpanded) collapseHeroPanels()
+            return
+        }
+        when (current) {
             XoraXmbDepth.Photos -> {
                 stopPhotoSlideshow()
                 photoControlsHideJob?.cancel()
@@ -2990,27 +3494,59 @@ class HomeViewModel @Inject constructor(
                         edit = null,
                     )
                 }
-                xoraDepth.value = XoraXmbDepth.Category
-                xoraItemIndex.value = 0
             }
             XoraXmbDepth.Dashboard -> {
                 dashboardUi.update {
                     it.copy(view = DashboardView.Tiles, busy = false, error = null, notice = null)
                 }
-                xoraDepth.value = XoraXmbDepth.Category
-                xoraItemIndex.value = 0
             }
-            XoraXmbDepth.Systems,
-            XoraXmbDepth.Emulator,
-            XoraXmbDepth.DspAccounts,
-            XoraXmbDepth.MusicAlbums,
-            -> {
-                xoraDepth.value = XoraXmbDepth.Category
-                xoraItemIndex.value = 0
-                xoraDrilledPlatformId.value = null
+            XoraXmbDepth.RaLibrary -> {
+                raGameDetailJob?.cancel()
+                raLibraryUi.update {
+                    it.copy(
+                        gameDetail = null,
+                        gameDetailLoading = false,
+                        gameDetailError = null,
+                        cheevoIndex = 0,
+                    )
+                }
             }
-            XoraXmbDepth.Category -> {
-                if (uiState.value.anyHeroPanelExpanded) collapseHeroPanels()
+            else -> Unit
+        }
+        xoraReturnItemIndex[current] = xoraItemIndex.value
+        if (current == XoraXmbDepth.Roms) {
+            xoraDrilledPlatformId.value?.let { platformId ->
+                xoraReturnRomIndex[platformId] = xoraItemIndex.value
+            }
+        }
+        val previous = xoraReturnStack.removeLastOrNull() ?: xoraParentDepth(current)
+        val restored = restoreXoraItem(
+            previous,
+            fallback = if (previous == XoraXmbDepth.Category) {
+                defaultXoraCategoryItemIndex(
+                    XoraXmbCategory.entries.getOrElse(xoraCategoryIndex.value) {
+                        XoraXmbCategory.Games
+                    },
+                )
+            } else {
+                0
+            },
+        )
+        when (previous) {
+            XoraXmbDepth.MusicAlbums ->
+                openMusicRung(XoraXmbDepth.MusicAlbums, itemIndex = restored)
+            XoraXmbDepth.MusicTracks ->
+                openMusicRung(
+                    depth = XoraXmbDepth.MusicTracks,
+                    albumId = musicUi.value.drilledAlbumId,
+                    itemIndex = restored,
+                )
+            else -> {
+                xoraDepth.value = previous
+                xoraItemIndex.value = restored
+                if (previous != XoraXmbDepth.Roms) {
+                    xoraDrilledPlatformId.value = null
+                }
             }
         }
     }
@@ -3021,9 +3557,13 @@ class HomeViewModel @Inject constructor(
      * MediaStore is queried per drill rather than up front: the Music category is rarely the first
      * thing opened, and the shell should not pay for an audio scan it may never show.
      */
-    private fun openMusicRung(depth: XoraXmbDepth, albumId: String? = null) {
+    private fun openMusicRung(
+        depth: XoraXmbDepth,
+        albumId: String? = null,
+        itemIndex: Int = 0,
+    ) {
         xoraDepth.value = depth
-        xoraItemIndex.value = 0
+        xoraItemIndex.value = itemIndex
         val hasAccess = musicLibrary.hasAudioAccess()
         musicUi.update {
             it.copy(
@@ -3199,13 +3739,15 @@ class HomeViewModel @Inject constructor(
      * Slides into the Photos gallery and loads the device library. MediaStore is queried per
      * open, like Music, so the shell never pays for an image scan it may not show.
      */
-    private fun openPhotosRung() {
+    private fun openPhotosRung(folderId: String? = null, folderTitle: String? = null) {
         xoraDepth.value = XoraXmbDepth.Photos
         xoraItemIndex.value = 0
         val access = photoLibrary.access()
         photosUi.update {
             it.copy(
                 access = access,
+                albumFilter = folderId,
+                albumTitle = folderTitle,
                 isLoading = access != PhotoAccess.Denied,
                 loadError = null,
                 optionsOpen = false,
@@ -3221,10 +3763,65 @@ class HomeViewModel @Inject constructor(
         loadPhotos()
     }
 
+    private fun onXoraCategoryLanded(category: XoraXmbCategory) {
+        when (category) {
+            XoraXmbCategory.Media, XoraXmbCategory.Videos -> refreshMediaFolders()
+            XoraXmbCategory.Music -> loadMusicAlbumsForColumn()
+            else -> Unit
+        }
+    }
+
+    private fun refreshMediaFolders() {
+        viewModelScope.launch {
+            val photos = runCatching { photoLibrary.folders() }.getOrDefault(emptyList())
+            val videos = runCatching { videoLibrary.folders() }.getOrDefault(emptyList())
+            mediaFolders.value = MediaFolders(photos = photos, videos = videos)
+        }
+    }
+
+    private fun loadMusicAlbumsForColumn() {
+        viewModelScope.launch {
+            val hasAccess = musicLibrary.hasAudioAccess()
+            val folderPath = preferences.settings.first().musicLibraryPath
+            if (!hasAccess && folderPath.isNullOrBlank() && !spotifyTokenStore.isLinked()) {
+                return@launch
+            }
+            val playlists = spotifyPlaylistAlbums()
+            val albums = musicLibrary.albums()
+            musicUi.update {
+                it.copy(
+                    albums = playlists + albums,
+                    hasAudioAccess = hasAccess,
+                )
+            }
+            fillMissingAlbumArt(albums)
+        }
+    }
+
+    private fun activateVideos(folderTitle: String? = null) {
+        val access = videoLibrary.access()
+        if (access == PhotoAccess.Denied) {
+            emit(HomeEvent.RequestImageAccess(videoLibrary.requiredPermissions()))
+            return
+        }
+        refreshMediaFolders()
+        val label = folderTitle?.takeIf { it.isNotBlank() } ?: "Videos"
+        emit(HomeEvent.ShowMessage("$label — video player coming soon."))
+    }
+
     private fun loadPhotos(keepFocusId: String? = null) {
         viewModelScope.launch {
+            val folderId = photosUi.value.albumFilter
             val result = runCatching { photoLibrary.photos() }
-            result.onSuccess { photos ->
+            result.onSuccess { all ->
+                val photos = if (folderId.isNullOrBlank()) {
+                    all
+                } else {
+                    all.filter { photo ->
+                        photo.bucketId == folderId ||
+                            (photo.bucketId.isBlank() && photo.album == folderId)
+                    }
+                }
                 photosUi.update { ui ->
                     val kept = keepFocusId?.let { id -> photos.indexOfFirst { it.id == id } }
                         ?.takeIf { it >= 0 }
@@ -3246,17 +3843,25 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** Re-checks photo access once the permission dialog is answered, then loads. */
+    /** Re-checks visual access once the permission dialog is answered, then loads. */
     fun onImageAccessResult() {
-        val access = photoLibrary.access()
-        photosUi.update { it.copy(access = access) }
-        if (access == PhotoAccess.Denied) {
-            emit(HomeEvent.ShowMessage("Photos needs access to your photo library."))
-            return
-        }
+        refreshMediaFolders()
+        val photoAccess = photoLibrary.access()
+        photosUi.update { it.copy(access = photoAccess) }
         if (xoraDepth.value == XoraXmbDepth.Photos) {
+            if (photoAccess == PhotoAccess.Denied) {
+                emit(HomeEvent.ShowMessage("Photos needs access to your photo library."))
+                return
+            }
             photosUi.update { it.copy(isLoading = true) }
             loadPhotos()
+            return
+        }
+        val category = XoraXmbCategory.entries.getOrElse(xoraCategoryIndex.value) {
+            XoraXmbCategory.Games
+        }
+        if (category == XoraXmbCategory.Videos && videoLibrary.access() == PhotoAccess.Denied) {
+            emit(HomeEvent.ShowMessage("Videos needs access to your video library."))
         }
     }
 
@@ -4120,6 +4725,8 @@ class HomeViewModel @Inject constructor(
         val depth = xoraDepth.value
         if (depth == XoraXmbDepth.MusicAlbums || depth == XoraXmbDepth.MusicTracks) {
             openMusicRung(depth, musicUi.value.drilledAlbumId)
+        } else {
+            loadMusicAlbumsForColumn()
         }
     }
 
@@ -4231,9 +4838,13 @@ class HomeViewModel @Inject constructor(
         val size = XoraXmbCategory.entries.size
         val next = (xoraCategoryIndex.value + delta).mod(size)
         xoraCategoryIndex.value = next
-        xoraItemIndex.value = 0
+        xoraItemIndex.value = defaultXoraCategoryItemIndex(
+            XoraXmbCategory.entries[next],
+        )
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
+        xoraReturnStack.clear()
+        onXoraCategoryLanded(XoraXmbCategory.entries[next])
     }
 
     private fun moveXoraItem(delta: Int) {
@@ -4474,6 +5085,14 @@ class HomeViewModel @Inject constructor(
         val shortcut = shortcuts.getOrNull(i) ?: return
         if (hub.shortcutsEditMode) {
             removeHomeShortcut(shortcut.id)
+            return
+        }
+        if (hub.vitaShortcutTrayOpen) {
+            if (hub.vitaShortcutLaunch != null) {
+                confirmVitaShortcutLaunch()
+            } else if (hub.vitaShortcutDepartingIndex == null) {
+                beginVitaShortcutDepart(i, shortcut)
+            }
             return
         }
         openHomeShortcut(shortcut)
@@ -4878,6 +5497,23 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    private fun requestHomeFolderImage() {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.HomeFolderImage) }
+        }
+    }
+
+    fun setHomeFolderImage(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = themeMediaStore.importFolderImage(uri)
+                preferences.setHomeFolderImagePath(path)
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import folder image."))
+            }
+        }
+    }
+
     fun setCustomBgm(uri: Uri) {
         viewModelScope.launch {
             runCatching {
@@ -5218,6 +5854,7 @@ class HomeViewModel @Inject constructor(
 
     fun openNotificationHistory() {
         noteUserActivity()
+        playNavCloseIfHeroPanelOpen()
         systemPanelExpanded.value = false
         accountPanelExpanded.value = false
         achievementsPanelExpanded.value = false
@@ -5406,8 +6043,7 @@ class HomeViewModel @Inject constructor(
     ): String = when (activity) {
         is DiscordPresenceActivity.Playing ->
             "playing ${activity.gameTitle}"
-        is DiscordPresenceActivity.Browsing ->
-            "Browsing ${activity.gameTitle}"
+        is DiscordPresenceActivity.Browsing,
         DiscordPresenceActivity.InSora,
         DiscordPresenceActivity.Idle,
         -> "Browsing XOrA"
@@ -5829,6 +6465,7 @@ class HomeViewModel @Inject constructor(
                 displayName = friend?.displayName ?: userId,
                 avatarUrl = friend?.avatarUrl,
             )
+            playNavCloseIfHeroPanelOpen()
             accountPanelExpanded.value = false
             emit(HomeEvent.ShowMessage("Conversation open · A send · B close"))
             return
@@ -5954,13 +6591,16 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun onRaLibraryNavAction(action: NavAction) {
+        val detailOpen = raLibraryUi.value.gameDetailOpen
         when (action) {
-            NavAction.Up -> moveRaLibrarySelection(-1)
-            NavAction.Down -> moveRaLibrarySelection(1)
-            NavAction.Left -> cycleRaLibraryTab(-1)
-            NavAction.Right -> cycleRaLibraryTab(1)
+            NavAction.Up -> if (detailOpen) moveRaCheevoSelection(0, -1) else moveRaLibrarySelection(-1)
+            NavAction.Down -> if (detailOpen) moveRaCheevoSelection(0, 1) else moveRaLibrarySelection(1)
+            NavAction.Left -> if (detailOpen) moveRaCheevoSelection(-1, 0) else cycleRaLibraryTab(-1)
+            NavAction.Right -> if (detailOpen) moveRaCheevoSelection(1, 0) else cycleRaLibraryTab(1)
+            NavAction.PreviousPlatform -> cycleRaLibraryPlatform(-1)
+            NavAction.NextPlatform -> cycleRaLibraryPlatform(1)
             NavAction.Confirm -> activateRaLibrarySelection()
-            NavAction.Cancel -> closeRaLibrary()
+            NavAction.Cancel -> if (detailOpen) closeRaGameDetail() else closeRaLibrary()
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             NavAction.ToggleSystemPanel -> toggleSystemPanel()
             NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
@@ -6012,12 +6652,10 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun onRssNavAction(action: NavAction, state: HomeUiState) {
-        val columns = state.gridColumns.coerceIn(2, 6)
         when (action) {
-            NavAction.Left -> moveRssSelection(-1)
-            NavAction.Right -> moveRssSelection(1)
-            NavAction.Up -> moveRssSelection(-columns)
-            NavAction.Down -> moveRssSelection(columns)
+            // News is a single column now, so every direction steps one story.
+            NavAction.Left, NavAction.Up -> moveRssSelection(-1)
+            NavAction.Right, NavAction.Down -> moveRssSelection(1)
             NavAction.Confirm -> openSelectedRssItem()
             NavAction.Cancel -> {
                 if (state.anyHeroPanelExpanded) collapseHeroPanels()
@@ -6117,10 +6755,17 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun moveStartSettingsRow(delta: Int) {
-        val size = uiState.value.startSettings.rows.size
-        if (size == 0) return
-        startSettingsRowIndex.update { current ->
-            (current + delta).coerceIn(0, size - 1)
+        val rows = uiState.value.startSettings.rows
+        if (rows.isEmpty()) return
+        var next = startSettingsRowIndex.value
+        repeat(rows.size) {
+            next = (next + delta).coerceIn(0, rows.lastIndex)
+            if (rows[next] !is StartSettingsRow.Header) {
+                startSettingsRowIndex.value = next
+                return
+            }
+            if (next == 0 && delta < 0) return
+            if (next == rows.lastIndex && delta > 0) return
         }
     }
 
@@ -6139,10 +6784,18 @@ class HomeViewModel @Inject constructor(
             }
             StartSettingsAction.CycleTrailerDisplay -> viewModelScope.launch {
                 val next = when (preferences.settings.first().trailerDisplayMode) {
+                    TrailerDisplayMode.InIcon -> TrailerDisplayMode.FullBackground
                     TrailerDisplayMode.FullBackground -> TrailerDisplayMode.CornerPip
-                    TrailerDisplayMode.CornerPip -> TrailerDisplayMode.FullBackground
+                    TrailerDisplayMode.CornerPip -> TrailerDisplayMode.InIcon
                 }
                 preferences.setTrailerDisplayMode(next)
+            }
+            StartSettingsAction.CycleGameIconIdleMedia -> viewModelScope.launch {
+                val next = when (preferences.settings.first().gameIconIdleMedia) {
+                    GameIconIdleMedia.Trailer -> GameIconIdleMedia.Screenshot
+                    GameIconIdleMedia.Screenshot -> GameIconIdleMedia.Trailer
+                }
+                preferences.setGameIconIdleMedia(next)
             }
             StartSettingsAction.CycleThemeMode -> viewModelScope.launch {
                 val values = ThemeMode.entries
@@ -6332,8 +6985,217 @@ class HomeViewModel @Inject constructor(
                     ),
                 )
             }
+            StartSettingsAction.InstallLatestUpdate -> {
+                closeStartSettings()
+                openSystemUpdate()
+            }
             StartSettingsAction.Reboot -> requestDevicePower(reboot = true)
             StartSettingsAction.PowerDown -> requestDevicePower(reboot = false)
+        }
+    }
+
+    /** Settings → Update. Opens the window and starts a check so the user sees a result. */
+    fun openSystemUpdate() {
+        noteUserActivity()
+        val current = systemUpdate.value
+        systemUpdate.value = current.copy(
+            open = true,
+            installedVersion = githubReleaseUpdater.installedVersionName(),
+            selectedButton = 0,
+        )
+        // A finished download / in-flight transfer keeps its phase so reopening shows progress.
+        if (!current.busy && current.phase != SystemUpdatePhase.ReadyToInstall) {
+            checkForSystemUpdate()
+        }
+    }
+
+    fun closeSystemUpdate() {
+        noteUserActivity()
+        systemUpdate.update { it.copy(open = false, selectedButton = 0) }
+    }
+
+    fun selectSystemUpdateButton(index: Int) {
+        systemUpdate.update { it.copy(selectedButton = index.coerceIn(0, 1)) }
+    }
+
+    /** A on the focused button: check, download, or hand the APK to the installer. */
+    fun activateSystemUpdatePrimary() {
+        noteUserActivity()
+        val state = systemUpdate.value
+        if (state.selectedButton == 1 || state.primaryLabel == null) {
+            closeSystemUpdate()
+            return
+        }
+        when (state.phase) {
+            SystemUpdatePhase.Idle,
+            SystemUpdatePhase.UpToDate,
+            SystemUpdatePhase.Failed,
+            -> checkForSystemUpdate()
+            SystemUpdatePhase.Available -> downloadSystemUpdate()
+            SystemUpdatePhase.ReadyToInstall -> installDownloadedUpdate()
+            SystemUpdatePhase.Checking, SystemUpdatePhase.Downloading -> Unit
+        }
+    }
+
+    private fun checkForSystemUpdate() {
+        if (systemUpdate.value.busy) return
+        systemUpdate.update {
+            it.copy(
+                phase = SystemUpdatePhase.Checking,
+                error = null,
+                installedVersion = githubReleaseUpdater.installedVersionName(),
+            )
+        }
+        viewModelScope.launch {
+            githubReleaseUpdater.check().fold(
+                onSuccess = { check ->
+                    pendingUpdateRelease = check.release
+                    preferences.setLastUpdateCheckAt(System.currentTimeMillis())
+                    systemUpdate.update {
+                        it.copy(
+                            phase = if (check.updateAvailable) {
+                                SystemUpdatePhase.Available
+                            } else {
+                                SystemUpdatePhase.UpToDate
+                            },
+                            installedVersion = check.installedVersionName,
+                            availableVersion = check.release.versionName,
+                            totalBytes = check.release.sizeBytes,
+                            downloadedBytes = 0L,
+                            error = null,
+                            selectedButton = 0,
+                        )
+                    }
+                },
+                onFailure = { error -> failSystemUpdate(error) },
+            )
+        }
+    }
+
+    private fun downloadSystemUpdate() {
+        val release = pendingUpdateRelease ?: run {
+            checkForSystemUpdate()
+            return
+        }
+        if (systemUpdate.value.busy) return
+        systemUpdate.update {
+            it.copy(
+                phase = SystemUpdatePhase.Downloading,
+                downloadedBytes = 0L,
+                totalBytes = release.sizeBytes,
+                error = null,
+                selectedButton = 0,
+            )
+        }
+        viewModelScope.launch {
+            val result = githubReleaseUpdater.download(release) { copied, total ->
+                systemUpdate.update { it.copy(downloadedBytes = copied, totalBytes = total) }
+            }
+            result.fold(
+                onSuccess = { apk ->
+                    downloadedUpdateApk = apk
+                    systemUpdate.update {
+                        it.copy(phase = SystemUpdatePhase.ReadyToInstall, selectedButton = 0)
+                    }
+                    shellNotifications.emit(
+                        ShellNotification.InstallComplete(
+                            id = "update-ready:${release.versionName}",
+                            title = "XOrA ${release.versionName} downloaded",
+                            subtitle = "Open Settings → Update to install",
+                        ),
+                    )
+                    // Reopen the window if the user hid it while the APK was coming down.
+                    systemUpdate.update { it.copy(open = true) }
+                },
+                onFailure = { error -> failSystemUpdate(error) },
+            )
+        }
+    }
+
+    private fun installDownloadedUpdate() {
+        val apk = downloadedUpdateApk?.takeIf { it.isFile } ?: run {
+            downloadedUpdateApk = null
+            systemUpdate.update {
+                it.copy(
+                    phase = SystemUpdatePhase.Available,
+                    error = "The downloaded update is gone — download it again.",
+                )
+            }
+            return
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 26 &&
+            !appContext.packageManager.canRequestPackageInstalls()
+        ) {
+            emit(HomeEvent.RequestUnknownAppSources)
+            emit(HomeEvent.ShowMessage("Allow XOrA to install apps, then press Install again."))
+            return
+        }
+        val uri = runCatching {
+            FileProvider.getUriForFile(appContext, "${appContext.packageName}.files", apk)
+        }.getOrNull() ?: run {
+            systemUpdate.update {
+                it.copy(
+                    phase = SystemUpdatePhase.Failed,
+                    error = "Could not hand the update to the installer.",
+                )
+            }
+            return
+        }
+        closeSystemUpdate()
+        emit(HomeEvent.InstallApk(uri))
+    }
+
+    private fun failSystemUpdate(error: Throwable) {
+        systemUpdate.update {
+            it.copy(
+                phase = SystemUpdatePhase.Failed,
+                error = error.message?.takeIf { message -> message.isNotBlank() }
+                    ?: "Could not reach GitHub Releases.",
+                selectedButton = 0,
+            )
+        }
+    }
+
+    /**
+     * Silent check on resume so a new release can announce itself. Throttled, and each version
+     * only notifies once, so reopening the shell does not re-toast the same build.
+     */
+    private fun maybeAnnounceUpdate() {
+        if (systemUpdate.value.busy) return
+        if (systemUpdate.value.phase == SystemUpdatePhase.ReadyToInstall) return
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val last = preferences.lastUpdateCheckAt.first()
+            if (last > 0L && now - last < UPDATE_CHECK_INTERVAL_MS) return@launch
+            preferences.setLastUpdateCheckAt(now)
+            val check = githubReleaseUpdater.check().getOrNull() ?: return@launch
+            pendingUpdateRelease = check.release
+            systemUpdate.update {
+                it.copy(
+                    installedVersion = check.installedVersionName,
+                    availableVersion = check.release.versionName,
+                    // Leave an open window's phase alone; it is driving its own flow.
+                    phase = if (it.open) {
+                        it.phase
+                    } else if (check.updateAvailable) {
+                        SystemUpdatePhase.Available
+                    } else {
+                        SystemUpdatePhase.UpToDate
+                    },
+                    totalBytes = if (it.open) it.totalBytes else check.release.sizeBytes,
+                )
+            }
+            if (!check.updateAvailable) return@launch
+            if (preferences.announcedUpdateVersion.first() == check.release.versionName) {
+                return@launch
+            }
+            preferences.setAnnouncedUpdateVersion(check.release.versionName)
+            shellNotifications.emit(
+                ShellNotification.UpdateAvailable(
+                    id = "update-available:${check.release.versionName}",
+                    versionName = check.release.versionName,
+                ),
+            )
         }
     }
 
@@ -6471,15 +7333,23 @@ class HomeViewModel @Inject constructor(
             return
         }
         collapseHeroPanels()
-        if (homePage.value != HomePage.RaLibrary) {
+        if (homePage.value != HomePage.Home) {
             homePageBeforeRaLibrary = homePage.value
+            homePage.value = HomePage.Home
         }
-        homePage.value = HomePage.RaLibrary
+        if (xoraDepth.value != XoraXmbDepth.RaLibrary) {
+            rememberXoraFolder()
+            xoraDepth.value = XoraXmbDepth.RaLibrary
+        }
         refreshRaLibrary()
     }
 
     fun closeRaLibrary() {
         noteUserActivity()
+        if (xoraDepth.value == XoraXmbDepth.RaLibrary) {
+            drillOutXora()
+            return
+        }
         if (homePage.value != HomePage.RaLibrary) return
         homePage.value = homePageBeforeRaLibrary.takeUnless { it == HomePage.RaLibrary }
             ?: HomePage.Home
@@ -6496,17 +7366,46 @@ class HomeViewModel @Inject constructor(
 
     fun selectRaLibraryTab(tab: RaLibraryTab) {
         noteUserActivity()
+        closeRaGameDetail()
         raLibraryUi.update { it.copy(tab = tab, selectedIndex = 0) }
     }
 
     fun selectRaPlatformFilter(platform: String?) {
         noteUserActivity()
+        closeRaGameDetail()
         raLibraryUi.update { it.copy(platformFilter = platform, selectedIndex = 0) }
+    }
+
+    fun selectRaCheevoIndex(index: Int) {
+        noteUserActivity()
+        raLibraryUi.update { current ->
+            val last = (current.gameDetail?.achievements?.size ?: 1) - 1
+            if (last < 0) current
+            else current.copy(cheevoIndex = index.coerceIn(0, last))
+        }
+    }
+
+    fun closeRaGameDetail() {
+        raGameDetailJob?.cancel()
+        raLibraryUi.update {
+            it.copy(
+                gameDetail = null,
+                gameDetailLoading = false,
+                gameDetailError = null,
+                cheevoIndex = 0,
+            )
+        }
     }
 
     fun activateRaLibrarySelection() {
         val row = uiState.value.raLibrary.selectedGame ?: return
-        focusLocalGameForRa(row.game.title, row.game.consoleId)
+        if (uiState.value.raLibrary.gameDetailOpen &&
+            uiState.value.raLibrary.gameDetail?.gameId == row.game.gameId &&
+            !uiState.value.raLibrary.gameDetailLoading
+        ) {
+            return
+        }
+        openRaGameDetail(row.game.gameId)
     }
 
     fun refreshRaLibrary() {
@@ -6574,6 +7473,69 @@ class HomeViewModel @Inject constructor(
         selectRaLibraryTab(tabs[next])
     }
 
+    private fun cycleRaLibraryPlatform(delta: Int) {
+        val current = raLibraryUi.value
+        val options = buildList {
+            add(null)
+            addAll(current.platforms)
+        }
+        if (options.size <= 1) return
+        val idx = options.indexOf(current.platformFilter).let { if (it < 0) 0 else it }
+        val next = ((idx + delta) % options.size + options.size) % options.size
+        selectRaPlatformFilter(options[next])
+    }
+
+    private fun moveRaCheevoSelection(dx: Int, dy: Int) {
+        val achievements = raLibraryUi.value.gameDetail?.achievements.orEmpty()
+        if (achievements.isEmpty()) return
+        val last = achievements.lastIndex
+        val current = raLibraryUi.value.cheevoIndex.coerceIn(0, last)
+        val next = when {
+            dx != 0 -> (current + dx).coerceIn(0, last)
+            dy != 0 -> (current + dy * RA_CHEEVO_GRID_COLUMNS).coerceIn(0, last)
+            else -> current
+        }
+        selectRaCheevoIndex(next)
+    }
+
+    private fun openRaGameDetail(gameId: Int) {
+        noteUserActivity()
+        raGameDetailJob?.cancel()
+        raLibraryUi.update {
+            it.copy(
+                gameDetailLoading = true,
+                gameDetailError = null,
+                gameDetail = it.gameDetail?.takeIf { detail -> detail.gameId == gameId },
+                cheevoIndex = if (it.gameDetail?.gameId == gameId) it.cheevoIndex else 0,
+            )
+        }
+        raGameDetailJob = viewModelScope.launch {
+            val result = retroAchievements.fetchGameProgress(gameId)
+            raLibraryUi.update { current ->
+                result.fold(
+                    onSuccess = { progress ->
+                        current.copy(
+                            gameDetailLoading = false,
+                            gameDetail = progress,
+                            gameDetailError = null,
+                            cheevoIndex = current.cheevoIndex.coerceIn(
+                                0,
+                                (progress.achievements.size - 1).coerceAtLeast(0),
+                            ),
+                        )
+                    },
+                    onFailure = { error ->
+                        current.copy(
+                            gameDetailLoading = false,
+                            gameDetail = null,
+                            gameDetailError = error.message ?: "Could not load achievements.",
+                        )
+                    },
+                )
+            }
+        }
+    }
+
     private fun focusLocalGameForRa(raTitle: String, consoleId: Int) {
         val platformId = RaConsoleIds.platformIdFor(consoleId)
         val normalized = normalizeTitle(raTitle)
@@ -6596,6 +7558,9 @@ class HomeViewModel @Inject constructor(
                 return@launch
             }
 
+            if (xoraDepth.value == XoraXmbDepth.RaLibrary) {
+                drillOutXora()
+            }
             homePage.value = HomePage.GameSelector
             val tabs = buildTabs(all, libraryRepository.observePlatformSummaries().first())
             val platformTab = tabs.indexOfFirst { it.platformId == match.platformId }
@@ -6690,9 +7655,11 @@ class HomeViewModel @Inject constructor(
                 viewModelScope.launch { xoraNetwork.refreshFriends() }
             }
             conversationRepository.refreshListenerEnabled()
+            playUiOneShot(UiOneShot.FriendsTab)
         } else {
             managingCircle.value = false
             notificationsOpen.value = false
+            playUiOneShot(UiOneShot.NavClose)
         }
     }
 
@@ -6718,17 +7685,29 @@ class HomeViewModel @Inject constructor(
             closeFavoritePicker()
             closeStatusEditor()
             refreshSystemPanelRaChrome()
+            playUiOneShot(UiOneShot.ProfileTab)
         } else {
             closeFavoritePicker()
             closeStatusEditor()
+            playUiOneShot(UiOneShot.NavClose)
         }
     }
 
     fun toggleAchievementsPanel() {
         noteUserActivity()
         val opening = !achievementsPanelExpanded.value
+        if (opening) {
+            val state = uiState.value
+            if (state.homePage == HomePage.Home &&
+                !state.xoraXmb.showsAchievementsCard &&
+                state.homeHub.vitaShortcutLaunch?.game == null
+            ) {
+                return
+            }
+        }
         achievementsPanelExpanded.value = opening
         if (opening) {
+            playNavCloseIfHeroPanelOpen()
             accountPanelExpanded.value = false
             systemPanelExpanded.value = false
             closeFavoritePicker()
@@ -6738,12 +7717,23 @@ class HomeViewModel @Inject constructor(
 
     fun collapseHeroPanels() {
         noteUserActivity()
+        playNavCloseIfHeroPanelOpen()
         accountPanelExpanded.value = false
         systemPanelExpanded.value = false
         achievementsPanelExpanded.value = false
         notificationHistoryOpen.value = false
         closeFavoritePicker()
         closeStatusEditor()
+    }
+
+    private fun playNavCloseIfHeroPanelOpen() {
+        if (accountPanelExpanded.value || systemPanelExpanded.value) {
+            playUiOneShot(UiOneShot.NavClose)
+        }
+    }
+
+    private fun playUiOneShot(shot: UiOneShot) {
+        gamepadDispatcher.uiOneShotPlayer?.play(shot)
     }
 
     fun saveProfile(displayName: String, avatarPresetId: String) {
@@ -7134,10 +8124,21 @@ class HomeViewModel @Inject constructor(
 
         viewModelScope.launch {
             isLaunching.value = true
+            // Publish Playing before the cinematic / Activity handoff. Waiting until after
+            // startActivity let onResume flicker the status back to Browsing XOrA.
+            if (discordRichPresence.state.value.isConfigured) {
+                discordRichPresence.setActivity(
+                    DiscordPresenceActivity.Playing(
+                        gameTitle = game.title,
+                        platformName = game.platform.displayName,
+                    ),
+                )
+            }
             try {
-                // Chrome slides out on [ArcadiaMotion.Launch]; hero artwork holds as the
-                // transition plate for ~3s, then the emulator starts. On failure, clearing
-                // isLaunching reverses the chrome so the shell never feels stuck.
+                // Chrome fades on [ArcadiaMotion.Launch], the wallpaper zooms after that, then
+                // the wallpaper dissolves at [ArcadiaMotion.LaunchWallpaperFadeAt]. The plate
+                // holds through [ArcadiaMotion.LaunchHold] before the emulator Activity takes over.
+                // On failure, clearing isLaunching brings the shell back.
                 val waitMs = if (appContext.isReduceMotionPreferred()) {
                     0L
                 } else {
@@ -7146,7 +8147,8 @@ class HomeViewModel @Inject constructor(
                 if (waitMs > 0L) delay(waitMs)
 
                 val target = targetDisplayId ?: resolveTargetDisplay(game)
-                when (val result = launcher.launch(game, target)) {
+                val result = launcher.launch(game, target)
+                when (result) {
                     is LaunchResult.Launched -> {
                         // Bottom screen takes over as a companion panel for this session; the
                         // controller decides whether the game and display setup qualify.
@@ -7157,12 +8159,6 @@ class HomeViewModel @Inject constructor(
                             // game when the launch came from the grid rather than a shortcut.
                             raLookup = uiState.value.achievements.gameLookup
                                 ?.takeIf { uiState.value.selectedGame?.id == game.id },
-                        )
-                        discordRichPresence.setActivity(
-                            DiscordPresenceActivity.Playing(
-                                gameTitle = game.title,
-                                platformName = game.platform.displayName,
-                            ),
                         )
                         result.displayFallbackReason?.let { emit(HomeEvent.ShowMessage(it)) }
                     }
@@ -7196,9 +8192,46 @@ class HomeViewModel @Inject constructor(
                         ),
                     )
                 }
+                if (result !is LaunchResult.Launched) {
+                    restoreBrowsingPresence()
+                }
             } finally {
                 isLaunching.value = false
             }
+        }
+    }
+
+    private fun restoreBrowsingPresence() {
+        if (!discordRichPresence.state.value.isConfigured) return
+        if (discordRichPresence.state.value.activity is DiscordPresenceActivity.Playing) {
+            discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
+        }
+    }
+
+    /**
+     * Dual-screen keeps MainActivity resumed while the emulator is up, so [onResumed] never
+     * fires on quit. Built-in emulator [finish] calls this so Discord returns to Browsing XOrA.
+     */
+    fun onPlaySessionEnded() {
+        restoreBrowsingPresence()
+        gameCompanionController.endSession()
+    }
+
+    /**
+     * Shell window is in front again. Restores Browsing when a real play session has elapsed,
+     * even if [onPaused] never ran (second display / companion pane).
+     */
+    fun onShellRegainedFocus() {
+        maybeRestoreBrowsingPresence()
+    }
+
+    private fun maybeRestoreBrowsingPresence() {
+        if (!discordRichPresence.state.value.isConfigured) return
+        if (discordRichPresence.state.value.activity !is DiscordPresenceActivity.Playing) return
+        val awayMs = backgroundedAtElapsed?.let { SystemClock.elapsedRealtime() - it } ?: 0L
+        val pendingMs = sessionTracker.pendingElapsedMs()
+        if (awayMs >= PLAYING_PRESENCE_RETURN_MS || pendingMs >= PLAYING_PRESENCE_RETURN_MS) {
+            restoreBrowsingPresence()
         }
     }
 
@@ -7223,6 +8256,33 @@ class HomeViewModel @Inject constructor(
 
     fun setFavorite(gameId: String, favorite: Boolean) {
         viewModelScope.launch { libraryRepository.setFavorite(gameId, favorite) }
+    }
+
+    fun setGameHidden(gameId: String, hidden: Boolean) {
+        viewModelScope.launch { preferences.setGameHidden(gameId, hidden) }
+    }
+
+    fun nudgeGameArtAlignment(gameId: String, dx: Float, dy: Float) {
+        viewModelScope.launch {
+            val current = preferences.gameArtAlignments.first()[gameId] ?: GameArtAlignment()
+            preferences.setGameArtAlignment(gameId, current.nudged(dx, dy))
+        }
+    }
+
+    fun resetGameArtAlignment(gameId: String) {
+        viewModelScope.launch { preferences.setGameArtAlignment(gameId, null) }
+    }
+
+    fun nudgeWallpaperAlignment(dx: Float, dy: Float) {
+        viewModelScope.launch {
+            val settings = preferences.settings.first()
+            val current = GameArtAlignment(settings.wallpaperAlignX, settings.wallpaperAlignY)
+            preferences.setWallpaperAlignment(current.nudged(dx, dy))
+        }
+    }
+
+    fun resetWallpaperAlignment() {
+        viewModelScope.launch { preferences.setWallpaperAlignment(null) }
     }
 
     fun listSavesForGame(game: Game): List<GameSaveEntry> = gameSaveCatalog.listForGame(game)
@@ -7272,6 +8332,24 @@ class HomeViewModel @Inject constructor(
     fun pickGameSoundBite(gameId: String) {
         viewModelScope.launch {
             runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameSoundBite(gameId)) }
+        }
+    }
+
+    fun pickGameIdleVideo(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameIdleVideo(gameId)) }
+        }
+    }
+
+    fun pickMusicCover(mediaId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.MusicCover(mediaId)) }
+        }
+    }
+
+    fun pickMusicWallpaper(mediaId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.MusicWallpaper(mediaId)) }
         }
     }
 
@@ -7335,6 +8413,239 @@ class HomeViewModel @Inject constructor(
             gameSoundBitePlayer.stop()
             emit(HomeEvent.ShowMessage("Sound bite cleared."))
         }
+    }
+
+    fun setGameIdleVideo(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = gameCustomMediaStore.importIdleVideo(gameId, uri)
+                // A video the user picked by hand is the trailer for this title, not just an idle
+                // clip: it has to beat whatever YouTube match the scraper found.
+                libraryRepository.setTrailer(gameId, path)
+                bumpCustomMedia()
+                emit(HomeEvent.ShowMessage("Trailer updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import that video."))
+            }
+        }
+    }
+
+    fun clearGameIdleVideo(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearIdleVideo(gameId)
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Idle video cleared."))
+        }
+    }
+
+    fun idleVideoPath(gameId: String): String? = gameCustomMediaStore.findIdleVideo(gameId)
+
+    // ---- ROM editor -------------------------------------------------------------------------
+
+    /** User-typed names. Lives in preferences, so a re-scrape cannot overwrite one. */
+    val gameTitleOverrides: StateFlow<Map<String, String>> = preferences.gameTitleOverrides
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    fun renameGame(gameId: String, title: String) {
+        viewModelScope.launch {
+            val cleaned = title.trim().take(GAME_TITLE_MAX_LENGTH)
+            preferences.setGameTitleOverride(gameId, cleaned.takeIf { it.isNotEmpty() })
+            emit(
+                HomeEvent.ShowMessage(
+                    if (cleaned.isEmpty()) "Name reset." else "Renamed to $cleaned.",
+                ),
+            )
+        }
+    }
+
+    fun resetGameName(gameId: String) {
+        viewModelScope.launch {
+            preferences.setGameTitleOverride(gameId, null)
+            emit(HomeEvent.ShowMessage("Name reset to the scanned one."))
+        }
+    }
+
+    /** Asks every configured scraper at once. Returns whatever came back, download deferred. */
+    suspend fun artCandidatesFor(game: Game): ArtCandidateResult =
+        runCatching {
+            artCandidateFinder.findCandidates(
+                game = game,
+                searchTitle = gameTitleOverrides.value[game.id],
+            )
+        }.getOrElse { ArtCandidateResult() }
+
+    fun applyArtCandidate(gameId: String, slot: ArtSlot, candidate: ArtCandidate) {
+        viewModelScope.launch {
+            val path = runCatching { artCandidateFinder.materialize(candidate) }.getOrNull()
+            if (path == null) {
+                emit(HomeEvent.ShowError("Could not download that image."))
+                return@launch
+            }
+            when (slot) {
+                ArtSlot.BoxArt -> libraryRepository.setBoxArtPath(gameId, path)
+                ArtSlot.Hero -> libraryRepository.setHeroImagePath(gameId, path)
+                ArtSlot.Logo -> libraryRepository.setLogoImagePath(gameId, path)
+            }
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("${slot.label} updated from ${candidate.sourceLabel}."))
+        }
+    }
+
+    fun pickArtFromDevice(gameId: String, slot: ArtSlot) = when (slot) {
+        ArtSlot.BoxArt, ArtSlot.Logo -> pickGameBoxArt(gameId)
+        ArtSlot.Hero -> pickGameBackground(gameId)
+    }
+
+    fun clearArt(gameId: String, slot: ArtSlot) = when (slot) {
+        ArtSlot.BoxArt -> clearGameBoxArt(gameId)
+        ArtSlot.Hero -> clearGameBackground(gameId)
+        ArtSlot.Logo -> {
+            viewModelScope.launch {
+                libraryRepository.setLogoImagePath(gameId, null)
+                emit(HomeEvent.ShowMessage("Logo cleared."))
+            }
+            Unit
+        }
+    }
+
+    /** A picked video becomes this title's trailer outright, beating any YouTube match. */
+    fun setGameTrailerFromFile(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = gameCustomMediaStore.importIdleVideo(gameId, uri)
+                libraryRepository.setTrailer(gameId, path)
+                bumpCustomMedia()
+                emit(HomeEvent.ShowMessage("Trailer updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import that video."))
+            }
+        }
+    }
+
+    fun useYouTubeTrailer(gameId: String) {
+        viewModelScope.launch {
+            val game = libraryRepository.findById(gameId) ?: return@launch
+            // Clear first so a stored file or an earlier empty resolution cannot short-circuit it.
+            libraryRepository.setTrailer(gameId, null)
+            gameCustomMediaStore.clearIdleVideo(gameId)
+            val settings = preferences.settings.first()
+            val credentials = preferences.credentials.first()
+            val resolved = runCatching {
+                trailerResolver.resolve(
+                    game = game,
+                    credentials = credentials,
+                    scrapeEnabled = true,
+                    source = settings.trailerSourcePreference,
+                )
+            }.getOrNull()
+            libraryRepository.setTrailer(gameId, resolved)
+            bumpCustomMedia()
+            emit(
+                HomeEvent.ShowMessage(
+                    if (resolved == null) "No trailer found for this title." else "Trailer set from YouTube.",
+                ),
+            )
+        }
+    }
+
+    fun clearGameTrailer(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearIdleVideo(gameId)
+            libraryRepository.setTrailer(gameId, null)
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Trailer cleared."))
+        }
+    }
+
+    fun musicCoverPath(mediaId: String): String? = gameCustomMediaStore.findBoxArt(mediaId)
+
+    fun musicWallpaperPath(mediaId: String): String? = gameCustomMediaStore.findBackground(mediaId)
+
+    fun setMusicCover(mediaId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                gameCustomMediaStore.importBoxArt(mediaId, uri)
+                bumpCustomMedia()
+                emit(HomeEvent.ShowMessage("Cover art updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import cover art."))
+            }
+        }
+    }
+
+    fun setMusicWallpaper(mediaId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                gameCustomMediaStore.importBackground(mediaId, uri)
+                bumpCustomMedia()
+                emit(HomeEvent.ShowMessage("Wallpaper updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import wallpaper."))
+            }
+        }
+    }
+
+    fun clearMusicCover(mediaId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearBoxArt(mediaId)
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Cover art cleared."))
+        }
+    }
+
+    fun clearMusicWallpaper(mediaId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearBackground(mediaId)
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Wallpaper cleared."))
+        }
+    }
+
+    val customMediaEpochFlow: StateFlow<Int> get() = customMediaEpoch
+
+    private fun bumpCustomMedia() {
+        customMediaEpoch.update { it + 1 }
+    }
+
+    private fun overlayMusicCustomMedia(items: List<XoraXmbItem>, epoch: Int): List<XoraXmbItem> {
+        if (epoch < 0) return items
+        return items.map { item ->
+            val mediaId = item.musicCustomMediaId() ?: return@map item
+            val cover = gameCustomMediaStore.findBoxArt(mediaId)
+            val wallpaper = gameCustomMediaStore.findBackground(mediaId)
+            if (cover == null && wallpaper == null) item
+            else item.copy(
+                artPath = cover ?: item.artPath,
+                heroPath = wallpaper,
+            )
+        }
+    }
+
+    private fun overlayGameArtAlignment(
+        items: List<XoraXmbItem>,
+        alignments: Map<String, GameArtAlignment>,
+        continueGameId: String?,
+        favoriteGameId: String?,
+    ): List<XoraXmbItem> {
+        if (alignments.isEmpty()) return items
+        return items.map { item ->
+            val gameId = when (val action = item.action) {
+                is XoraXmbAction.LaunchGame -> action.gameId
+                is XoraXmbAction.LaunchContinueOrFavorite ->
+                    if (item.id == "favorite") favoriteGameId else continueGameId
+                is XoraXmbAction.ResumeGame -> continueGameId
+                else -> null
+            } ?: return@map item
+            val alignment = alignments[gameId] ?: return@map item
+            item.copy(artAlignX = alignment.x, artAlignY = alignment.y)
+        }
+    }
+
+    private fun openMusicCustomizeIfFocused(xmb: XoraXmbUiState): Boolean {
+        val item = xmb.selectedItem ?: return false
+        val id = item.musicCustomMediaId() ?: return false
+        emit(HomeEvent.OpenMusicCustomize(id, item.title))
+        return true
     }
 
     fun previewGameSoundBite(gameId: String) {
@@ -7475,6 +8786,9 @@ class HomeViewModel @Inject constructor(
     fun onResumed() {
         // Coming back from the emulator ends the play session, and with it the companion panel.
         gameCompanionController.onShellForegrounded()
+        // Keep Playing through the launch handoff. startActivity often pause/resumes the shell
+        // for a frame, which used to snap Discord back to Browsing XOrA before the game started.
+        maybeRestoreBrowsingPresence()
         viewModelScope.launch { sessionTracker.settlePendingSession() }
         refreshInstalledApps()
         gamepadDispatcher.reset()
@@ -7482,6 +8796,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { pollRetroAchievementUnlocks() }
         if (steamFriendsUi.value.isConfigured) refreshSteamFriends()
         viewModelScope.launch { maybeShowWelcomeBack() }
+        maybeAnnounceUpdate()
     }
 
     fun dismissWelcomeBack() {
@@ -7490,25 +8805,55 @@ class HomeViewModel @Inject constructor(
         welcomeBackOpen.value = false
     }
 
+    fun skipBootIntro() {
+        if (!bootIntroOpen.value) return
+        bootIntroSkip.value = true
+    }
+
+    fun revealHomeAfterBoot() {
+        homeIntroReveal.value = true
+    }
+
+    /** First-run Finish: play the boot clip, then reveal the XMB. */
+    fun playBootIntroAfterOnboarding() {
+        pendingColdStartWelcome = false
+        if (welcomeBackOpen.value || bootIntroOpen.value) return
+        homeIntroReveal.value = false
+        bootIntroSkip.value = false
+        bootIntroOpen.value = true
+    }
+
+    fun dismissBootIntro() {
+        if (!bootIntroOpen.value) return
+        noteUserActivity()
+        bootIntroOpen.value = false
+        bootIntroSkip.value = false
+        homeIntroReveal.value = true
+    }
+
     private suspend fun maybeShowWelcomeBack() {
         val onboardingDone = preferences.onboardingComplete.first()
-        val now = SystemClock.elapsedRealtime()
-        val backgroundedAt = backgroundedAtElapsed
         val screenWasOff = pausedWhileScreenOff
         backgroundedAtElapsed = null
         pausedWhileScreenOff = false
 
-        if (welcomeBackOpen.value) return
+        if (!onboardingDone) return
 
         val coldStart = pendingColdStartWelcome
         if (pendingColdStartWelcome) pendingColdStartWelcome = false
 
-        if (!onboardingDone) return
+        if (coldStart) {
+            if (welcomeBackOpen.value || bootIntroOpen.value) return
+            homeIntroReveal.value = false
+            bootIntroSkip.value = false
+            bootIntroOpen.value = true
+            return
+        }
 
-        val awayLongEnough = backgroundedAt != null &&
-            (now - backgroundedAt) >= WELCOME_BACK_THRESHOLD_MS
-        val shouldShow = coldStart || screenWasOff || awayLongEnough
-        if (shouldShow) {
+        if (welcomeBackOpen.value || bootIntroOpen.value) return
+
+        // Sleep / screen-off wake only — quick app switches stay on the XMB.
+        if (screenWasOff) {
             welcomeBackOpen.value = true
         }
     }
@@ -7535,13 +8880,27 @@ class HomeViewModel @Inject constructor(
         const val XORA_NETPLAY_INVITE_POLL_MS = 5_000L
         /** Open-conversation refresh — chat cadence, only while the DM pane is on screen. */
         const val XORA_DM_POLL_MS = 4_000L
-        /** Ignore brief pauses (permission sheets, quick app switches). */
-        const val WELCOME_BACK_THRESHOLD_MS = 45_000L
         /** One press must not fire through two Photo Viewer layers. */
         const val PHOTO_LAYER_DEBOUNCE_MS = 250L
         /** Fullscreen photo chrome fades after this pause. */
         const val PHOTO_CONTROLS_HIDE_MS = 3_000L
         const val PHOTO_SLIDESHOW_INTERVAL_MS = 4_000L
+        /** GitHub release polling floor, so resuming the shell repeatedly does not hammer the API. */
+        const val UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+        /**
+         * Pause/resume shorter than this is the launch handoff, not a return from the game.
+         * Under that, Discord stays on Playing {title}.
+         */
+        const val PLAYING_PRESENCE_RETURN_MS = 1_500L
+
+        /**
+         * How long a peeled start gate waits for [launchGame] to take over. Shortcuts that open
+         * a plain Activity instead (apps, pictures) never set it, and fall back to the gate.
+         */
+        private const val VITA_LAUNCH_HANDOFF_MS = 1_500L
+
+        /** Circular icons the LiveArea panel's "Recently played" row has room for. */
+        private const val VITA_PANEL_RECENT_SLOTS = 4
     }
 
     private fun refreshInstalledApps() {

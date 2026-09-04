@@ -7,9 +7,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,7 +21,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
@@ -41,8 +46,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -60,6 +68,7 @@ import com.arcadia.shell.datastore.NdsWfcServer
 import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.TrailerDisplayMode
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.datastore.XoraAspectMode
@@ -72,8 +81,11 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LiquidGlassSurface
+import com.arcadia.shell.designsystem.LocalShellTheme
+import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.R as DsR
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.model.RootKind
 import com.arcadia.shell.model.ScreenRole
@@ -91,12 +103,18 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     onGoToOnboarding: () -> Unit = {},
     systemSection: @Composable () -> Unit = {},
+    /** Host art — the same settings hero used on the companion display. */
+    backdrop: @Composable BoxScope.() -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showFolderPicker by remember { mutableStateOf(false) }
     var showMusicFolderPicker by remember { mutableStateOf(false) }
+    var section by remember { mutableStateOf(SetupSection.Display) }
     val listState = rememberLazyListState()
+
+    // Switching tabs must land at the top, not halfway down the previous section.
+    LaunchedEffect(section) { listState.scrollToItem(0) }
 
     BackHandler(onBack = onBack)
 
@@ -153,28 +171,85 @@ fun SettingsScreen(
         modifier = modifier.fillMaxSize(),
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        // Dim transparent plate so the XMB / wallpaper shows through.
+        backdrop()
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.58f)),
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.42f),
+                            Color.Black.copy(alpha = 0.62f),
+                        ),
+                    ),
+                ),
         )
     LazyColumn(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
             .imePadding(),
+        userScrollEnabled = true,
         contentPadding = PaddingValues(horizontal = 32.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item(key = "header") {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth().animateItem(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(text = "Setup", style = MaterialTheme.typography.headlineMedium)
-                TextButton(onClick = onBack) { Text(text = "Done") }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Image(
+                            painter = painterResource(DsR.drawable.xmb_figma_settings),
+                            contentDescription = null,
+                            modifier = Modifier.size(36.dp),
+                        )
+                        Column {
+                            Text(
+                                text = "Setup",
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontFamily = XoraFonts.Title,
+                                    letterSpacing = XoraFonts.TitleLetterSpacing,
+                                ),
+                                color = Color.White,
+                            )
+                            Text(
+                                text = section.description,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = XoraFonts.Secondary,
+                                ),
+                                color = Color.White.copy(alpha = 0.58f),
+                            )
+                        }
+                    }
+                    TextButton(onClick = onBack) {
+                        Text(
+                            text = "Done",
+                            fontFamily = XoraFonts.XmbLabel,
+                            color = Color.White,
+                        )
+                    }
+                }
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(end = 8.dp),
+                ) {
+                    items(SetupSection.entries, key = { it.name }) { entry ->
+                        SetupSectionTab(
+                            section = entry,
+                            selected = entry == section,
+                            onClick = { section = entry },
+                        )
+                    }
+                }
             }
         }
 
@@ -221,9 +296,14 @@ fun SettingsScreen(
             }
         }
 
+        if (section == SetupSection.Display) {
         // 1. Appearance — theme + how trailers are presented
         item(key = "appearance") {
-            SettingsCard(title = "Appearance", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "Appearance",
+                iconRes = DsR.drawable.xmb_figma_device,
+                modifier = Modifier.animateItem(),
+            ) {
                 SettingsFieldLabel("Theme")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ThemeMode.entries.forEach { mode ->
@@ -275,6 +355,15 @@ fun SettingsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = state.settings.trailerDisplayMode ==
+                            TrailerDisplayMode.InIcon,
+                        onClick = {
+                            viewModel.setTrailerDisplayMode(TrailerDisplayMode.InIcon)
+                        },
+                        enabled = state.settings.trailerEnabled,
+                        label = { Text(text = "Game icon") },
+                    )
+                    FilterChip(
+                        selected = state.settings.trailerDisplayMode ==
                             TrailerDisplayMode.FullBackground,
                         onClick = {
                             viewModel.setTrailerDisplayMode(TrailerDisplayMode.FullBackground)
@@ -292,12 +381,43 @@ fun SettingsScreen(
                         label = { Text(text = "Corner PIP") },
                     )
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("Game Icon idle")
+                Text(
+                    text = "What fills the focused Game Icon. Trailers stay the default.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = state.settings.gameIconIdleMedia ==
+                            GameIconIdleMedia.Trailer,
+                        onClick = {
+                            viewModel.setGameIconIdleMedia(GameIconIdleMedia.Trailer)
+                        },
+                        label = { Text(text = "Trailers") },
+                    )
+                    FilterChip(
+                        selected = state.settings.gameIconIdleMedia ==
+                            GameIconIdleMedia.Screenshot,
+                        onClick = {
+                            viewModel.setGameIconIdleMedia(GameIconIdleMedia.Screenshot)
+                        },
+                        label = { Text(text = "Screenshots") },
+                    )
+                }
             }
         }
 
         // 2. Library / Layout — display mode, feed grid + second screen
         item(key = "library_layout") {
-            SettingsCard(title = "Library / Layout", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "Library / Layout",
+                iconRes = DsR.drawable.xmb_figma_folder,
+                modifier = Modifier.animateItem(),
+            ) {
                 SettingsFieldLabel("Display mode")
                 Text(
                     text = "Single screen uses a vertical game selector on one display. Dual screen " +
@@ -320,9 +440,9 @@ fun SettingsScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
-                SettingsFieldLabel("Feed columns: ${state.settings.gridColumns}")
+                SettingsFieldLabel("Library columns: ${state.settings.gridColumns}")
                 Text(
-                    text = "Columns for the Home RSS feed grid (LB).",
+                    text = "Columns for the dual-screen library grid.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -367,12 +487,41 @@ fun SettingsScreen(
                 CompanionScreenPermissionRow(
                     enabled = state.settings.displayMode == DisplayMode.Dual,
                 )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(text = "Show hidden games", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = "Hidden titles stay in your library. Turn this on to list them " +
+                                "again and unhide from ROM options.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.settings.showHiddenGames,
+                        onCheckedChange = viewModel::setShowHiddenGames,
+                    )
+                }
             }
         }
 
+        }
+
+        if (section == SetupSection.Audio) {
         // 3. Audio — BGM + UI SFX
         item(key = "audio") {
-            SettingsCard(title = "Audio", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "Audio",
+                iconRes = DsR.drawable.xmb_figma_music,
+                modifier = Modifier.animateItem(),
+            ) {
                 SettingsFieldLabel("Background music")
                 Text(
                     text = "Looping soundtrack while XOrA is open. Muted at 0%. Pauses when the " +
@@ -464,14 +613,21 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (section == SetupSection.Media) {
         // 4. Trailers — scrape / source / idle (display mode lives under Appearance)
         item(key = "trailers") {
-            SettingsCard(title = "Trailers", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "Trailers",
+                iconRes = DsR.drawable.xmb_figma_video,
+                modifier = Modifier.animateItem(),
+            ) {
                 Text(
                     text = "Playnite-style trailers: resolve a YouTube or Steam URL for the " +
                         "selected game, store it, then play muted after " +
                         "${state.settings.trailerIdleSeconds}s idle on the game selector. " +
-                        "Shell music ducks while a trailer plays.",
+                        "Shell music keeps playing at full volume while a trailer is muted.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -530,7 +686,11 @@ fun SettingsScreen(
 
         // 5. Scrapers / Metadata
         item(key = "scrapers") {
-            SettingsCard(title = "Scrapers / Metadata", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "Scrapers / Metadata",
+                iconRes = DsR.drawable.xmb_figma_photo,
+                modifier = Modifier.animateItem(),
+            ) {
                 Text(
                     text = "XOrA looks up artwork from whichever sources you configure. " +
                         "ScreenScraper matches by file hash and is the most accurate, but it also " +
@@ -607,9 +767,16 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (section == SetupSection.Accounts) {
         // 6. RetroAchievements
         item(key = "ra") {
-            SettingsCard(title = "RetroAchievements", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "RetroAchievements",
+                iconRes = DsR.drawable.xmb_figma_trophy,
+                modifier = Modifier.animateItem(),
+            ) {
                 Text(
                     text = "Shared by the XOrA launcher (XMB · press X) and XOrA Emulator. " +
                         "Sign in with username/password (required for the emulator). " +
@@ -747,7 +914,11 @@ fun SettingsScreen(
 
         // 7. Social
         item(key = "social") {
-            SettingsCard(title = "Social", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "Social",
+                iconRes = DsR.drawable.xmb_figma_network,
+                modifier = Modifier.animateItem(),
+            ) {
                 Text(
                     text = "LT opens the social menu. Sign in with Steam for SteamID64; a Steam " +
                         "Web API key is still required once (Steam has no password→API key for " +
@@ -971,9 +1142,16 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (section == SetupSection.Storage) {
         // 8. Storage / Library roots — access, folders, scan
         item(key = "storage") {
-            SettingsCard(title = "Storage / Library", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "Storage / Library",
+                iconRes = DsR.drawable.xmb_figma_folder,
+                modifier = Modifier.animateItem(),
+            ) {
                 SettingsFieldLabel("Storage access")
                 Text(
                     text = if (state.hasStorageAccess) {
@@ -1084,21 +1262,20 @@ fun SettingsScreen(
             }
         }
 
-        // 9. System / Launcher — HOME role (host) + emulators / players
-        item(key = "system_header") {
-            SettingsSectionHeader(
-                title = "System / Launcher",
-                modifier = Modifier.animateItem(),
-            )
         }
 
+        if (section == SetupSection.System) {
+        // 9. System / Launcher — HOME role (host) + emulators / players
         item(key = "system") {
             Column(
                 modifier = Modifier.animateItem(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 systemSection()
-                SettingsCard(title = "Onboarding") {
+                SettingsCard(
+                    title = "Onboarding",
+                    iconRes = DsR.drawable.xmb_figma_settings,
+                ) {
                     Text(
                         text = "Replay the first-run welcome flow for display mode, library " +
                             "folders, and audio tips.",
@@ -1112,15 +1289,9 @@ fun SettingsScreen(
             }
         }
 
-        item(key = "emulators_header") {
-            Text(
-                text = "Emulators",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 4.dp).animateItem(),
-            )
         }
 
+        if (section == SetupSection.Emulators) {
         item(key = "emulators_choose_hint") {
             Text(
                 text = "Tip: on a ROM, press Select → ROM options to customize art, " +
@@ -1133,7 +1304,11 @@ fun SettingsScreen(
         }
 
         item(key = "emulators_scan") {
-            SettingsCard(title = "Detect installed emulators", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "Detect installed emulators",
+                iconRes = DsR.drawable.xmb_figma_game,
+                modifier = Modifier.animateItem(),
+            ) {
                 Text(
                     text = "Rescan for apps like Cemu, Eden, Dolphin, and RetroArch cores. " +
                         "Use this after installing a new emulator.",
@@ -1147,7 +1322,11 @@ fun SettingsScreen(
         }
 
         item(key = "xora_emulator_cores") {
-            SettingsCard(title = "XOrA Emulator (Libretro)", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "XOrA Emulator (Libretro)",
+                iconRes = DsR.drawable.xmb_figma_game,
+                modifier = Modifier.animateItem(),
+            ) {
                 Text(
                     text = "Built-in Libretro host. Downloads cores from the Libretro buildbot " +
                         "into app storage (not bundled in the APK). Place BIOS files under " +
@@ -1310,7 +1489,11 @@ fun SettingsScreen(
 
         item(key = "xora_display") {
             val xora = state.xoraEmulator
-            SettingsCard(title = "XOrA · Display", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "XOrA · Display",
+                iconRes = DsR.drawable.xmb_figma_device,
+                modifier = Modifier.animateItem(),
+            ) {
                 Text(
                     text = "Aspect ratio applies to every core, including the XOrA emulator. " +
                         "Auto keeps the framebuffer. 16:9, 1:1, 4:3 and the other ratios " +
@@ -1410,7 +1593,11 @@ fun SettingsScreen(
 
         item(key = "xora_bezels") {
             val xora = state.xoraEmulator
-            SettingsCard(title = "XOrA · System bezels", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "XOrA · System bezels",
+                iconRes = DsR.drawable.xmb_figma_photo,
+                modifier = Modifier.animateItem(),
+            ) {
                 Text(
                     text = "NSO bezels use the overlay pack layout: `cfg/nso-gba.cfg` points at " +
                         "`img/nso-gba.png` (and `nso-gba-full` for full screen). Drop the pack’s " +
@@ -1453,7 +1640,11 @@ fun SettingsScreen(
             var portDraft by remember(xora.netplayPort.toString()) {
                 mutableStateOf(xora.netplayPort.toString())
             }
-            SettingsCard(title = "XOrA · Netplay", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "XOrA · Netplay",
+                iconRes = DsR.drawable.xmb_figma_network,
+                modifier = Modifier.animateItem(),
+            ) {
                 Text(
                     text = "Host or join from the in-game side menu (Pause → Netplay). " +
                         "Home consoles (NES, SNES, N64, Genesis, PS1, GameCube, …) share one " +
@@ -1732,22 +1923,77 @@ fun SettingsScreen(
                 modifier = Modifier.animateItem(),
             )
         }
+        }
     }
     }
     }
 }
 
-@Composable
-private fun SettingsSectionHeader(
-    title: String,
-    modifier: Modifier = Modifier,
+/**
+ * Setup is a long form, so it is split into tabs instead of one endless scroll. Each entry maps
+ * to a contiguous run of cards in the list.
+ */
+private enum class SetupSection(
+    val label: String,
+    val description: String,
+    val iconRes: Int,
 ) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.SemiBold,
-        modifier = modifier.padding(top = 4.dp),
-    )
+    Display("Display", "Theme, layout, and how the library is presented", DsR.drawable.xmb_figma_device),
+    Audio("Audio", "Soundtrack and interface sounds", DsR.drawable.xmb_figma_music),
+    Media("Media", "Trailers and artwork scraping", DsR.drawable.xmb_figma_video),
+    Accounts("Accounts", "RetroAchievements, Steam, and Discord", DsR.drawable.xmb_figma_network),
+    Storage("Storage", "Library folders, scanning, and app sync", DsR.drawable.xmb_figma_folder),
+    System("System", "Home screen role and onboarding", DsR.drawable.xmb_figma_settings),
+    Emulators("Emulators", "XOrA Emulator and per-system players", DsR.drawable.xmb_figma_game),
+}
+
+@Composable
+private fun SetupSectionTab(
+    section: SetupSection,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val theme = LocalShellTheme.current.colors
+    val shape = ArcadiaGlass.ChipShape
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(
+                if (selected) {
+                    Brush.horizontalGradient(
+                        listOf(
+                            theme.focusStart.copy(alpha = 0.42f),
+                            theme.focusEnd.copy(alpha = 0.32f),
+                        ),
+                    )
+                } else {
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.08f),
+                            Color.White.copy(alpha = 0.06f),
+                        ),
+                    )
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Image(
+            painter = painterResource(section.iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            text = section.label,
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontFamily = XoraFonts.XmbLabel,
+            ),
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = Color.White.copy(alpha = if (selected) 1f else 0.68f),
+        )
+    }
 }
 
 @Composable
@@ -1757,8 +2003,11 @@ private fun SettingsFieldLabel(
 ) {
     Text(
         text = text,
-        style = MaterialTheme.typography.bodyMedium,
+        style = MaterialTheme.typography.bodyMedium.copy(
+            fontFamily = XoraFonts.XmbLabel,
+        ),
         fontWeight = FontWeight.Medium,
+        color = Color.White,
         modifier = modifier,
     )
 }
@@ -2005,23 +2254,39 @@ internal fun RetroAchievementsSignInFields(
 private fun SettingsCard(
     title: String,
     modifier: Modifier = Modifier,
+    iconRes: Int? = null,
     content: @Composable () -> Unit,
 ) {
     LiquidGlassSurface(
         modifier = modifier.fillMaxWidth(),
         shape = ArcadiaGlass.CardShape,
-        tone = GlassTone.Surface,
+        tone = GlassTone.OverMedia,
         intensity = GlassIntensity.Standard,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (iconRes != null) {
+                    Image(
+                        painter = painterResource(iconRes),
+                        contentDescription = null,
+                        modifier = Modifier.size(26.dp),
+                    )
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = XoraFonts.XmbLabel,
+                    ),
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                )
+            }
             content()
         }
     }
@@ -2037,7 +2302,7 @@ private fun RootRowInline(
     LiquidGlassSurface(
         modifier = modifier.fillMaxWidth(),
         shape = ArcadiaGlass.CardShape,
-        tone = GlassTone.Surface,
+        tone = GlassTone.OverMedia,
         intensity = GlassIntensity.Subtle,
     ) {
         Row(

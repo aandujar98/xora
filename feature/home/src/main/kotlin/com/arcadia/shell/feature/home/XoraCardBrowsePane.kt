@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -26,18 +27,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -49,7 +51,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.xmbAssetShadow
+import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.designsystem.xoraPlateStroke
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.xmb.drawableResForPlatformId
@@ -62,6 +68,13 @@ private const val CARD_WIDTH = 280f
 private const val CARD_HEIGHT = 150f
 private const val CARD_WIDTH_FOCUS = 462f
 private const val CARD_HEIGHT_FOCUS = 248f
+/** Same 25% shrink as the XMB folder glyphs. */
+private const val FOLDER_SIZE_SCALE = 0.75f
+/** Folder_Music reads taller than Photos / Videos; pull it in another 15%. */
+private const val MUSIC_FOLDER_SCALE = 0.85f
+/** Music albums / tracks: 1×1, same height rhythm as the game cards. */
+private const val MUSIC_CARD = 150f
+private const val MUSIC_CARD_FOCUS = 248f
 private const val CARD_CENTER_X = 407f
 private const val CARD_PITCH = 166f
 private const val CARD_FOCUS_PITCH = 240f
@@ -74,17 +87,20 @@ private const val TITLE_SIZE = 48f
 private const val SUBTITLE_CENTER_Y = 583f
 private const val SUBTITLE_SIZE = 40f
 private const val RULE_X = 687f
-private const val RULE_WIDTH = 1187.5f
+private const val RULE_WIDTH = 1157f
 private const val RULE_THICKNESS = 4f
+private const val TITLE_TOP_Y = TITLE_CENTER_Y - TITLE_SIZE / 2f
+/** Rule Y relative to the title block, so logos can grow without moving playtime. */
+private const val TITLE_TO_RULE_Y = (ROW_CENTER_Y - RULE_THICKNESS / 2f) - TITLE_TOP_Y
+private const val TITLE_TO_SUBTITLE_Y = (SUBTITLE_CENTER_Y - SUBTITLE_SIZE / 2f) - TITLE_TOP_Y
 private const val CHECK_DIAMETER = 42f
 private const val CHECK_GAP = 24f
 private const val ARROW_CENTER_X = 96f
 private const val ARROW_SIZE = 32f
-private const val SHADOW_ELEVATION = 15f
 private const val VISIBLE_CARD_RADIUS = 5f
 
 
-private val PlatformTitleInk = Color(0xFFEBEBEB)
+private val PlatformTitleInk = Color.White
 private val CardFill = Color(0xFF101B24)
 private val ReadyGreen = Color(0xFF4DDB3A)
 
@@ -126,6 +142,7 @@ fun XoraCardBrowsePane(
     modifier: Modifier = Modifier,
     /** ROM rows honour the shell's title preference: clear-logo art or plain text. */
     titleStyle: XmbTitleStyle = XmbTitleStyle.TitleIcons,
+    trailer: HeroTrailerState = HeroTrailerState(),
 ) {
     val reduceMotion = rememberReduceMotion()
     val scrollSpec = remember(reduceMotion) {
@@ -154,110 +171,160 @@ fun XoraCardBrowsePane(
         fun designY(y: Float): Dp = (originY + (y * unit)).dp
 
         val focused = items.getOrNull(selectedIndex)
+        // ROM copy fades out while the wheel is moving and stays gone until the hero
+        // wallpaper (and its sound bite) have had time to appear on the new title.
+        val settledRomId = rememberXmbSettledFocus(
+            focused?.id,
+            settleMs = XMB_GAME_SELECT_SETTLE_MS,
+        )
+        val heldId = rememberXmbHeldFocus(
+            focused?.id,
+            settleMs = XMB_FOCUS_SETTLE_MS,
+        )
+        val shownId = if (mode == CardBrowseMode.Roms) settledRomId else heldId
+        val shownItem = items.firstOrNull { it.id == shownId }
 
-        BackHintArrow(
-            size = (ARROW_SIZE * unit).dp,
+        val (arrowW, arrowH) = XmbIcon.Back.intrinsicDesignSize()
+        val arrowScale = min(ARROW_SIZE / arrowW, ARROW_SIZE / arrowH)
+        val visArrowW = arrowW * arrowScale
+        val visArrowH = arrowH * arrowScale
+        XmbVectorIcon(
+            icon = XmbIcon.Back,
+            width = (visArrowW * unit).dp,
+            height = (visArrowH * unit).dp,
+            glass = false,
+            outlined = false,
+            strokeWidth = 0.dp,
             modifier = Modifier.offset(
-                x = designX(ARROW_CENTER_X - (ARROW_SIZE / 2f)),
-                y = designY(ROW_CENTER_Y - (ARROW_SIZE / 2f)),
+                x = designX(ARROW_CENTER_X - (visArrowW / 2f)),
+                y = designY(ROW_CENTER_Y - (visArrowH / 2f)),
             ),
         )
 
-        // Far cards first so the enlarged focus card layers over its neighbours.
-        items.indices.sortedByDescending { abs(it - scroll.value) }.forEach { index ->
-            val delta = index - scroll.value
-            if (abs(delta) > VISIBLE_CARD_RADIUS) return@forEach
-            val closeness = (1f - abs(delta)).coerceIn(0f, 1f)
-            val width = CARD_WIDTH + ((CARD_WIDTH_FOCUS - CARD_WIDTH) * closeness)
-            val height = CARD_HEIGHT + ((CARD_HEIGHT_FOCUS - CARD_HEIGHT) * closeness)
-            val centreY = ROW_CENTER_Y + cardOffsetFor(delta)
+        // Far cards first so the enlarged focus card layers over its neighbours. Keyed on the
+        // item so the reshuffling draw order does not restart each card's artwork request.
+        items.indices
+            .filter { abs(it - scroll.value) <= VISIBLE_CARD_RADIUS }
+            .sortedByDescending { abs(it - scroll.value) }
+            .forEach { index ->
+                val item = items[index]
+                val delta = index - scroll.value
+                val closeness = (1f - abs(delta)).coerceIn(0f, 1f)
+                val square = mode == CardBrowseMode.MusicAlbums ||
+                    mode == CardBrowseMode.MusicTracks
+                val restW = if (square) MUSIC_CARD else CARD_WIDTH
+                val restH = if (square) MUSIC_CARD else CARD_HEIGHT
+                val focusW = if (square) MUSIC_CARD_FOCUS else CARD_WIDTH_FOCUS
+                val focusH = if (square) MUSIC_CARD_FOCUS else CARD_HEIGHT_FOCUS
+                val width = restW + ((focusW - restW) * closeness)
+                val height = restH + ((focusH - restH) * closeness)
+                val centreY = ROW_CENTER_Y + cardOffsetFor(delta)
 
-            BrowseCard(
-                item = items[index],
-                unit = unit,
-                width = (width * unit).dp,
-                height = (height * unit).dp,
-                onClick = {
-                    if (index == selectedIndex) onActivateItem() else onSelectItem(index)
-                },
-                modifier = Modifier.offset(
-                    x = designX(CARD_CENTER_X - (width / 2f)),
-                    y = designY(centreY - (height / 2f)),
-                ),
-            )
-        }
-
-        if (focused != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy((CHECK_GAP * unit).dp),
-                modifier = Modifier.offset(
-                    x = designX(TITLE_X),
-                    y = designY(TITLE_CENTER_Y - (TITLE_SIZE / 2f)),
-                ),
-            ) {
-                val logoPath = focused.logoPath
-                    ?.takeIf { mode == CardBrowseMode.Roms && titleStyle == XmbTitleStyle.TitleIcons }
-                if (logoPath != null) {
-                    ArtworkImage(
-                        path = logoPath,
-                        contentDescription = focused.title,
-                        fallbackText = focused.title,
-                        contentScale = ContentScale.Fit,
-                        decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
-                        modifier = Modifier
-                            .height((TITLE_SIZE * 1.6f * unit).dp)
-                            .widthIn(max = (RULE_WIDTH * 0.6f * unit).dp),
-                    )
-                } else {
-                    BrowseHeadline(
-                        text = focused.title,
-                        sizeDesignUnits = TITLE_SIZE,
+                key(item.id) {
+                    BrowseCard(
+                        item = item,
+                        focused = index == selectedIndex,
                         unit = unit,
-                        maxWidthDesignUnits = RULE_WIDTH - CHECK_DIAMETER - CHECK_GAP,
-                        fontFamily = XoraFonts.Title,
+                        width = (width * unit).dp,
+                        height = (height * unit).dp,
+                        onClick = {
+                            if (index == selectedIndex) onActivateItem() else onSelectItem(index)
+                        },
+                        modifier = Modifier.offset(
+                            x = designX(CARD_CENTER_X - (width / 2f)),
+                            y = designY(centreY - (height / 2f)),
+                        ),
+                        trailer = trailer.takeIf { index == selectedIndex } ?: HeroTrailerState(),
                     )
-                }
-                // Systems: core ready. DSP: account linked.
-                if ((mode == CardBrowseMode.Systems || mode == CardBrowseMode.DspAccounts) &&
-                    focused.ready
-                ) {
-                    ReadyCheck(diameter = (CHECK_DIAMETER * unit).dp)
                 }
             }
 
+        AnimatedContent(
+            targetState = shownItem,
+            transitionSpec = { xmbCopyTransition(reduceMotion) },
+            contentKey = { it?.id },
+            label = "cardBrowseCopy",
+            modifier = Modifier.offset(
+                x = designX(TITLE_X),
+                y = designY(TITLE_CENTER_Y - (TITLE_SIZE / 2f)),
+            ),
+        ) { item ->
+            if (item == null) return@AnimatedContent
+            // Offset children (rule / playtime) sit below the title row. Size the plate to that
+            // full block so AnimatedContent fades and slides title and playtime together.
             Box(
-                modifier = Modifier
-                    .offset(
-                        x = designX(RULE_X),
-                        y = designY(ROW_CENTER_Y - (RULE_THICKNESS / 2f)),
-                    )
-                    .size(
-                        width = (RULE_WIDTH * unit).dp,
-                        height = (RULE_THICKNESS * unit).dp,
-                    )
-                    .shadow((SHADOW_ELEVATION * unit).dp)
-                    .background(Color.White),
-            )
-
-            BrowseHeadline(
-                text = when (mode) {
-                    CardBrowseMode.Systems -> "Total Games: ${focused.gameCount}"
-                    CardBrowseMode.Roms -> "Playtime: ${formatXmbPlaytime(focused.playTimeMs)}"
-                    CardBrowseMode.DspAccounts -> focused.subtitle.orEmpty()
-                    CardBrowseMode.MusicAlbums -> "Total Tracks: ${focused.gameCount}"
-                    CardBrowseMode.MusicTracks -> focused.subtitle.orEmpty()
-                },
-                sizeDesignUnits = SUBTITLE_SIZE,
-                unit = unit,
-                maxWidthDesignUnits = RULE_WIDTH,
-                fontFamily = XoraFonts.Secondary,
-                modifier = Modifier.offset(
-                    x = designX(TITLE_X),
-                    y = designY(SUBTITLE_CENTER_Y - (SUBTITLE_SIZE / 2f)),
+                modifier = Modifier.size(
+                    width = (RULE_WIDTH * unit).dp,
+                    height = ((TITLE_TO_SUBTITLE_Y + SUBTITLE_SIZE) * unit).dp,
                 ),
-            )
-
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy((CHECK_GAP * unit).dp),
+                ) {
+                    val logoPath = item.logoPath
+                        ?.takeIf {
+                            mode == CardBrowseMode.Roms && titleStyle == XmbTitleStyle.TitleIcons
+                        }
+                    if (logoPath != null) {
+                        ArtworkImage(
+                            path = logoPath,
+                            contentDescription = item.title,
+                            fallbackText = item.title,
+                            contentScale = ContentScale.Fit,
+                            decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
+                            modifier = Modifier
+                                .height((TITLE_SIZE * 1.6f * unit).dp)
+                                .widthIn(max = (RULE_WIDTH * 0.6f * unit).dp),
+                        )
+                    } else {
+                        BrowseHeadline(
+                            text = item.title,
+                            sizeDesignUnits = TITLE_SIZE,
+                            unit = unit,
+                            maxWidthDesignUnits = RULE_WIDTH - CHECK_DIAMETER - CHECK_GAP,
+                            fontFamily = XoraFonts.Secondary,
+                        )
+                    }
+                    // Systems: core ready. DSP: account linked.
+                    if ((mode == CardBrowseMode.Systems || mode == CardBrowseMode.DspAccounts) &&
+                        item.ready
+                    ) {
+                        ReadyCheck(diameter = (CHECK_DIAMETER * unit).dp)
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = ((RULE_X - TITLE_X) * unit).dp,
+                            y = (TITLE_TO_RULE_Y * unit).dp,
+                        )
+                        .size(
+                            width = (RULE_WIDTH * unit).dp,
+                            height = (RULE_THICKNESS * unit).dp,
+                        )
+                        .xmbAssetShadow(
+                            unit = unit,
+                            shape = RectangleShape,
+                            alpha = XoraForegroundShadow.TitleAlpha,
+                        )
+                        .background(Color.White),
+                )
+                BrowseHeadline(
+                    text = when (mode) {
+                        CardBrowseMode.Systems -> "Total Games: ${item.gameCount}"
+                        CardBrowseMode.Roms -> "Playtime: ${formatXmbPlaytime(item.playTimeMs)}"
+                        CardBrowseMode.DspAccounts -> item.subtitle.orEmpty()
+                        CardBrowseMode.MusicAlbums -> "Total Tracks: ${item.gameCount}"
+                        CardBrowseMode.MusicTracks -> item.subtitle.orEmpty()
+                    },
+                    sizeDesignUnits = SUBTITLE_SIZE,
+                    unit = unit,
+                    maxWidthDesignUnits = RULE_WIDTH,
+                    fontFamily = XoraFonts.Secondary,
+                    modifier = Modifier.offset(y = (TITLE_TO_SUBTITLE_Y * unit).dp),
+                )
+            }
         }
     }
 }
@@ -276,20 +343,40 @@ private fun cardOffsetFor(delta: Float): Float {
 @Composable
 private fun BrowseCard(
     item: XoraXmbItem,
+    focused: Boolean,
     unit: Float,
     width: Dp,
     height: Dp,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    trailer: HeroTrailerState = HeroTrailerState(),
 ) {
     val shape = RoundedCornerShape((CARD_RADIUS * unit).dp)
     Box(
-        modifier = modifier
-            .size(width = width, height = height)
-            .shadow(elevation = (SHADOW_ELEVATION * unit).dp, shape = shape)
+        modifier = modifier.size(width = width, height = height),
+        contentAlignment = Alignment.Center,
+    ) {
+    XmbHoverGlow(
+        enabled = focused,
+        modifier = Modifier
+            .matchParentSize()
+            .graphicsLayer {
+                scaleX = 1.5f
+                scaleY = 1.5f
+            },
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .xmbAssetShadow(unit = unit, shape = shape, alpha = XoraForegroundShadow.Alpha)
+            .xoraPlateStroke(
+                unit = unit,
+                radiusDesign = CARD_RADIUS,
+                borderDesign = CARD_BORDER,
+                alpha = if (focused) 1f else 0.55f,
+            )
             .clip(shape)
             .background(CardFill)
-            .border(width = (CARD_BORDER * unit).dp, color = Color.White, shape = shape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -297,18 +384,48 @@ private fun BrowseCard(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        if (item.artPath != null) {
-            ArtworkImage(
-                path = item.artPath,
-                contentDescription = item.title,
-                fallbackText = item.title,
-                contentScale = ContentScale.Crop,
-                decodeMaxEdgePx = THUMB_DECODE_MAX_EDGE_PX,
+        if (item.icon.isFolderGlyph() && !item.artPath.isNullOrBlank()) {
+            val (designW, designH) = item.icon.intrinsicDesignSize()
+            val folderScale = FOLDER_SIZE_SCALE *
+                if (item.icon == XmbIcon.FolderMusic) MUSIC_FOLDER_SCALE else 1f
+            val scale = (width.value / designW) * folderScale
+            XmbFolderImgIcon(
+                artPath = item.artPath,
+                windowIcon = item.icon.folderWindowIcon(),
+                width = (designW * scale).dp,
+                height = (designH * scale).dp,
+                castShadow = false,
+                strokeWidth = (XmbGlyphStrokeDesignPx * unit).dp,
+            )
+        } else if (item.icon.isFolderGlyph()) {
+            val (designW, designH) = item.icon.intrinsicDesignSize()
+            val folderScale = FOLDER_SIZE_SCALE *
+                if (item.icon == XmbIcon.FolderMusic) MUSIC_FOLDER_SCALE else 1f
+            val scale = (width.value / designW) * folderScale
+            XmbVectorIcon(
+                icon = item.icon,
+                width = (designW * scale).dp,
+                height = (designH * scale).dp,
+                glass = false,
+                outlined = false,
+                castShadow = false,
+                strokeWidth = 0.dp,
+            )
+        } else if (item.artPath != null) {
+            GameIconIdleArt(
+                coverPath = item.artPath,
+                title = item.title,
+                focused = focused,
+                trailer = trailer,
+                screenshotPaths = listOfNotNull(item.screenshotPath),
+                artAlignX = item.artAlignX,
+                artAlignY = item.artAlignY,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
             BrowseCardFallback(item = item, unit = unit, height = height)
         }
+    }
     }
 }
 
@@ -349,7 +466,10 @@ private fun BrowseHeadline(
     fontFamily: FontFamily,
     modifier: Modifier = Modifier,
 ) {
-    val fontSize = with(LocalDensity.current) { (sizeDesignUnits * unit).dp.toSp() }
+    val density = LocalDensity.current
+    val fontSize = with(density) { (sizeDesignUnits * unit).dp.toSp() }
+    val shadowPx = with(density) { (XoraForegroundShadow.DesignOffset * unit).dp.toPx() }
+    val blurPx = with(density) { (XoraForegroundShadow.DesignBlur * unit).dp.toPx() }
     Text(
         text = text,
         maxLines = 1,
@@ -360,9 +480,9 @@ private fun BrowseHeadline(
             lineHeight = fontSize,
             fontWeight = FontWeight.SemiBold,
             shadow = Shadow(
-                color = Color.Black.copy(alpha = 0.5f),
-                offset = Offset(10f * unit, 10f * unit),
-                blurRadius = 15f * unit,
+                color = Color.Black.copy(alpha = XoraForegroundShadow.TitleAlpha),
+                offset = Offset(shadowPx, shadowPx),
+                blurRadius = blurPx,
             ),
         ),
         color = PlatformTitleInk,
@@ -381,7 +501,7 @@ private fun ReadyCheck(diameter: Dp, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .size(diameter)
-            .shadow(elevation = diameter * 0.2f, shape = CircleShape)
+            .xoraForegroundShadow(CircleShape)
             .clip(CircleShape)
             .background(ReadyGreen)
             .border(width = diameter * 0.095f, color = Color.White, shape = CircleShape)
@@ -400,26 +520,3 @@ private fun ReadyCheck(diameter: Dp, modifier: Modifier = Modifier) {
     )
 }
 
-/** Mirrors the design's left chevron: B steps back out of this list. */
-@Composable
-private fun BackHintArrow(size: Dp, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .size(size)
-            .drawBehind {
-                val arrow = Path().apply {
-                    moveTo(this@drawBehind.size.width * 0.72f, 0f)
-                    lineTo(this@drawBehind.size.width * 0.18f, this@drawBehind.size.height * 0.5f)
-                    lineTo(this@drawBehind.size.width * 0.72f, this@drawBehind.size.height)
-                }
-                drawPath(
-                    path = arrow,
-                    color = Color.White.copy(alpha = 0.85f),
-                    style = Stroke(
-                        width = this@drawBehind.size.minDimension * 0.16f,
-                        cap = StrokeCap.Round,
-                    ),
-                )
-            },
-    )
-}

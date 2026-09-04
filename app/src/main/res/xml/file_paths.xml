@@ -9,4 +9,7 @@
     <root-path
         name="rom_library"
         path="/" />
+    <cache-path
+        name="apk_updates"
+        path="updates/" />
 </paths>

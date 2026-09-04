@@ -15,6 +15,9 @@
     <!-- Some emulators refuse to boot a second title while a previous session is still resident. -->
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
 
+    <!-- Sideload updates from GitHub Releases (Settings → Update). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <!--
       targetSdk 37 (Android 17) blocks LAN TCP by default. Netplay host/join are raw sockets
@@ -36,6 +39,7 @@
       enables Android 14+ limited-photo ("select photos") access.
     -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
     <!-- Android 13+: status-bar delivery when SORA is not in the foreground. -->
@@ -48,6 +52,8 @@
       without the user-granted overlay toggle the panel simply never appears during gameplay.
     -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Lets the emulator hide TYPE_APPLICATION_OVERLAY dimmers / filters over gameplay. -->
+    <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
@@ -114,6 +120,7 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode|colorMode|fontScale|layoutDirection|locale|touchscreen"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.Arcadia.Emulator"
+            android:colorMode="default"
             android:launchMode="singleTask"
             android:alwaysRetainTaskState="true" />
 

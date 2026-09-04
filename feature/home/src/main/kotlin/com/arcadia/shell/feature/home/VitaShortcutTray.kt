@@ -1,19 +1,35 @@
 package com.arcadia.shell.feature.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.TransformOrigin
+import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.supportsGlassBlurEffect
+import kotlin.math.exp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -24,6 +40,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +64,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
@@ -74,15 +92,10 @@ private const val NAME_TEXT_SIZE = 32f
 private const val PAGE_DOT_DIAMETER = 34f
 private const val PAGE_DOT_PITCH = 59f
 private const val PAGE_DOT_CENTER_X = 72f
-private const val XMB_ROW_ICON = 52f
-private const val XMB_ROW_PITCH = 94f
-private const val XMB_ROW_BOTTOM = 1047.8f
 
 /** How far a bubble may sway from its slot when the device is tilted. */
 private const val TILT_SHIFT_FRACTION = 0.115f
 
-private val VitaSkyTop = Color(0xFF2ACBFD)
-private val VitaSkyBottom = Color(0xFFDEF9FF)
 private val RingGradientTop = Color.White
 private val RingGradientBottom = Color(0xFFB5EFFF)
 private val SelectionHalo = Color(0xB3E4FAFF)
@@ -92,21 +105,39 @@ private val NamePillInnerGlow = Color(0x80FFFFFF)
 private val PageDotIdle = Color(0x33FFFFFF)
 private val PageDotActive = Color(0xD9FFFFFF)
 
-// The bottom row sits on the pale end of the sky, so the glyphs read dark rather than white.
-private val XmbRowActive = Color(0xE6102734)
-private val XmbRowIdle = Color(0x80102734)
-
 /** Sits under icons with transparent corners so every slot still reads as a glass bubble. */
 private val BubbleFill = Color(0x4D0E2230)
 
 /** A page holds three staggered rows, matching the bubble grid in the design. */
 private val VITA_TRAY_ROW_CAPACITIES = intArrayOf(3, 4, 3)
 internal const val VITA_TRAY_PAGE_SIZE = 10
+private const val VitaBubbleFlipDeg = 360f
+internal const val VitaBubbleDepartMs = 1_000
+/** End scale so a 233u bubble covers a 1920u panel and keeps going into the wallpaper. */
+private const val VitaBubbleZoom = 11f
+/** Flip occupies the first half-second; zoom occupies the second. */
+private const val VitaTwirlEnd = 0.5f
+private const val VitaZoomStart = 0.5f
+private const val VitaBubbleFadeStart = 0.75f
+private val VitaBubbleDepartEasing = LinearEasing
+private val VitaBubbleEchoLags = FloatArray(24) { i ->
+    val t = (i + 1f) / 24f
+    t * t * 0.28f
+}
+
+private fun vitaTwirl(t: Float): Float =
+    FastOutSlowInEasing.transform((t / VitaTwirlEnd).coerceIn(0f, 1f))
+
+private fun vitaZoom(t: Float): Float =
+    FastOutSlowInEasing.transform(
+        ((t - VitaZoomStart) / (1f - VitaZoomStart)).coerceIn(0f, 1f),
+    )
 
 /**
- * PS Vita LiveArea-style shortcut field: staggered bubbles over a wave sky, the focused bubble
- * ringed and named, page dots down the left edge, and the XMB category row peeking along the
- * bottom. Bubbles sway with the device's gyroscope.
+ * PS Vita LiveArea-style shortcut field: staggered bubbles over the live wallpaper (no tray
+ * backdrop), the focused bubble ringed and named, page dots down the left edge. Opens with a
+ * slide-down; each bubble then lands on its own slightly staggered bounce. Closes by sliding
+ * up. Pages move vertically. Bubbles sway with the device's gyroscope.
  */
 @Composable
 fun VitaShortcutTray(
@@ -114,19 +145,20 @@ fun VitaShortcutTray(
     shortcuts: List<HomeShortcut>,
     selectedIndex: Int,
     editMode: Boolean,
-    xmbCategoryIndex: Int,
     onSelect: (Int) -> Unit,
     onActivate: (Int) -> Unit,
     onAddSlot: () -> Unit,
     modifier: Modifier = Modifier,
+    departingIndex: Int? = null,
+    suppressIdleBubbles: Boolean = false,
 ) {
     val enter = slideInVertically(
-        animationSpec = arcadiaTween(ArcadiaMotion.Slow),
-        initialOffsetY = { -it / 3 },
-    ) + fadeIn(arcadiaTween(ArcadiaMotion.Slow))
+        animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+        initialOffsetY = { -it },
+    ) + fadeIn(arcadiaTween(ArcadiaMotion.Medium))
     val exit = slideOutVertically(
         animationSpec = arcadiaTween(ArcadiaMotion.Medium),
-        targetOffsetY = { -it / 3 },
+        targetOffsetY = { -it },
     ) + fadeOut(arcadiaTween(ArcadiaMotion.Medium))
 
     val includeAdd = editMode || shortcuts.isEmpty()
@@ -134,7 +166,6 @@ fun VitaShortcutTray(
     val focus = selectedIndex.coerceIn(0, slots.lastIndex.coerceAtLeast(0))
     val pageCount = vitaTrayPageCount(slots.size)
     val page = (focus / VITA_TRAY_PAGE_SIZE).coerceIn(0, pageCount - 1)
-    val rows = remember(slots.size, page) { vitaTrayPageRows(slots.size, page) }
 
     AnimatedVisibility(
         visible = visible,
@@ -143,13 +174,6 @@ fun VitaShortcutTray(
         modifier = modifier,
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            WaveSky(
-                topColor = VitaSkyTop,
-                bottomColor = VitaSkyBottom,
-                field = VitaWaveField,
-                modifier = Modifier.fillMaxSize(),
-            )
-
             val unit = min(
                 maxWidth.value / XORA_DESIGN_WIDTH,
                 maxHeight.value / XORA_DESIGN_HEIGHT,
@@ -159,71 +183,110 @@ fun VitaShortcutTray(
             // Also drops the sensor when the shell is backgrounded with the tray still open.
             val sway = visible && rememberAmbientMotionActive()
             val tilt = rememberDeviceTilt(active = sway)
+            val density = LocalDensity.current
+            val bubblePx = with(density) { bubbleDiameter.toPx() }
             val motion = rememberVitaBubbleMotion(
                 count = slots.size,
                 tilt = tilt,
-                maxShiftPx = with(LocalDensity.current) {
-                    bubbleDiameter.toPx() * TILT_SHIFT_FRACTION
-                },
+                maxShiftPx = bubblePx * TILT_SHIFT_FRACTION,
                 enabled = sway,
             )
+            val landing = rememberVitaBubbleLanding(
+                count = slots.size,
+                dropPx = bubblePx * 0.42f,
+            )
 
-            rows.forEachIndexed { rowIndex, row ->
-                val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
-                row.forEachIndexed { column, slotIndex ->
-                    val columnShift = (column - ((row.size - 1) / 2f)) * COLUMN_PITCH
-                    VitaBubble(
-                        slot = slots[slotIndex],
-                        selected = slotIndex == focus,
-                        diameter = bubbleDiameter,
-                        glass = glass,
-                        offsetProvider = { motion.offsetAt(slotIndex) },
-                        onClick = {
-                            onSelect(slotIndex)
-                            when (slots[slotIndex]) {
-                                is VitaShortcutSlot.Filled -> onActivate(slotIndex)
-                                VitaShortcutSlot.Add -> onAddSlot()
-                            }
-                        },
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .offset(x = (columnShift * unit).dp, y = (rowShift * unit).dp),
-                    )
+            val pageSlide = tween<IntOffset>(ArcadiaMotion.Medium)
+            val pageFade = tween<Float>(ArcadiaMotion.Fast)
+            val crowdAlpha by animateFloatAsState(
+                targetValue = if (departingIndex != null || suppressIdleBubbles) 0f else 1f,
+                animationSpec = arcadiaTween(ArcadiaMotion.Fast),
+                label = "vitaCrowdHide",
+            )
+            AnimatedContent(
+                targetState = page,
+                transitionSpec = {
+                    val down = targetState > initialState
+                    val enter = slideInVertically(pageSlide) { if (down) it else -it } +
+                        fadeIn(pageFade)
+                    val exit = slideOutVertically(pageSlide) { if (down) -it else it } +
+                        fadeOut(pageFade)
+                    enter togetherWith exit
+                },
+                label = "vitaTrayPage",
+                modifier = Modifier.fillMaxSize(),
+            ) { shownPage ->
+                val rows = vitaTrayPageRows(slots.size, shownPage)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    rows.forEachIndexed { rowIndex, row ->
+                        val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
+                        row.forEachIndexed { column, slotIndex ->
+                            val columnShift = (column - ((row.size - 1) / 2f)) * COLUMN_PITCH
+                            VitaBubble(
+                                slot = slots[slotIndex],
+                                selected = slotIndex == focus,
+                                departing = slotIndex == departingIndex,
+                                diameter = bubbleDiameter,
+                                glass = glass,
+                                offsetProvider = {
+                                    val tiltShift = motion.offsetAt(slotIndex)
+                                    Offset(tiltShift.x, tiltShift.y + landing.offsetY(slotIndex))
+                                },
+                                interactive = departingIndex == null && !suppressIdleBubbles,
+                                onClick = {
+                                    onSelect(slotIndex)
+                                    when (slots[slotIndex]) {
+                                        is VitaShortcutSlot.Filled -> onActivate(slotIndex)
+                                        VitaShortcutSlot.Add -> onAddSlot()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .offset(x = (columnShift * unit).dp, y = (rowShift * unit).dp)
+                                    .graphicsLayer {
+                                        if (slotIndex != departingIndex) alpha = crowdAlpha
+                                        clip = false
+                                    },
+                            )
+                        }
+                    }
+
+                    // Drawn after every bubble so the focused name always reads over its neighbours.
+                    rows.forEachIndexed { rowIndex, row ->
+                        val focusColumn = row.indexOf(focus)
+                        if (focusColumn < 0 ||
+                            departingIndex == focus ||
+                            suppressIdleBubbles
+                        ) {
+                            return@forEachIndexed
+                        }
+                        val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
+                        val columnShift = (focusColumn - ((row.size - 1) / 2f)) * COLUMN_PITCH
+                        val pillCentre = rowShift + (BUBBLE_DIAMETER / 2f) + NAME_PILL_GAP +
+                            (NAME_PILL_HEIGHT / 2f)
+                        SoftwareNamePill(
+                            label = slots[focus].label(editMode),
+                            unit = unit,
+                            minWidth = bubbleDiameter,
+                            offsetProvider = {
+                                val tiltShift = motion.offsetAt(focus)
+                                Offset(tiltShift.x, tiltShift.y + landing.offsetY(focus))
+                            },
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .offset(x = (columnShift * unit).dp, y = (pillCentre * unit).dp),
+                        )
+                    }
                 }
-            }
-
-            // Drawn after every bubble so the focused name always reads over its neighbours.
-            rows.forEachIndexed { rowIndex, row ->
-                val focusColumn = row.indexOf(focus)
-                if (focusColumn < 0) return@forEachIndexed
-                val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
-                val columnShift = (focusColumn - ((row.size - 1) / 2f)) * COLUMN_PITCH
-                val pillCentre = rowShift + (BUBBLE_DIAMETER / 2f) + NAME_PILL_GAP +
-                    (NAME_PILL_HEIGHT / 2f)
-                SoftwareNamePill(
-                    label = slots[focus].label(editMode),
-                    unit = unit,
-                    minWidth = bubbleDiameter,
-                    offsetProvider = { motion.offsetAt(focus) },
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .offset(x = (columnShift * unit).dp, y = (pillCentre * unit).dp),
-                )
             }
 
             PageDots(
                 count = pageCount,
                 current = page,
                 unit = unit,
-                modifier = Modifier.align(Alignment.CenterStart),
-            )
-
-            XmbCategoryRow(
-                selectedIndex = xmbCategoryIndex,
-                unit = unit,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = ((XORA_DESIGN_HEIGHT - XMB_ROW_BOTTOM) * unit).dp),
+                    .align(Alignment.CenterStart)
+                    .graphicsLayer { alpha = crowdAlpha },
             )
         }
     }
@@ -233,31 +296,125 @@ fun VitaShortcutTray(
 private fun VitaBubble(
     slot: VitaShortcutSlot,
     selected: Boolean,
+    departing: Boolean,
     diameter: Dp,
     glass: ImageBitmap,
     offsetProvider: () -> Offset,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    interactive: Boolean = true,
 ) {
     val ringWidth = diameter * (SELECTION_RING_WIDTH / BUBBLE_DIAMETER)
+    val interaction = remember { MutableInteractionSource() }
+    val depart by animateFloatAsState(
+        targetValue = if (departing) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = VitaBubbleDepartMs,
+            easing = VitaBubbleDepartEasing,
+        ),
+        label = "vitaBubbleDepart",
+    )
+    val hovered by interaction.collectIsHoveredAsState()
+    val reduceMotion = rememberReduceMotion()
+    val highlighted = (selected || hovered) && depart < 0.05f && interactive
+    val pulse = rememberInfiniteTransition(label = "vitaBubblePulse")
+    val pulseScale by pulse.animateFloat(
+        initialValue = 1f,
+        targetValue = if (highlighted && !reduceMotion) 1.045f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(640, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "vitaBubblePulseScale",
+    )
+    val pulseLift by pulse.animateFloat(
+        initialValue = 0f,
+        targetValue = if (highlighted && !reduceMotion) -0.035f else 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(640, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "vitaBubblePulseLift",
+    )
+    val canBlur = supportsGlassBlurEffect()
     Box(
         modifier = modifier
             .size(diameter + ringWidth)
             .graphicsLayer {
                 val shift = offsetProvider()
                 translationX = shift.x
-                translationY = shift.y
+                translationY = shift.y + (diameter.toPx() * pulseLift)
+                scaleX = pulseScale
+                scaleY = pulseScale
+                clip = false
             }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
+            .then(
+                if (interactive) {
+                    Modifier.clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        onClick = onClick,
+                    )
+                } else {
+                    Modifier
+                },
             ),
         contentAlignment = Alignment.Center,
     ) {
+        if (depart > 0.02f) {
+            val echoCount = VitaBubbleEchoLags.size
+            for (index in echoCount - 1 downTo 0) {
+                val lag = VitaBubbleEchoLags[index]
+                val echoT = (depart - lag).coerceIn(0f, 1f)
+                if (echoT <= 0.001f) continue
+                val trailT = index / (echoCount - 1f).coerceAtLeast(1f)
+                val twirl = vitaTwirl(echoT)
+                val zoom = vitaZoom(echoT)
+                val fade = (exp(-2.8f * trailT * trailT) * 0.34f * (1f - echoT * 0.22f))
+                    .coerceAtLeast(0.02f)
+                val liveScale = 1f + VitaBubbleZoom * zoom
+                val feather = 1.08f + 0.22f * trailT
+                val echoScale = liveScale * feather
+                Box(
+                    modifier = Modifier
+                        .size(diameter)
+                        .graphicsLayer {
+                            rotationY = VitaBubbleFlipDeg * twirl
+                            scaleX = echoScale
+                            scaleY = echoScale
+                            alpha = fade
+                            cameraDistance = 8f * density
+                            transformOrigin = TransformOrigin.Center
+                            clip = false
+                            compositingStrategy = CompositingStrategy.Offscreen
+                            if (canBlur) {
+                                renderEffect = BlurEffect(
+                                    6f + 16f * trailT,
+                                    6f + 16f * trailT,
+                                    TileMode.Decal,
+                                )
+                            }
+                        }
+                        .clip(CircleShape)
+                        .background(Color.White),
+                )
+            }
+        }
         Box(
             modifier = Modifier
                 .size(diameter)
+                .graphicsLayer {
+                    val twirl = vitaTwirl(depart)
+                    val zoom = vitaZoom(depart)
+                    rotationY = VitaBubbleFlipDeg * twirl
+                    scaleX = 1f + VitaBubbleZoom * zoom
+                    scaleY = 1f + VitaBubbleZoom * zoom
+                    alpha = 1f - ((depart - VitaBubbleFadeStart) / (1f - VitaBubbleFadeStart))
+                        .coerceIn(0f, 1f)
+                    cameraDistance = 8f * density
+                    transformOrigin = TransformOrigin.Center
+                    clip = false
+                }
                 .drawBehind {
                     if (!selected) return@drawBehind
                     val haloRadius = size.minDimension * 0.68f
@@ -329,7 +486,7 @@ private fun VitaBubble(
             }
         }
 
-        if (selected) {
+        if (selected && depart < 0.2f) {
             Box(
                 modifier = Modifier
                     .size(diameter + ringWidth)
@@ -426,30 +583,6 @@ private fun PageDots(
                     .size(diameter)
                     .clip(CircleShape)
                     .background(if (index == current) PageDotActive else PageDotIdle),
-            )
-        }
-    }
-}
-
-/** The XMB categories waiting behind the tray, shown along the bottom edge as in the design. */
-@Composable
-private fun XmbCategoryRow(
-    selectedIndex: Int,
-    unit: Float,
-    modifier: Modifier = Modifier,
-) {
-    val categories = XoraXmbCategory.entries
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(((XMB_ROW_PITCH - XMB_ROW_ICON) * unit).dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        categories.forEachIndexed { index, category ->
-            XmbVectorIcon(
-                icon = category.toXmbIcon(),
-                tint = if (index == selectedIndex) XmbRowActive else XmbRowIdle,
-                size = (XMB_ROW_ICON * unit).dp,
-                outlined = false,
             )
         }
     }

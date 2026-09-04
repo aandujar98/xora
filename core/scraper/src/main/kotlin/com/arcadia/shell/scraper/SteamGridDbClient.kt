@@ -14,7 +14,7 @@ import javax.inject.Singleton
  *
  * This is the strongest source for the shell's specific needs, because its library is organised
  * around exactly the three asset shapes the interface wants: a wide hero, a transparent logo, and a
- * portrait grid tile. Its weakness is that matching is by name, so it depends on the filename having
+ * landscape grid tile. Its weakness is that matching is by name, so it depends on the filename having
  * been cleaned well.
  */
 @Singleton
@@ -31,7 +31,7 @@ class SteamGridDbClient @Inject constructor(
             title = null,
             heroUrl = firstAssetUrl("heroes", gameId, apiKey),
             logoUrl = firstAssetUrl("logos", gameId, apiKey),
-            boxArtUrl = firstAssetUrl("grids", gameId, apiKey),
+            boxArtUrl = firstLandscapeGridUrl(gameId, apiKey),
             source = ScrapeSource.SteamGridDb,
         )
 
@@ -47,12 +47,33 @@ class SteamGridDbClient @Inject constructor(
         }.getOrNull()
     }
 
-    private fun firstAssetUrl(kind: String, gameId: Int, apiKey: String): String? {
-        val response = get("$BASE_URL/$kind/game/$gameId", apiKey) ?: return null
+    private fun firstLandscapeGridUrl(gameId: Int, apiKey: String): String? {
+        listAssets("grids", gameId, apiKey, "dimensions=$HORIZONTAL_GRIDS")
+            .firstNotNullOfOrNull { it.url?.takeIf(String::isNotBlank) }
+            ?.let { return it }
+        val all = listAssets("grids", gameId, apiKey)
+        all.firstOrNull { asset ->
+            val width = asset.width ?: 0
+            val height = asset.height ?: 0
+            width > height
+        }?.url?.takeIf(String::isNotBlank)?.let { return it }
+        return all.firstNotNullOfOrNull { it.url?.takeIf(String::isNotBlank) }
+    }
 
+    private fun firstAssetUrl(kind: String, gameId: Int, apiKey: String): String? =
+        listAssets(kind, gameId, apiKey).firstNotNullOfOrNull { it.url?.takeIf(String::isNotBlank) }
+
+    private fun listAssets(
+        kind: String,
+        gameId: Int,
+        apiKey: String,
+        query: String? = null,
+    ): List<Asset> {
+        val suffix = if (query.isNullOrBlank()) "" else "?$query"
+        val response = get("$BASE_URL/$kind/game/$gameId$suffix", apiKey) ?: return emptyList()
         return runCatching {
-            json.decodeFromString<AssetEnvelope>(response).data?.firstOrNull()?.url
-        }.getOrNull()
+            json.decodeFromString<AssetEnvelope>(response).data.orEmpty()
+        }.getOrDefault(emptyList())
     }
 
     private fun get(url: String, apiKey: String): String? {
@@ -78,9 +99,15 @@ class SteamGridDbClient @Inject constructor(
     private data class AssetEnvelope(val data: List<Asset>? = null)
 
     @Serializable
-    private data class Asset(val url: String? = null)
+    private data class Asset(
+        val url: String? = null,
+        val width: Int? = null,
+        val height: Int? = null,
+    )
 
     private companion object {
         const val BASE_URL = "https://www.steamgriddb.com/api/v2"
+        /** Steam's landscape grid, 2× then 1×. Portrait 600×900 is only a fallback. */
+        const val HORIZONTAL_GRIDS = "920x430,460x215"
     }
 }

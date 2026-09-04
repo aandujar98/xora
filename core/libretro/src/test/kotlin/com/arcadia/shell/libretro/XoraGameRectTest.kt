@@ -94,6 +94,21 @@ class XoraGameRectTest {
     }
 
     @Test
+    fun launcher1x1FillsASquarePanel() {
+        val rect = computeXoraLauncherRect(720, 720, XoraAspectMode.Ratio1x1)
+        assertArrayEquals(intArrayOf(0, 0, 720, 720), rect)
+    }
+
+    @Test
+    fun launcher1x1OnALandscapeLockedSquareWindow() {
+        // Some OEMs letterbox sensorLandscape into 16:9 on a 720×720 panel.
+        val rect = computeXoraLauncherRect(720, 405, XoraAspectMode.Ratio1x1)
+        assertEquals(405, rect[3] - rect[1])
+        assertEquals(405, rect[2] - rect[0])
+        assertTrue(rect[0] > 0)
+    }
+
+    @Test
     fun launcher4x3LetterboxesAWidePanel() {
         val rect = computeXoraLauncherRect(1920, 1080, XoraAspectMode.Ratio4x3)
         val width = rect[2] - rect[0]

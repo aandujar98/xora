@@ -28,7 +28,7 @@ import javax.inject.Singleton
  * Discord Rich Presence controller for SORA.
  *
  * When `discord_partner_sdk.aar` is bundled and the native bridge is built, publishes real
- * Social SDK Rich Presence (Playing SORA / Browsing {game} / Playing {game}), restores OAuth
+ * Social SDK Rich Presence (Browsing XOrA / Playing {game}), restores OAuth
  * tokens, and surfaces Discord friends. Without the AAR, tracks the intended activity and
  * offers a shareable status bridge so the app still builds and runs.
  *
@@ -210,9 +210,17 @@ class DiscordPresenceController @Inject constructor(
             startSdk(id)
         }
         _state.update { current ->
+            val nextActivity = when {
+                id.isBlank() -> DiscordPresenceActivity.Idle
+                current.activity is DiscordPresenceActivity.Idle -> DiscordPresenceActivity.InSora
+                else -> current.activity
+            }
+            if (nextActivity !is DiscordPresenceActivity.Idle && activityStartedAtUnix == 0L) {
+                activityStartedAtUnix = System.currentTimeMillis() / 1000L
+            }
             rebuild(
                 applicationId = id,
-                activity = if (id.isBlank()) DiscordPresenceActivity.Idle else current.activity,
+                activity = nextActivity,
                 ready = bridge.isReady,
                 authorized = bridge.isAuthorized,
                 friends = if (id.isBlank()) emptyList() else current.friends,
@@ -247,7 +255,13 @@ class DiscordPresenceController @Inject constructor(
                 )
             }
         }
-        schedulePublish(immediate = false)
+        // Playing and InSora must publish immediately. The 450ms debounce is cancelled by
+        // onAppBackground, which is exactly the launch/quit Activity handoff.
+        schedulePublish(
+            immediate = activity is DiscordPresenceActivity.Playing ||
+                activity is DiscordPresenceActivity.InSora ||
+                activity is DiscordPresenceActivity.Browsing,
+        )
     }
 
     /**
@@ -584,28 +598,16 @@ class DiscordPresenceController @Inject constructor(
             return
         }
 
-        // Discord line 1 ("Playing SORA") comes from the Developer Portal application name.
-        // details = line 2, state = line 3.
-        val (details, activityState, name) = when (val activity = snapshot.activity) {
-            DiscordPresenceActivity.Idle -> {
-                bridge.clearPresence()
-                lastPublishKey = "idle"
-                return
-            }
-            DiscordPresenceActivity.InSora -> Triple("In the library", "Browsing", "XOrA")
-            is DiscordPresenceActivity.Browsing -> Triple(
-                "Browsing ${activity.gameTitle}",
-                activity.platformName,
-                "XOrA",
-            )
-            is DiscordPresenceActivity.Playing -> Triple(
-                "Playing ${activity.gameTitle}",
-                activity.platformName,
-                "XOrA",
-            )
+        // Discord line 1 ("Playing XOrA") comes from the Developer Portal application name.
+        // details = line 2, state = line 3. Both must be omitted or 2–128 characters.
+        val payload = discordPresencePublish(snapshot.activity)
+        if (payload == null) {
+            bridge.clearPresence()
+            lastPublishKey = "idle"
+            return
         }
 
-        val key = "$details|$activityState|$name|${activityStartedAtUnix}"
+        val key = "${payload.details}|${payload.state}|${payload.name}|${activityStartedAtUnix}"
         val now = SystemClock.elapsedRealtime()
         if (key == lastPublishKey && now - lastPublishAtMs < PUBLISH_MIN_INTERVAL_MS) {
             return
@@ -613,12 +615,12 @@ class DiscordPresenceController @Inject constructor(
         lastPublishKey = key
         lastPublishAtMs = now
 
-        Log.i(TAG, "UpdateRichPresence details=$details state=$activityState")
+        Log.i(TAG, "UpdateRichPresence details=${payload.details} state=${payload.state}")
         runCatching {
             bridge.updateRichPresence(
-                details = details,
-                state = activityState,
-                name = name,
+                details = payload.details,
+                state = payload.state,
+                name = payload.name,
                 startUnixSeconds = activityStartedAtUnix,
             )
         }.onFailure {
@@ -693,10 +695,10 @@ class DiscordPresenceController @Inject constructor(
             DiscordPresenceCapability.SdkMissing -> when (activity) {
                 DiscordPresenceActivity.Idle ->
                     "Application ID saved · drop discord_partner_sdk.aar then rebuild"
-                DiscordPresenceActivity.InSora ->
-                    "Would show: Playing XOrA · SDK missing"
-                is DiscordPresenceActivity.Browsing ->
-                    "Would show: Browsing ${activity.gameTitle} · SDK missing"
+                DiscordPresenceActivity.InSora,
+                is DiscordPresenceActivity.Browsing,
+                ->
+                    "Would show: Browsing XOrA · SDK missing"
                 is DiscordPresenceActivity.Playing ->
                     "Would show: Playing ${activity.gameTitle} · SDK missing"
             }
@@ -711,9 +713,9 @@ class DiscordPresenceController @Inject constructor(
                 }
             DiscordPresenceCapability.Connected -> when (activity) {
                 DiscordPresenceActivity.Idle -> "Linked · Rich Presence idle$publishHint"
-                DiscordPresenceActivity.InSora -> "Linked · Publishing: Playing XOrA$publishHint"
-                is DiscordPresenceActivity.Browsing ->
-                    "Linked · Publishing: Browsing ${activity.gameTitle}$publishHint"
+                DiscordPresenceActivity.InSora,
+                is DiscordPresenceActivity.Browsing,
+                -> "Linked · Publishing: Browsing XOrA$publishHint"
                 is DiscordPresenceActivity.Playing ->
                     "Linked · Publishing: Playing ${activity.gameTitle}$publishHint"
             }

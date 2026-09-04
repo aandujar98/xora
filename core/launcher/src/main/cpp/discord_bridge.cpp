@@ -545,9 +545,11 @@ void DiscordBridge::SetActivity(
         if (appId_ > 0) {
             activity.SetApplicationId(std::optional<uint64_t>(static_cast<uint64_t>(appId_)));
         }
-        if (name) activity.SetName(std::string(name));
-        if (state) activity.SetState(std::string(state));
-        if (details) activity.SetDetails(std::string(details));
+        if (name && name[0]) activity.SetName(std::string(name));
+        // Discord requires state/details to be 2–128 characters when set. Empty strings fail
+        // the whole UpdateRichPresence call (0.2.215 sent state="" for menus).
+        if (state && strlen(state) >= 2) activity.SetState(std::string(state));
+        if (details && strlen(details) >= 2) activity.SetDetails(std::string(details));
 
         if (startSecs > 0 || endSecs > 0) {
             discordpp::ActivityTimestamps ts;

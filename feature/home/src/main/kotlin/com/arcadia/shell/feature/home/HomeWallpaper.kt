@@ -1,29 +1,24 @@
 package com.arcadia.shell.feature.home
 
-import android.view.ViewGroup
-import android.widget.FrameLayout
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
+import androidx.compose.ui.res.painterResource
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
@@ -34,6 +29,7 @@ import coil3.size.Size
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.ShellThemeBackdrop
+import com.arcadia.shell.designsystem.XoraLoopingVideo
 import com.arcadia.shell.designsystem.ShellWallpaperStyle
 import com.arcadia.shell.designsystem.arcadiaTween
 import java.io.File
@@ -48,20 +44,35 @@ import java.io.File
 fun HomeWallpaper(
     customPath: String?,
     modifier: Modifier = Modifier,
-    dim: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") dim: Boolean = false,
+    dimBlendMode: BlendMode = BlendMode.Hardlight,
+    alignX: Float = 0f,
+    alignY: Float = 0f,
 ) {
     val shellTheme = LocalShellTheme.current
-    val layer = remember(customPath, shellTheme.id, shellTheme.wallpaperAssetPath, shellTheme.wallpaperStyle) {
+    val layer = remember(
+        customPath,
+        shellTheme.id,
+        shellTheme.wallpaperAssetPath,
+        shellTheme.wallpaperStyle,
+        shellTheme.wallpaperPlaybackSpeed,
+    ) {
         WallpaperLayer(
             customPath = customPath,
             themeId = shellTheme.id.id,
             assetPath = shellTheme.wallpaperAssetPath,
             style = shellTheme.wallpaperStyle,
+            assetSpeed = shellTheme.wallpaperPlaybackSpeed,
         )
     }
     val fade = arcadiaTween<Float>(ArcadiaMotion.ThemeCrossfade)
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // Offscreen so DIM samples the wallpaper, not whatever sits behind this box.
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
+    ) {
         AnimatedContent(
             targetState = layer,
             transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) },
@@ -71,23 +82,23 @@ fun HomeWallpaper(
         ) { target ->
             WallpaperLayerContent(
                 layer = target,
+                alignX = alignX,
+                alignY = alignY,
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        if (dim) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.15f),
-                                Color.Black.copy(alpha = 0.45f),
-                            ),
-                        ),
-                    ),
-            )
-        }
+        // Releases/DIM — 10% over the wallpaper; Game Select passes Multiply.
+        Image(
+            painter = painterResource(R.drawable.wallpaper_dim),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = 0.10f
+                    blendMode = dimBlendMode
+                },
+        )
     }
 }
 
@@ -95,6 +106,8 @@ fun HomeWallpaper(
 private fun WallpaperLayerContent(
     layer: WallpaperLayer,
     modifier: Modifier = Modifier,
+    alignX: Float = 0f,
+    alignY: Float = 0f,
 ) {
     val platformContext = LocalPlatformContext.current
     val androidContext = LocalContext.current
@@ -102,12 +115,19 @@ private fun WallpaperLayerContent(
         layer.customPath?.takeIf { it.isNotBlank() }?.let { File(it) }
             ?.takeIf { it.isFile && it.length() > 0L }
     }
+    val alignment = BiasAlignment(
+        horizontalBias = alignX.coerceIn(-1f, 1f),
+        verticalBias = alignY.coerceIn(-1f, 1f),
+    )
+    val panMedia = kotlin.math.abs(alignX) > 0.001f || kotlin.math.abs(alignY) > 0.001f
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize().clipToBounds()) {
         when {
             customFile != null && customFile.isVideoWallpaper() -> {
                 LoopingWallpaperVideo(
                     uri = "file://${customFile.absolutePath}",
+                    alignment = alignment,
+                    pan = panMedia,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -126,6 +146,7 @@ private fun WallpaperLayerContent(
                     model = request,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    alignment = alignment,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -134,6 +155,9 @@ private fun WallpaperLayerContent(
                 assetExists(androidContext, layer.assetPath) -> {
                 LoopingWallpaperVideo(
                     uri = "asset:///${layer.assetPath}",
+                    speed = layer.assetSpeed,
+                    alignment = alignment,
+                    pan = panMedia,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -151,104 +175,53 @@ private fun WallpaperLayerContent(
                     model = request,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    alignment = alignment,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
             else -> {
                 ShellThemeBackdrop(
                     style = layer.style,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (panMedia) {
+                                Modifier.graphicsLayer {
+                                    scaleX = 1.24f
+                                    scaleY = 1.24f
+                                    translationX = -alignX * size.width * 0.12f
+                                    translationY = -alignY * size.height * 0.12f
+                                }
+                            } else {
+                                Modifier
+                            },
+                        ),
                 )
             }
         }
     }
 }
 
-/** [uri] is already fully qualified (`file://…` for picked media, `asset:///…` for theme packs). */
+/**
+ * [uri] is already fully qualified (`file://…` for picked media, `asset:///…` for theme packs).
+ *
+ * Thin alias over [XoraLoopingVideo]; the player itself lives in the design system so onboarding
+ * can show the same theme loop without a second copy of the lifecycle handling.
+ */
 @Composable
-private fun LoopingWallpaperVideo(
+internal fun LoopingWallpaperVideo(
     uri: String,
     modifier: Modifier = Modifier,
+    speed: Float = 1f,
+    alignment: Alignment = Alignment.Center,
+    pan: Boolean = false,
 ) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val player = remember(uri) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(uri))
-            repeatMode = Player.REPEAT_MODE_ONE
-            volume = 0f
-            prepare()
-            playWhenReady = true
-        }
-    }
-
-    DisposableEffect(player, lifecycleOwner) {
-        // Watch BOTH lifecycles: the local owner (Activity) and the whole process. A secondary
-        // display Presentation stays RESUMED from show() to dismiss(), so on dual-screen devices
-        // this player used to keep decoding video all night while the device slept — fans + battery.
-        // Process ON_STOP (screen off / another app owning every screen) now always pauses it.
-        var localResumed =
-            lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
-        var processStarted = androidx.lifecycle.ProcessLifecycleOwner.get()
-            .lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
-        fun syncPlayback() {
-            val shouldPlay = localResumed && processStarted
-            player.playWhenReady = shouldPlay
-            if (!shouldPlay) player.pause()
-        }
-        val localObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
-                androidx.lifecycle.Lifecycle.Event.ON_STOP,
-                -> {
-                    localResumed = false
-                    syncPlayback()
-                }
-                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
-                    localResumed = true
-                    syncPlayback()
-                }
-                else -> Unit
-            }
-        }
-        val processObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
-                    processStarted = false
-                    syncPlayback()
-                }
-                androidx.lifecycle.Lifecycle.Event.ON_START -> {
-                    processStarted = true
-                    syncPlayback()
-                }
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(localObserver)
-        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(processObserver)
-        syncPlayback()
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(localObserver)
-            androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.removeObserver(processObserver)
-            player.release()
-        }
-    }
-
-    AndroidView(
-        factory = { ctx ->
-            PlayerView(ctx).apply {
-                this.player = player
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                )
-            }
-        },
-        update = { it.player = player },
-        onRelease = { view -> view.player = null },
+    XoraLoopingVideo(
+        uri = uri,
         modifier = modifier,
+        speed = speed,
+        alignment = alignment,
+        pan = pan,
     )
 }
 
@@ -257,15 +230,18 @@ private data class WallpaperLayer(
     val themeId: String,
     val assetPath: String?,
     val style: ShellWallpaperStyle,
+    val assetSpeed: Float,
 )
 
 private fun File.isVideoWallpaper(): Boolean =
     extension.lowercase() in VIDEO_WALLPAPER_EXTS
 
-private fun String.isVideoWallpaperPath(): Boolean =
+internal fun String.isVideoMediaPath(): Boolean =
     substringAfterLast('.', "").lowercase() in VIDEO_WALLPAPER_EXTS
 
-private fun assetExists(context: android.content.Context, path: String): Boolean =
+private fun String.isVideoWallpaperPath(): Boolean = isVideoMediaPath()
+
+internal fun assetExists(context: android.content.Context, path: String): Boolean =
     runCatching {
         context.assets.open(path).use { true }
     }.getOrDefault(false)

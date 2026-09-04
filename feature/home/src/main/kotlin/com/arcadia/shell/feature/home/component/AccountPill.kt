@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +52,9 @@ import com.arcadia.shell.feature.home.SocialMenuUiState
 import com.arcadia.shell.feature.home.SocialPresence
 
 private val NotificationRed = Color(0xFFFF3B30)
+
+/** Room for the SE glass shadow so AnimatedVisibility cannot crop it. */
+private val FriendsCardShadowGutter = 12.dp
 
 /**
  * Collapsed LT chrome. 48dp discs keep the stacked-pill silhouette without crowding the corner
@@ -77,6 +81,7 @@ fun AccountPill(
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
     onClearNotifications: () -> Unit = {},
+    hideCollapsedChrome: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
@@ -96,8 +101,9 @@ fun AccountPill(
 
     BoxWithConstraints(
         modifier = modifier
-            .widthIn(max = if (expanded) 400.dp else 240.dp)
-            .heightIn(max = windowCap + 24.dp),
+            .widthIn(max = if (expanded) 400.dp + FriendsCardShadowGutter else 240.dp)
+            .heightIn(max = windowCap + 24.dp)
+            .graphicsLayer { clip = false },
     ) {
         // Cap against parent constraints and the real window so Auto UI-fit cannot clip LT.
         val panelCap = if (maxHeight.value.isFinite()) {
@@ -107,11 +113,13 @@ fun AccountPill(
         }
         Column(
             horizontalAlignment = Alignment.Start,
-            modifier = Modifier.heightIn(max = maxHeight),
+            modifier = Modifier
+                .heightIn(max = maxHeight)
+                .graphicsLayer { clip = false },
         ) {
             // Collapsed LT chrome hides while the panel is open; Back / LT restores it.
             AnimatedVisibility(
-                visible = !expanded,
+                visible = !expanded && !hideCollapsedChrome,
                 enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
                     animationSpec = arcadiaTween(ArcadiaMotion.Medium),
                     initialScale = 0.92f,
@@ -174,6 +182,7 @@ fun AccountPill(
 
             AnimatedVisibility(
                 visible = expanded,
+                modifier = Modifier.graphicsLayer { clip = false },
                 enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
                     animationSpec = arcadiaTween(ArcadiaMotion.Medium),
                     initialScale = 0.92f,
@@ -199,8 +208,13 @@ fun AccountPill(
                     onClearNotifications = onClearNotifications,
                     maxHeight = panelCap,
                     modifier = Modifier
-                        .padding(top = 8.dp)
-                        .fillMaxWidth(),
+                        .padding(
+                            top = 8.dp,
+                            end = FriendsCardShadowGutter,
+                            bottom = FriendsCardShadowGutter,
+                        )
+                        .fillMaxWidth()
+                        .graphicsLayer { clip = false },
                 )
             }
         }

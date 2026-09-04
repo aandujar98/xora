@@ -87,6 +87,8 @@ data class ShellTheme(
      * style pattern is the fallback.
      */
     val wallpaperAssetPath: String? = null,
+    /** Playback rate for a video [wallpaperAssetPath]. Below 1f slows the loop down. */
+    val wallpaperPlaybackSpeed: Float = 1f,
     val bgm: ShellThemeBgm? = null,
     val description: String,
 )
@@ -110,7 +112,12 @@ object ShellThemeCatalog {
             shardAccentIdle = Color(0xFF3A5F73),
         ),
         wallpaperStyle = ShellWallpaperStyle.XoraFlowWave,
-        bgm = null,
+        wallpaperAssetPath = DEFAULT_WALLPAPER_ASSET,
+        wallpaperPlaybackSpeed = DEFAULT_WALLPAPER_SPEED,
+        bgm = ShellThemeBgm(
+            assetPath = DEFAULT_BGM_ASSET,
+            displayHint = "Home menu theme",
+        ),
         description = "XOrA flowing blue wave",
     )
 
@@ -308,6 +315,18 @@ object ShellThemeCatalog {
 
     fun resolve(rawId: String?): ShellTheme = require(ShellThemeId.fromId(rawId))
 }
+
+/**
+ * Default theme wallpaper (looping video). Shared with the Vita shortcut tray so both surfaces
+ * show the same loop. Missing asset falls back to [ShellWallpaperStyle.XoraFlowWave].
+ */
+const val DEFAULT_WALLPAPER_ASSET = "themes/default/wallpaper.mp4"
+
+/** Playback is 1x: slow-mo is already encoded into the 60 fps loop. */
+const val DEFAULT_WALLPAPER_SPEED = 1f
+
+/** Asset path for the default theme looping BGM. */
+const val DEFAULT_BGM_ASSET = "themes/default/bgm.mp3"
 
 /** Asset path for Persona 3 Reload theme BGM. */
 const val PERSONA3_BGM_ASSET = "themes/persona3_reload/bgm.mp3"

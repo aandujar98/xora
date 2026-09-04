@@ -23,6 +23,26 @@ object DisplayRefresh {
         }
     }
 
+    /**
+     * Drop the current mode, then pin 60 Hz again. Sleep/wake clears a leftover wash because
+     * SurfaceFlinger rebuilds the display pipeline; this is that rebuild without leaving.
+     */
+    fun rebind(window: Window?) {
+        if (window == null) return
+        val run = Runnable {
+            val attrs = window.attributes
+            attrs.preferredDisplayModeId = 0
+            attrs.preferredRefreshRate = 0f
+            window.attributes = attrs
+            applyToWindow(window)
+        }
+        if (window.decorView.isAttachedToWindow) {
+            run.run()
+        } else {
+            window.decorView.post(run)
+        }
+    }
+
     fun applyToLayoutParams(params: WindowManager.LayoutParams) {
         params.preferredRefreshRate = UI_HZ
     }

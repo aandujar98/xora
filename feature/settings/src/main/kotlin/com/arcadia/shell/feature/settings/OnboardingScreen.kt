@@ -29,7 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -49,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
@@ -58,6 +58,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arcadia.shell.datastore.DisplayMode
@@ -65,14 +66,20 @@ import com.arcadia.shell.datastore.RetroAchievementsCredentials
 import com.arcadia.shell.datastore.SteamWebApiCredentials
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
-import com.arcadia.shell.designsystem.GlassIntensity
-import com.arcadia.shell.designsystem.GlassTone
-import com.arcadia.shell.designsystem.LiquidGlassSurface
-import com.arcadia.shell.designsystem.SkyBackground
+import com.arcadia.shell.designsystem.DefaultThemeBackdrop
+import com.arcadia.shell.designsystem.XoraSecondaryText
+import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.xoraModalGlass
+import com.arcadia.shell.designsystem.xoraSwipeNavigate
+import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import kotlin.math.roundToInt
+
+private val AccentInk = Color(0xFF7EC8E8)
+private val TrackInk = Color.White.copy(alpha = 0.16f)
+private val MutedInk = Color.White.copy(alpha = 0.62f)
 
 /**
  * First-run (and Settings-restarted) onboarding. Landscape / controller-friendly: A advances,
@@ -129,7 +136,26 @@ fun OnboardingScreen(
         )
     }
 
-    SkyBackground(modifier = modifier.fillMaxSize(), sparkle = true) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .xoraSwipeNavigate(
+                    vertical = false,
+                    onSwipe = { direction ->
+                        when (direction) {
+                            XoraSwipeDirection.Left -> {
+                                if (!state.isLast) viewModel.next()
+                            }
+                            XoraSwipeDirection.Right -> {
+                                if (state.canGoBack) viewModel.back()
+                            }
+                            else -> Unit
+                        }
+                    },
+                ),
+        ) {
+        // Same looping wallpaper the themed home shell shows, so first run already looks like XOrA.
+        DefaultThemeBackdrop(modifier = Modifier.fillMaxSize())
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -172,16 +198,16 @@ fun OnboardingScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                OnboardingProgress(
+                OnboardingStepRail(
+                    step = state.step,
                     stepIndex = state.stepIndex,
                     stepCount = state.stepCount,
                 )
 
-                LiquidGlassSurface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = ArcadiaGlass.PanelShape,
-                    tone = GlassTone.Surface,
-                    intensity = GlassIntensity.Standard,
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .xoraModalGlass(ArcadiaGlass.PanelShape),
                 ) {
                     val fadeInSpec = arcadiaTween<Float>(ArcadiaMotion.Medium)
                     val fadeOutSpec = arcadiaTween<Float>(ArcadiaMotion.Fast)
@@ -264,11 +290,7 @@ fun OnboardingScreen(
                 }
 
                 state.message?.let { msg ->
-                    Text(
-                        text = msg,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    XoraSecondaryText(text = msg, fontSize = 13.sp, fillColor = AccentInk)
                 }
 
                 OnboardingActions(
@@ -286,30 +308,85 @@ fun OnboardingScreen(
     }
 }
 
+/**
+ * One segment per step instead of a single percentage bar, so the flow shows how much is left
+ * and names where you are. Optional steps say so here rather than only via a Skip button.
+ */
 @Composable
-private fun OnboardingProgress(
+private fun OnboardingStepRail(
+    step: OnboardingStep,
     stepIndex: Int,
     stepCount: Int,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            text = "Step ${stepIndex + 1} of $stepCount",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        LinearProgressIndicator(
-            progress = { (stepIndex + 1).toFloat() / stepCount.toFloat() },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp)),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            repeat(stepCount) { index ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (index <= stepIndex) AccentInk else TrackInk),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            XoraSecondaryText(
+                text = stepLabel(step),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+            if (isOptional(step)) {
+                XoraSecondaryText(
+                    text = "OPTIONAL",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fillColor = MutedInk,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(Color.White.copy(alpha = 0.10f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            XoraSecondaryText(
+                text = "${stepIndex + 1} / $stepCount",
+                fontSize = 12.sp,
+                fillColor = MutedInk,
+                maxLines = 1,
+            )
+        }
     }
 }
+
+private fun stepLabel(step: OnboardingStep): String = when (step) {
+    OnboardingStep.Welcome -> "Welcome"
+    OnboardingStep.DisplayMode -> "Display"
+    OnboardingStep.Library -> "Library"
+    OnboardingStep.Scrapers -> "Artwork"
+    OnboardingStep.Social -> "Social"
+    OnboardingStep.RetroAchievements -> "Achievements"
+    OnboardingStep.Audio -> "Sound"
+    OnboardingStep.Done -> "Finish"
+}
+
+/** Steps that only link external accounts, so they can be skipped without breaking setup. */
+private fun isOptional(step: OnboardingStep): Boolean =
+    step == OnboardingStep.Scrapers ||
+        step == OnboardingStep.Social ||
+        step == OnboardingStep.RetroAchievements
 
 @Composable
 private fun WelcomeStep(brandIcon: Painter) {
@@ -663,11 +740,7 @@ private fun DoneStep() {
 
 @Composable
 private fun StepTitle(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.headlineMedium,
-        fontWeight = FontWeight.SemiBold,
-    )
+    XoraTitleText(text = text, fontSize = 26.sp, maxLines = 2)
 }
 
 @Composable
@@ -677,9 +750,7 @@ private fun OnboardingActions(
     onNext: () -> Unit,
     onSkip: () -> Unit,
 ) {
-    val optional = state.step == OnboardingStep.Scrapers ||
-        state.step == OnboardingStep.Social ||
-        state.step == OnboardingStep.RetroAchievements
+    val optional = isOptional(state.step)
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -710,13 +781,12 @@ private fun OnboardingActions(
 
 @Composable
 private fun OnboardingHints(state: OnboardingUiState) {
-    val optional = state.step == OnboardingStep.Scrapers ||
-        state.step == OnboardingStep.Social ||
-        state.step == OnboardingStep.RetroAchievements
+    val optional = isOptional(state.step)
     val hints = buildList {
         add("A" to if (state.isLast) "Finish" else if (optional) "Continue" else "Next")
         if (state.canGoBack) add("B" to "Back")
         add("D-pad" to "Focus")
+        add("Swipe" to "Steps")
         if (optional) {
             add("Skip" to "Optional")
         }

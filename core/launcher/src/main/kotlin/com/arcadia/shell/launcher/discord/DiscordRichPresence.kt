@@ -14,9 +14,10 @@ import kotlinx.coroutines.flow.StateFlow
 sealed interface DiscordPresenceActivity {
     data object Idle : DiscordPresenceActivity
 
-    /** User is in the SORA shell with no game focused. */
+    /** User is in the XOrA shell (menus). Discord shows “Browsing XOrA”. */
     data object InSora : DiscordPresenceActivity
 
+    /** Treated the same as [InSora] — menus never publish a focused game title. */
     data class Browsing(
         val gameTitle: String,
         val platformName: String,
@@ -27,6 +28,34 @@ sealed interface DiscordPresenceActivity {
         val platformName: String,
     ) : DiscordPresenceActivity
 }
+
+/**
+ * Lines sent to Discord Social SDK [UpdateRichPresence].
+ *
+ * [state] and [details] are omitted when blank — Discord rejects those fields unless they are
+ * 2–128 characters. An empty `state` (as 0.2.215 sent for menus) fails the whole publish.
+ */
+data class DiscordPresencePublish(
+    val details: String,
+    val state: String?,
+    val name: String = "XOrA",
+)
+
+/** Maps the intended shell activity to a Discord-valid presence payload, or null to clear. */
+fun discordPresencePublish(activity: DiscordPresenceActivity): DiscordPresencePublish? =
+    when (activity) {
+        DiscordPresenceActivity.Idle -> null
+        DiscordPresenceActivity.InSora,
+        is DiscordPresenceActivity.Browsing,
+        -> DiscordPresencePublish(
+            details = "Browsing XOrA",
+            state = "In the menus",
+        )
+        is DiscordPresenceActivity.Playing -> DiscordPresencePublish(
+            details = "Playing ${activity.gameTitle}",
+            state = activity.platformName.trim().takeIf { it.length >= 2 },
+        )
+    }
 
 /**
  * Backend capability / connection status for Discord Rich Presence.
@@ -181,10 +210,10 @@ data class DiscordPresenceUiState(
 
     val shareText: String
         get() = when (val a = activity) {
-            DiscordPresenceActivity.Idle -> "In XOrA"
-            DiscordPresenceActivity.InSora -> "Playing XOrA"
-            is DiscordPresenceActivity.Browsing ->
-                "Browsing ${a.gameTitle} (${a.platformName}) · XOrA"
+            DiscordPresenceActivity.Idle,
+            DiscordPresenceActivity.InSora,
+            is DiscordPresenceActivity.Browsing,
+            -> "Browsing XOrA"
             is DiscordPresenceActivity.Playing ->
                 "Playing ${a.gameTitle} on ${a.platformName} · XOrA"
         }

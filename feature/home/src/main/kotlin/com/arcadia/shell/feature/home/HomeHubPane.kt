@@ -46,6 +46,8 @@ fun HomeHubPane(
             HomeWallpaper(
                 customPath = hub.wallpaperPath,
                 dim = true,
+                alignX = hub.wallpaperAlignX,
+                alignY = hub.wallpaperAlignY,
                 modifier = Modifier.fillMaxSize(),
             )
         }

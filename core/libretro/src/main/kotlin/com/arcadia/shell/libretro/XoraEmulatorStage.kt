@@ -1,7 +1,9 @@
 package com.arcadia.shell.libretro
 
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.PorterDuff
 import android.util.AttributeSet
 import android.view.View
 import android.widget.FrameLayout
@@ -18,16 +20,18 @@ class XoraEmulatorStage @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : FrameLayout(context, attrs) {
 
-    val gameView: ImageView = ImageView(context).apply {
+    val gameView: ImageView = OpaqueGameImageView(context).apply {
         setBackgroundColor(Color.BLACK)
         scaleType = ImageView.ScaleType.FIT_XY
         adjustViewBounds = false
         isFocusable = false
         isFocusableInTouchMode = false
+        isForceDarkAllowed = false
     }
     val bezelView: NsoBezelView = NsoBezelView(context).apply {
         isFocusable = false
         isFocusableInTouchMode = false
+        isForceDarkAllowed = false
     }
 
     var contentWidthPx: Int = 4
@@ -68,6 +72,7 @@ class XoraEmulatorStage @JvmOverloads constructor(
 
     init {
         setBackgroundColor(Color.BLACK)
+        isForceDarkAllowed = false
         addView(
             bezelView,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
@@ -99,4 +104,20 @@ class XoraEmulatorStage @JvmOverloads constructor(
             integerScaleCap = integerScaleCap,
             bezelsEnabled = bezelsEnabled,
         )
+}
+
+/**
+ * HWUI treats a default ARGB ImageView as non-opaque even when every pixel is 0xFF000000, and
+ * then blends it with whatever is behind — the NSO overlay's white LCD hole. SRC + isOpaque
+ * makes black stay black.
+ */
+private class OpaqueGameImageView(context: Context) : ImageView(context) {
+    override fun isOpaque(): Boolean = true
+
+    override fun hasOverlappingRendering(): Boolean = false
+
+    override fun onDraw(canvas: Canvas) {
+        canvas.drawColor(Color.BLACK, PorterDuff.Mode.SRC)
+        super.onDraw(canvas)
+    }
 }
