@@ -210,9 +210,17 @@ class DiscordPresenceController @Inject constructor(
             startSdk(id)
         }
         _state.update { current ->
+            val nextActivity = when {
+                id.isBlank() -> DiscordPresenceActivity.Idle
+                current.activity is DiscordPresenceActivity.Idle -> DiscordPresenceActivity.InSora
+                else -> current.activity
+            }
+            if (nextActivity !is DiscordPresenceActivity.Idle && activityStartedAtUnix == 0L) {
+                activityStartedAtUnix = System.currentTimeMillis() / 1000L
+            }
             rebuild(
                 applicationId = id,
-                activity = if (id.isBlank()) DiscordPresenceActivity.Idle else current.activity,
+                activity = nextActivity,
                 ready = bridge.isReady,
                 authorized = bridge.isAuthorized,
                 friends = if (id.isBlank()) emptyList() else current.friends,
@@ -584,25 +592,16 @@ class DiscordPresenceController @Inject constructor(
             return
         }
 
-        // Discord line 1 ("Playing SORA") comes from the Developer Portal application name.
-        // details = line 2, state = line 3.
-        val (details, activityState, name) = when (val activity = snapshot.activity) {
-            DiscordPresenceActivity.Idle -> {
-                bridge.clearPresence()
-                lastPublishKey = "idle"
-                return
-            }
-            DiscordPresenceActivity.InSora,
-            is DiscordPresenceActivity.Browsing,
-            -> Triple("Browsing XOrA", "", "XOrA")
-            is DiscordPresenceActivity.Playing -> Triple(
-                "Playing ${activity.gameTitle}",
-                activity.platformName,
-                "XOrA",
-            )
+        // Discord line 1 ("Playing XOrA") comes from the Developer Portal application name.
+        // details = line 2, state = line 3. Both must be omitted or 2–128 characters.
+        val payload = discordPresencePublish(snapshot.activity)
+        if (payload == null) {
+            bridge.clearPresence()
+            lastPublishKey = "idle"
+            return
         }
 
-        val key = "$details|$activityState|$name|${activityStartedAtUnix}"
+        val key = "${payload.details}|${payload.state}|${payload.name}|${activityStartedAtUnix}"
         val now = SystemClock.elapsedRealtime()
         if (key == lastPublishKey && now - lastPublishAtMs < PUBLISH_MIN_INTERVAL_MS) {
             return
@@ -610,12 +609,12 @@ class DiscordPresenceController @Inject constructor(
         lastPublishKey = key
         lastPublishAtMs = now
 
-        Log.i(TAG, "UpdateRichPresence details=$details state=$activityState")
+        Log.i(TAG, "UpdateRichPresence details=${payload.details} state=${payload.state}")
         runCatching {
             bridge.updateRichPresence(
-                details = details,
-                state = activityState,
-                name = name,
+                details = payload.details,
+                state = payload.state,
+                name = payload.name,
                 startUnixSeconds = activityStartedAtUnix,
             )
         }.onFailure {

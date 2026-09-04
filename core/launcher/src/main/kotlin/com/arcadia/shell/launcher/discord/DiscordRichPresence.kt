@@ -30,6 +30,34 @@ sealed interface DiscordPresenceActivity {
 }
 
 /**
+ * Lines sent to Discord Social SDK [UpdateRichPresence].
+ *
+ * [state] and [details] are omitted when blank — Discord rejects those fields unless they are
+ * 2–128 characters. An empty `state` (as 0.2.215 sent for menus) fails the whole publish.
+ */
+data class DiscordPresencePublish(
+    val details: String,
+    val state: String?,
+    val name: String = "XOrA",
+)
+
+/** Maps the intended shell activity to a Discord-valid presence payload, or null to clear. */
+fun discordPresencePublish(activity: DiscordPresenceActivity): DiscordPresencePublish? =
+    when (activity) {
+        DiscordPresenceActivity.Idle -> null
+        DiscordPresenceActivity.InSora,
+        is DiscordPresenceActivity.Browsing,
+        -> DiscordPresencePublish(
+            details = "Browsing XOrA",
+            state = "In the menus",
+        )
+        is DiscordPresenceActivity.Playing -> DiscordPresencePublish(
+            details = "Playing ${activity.gameTitle}",
+            state = activity.platformName.trim().takeIf { it.length >= 2 },
+        )
+    }
+
+/**
  * Backend capability / connection status for Discord Rich Presence.
  *
  * Settings / Social UI surface the three primary states users care about:

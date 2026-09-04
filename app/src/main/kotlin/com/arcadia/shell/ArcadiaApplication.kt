@@ -17,8 +17,6 @@ import com.arcadia.shell.companion.CompanionOverlayService
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.feature.home.GameCompanionController
 import com.arcadia.shell.launcher.PlayerSeeder
-import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
-import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.AppForegroundTracker
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
@@ -82,20 +80,8 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
 
                 override fun onStop(owner: LifecycleOwner) {
                     discordRichPresence.onAppBackground()
-                    // Clear browsing presence when leaving SORA. Keep Playing so a launch into an
-                    // emulator is not wiped. Skip clear while OAuth/Connect is in flight — clearing
-                    // races the Social SDK Custom Tab and can leave presence stuck idle.
-                    val snap = discordRichPresence.state.value
-                    val midLink = snap.connecting ||
-                        snap.capability == DiscordPresenceCapability.NeedsAccountLink ||
-                        snap.capability == DiscordPresenceCapability.NeedsDiscordApp
-                    if (
-                        snap.activity !is DiscordPresenceActivity.Playing &&
-                        snap.capability == DiscordPresenceCapability.Connected &&
-                        !midLink
-                    ) {
-                        discordRichPresence.clear()
-                    }
+                    // Keep the last published presence. Clearing Browsing here made XOrA vanish
+                    // the moment someone switched to Discord to check they were on it.
                 }
             },
         )

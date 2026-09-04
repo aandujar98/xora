@@ -1317,11 +1317,13 @@ class HomeViewModel @Inject constructor(
             .launchIn(viewModelScope)
 
         // Menus stay on “Browsing XOrA”. Focusing a game must not publish its title.
-        uiState
-            .map { it.selectedGame?.id }
-            .distinctUntilChanged()
-            .onEach {
-                if (!discordRichPresence.state.value.isConfigured) return@onEach
+        // Also fires when the Application ID arrives so the first emit is not skipped as Idle.
+        combine(
+            uiState.map { it.selectedGame?.id }.distinctUntilChanged(),
+            discordRichPresence.state.map { it.isConfigured }.distinctUntilChanged(),
+        ) { _, configured -> configured }
+            .onEach { configured ->
+                if (!configured) return@onEach
                 if (discordRichPresence.state.value.activity is DiscordPresenceActivity.Playing) {
                     return@onEach
                 }

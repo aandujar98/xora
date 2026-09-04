@@ -58,8 +58,8 @@ The app manifest already deep-links `discord-1531690290526683176` to
 1. Install Discord on the device and open it once.
 2. In SORA: Settings → Social (or Social → Discord) → **Link Discord account**.
 3. Complete OAuth; status should become **Connected · Playing SORA**.
-4. On another Discord client (or the same mobile app’s profile), confirm **Playing SORA** with
-   details like “In the library” / “Browsing {game}”.
+4. On another Discord client (or the same mobile app’s profile), confirm **Playing XOrA** with
+   details “Browsing XOrA” in menus, or “Playing {game}” after a launch.
 5. Logcat filter (no secrets logged): `SoraDiscord` (also `DiscordBridge` for native).
    Look for `Social SDK Ready`, `UpdateRichPresence ok`, or `UpdateRichPresence FAILED`.
 
