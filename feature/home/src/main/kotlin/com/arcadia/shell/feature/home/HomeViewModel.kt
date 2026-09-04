@@ -6582,12 +6582,10 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun onRssNavAction(action: NavAction, state: HomeUiState) {
-        val columns = state.gridColumns.coerceIn(2, 6)
         when (action) {
-            NavAction.Left -> moveRssSelection(-1)
-            NavAction.Right -> moveRssSelection(1)
-            NavAction.Up -> moveRssSelection(-columns)
-            NavAction.Down -> moveRssSelection(columns)
+            // News is a single column now, so every direction steps one story.
+            NavAction.Left, NavAction.Up -> moveRssSelection(-1)
+            NavAction.Right, NavAction.Down -> moveRssSelection(1)
             NavAction.Confirm -> openSelectedRssItem()
             NavAction.Cancel -> {
                 if (state.anyHeroPanelExpanded) collapseHeroPanels()

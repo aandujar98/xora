@@ -19,6 +19,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,7 +50,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,7 +67,7 @@ import com.arcadia.shell.feature.home.StartSettingsTrailingIcon
 import com.arcadia.shell.feature.home.StartSettingsUiState
 
 private val ListShape = RoundedCornerShape(22.dp)
-private val RailShape = RoundedCornerShape(percent = 50)
+private val TabShape = RoundedCornerShape(12.dp)
 private val RowFocusShape = RoundedCornerShape(14.dp)
 
 /**
@@ -117,106 +117,91 @@ fun StartSettingsPanel(
                         onClick = onDismiss,
                     ),
             )
-            Row(
+            // One panel: categories ride a compact strip in the header rather than a
+            // full-height capsule down the side.
+            Column(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .widthIn(max = 560.dp)
                     .fillMaxWidth(0.78f)
-                    .fillMaxHeight(0.72f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Left: wider glass list
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .liquidGlass(
-                            shape = ListShape,
-                            tone = GlassTone.OverMedia,
-                            intensity = GlassIntensity.Strong,
-                            shimmer = true,
-                        )
-                        .padding(horizontal = 10.dp, vertical = 12.dp),
-                ) {
-                    Text(
-                        text = categoryTitle(state.category),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = glass.content,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    .fillMaxHeight(0.74f)
+                    .liquidGlass(
+                        shape = ListShape,
+                        tone = GlassTone.OverMedia,
+                        intensity = GlassIntensity.Strong,
+                        shimmer = true,
                     )
-                    val categoryFadeIn = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
-                    val categoryFadeOut = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
-                    AnimatedContent(
-                        targetState = state.category,
-                        transitionSpec = {
-                            categoryFadeIn togetherWith categoryFadeOut
-                        },
-                        label = "startSettingsCategory",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    ) { category ->
-                        val rows = if (category == state.category) state.rows else emptyList()
-                        val listState = rememberLazyListState()
-                        LaunchedEffect(state.selectedRowIndex, category, rows.size) {
-                            if (category != state.category || rows.isEmpty()) return@LaunchedEffect
-                            listState.animateScrollToItem(
-                                state.selectedRowIndex.coerceIn(0, rows.lastIndex),
-                            )
-                        }
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
-                                if (index > 0 && row !is StartSettingsRow.Header) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp)
-                                            .height(1.dp)
-                                            .background(glass.border.copy(alpha = 0.35f)),
-                                    )
-                                }
-                                StartSettingsListRow(
-                                    row = row,
-                                    selected = index == state.selectedRowIndex,
-                                    content = glass.content,
-                                    muted = glass.contentMuted,
-                                    onClick = {
-                                        if (row is StartSettingsRow.Header) return@StartSettingsListRow
-                                        onSelectRow(index)
-                                        onActivate()
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Right: narrow pill category rail
-                Column(
+                    .padding(horizontal = 10.dp, vertical = 14.dp),
+            ) {
+                Text(
+                    text = categoryTitle(state.category),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = glass.content,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                Row(
                     modifier = Modifier
-                        .width(64.dp)
-                        .fillMaxHeight(0.92f)
-                        .liquidGlass(
-                            shape = RailShape,
-                            tone = GlassTone.OverMedia,
-                            intensity = GlassIntensity.Strong,
-                        )
-                        .padding(vertical = 14.dp),
-                    verticalArrangement = Arrangement.SpaceEvenly,
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     StartSettingsCategory.entries.forEach { category ->
-                        CategoryRailIcon(
+                        CategoryTab(
                             category = category,
                             selected = category == state.category,
                             tint = glass.content,
                             onClick = { onSelectCategory(category) },
+                            modifier = Modifier.weight(1f),
                         )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .height(1.dp)
+                        .background(glass.border.copy(alpha = 0.35f)),
+                )
+                val categoryFadeIn = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
+                val categoryFadeOut = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
+                AnimatedContent(
+                    targetState = state.category,
+                    transitionSpec = {
+                        categoryFadeIn togetherWith categoryFadeOut
+                    },
+                    label = "startSettingsCategory",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                ) { category ->
+                    val rows = if (category == state.category) state.rows else emptyList()
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(state.selectedRowIndex, category, rows.size) {
+                        if (category != state.category || rows.isEmpty()) return@LaunchedEffect
+                        listState.animateScrollToItem(
+                            state.selectedRowIndex.coerceIn(0, rows.lastIndex),
+                        )
+                    }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 6.dp, bottom = 4.dp),
+                    ) {
+                        itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
+                            StartSettingsListRow(
+                                row = row,
+                                selected = index == state.selectedRowIndex,
+                                content = glass.content,
+                                muted = glass.contentMuted,
+                                onClick = {
+                                    if (row is StartSettingsRow.Header) return@StartSettingsListRow
+                                    onSelectRow(index)
+                                    onActivate()
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -271,6 +256,7 @@ private fun StartSettingsListRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 2.dp)
             .clip(RowFocusShape)
             .background(
                 Brush.horizontalGradient(
@@ -281,7 +267,7 @@ private fun StartSettingsListRow(
                 ),
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -322,47 +308,40 @@ private fun StartSettingsListRow(
     }
 }
 
+/** Compact header tab: glyph over an accent underline when focused. */
 @Composable
-private fun CategoryRailIcon(
+private fun CategoryTab(
     category: StartSettingsCategory,
     selected: Boolean,
     tint: Color,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val theme = LocalShellTheme.current.colors
-    val scale by animateFloatAsState(
-        targetValue = if (selected) 1.12f else 1f,
+    val highlight by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
         animationSpec = arcadiaTween(ArcadiaMotion.Fast),
-        label = "railIconScale",
+        label = "categoryTabFocus",
     )
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clip(RoundedCornerShape(12.dp))
-            .then(
-                if (selected) {
-                    Modifier.background(
-                        Brush.verticalGradient(
-                            listOf(
-                                theme.focusStart.copy(alpha = 0.35f),
-                                theme.focusEnd.copy(alpha = 0.28f),
-                            ),
-                        ),
-                    )
-                } else {
-                    Modifier
-                },
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+    Column(
+        modifier = modifier
+            .clip(TabShape)
+            .background(theme.focusEnd.copy(alpha = 0.22f * highlight))
+            .clickable(onClick = onClick)
+            .padding(vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         CategoryGlyph(
             category = category,
-            tint = if (selected) tint else tint.copy(alpha = 0.55f),
+            tint = if (selected) tint else tint.copy(alpha = 0.5f),
+        )
+        Box(
+            modifier = Modifier
+                .width(18.dp)
+                .height(2.dp)
+                .clip(RoundedCornerShape(1.dp))
+                .background(theme.focusEnd.copy(alpha = highlight)),
         )
     }
 }

@@ -97,7 +97,11 @@ fun SettingsScreen(
     val context = LocalContext.current
     var showFolderPicker by remember { mutableStateOf(false) }
     var showMusicFolderPicker by remember { mutableStateOf(false) }
+    var section by remember { mutableStateOf(SetupSection.Display) }
     val listState = rememberLazyListState()
+
+    // Switching tabs must land at the top, not halfway down the previous section.
+    LaunchedEffect(section) { listState.scrollToItem(0) }
 
     BackHandler(onBack = onBack)
 
@@ -170,13 +174,40 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item(key = "header") {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth().animateItem(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Text(text = "Setup", style = MaterialTheme.typography.headlineMedium)
-                TextButton(onClick = onBack) { Text(text = "Done") }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text(
+                            text = "Setup",
+                            style = MaterialTheme.typography.headlineMedium,
+                        )
+                        Text(
+                            text = section.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = onBack) { Text(text = "Done") }
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SetupSection.entries.forEach { entry ->
+                        FilterChip(
+                            selected = entry == section,
+                            onClick = { section = entry },
+                            label = { Text(text = entry.label) },
+                        )
+                    }
+                }
             }
         }
 
@@ -223,6 +254,7 @@ fun SettingsScreen(
             }
         }
 
+        if (section == SetupSection.Display) {
         // 1. Appearance — theme + how trailers are presented
         item(key = "appearance") {
             SettingsCard(title = "Appearance", modifier = Modifier.animateItem()) {
@@ -358,9 +390,9 @@ fun SettingsScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
-                SettingsFieldLabel("Feed columns: ${state.settings.gridColumns}")
+                SettingsFieldLabel("Library columns: ${state.settings.gridColumns}")
                 Text(
-                    text = "Columns for the Home RSS feed grid (LB).",
+                    text = "Columns for the dual-screen library grid.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -430,6 +462,9 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (section == SetupSection.Audio) {
         // 3. Audio — BGM + UI SFX
         item(key = "audio") {
             SettingsCard(title = "Audio", modifier = Modifier.animateItem()) {
@@ -524,6 +559,9 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (section == SetupSection.Media) {
         // 4. Trailers — scrape / source / idle (display mode lives under Appearance)
         item(key = "trailers") {
             SettingsCard(title = "Trailers", modifier = Modifier.animateItem()) {
@@ -667,6 +705,9 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (section == SetupSection.Accounts) {
         // 6. RetroAchievements
         item(key = "ra") {
             SettingsCard(title = "RetroAchievements", modifier = Modifier.animateItem()) {
@@ -1031,6 +1072,9 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (section == SetupSection.Storage) {
         // 8. Storage / Library roots — access, folders, scan
         item(key = "storage") {
             SettingsCard(title = "Storage / Library", modifier = Modifier.animateItem()) {
@@ -1144,14 +1188,10 @@ fun SettingsScreen(
             }
         }
 
-        // 9. System / Launcher — HOME role (host) + emulators / players
-        item(key = "system_header") {
-            SettingsSectionHeader(
-                title = "System / Launcher",
-                modifier = Modifier.animateItem(),
-            )
         }
 
+        if (section == SetupSection.System) {
+        // 9. System / Launcher — HOME role (host) + emulators / players
         item(key = "system") {
             Column(
                 modifier = Modifier.animateItem(),
@@ -1172,15 +1212,9 @@ fun SettingsScreen(
             }
         }
 
-        item(key = "emulators_header") {
-            Text(
-                text = "Emulators",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 4.dp).animateItem(),
-            )
         }
 
+        if (section == SetupSection.Emulators) {
         item(key = "emulators_choose_hint") {
             Text(
                 text = "Tip: on a ROM, press Select → ROM options to customize art, " +
@@ -1792,22 +1826,24 @@ fun SettingsScreen(
                 modifier = Modifier.animateItem(),
             )
         }
+        }
     }
     }
     }
 }
 
-@Composable
-private fun SettingsSectionHeader(
-    title: String,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.SemiBold,
-        modifier = modifier.padding(top = 4.dp),
-    )
+/**
+ * Setup is a long form, so it is split into tabs instead of one endless scroll. Each entry maps
+ * to a contiguous run of cards in the list.
+ */
+private enum class SetupSection(val label: String, val description: String) {
+    Display("Display", "Theme, layout, and how the library is presented"),
+    Audio("Audio", "Soundtrack and interface sounds"),
+    Media("Media", "Trailers and artwork scraping"),
+    Accounts("Accounts", "RetroAchievements, Steam, and Discord"),
+    Storage("Storage", "Library folders, scanning, and app sync"),
+    System("System", "Home screen role and onboarding"),
+    Emulators("Emulators", "XOrA Emulator and per-system players"),
 }
 
 @Composable

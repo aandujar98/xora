@@ -217,7 +217,7 @@ fun buildStartSettingsRows(
         ),
         StartSettingsRow.Action(
             id = "feed_columns",
-            title = "Feed columns",
+            title = "Library columns",
             subtitle = settings.gridColumns.toString(),
             action = StartSettingsAction.CycleFeedColumns,
         ),
