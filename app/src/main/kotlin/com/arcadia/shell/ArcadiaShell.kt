@@ -64,7 +64,11 @@ import com.arcadia.shell.feature.home.HomeScreen
 import com.arcadia.shell.feature.home.HomeUiState
 import com.arcadia.shell.feature.home.HomeViewModel
 import com.arcadia.shell.feature.home.MusicCustomizeSheet
-import com.arcadia.shell.feature.home.RomOptionsSheet
+import com.arcadia.shell.feature.home.ArtPickerUiState
+import com.arcadia.shell.feature.home.RomEditorActions
+import com.arcadia.shell.feature.home.RomEditorPane
+import com.arcadia.shell.model.TrailerRefs
+import com.arcadia.shell.scraper.ArtSlot
 import com.arcadia.shell.feature.home.ThemesSheet
 import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.feature.home.XoraXmbHeroDetail
@@ -827,46 +831,72 @@ fun ArcadiaShell(
             ) {
                 value = homeViewModel.idleVideoPath(game.id)
             }
+            val titleOverrides by homeViewModel.gameTitleOverrides
+                .collectAsStateWithLifecycle()
+            var artPicker by remember(game.id) { mutableStateOf(ArtPickerUiState()) }
+            var pickerSlot by remember(game.id) { mutableStateOf<ArtSlot?>(null) }
+            // One lookup per slot per visit; the grid renders remote urls and only the chosen
+            // one is ever downloaded.
+            LaunchedEffect(pickerSlot, game.id) {
+                val slot = pickerSlot ?: return@LaunchedEffect
+                if (artPicker.result != null) return@LaunchedEffect
+                artPicker = ArtPickerUiState(loading = true)
+                artPicker = ArtPickerUiState(
+                    loading = false,
+                    result = homeViewModel.artCandidatesFor(game),
+                )
+                if (slot != pickerSlot) artPicker = ArtPickerUiState()
+            }
             SheetNavCapture(homeViewModel)
-            RomOptionsSheet(
+            RomEditorPane(
                 game = game,
+                customTitle = titleOverrides[gameId],
                 saves = saves,
+                hidden = gameId in state.hiddenGameIds,
+                trailer = TrailerRefs.parse(game.trailerUrl),
+                trailerResolving = false,
                 gamePreference = gamePref,
                 platformPreference = platformPref,
                 currentEmulatorLabel = emulatorLabel,
-                navActions = homeViewModel.sheetNavActionFlow,
-                onDismiss = { scrapeMenuGameId = null },
-                onToggleFavorite = { favorite -> homeViewModel.setFavorite(gameId, favorite) },
-                hidden = gameId in state.hiddenGameIds,
-                onToggleHidden = { hidden -> homeViewModel.setGameHidden(gameId, hidden) },
                 artAlignX = state.gameArtAlignments[gameId]?.x ?: 0f,
                 artAlignY = state.gameArtAlignments[gameId]?.y ?: 0f,
-                onNudgeCover = { dx, dy -> homeViewModel.nudgeGameArtAlignment(gameId, dx, dy) },
-                onResetCover = { homeViewModel.resetGameArtAlignment(gameId) },
-                onPickBoxArt = { homeViewModel.pickGameBoxArt(gameId) },
-                onPickBackground = { homeViewModel.pickGameBackground(gameId) },
-                onPickSoundBite = { homeViewModel.pickGameSoundBite(gameId) },
-                onPickIdleVideo = { homeViewModel.pickGameIdleVideo(gameId) },
-                onClearBoxArt = { homeViewModel.clearGameBoxArt(gameId) },
-                onClearBackground = { homeViewModel.clearGameBackground(gameId) },
-                onClearSoundBite = { homeViewModel.clearGameSoundBite(gameId) },
-                onClearIdleVideo = { homeViewModel.clearGameIdleVideo(gameId) },
-                onPreviewSoundBite = { homeViewModel.previewGameSoundBite(gameId) },
-                idleVideoPath = idlePath,
-                onImportSaves = { homeViewModel.importSavesForGame(gameId) },
-                onDeleteSave = { entry -> homeViewModel.deleteSaveForGame(entry) },
-                onSetGamePreference = { pref ->
-                    homeViewModel.setGameScraperPreference(gameId, pref)
-                },
-                onSetPlatformPreference = { pref ->
-                    homeViewModel.setPlatformScraperPreference(game.platformId, pref)
-                },
-                onChooseEmulator = {
-                    scrapeMenuGameId = null
-                    chooseEmulatorPlatformId = game.platformId
-                },
-                onRescrapeGame = { homeViewModel.rescrapeGame(gameId) },
-                onRescrapePlatform = { homeViewModel.rescrapePlatform(game.platformId) },
+                artPicker = artPicker,
+                navActions = homeViewModel.sheetNavActionFlow,
+                actions = RomEditorActions(
+                    onDismiss = { scrapeMenuGameId = null },
+                    onRename = { homeViewModel.renameGame(gameId, it) },
+                    onResetName = { homeViewModel.resetGameName(gameId) },
+                    onToggleFavorite = { homeViewModel.setFavorite(gameId, it) },
+                    onToggleHidden = { homeViewModel.setGameHidden(gameId, it) },
+                    onUploadArt = { slot -> homeViewModel.pickArtFromDevice(gameId, slot) },
+                    onApplyCandidate = { slot, candidate ->
+                        homeViewModel.applyArtCandidate(gameId, slot, candidate)
+                    },
+                    onClearArt = { slot -> homeViewModel.clearArt(gameId, slot) },
+                    onNudgeCover = { dx, dy ->
+                        homeViewModel.nudgeGameArtAlignment(gameId, dx, dy)
+                    },
+                    onResetCover = { homeViewModel.resetGameArtAlignment(gameId) },
+                    onPickSoundBite = { homeViewModel.pickGameSoundBite(gameId) },
+                    onClearSoundBite = { homeViewModel.clearGameSoundBite(gameId) },
+                    onPreviewSoundBite = { homeViewModel.previewGameSoundBite(gameId) },
+                    onUploadTrailer = { homeViewModel.pickGameIdleVideo(gameId) },
+                    onUseYouTubeTrailer = { homeViewModel.useYouTubeTrailer(gameId) },
+                    onClearTrailer = { homeViewModel.clearGameTrailer(gameId) },
+                    onImportSaves = { homeViewModel.importSavesForGame(gameId) },
+                    onDeleteSave = { entry -> homeViewModel.deleteSaveForGame(entry) },
+                    onSetGamePreference = { homeViewModel.setGameScraperPreference(gameId, it) },
+                    onSetPlatformPreference = {
+                        homeViewModel.setPlatformScraperPreference(game.platformId, it)
+                    },
+                    onChooseEmulator = {
+                        scrapeMenuGameId = null
+                        chooseEmulatorPlatformId = game.platformId
+                    },
+                    onRescrapeGame = { homeViewModel.rescrapeGame(gameId) },
+                    onRescrapePlatform = { homeViewModel.rescrapePlatform(game.platformId) },
+                ),
+                onArtPickerSlotChange = { pickerSlot = it; if (it == null) artPicker = ArtPickerUiState() },
             )
         }
     }

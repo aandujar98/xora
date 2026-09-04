@@ -121,6 +121,11 @@ import com.arcadia.shell.xoranetwork.XoraPresenceMode
 import com.arcadia.shell.xoranetwork.parseXoraPresenceMode
 import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scanner.StorageAccess
+import com.arcadia.shell.datastore.GAME_TITLE_MAX_LENGTH
+import com.arcadia.shell.scraper.ArtCandidate
+import com.arcadia.shell.scraper.ArtCandidateFinder
+import com.arcadia.shell.scraper.ArtCandidateResult
+import com.arcadia.shell.scraper.ArtSlot
 import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.MusicArtRepository
 import com.arcadia.shell.scraper.PlatformArtRepository
@@ -207,6 +212,7 @@ class HomeViewModel @Inject constructor(
     private val gameSaveCatalog: GameSaveCatalog,
     private val gameSoundBitePlayer: GameSoundBitePlayer,
     private val trailerResolver: TrailerResolver,
+    private val artCandidateFinder: ArtCandidateFinder,
     private val scraperScheduler: ScraperScheduler,
     private val libraryHashScheduler: LibraryHashScheduler,
     private val platformArtRepository: PlatformArtRepository,
@@ -8353,11 +8359,14 @@ class HomeViewModel @Inject constructor(
     fun setGameIdleVideo(gameId: String, uri: Uri) {
         viewModelScope.launch {
             runCatching {
-                gameCustomMediaStore.importIdleVideo(gameId, uri)
+                val path = gameCustomMediaStore.importIdleVideo(gameId, uri)
+                // A video the user picked by hand is the trailer for this title, not just an idle
+                // clip: it has to beat whatever YouTube match the scraper found.
+                libraryRepository.setTrailer(gameId, path)
                 bumpCustomMedia()
-                emit(HomeEvent.ShowMessage("Idle video updated."))
+                emit(HomeEvent.ShowMessage("Trailer updated."))
             }.onFailure { error ->
-                emit(HomeEvent.ShowError(error.message ?: "Could not import idle video."))
+                emit(HomeEvent.ShowError(error.message ?: "Could not import that video."))
             }
         }
     }
@@ -8371,6 +8380,123 @@ class HomeViewModel @Inject constructor(
     }
 
     fun idleVideoPath(gameId: String): String? = gameCustomMediaStore.findIdleVideo(gameId)
+
+    // ---- ROM editor -------------------------------------------------------------------------
+
+    /** User-typed names. Lives in preferences, so a re-scrape cannot overwrite one. */
+    val gameTitleOverrides: StateFlow<Map<String, String>> = preferences.gameTitleOverrides
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    fun renameGame(gameId: String, title: String) {
+        viewModelScope.launch {
+            val cleaned = title.trim().take(GAME_TITLE_MAX_LENGTH)
+            preferences.setGameTitleOverride(gameId, cleaned.takeIf { it.isNotEmpty() })
+            emit(
+                HomeEvent.ShowMessage(
+                    if (cleaned.isEmpty()) "Name reset." else "Renamed to $cleaned.",
+                ),
+            )
+        }
+    }
+
+    fun resetGameName(gameId: String) {
+        viewModelScope.launch {
+            preferences.setGameTitleOverride(gameId, null)
+            emit(HomeEvent.ShowMessage("Name reset to the scanned one."))
+        }
+    }
+
+    /** Asks every configured scraper at once. Returns whatever came back, download deferred. */
+    suspend fun artCandidatesFor(game: Game): ArtCandidateResult =
+        runCatching {
+            artCandidateFinder.findCandidates(
+                game = game,
+                searchTitle = gameTitleOverrides.value[game.id],
+            )
+        }.getOrElse { ArtCandidateResult() }
+
+    fun applyArtCandidate(gameId: String, slot: ArtSlot, candidate: ArtCandidate) {
+        viewModelScope.launch {
+            val path = runCatching { artCandidateFinder.materialize(candidate) }.getOrNull()
+            if (path == null) {
+                emit(HomeEvent.ShowError("Could not download that image."))
+                return@launch
+            }
+            when (slot) {
+                ArtSlot.BoxArt -> libraryRepository.setBoxArtPath(gameId, path)
+                ArtSlot.Hero -> libraryRepository.setHeroImagePath(gameId, path)
+                ArtSlot.Logo -> libraryRepository.setLogoImagePath(gameId, path)
+            }
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("${slot.label} updated from ${candidate.sourceLabel}."))
+        }
+    }
+
+    fun pickArtFromDevice(gameId: String, slot: ArtSlot) = when (slot) {
+        ArtSlot.BoxArt, ArtSlot.Logo -> pickGameBoxArt(gameId)
+        ArtSlot.Hero -> pickGameBackground(gameId)
+    }
+
+    fun clearArt(gameId: String, slot: ArtSlot) = when (slot) {
+        ArtSlot.BoxArt -> clearGameBoxArt(gameId)
+        ArtSlot.Hero -> clearGameBackground(gameId)
+        ArtSlot.Logo -> {
+            viewModelScope.launch {
+                libraryRepository.setLogoImagePath(gameId, null)
+                emit(HomeEvent.ShowMessage("Logo cleared."))
+            }
+            Unit
+        }
+    }
+
+    /** A picked video becomes this title's trailer outright, beating any YouTube match. */
+    fun setGameTrailerFromFile(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = gameCustomMediaStore.importIdleVideo(gameId, uri)
+                libraryRepository.setTrailer(gameId, path)
+                bumpCustomMedia()
+                emit(HomeEvent.ShowMessage("Trailer updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import that video."))
+            }
+        }
+    }
+
+    fun useYouTubeTrailer(gameId: String) {
+        viewModelScope.launch {
+            val game = libraryRepository.findById(gameId) ?: return@launch
+            // Clear first so a stored file or an earlier empty resolution cannot short-circuit it.
+            libraryRepository.setTrailer(gameId, null)
+            gameCustomMediaStore.clearIdleVideo(gameId)
+            val settings = preferences.settings.first()
+            val credentials = preferences.credentials.first()
+            val resolved = runCatching {
+                trailerResolver.resolve(
+                    game = game,
+                    credentials = credentials,
+                    scrapeEnabled = true,
+                    source = settings.trailerSourcePreference,
+                )
+            }.getOrNull()
+            libraryRepository.setTrailer(gameId, resolved)
+            bumpCustomMedia()
+            emit(
+                HomeEvent.ShowMessage(
+                    if (resolved == null) "No trailer found for this title." else "Trailer set from YouTube.",
+                ),
+            )
+        }
+    }
+
+    fun clearGameTrailer(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearIdleVideo(gameId)
+            libraryRepository.setTrailer(gameId, null)
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Trailer cleared."))
+        }
+    }
 
     fun musicCoverPath(mediaId: String): String? = gameCustomMediaStore.findBoxArt(mediaId)
 

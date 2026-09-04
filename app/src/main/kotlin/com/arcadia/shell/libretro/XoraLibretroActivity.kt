@@ -11,6 +11,8 @@ import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
+import android.util.Log
+import android.view.PixelCopy
 import android.graphics.drawable.GradientDrawable
 import android.content.pm.PackageManager
 import android.hardware.input.InputManager
@@ -278,6 +280,8 @@ class XoraLibretroActivity : ComponentActivity() {
      */
     private var bannerOverlay: ComposeView? = null
     @Volatile private var bannerHostNeeded = false
+    /** Long-press the profile disc: on-screen wash report. Removed on tap. */
+    private var washReport: TextView? = null
     private val washFrameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             washFramePosted = false
@@ -2397,6 +2401,126 @@ class XoraLibretroActivity : ComponentActivity() {
         uiSounds.playConfirm()
     }
 
+    /**
+     * Answers the one question reading the code cannot: is the wash inside this window or not?
+     *
+     * [PixelCopy] reads back what *this window* actually composited. Comparing the centre of the
+     * game rect against the same pixel in [gameBitmap] — the frame we handed the ImageView — splits
+     * the problem in half. If the readback matches the source, nothing in our view tree tinted it
+     * and the wash is above the window (system dim, an accessibility or OEM overlay, a display
+     * colour transform). If it does not match, the wash is ours, and the layer dump says which view.
+     */
+    private fun runWashDiagnostics() {
+        val root = gameRoot ?: return
+        val view = primaryGameView ?: return
+        val report = StringBuilder()
+
+        val attrs = window.attributes
+        report.appendLine("WINDOW")
+        report.appendLine("  alpha=${attrs.alpha} dim=${attrs.dimAmount} format=${attrs.format}")
+        report.appendLine("  flags=0x${Integer.toHexString(attrs.flags)}")
+        report.appendLine("  menuOpen=$menuOpen paused=$paused")
+
+        report.appendLine("LAYERS >=40% of window, front to back")
+        val covering = mutableListOf<String>()
+        collectCoveringViews(window.decorView, root.width * root.height, covering)
+        if (covering.isEmpty()) report.appendLine("  (none)") else covering.forEach {
+            report.appendLine("  $it")
+        }
+
+        val location = IntArray(2)
+        view.getLocationInWindow(location)
+        val sampleX = location[0] + view.width / 2
+        val sampleY = location[1] + view.height / 2
+        val expected = synchronized(bitmapLock) {
+            val src = gameBitmap
+            if (src != null && !src.isRecycled && src.width > 0 && src.height > 0) {
+                src.getPixel(src.width / 2, src.height / 2)
+            } else {
+                null
+            }
+        }
+
+        val shot = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+        PixelCopy.request(window, shot, { result ->
+            report.appendLine("PIXEL AT GAME CENTRE (${sampleX}, ${sampleY})")
+            if (result != PixelCopy.SUCCESS) {
+                report.appendLine("  readback failed: $result")
+            } else {
+                val actual = runCatching { shot.getPixel(sampleX, sampleY) }.getOrNull()
+                report.appendLine("  source frame  = ${hexColor(expected)}")
+                report.appendLine("  composited    = ${hexColor(actual)}")
+                if (expected != null && actual != null) {
+                    val dr = AndroidColor.red(actual) - AndroidColor.red(expected)
+                    val dg = AndroidColor.green(actual) - AndroidColor.green(expected)
+                    val db = AndroidColor.blue(actual) - AndroidColor.blue(expected)
+                    report.appendLine("  delta         = r$dr g$dg b$db")
+                    report.appendLine(
+                        if (dr > 6 && dg > 6 && db > 6) {
+                            "  => WASH IS INSIDE THIS WINDOW. Blame a layer listed above."
+                        } else {
+                            "  => window output is clean. The wash is ABOVE this window: " +
+                                "system dim / accessibility or OEM overlay / display colour mode."
+                        },
+                    )
+                }
+            }
+            shot.recycle()
+            Log.i("XoraWash", report.toString())
+            showWashReport(report.toString())
+        }, root.handler)
+    }
+
+    private fun collectCoveringViews(view: View, windowArea: Int, out: MutableList<String>) {
+        if (windowArea <= 0) return
+        if (view.visibility == View.VISIBLE && view.width * view.height * 100 >= windowArea * 40) {
+            val bg = (view.background as? ColorDrawable)
+                ?.let { "#" + Integer.toHexString(it.color) }
+                ?: view.background?.javaClass?.simpleName
+                ?: "none"
+            out.add(
+                "${view.javaClass.simpleName} ${view.width}x${view.height} " +
+                    "alpha=${view.alpha} layer=${view.layerType} bg=$bg " +
+                    "fg=${view.foreground?.javaClass?.simpleName ?: "none"}",
+            )
+        }
+        if (view is ViewGroup) {
+            for (i in view.childCount - 1 downTo 0) {
+                collectCoveringViews(view.getChildAt(i), windowArea, out)
+            }
+        }
+    }
+
+    private fun hexColor(color: Int?): String =
+        if (color == null) "n/a" else "#" + Integer.toHexString(color).padStart(8, '0')
+
+    /** On-screen because the whole point is to read it on the handheld the wash happens on. */
+    private fun showWashReport(text: String) {
+        val root = gameRoot ?: return
+        washReport?.let { root.removeView(it) }
+        val density = resources.displayMetrics.density
+        val view = TextView(this).apply {
+            setBackgroundColor(AndroidColor.argb(240, 0, 0, 0))
+            setTextColor(AndroidColor.WHITE)
+            textSize = 10f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding((12 * density).toInt(), (12 * density).toInt(), (12 * density).toInt(), 0)
+            this.text = text
+            elevation = 64f * density
+            isClickable = true
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+            setOnClickListener {
+                root.removeView(this)
+                washReport = null
+            }
+        }
+        washReport = view
+        root.addView(view)
+    }
+
     private fun keepProfileChipOnTop() {
         val root = gameRoot ?: return
         val chip = profileChip ?: return
@@ -2454,6 +2578,10 @@ class XoraLibretroActivity : ComponentActivity() {
             contentDescription = "Clear white tint"
             elevation = 24f * density
             setOnClickListener { clearWhiteTintFromProfileTap() }
+            setOnLongClickListener {
+                runWashDiagnostics()
+                true
+            }
         }
         chip.addView(image)
         chip.addView(letter)
