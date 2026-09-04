@@ -2166,7 +2166,17 @@ class XoraLibretroActivity : ComponentActivity() {
         }
         window.setBackgroundDrawableResource(android.R.color.black)
         window.decorView.setBackgroundColor(AndroidColor.BLACK)
+        // A window animation left mid-flight parks LayoutParams.alpha below 1, and the bright
+        // shell behind then blends straight through the emulator window. Nothing reset it, so
+        // that wash outlived every clear we had, the profile disc included.
+        val attrs = window.attributes
+        if (attrs.alpha != 1f || attrs.dimAmount != 0f) {
+            attrs.alpha = 1f
+            attrs.dimAmount = 0f
+            window.attributes = attrs
+        }
         ImmersiveMode.apply(window)
+        clearParentWashLayers()
         gameRoot?.setBackgroundColor(AndroidColor.BLACK)
         stage?.apply {
             setLayerType(View.LAYER_TYPE_NONE, null)
@@ -2253,6 +2263,38 @@ class XoraLibretroActivity : ComponentActivity() {
             isClickable = false
             isFocusable = false
         }
+        // The dialog host is MATCH_PARENT and stacks above the stage. syncDialogOverlay is the
+        // only thing that ever hid it, so a seat picker / invite that lost its close published a
+        // full-screen Compose sheet the gameplay pin never looked at.
+        if (!seatPickerOpen && !invitePromptOpen) {
+            dialogOverlay?.apply {
+                if (visibility != View.GONE) visibility = View.GONE
+                alpha = 0f
+                setBackgroundColor(AndroidColor.TRANSPARENT)
+                isClickable = false
+            }
+        }
+        clearParentWashLayers()
+    }
+
+    /**
+     * The layers every earlier pin missed: the stage's *parents*. A stale hardware layer, a
+     * leftover foreground scrim (windowContentOverlay lives on the content parent), or a sub-1
+     * alpha on the decor / content / root tints everything underneath, and no amount of
+     * resetting the game ImageView or the overlay below it can shift that.
+     */
+    private fun clearParentWashLayers() {
+        val decor = window.decorView
+        clearWashOn(decor)
+        clearWashOn(findViewById<View>(android.R.id.content))
+        clearWashOn(gameRoot)
+    }
+
+    private fun clearWashOn(view: View?) {
+        view ?: return
+        if (view.alpha != 1f) view.alpha = 1f
+        if (view.foreground != null) view.foreground = null
+        if (view.layerType != View.LAYER_TYPE_NONE) view.setLayerType(View.LAYER_TYPE_NONE, null)
     }
 
     private fun restoreShellPresence() {
