@@ -37,6 +37,7 @@ import com.arcadia.shell.feature.home.component.hintsForSocialMenu
 import com.arcadia.shell.feature.home.component.hintsForStartSettings
 import com.arcadia.shell.feature.home.component.hintsForSystemMenu
 import com.arcadia.shell.model.ShortcutSpan
+import com.arcadia.shell.retroachievements.RaGameLookup
 
 /**
  * The single-display layout: hero above, Home page below (hub, XMB, or RSS feed).
@@ -709,6 +710,8 @@ fun HomePageContent(
                                 launch = launch,
                                 homeWallpaperPath = state.homeHub.wallpaperPath,
                                 peelRequested = state.homeHub.vitaShortcutPeelRequested,
+                                raProgress = (state.achievements.gameLookup as? RaGameLookup.Matched)
+                                    ?.progress,
                                 holdWhite = departingIndex != null,
                                 isLaunching = state.isLaunching,
                                 wallpaperAlignX = state.homeHub.wallpaperAlignX,

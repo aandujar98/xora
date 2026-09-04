@@ -3108,6 +3108,11 @@ class HomeViewModel @Inject constructor(
         val alignment = game?.id?.let { id ->
             preferences.gameArtAlignments.first()[id]
         } ?: GameArtAlignment()
+        // "Recently played" on the LiveArea panel: the Vita lists other players there, but a
+        // launcher's own answer is the titles most recently run, this one excluded.
+        val played = libraryRepository.observeGames().first()
+            .filter { it.lastPlayedAt != null && it.id != game?.id }
+            .sortedByDescending { it.lastPlayedAt }
         return VitaShortcutLaunchUi(
             shortcut = shortcut,
             wallpaperPath = wallpaper,
@@ -3115,6 +3120,9 @@ class HomeViewModel @Inject constructor(
             game = game,
             artAlignX = alignment.x,
             artAlignY = alignment.y,
+            systemLabel = game?.platform?.shortName.orEmpty(),
+            recentGames = played.take(VITA_PANEL_RECENT_SLOTS),
+            recentOverflow = (played.size - VITA_PANEL_RECENT_SLOTS).coerceAtLeast(0),
         )
     }
 
@@ -8890,6 +8898,9 @@ class HomeViewModel @Inject constructor(
          * a plain Activity instead (apps, pictures) never set it, and fall back to the gate.
          */
         private const val VITA_LAUNCH_HANDOFF_MS = 1_500L
+
+        /** Circular icons the LiveArea panel's "Recently played" row has room for. */
+        private const val VITA_PANEL_RECENT_SLOTS = 4
     }
 
     private fun refreshInstalledApps() {

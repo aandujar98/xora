@@ -7,13 +7,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +46,7 @@ import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.feature.home.component.ArtworkImage
+import com.arcadia.shell.retroachievements.RaGameProgress
 import kotlin.math.min
 
 /** Figma node 178:2798 — isolated game plate + title over the title's wallpaper. */
@@ -73,6 +77,7 @@ fun VitaShortcutLaunchPage(
     onConfirm: () -> Unit,
     onPeeled: () -> Unit,
     modifier: Modifier = Modifier,
+    raProgress: RaGameProgress? = null,
     peelRequested: Boolean = false,
     holdWhite: Boolean = false,
     isLaunching: Boolean = false,
@@ -123,8 +128,37 @@ fun VitaShortcutLaunchPage(
                 )
                 val originX = (maxWidth.value - (XORA_DESIGN_WIDTH * unit)) / 2f
                 val originY = (maxHeight.value - (XORA_DESIGN_HEIGHT * unit)) / 2f
+                // Hoisted: inside the peel's content the BoxWithConstraints receiver is shadowed.
+                val screenW = maxWidth.value
+                val screenH = maxHeight.value
                 val density = LocalDensity.current
                 fun du(v: Float) = (v * unit).dp
+                // Everything below the status strip is the sheet the player peels, so page-local
+                // Y is the design Y less the strip's own height.
+                fun py(designY: Float) = ((designY - LIVEAREA_STATUS_H) * unit).dp
+                val status = rememberVitaLiveAreaStatus()
+
+                VitaLiveAreaStatusBar(
+                    backLabel = status.backLabel,
+                    timeText = status.timeText,
+                    dateText = status.dateText,
+                    wifiConnected = status.wifiConnected,
+                    batteryPercent = status.batteryPercent,
+                    charging = status.charging,
+                    unit = unit,
+                    modifier = Modifier.offset(y = originY.dp),
+                )
+
+                VitaLiveAreaPeel(
+                    peelRequested = peelRequested,
+                    unit = unit,
+                    onRequestPeel = onConfirm,
+                    onPeeled = onPeeled,
+                    modifier = Modifier
+                        .offset(y = (originY + LIVEAREA_STATUS_H * unit).dp)
+                        .fillMaxWidth()
+                        .height((screenH - originY - LIVEAREA_STATUS_H * unit).dp),
+                ) {
 
                 val wallpaperMotion = Modifier
                     .fillMaxSize()
@@ -157,12 +191,35 @@ fun VitaShortcutLaunchPage(
                 val cardH = du(LAUNCH_CARD_H)
                 val titleX = originX + LAUNCH_TITLE_X * unit
                 val ruleThickness = LAUNCH_RULE_THICKNESS * unit
-                // Horizon through the screen's center; right end stops 85 design-px shy of the edge.
-                val ruleY = maxHeight.value / 2f - ruleThickness / 2f
-                val ruleWidth = (maxWidth.value - LAUNCH_RULE_EDGE_INSET * unit - titleX)
+                // Horizon through the page's centre; right end stops 85 design-px shy of the edge.
+                val ruleY = (XORA_DESIGN_HEIGHT / 2f - LIVEAREA_STATUS_H) * unit -
+                    ruleThickness / 2f
+                val ruleWidth = (screenW - LAUNCH_RULE_EDGE_INSET * unit - titleX)
                     .coerceAtLeast(0f)
                 val titleY = ruleY - LAUNCH_TITLE_TO_RULE * unit
                 val subtitleY = ruleY + ruleThickness + LAUNCH_RULE_TO_SUBTITLE * unit
+
+                // The sheet's own edge. Its top-right corner is the one that turns down.
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = (originX + LIVEAREA_FRAME_LEFT * unit).dp,
+                            y = py(LIVEAREA_FRAME_TOP),
+                        )
+                        .width(
+                            (XORA_DESIGN_WIDTH - LIVEAREA_FRAME_LEFT -
+                                LIVEAREA_FRAME_RIGHT_INSET).let { (it * unit).dp },
+                        )
+                        .height(
+                            (XORA_DESIGN_HEIGHT - LIVEAREA_FRAME_TOP -
+                                LIVEAREA_FRAME_BOTTOM_INSET).let { (it * unit).dp },
+                        )
+                        .border(
+                            width = (2f * unit).dp,
+                            color = Color.White.copy(alpha = 0.45f),
+                            shape = RoundedCornerShape((LIVEAREA_FRAME_RADIUS * unit).dp),
+                        ),
+                )
 
                 Box(
                     modifier = Modifier
@@ -182,7 +239,7 @@ fun VitaShortcutLaunchPage(
                         artAlignY = page.artAlignY,
                         modifier = Modifier.offset(
                             x = (originX + (LAUNCH_CARD_X - LAUNCH_CARD_W / 2f) * unit).dp,
-                            y = (originY + LAUNCH_CARD_Y * unit).dp,
+                            y = py(LAUNCH_CARD_Y),
                         ),
                     )
 
@@ -217,20 +274,22 @@ fun VitaShortcutLaunchPage(
                             .width(ruleWidth.dp),
                     )
 
-                    // The gate is the only way out of this page and into the game: peel it with
-                    // a finger, or press A and watch it come off on its own.
-                    VitaLaunchGate(
-                        peelRequested = peelRequested,
+                    VitaLiveAreaPanel(
+                        title = page.shortcut.title,
+                        iconPath = page.iconPath,
+                        systemLabel = page.systemLabel,
+                        progress = raProgress,
+                        recentGames = page.recentGames,
+                        recentOverflow = page.recentOverflow,
                         unit = unit,
-                        onRequestPeel = onConfirm,
-                        onPeeled = onPeeled,
                         modifier = Modifier.offset(
-                            x = (originX + (GATE_CENTER_X - GATE_W / 2f) * unit).dp,
-                            y = (originY + GATE_TOP_Y * unit).dp,
+                            x = (originX + PANEL_X * unit).dp,
+                            y = py(PANEL_Y),
                         ),
                     )
 
                     achievementsContent()
+                }
                 }
             }
 

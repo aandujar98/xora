@@ -145,6 +145,12 @@ data class VitaShortcutLaunchUi(
     val game: Game? = null,
     val artAlignX: Float = 0f,
     val artAlignY: Float = 0f,
+    /** Short system code for the LiveArea panel's badge ("PSP", "SNES", …). */
+    val systemLabel: String = "",
+    /** Circular icons on the panel's "Recently played" row. */
+    val recentGames: List<Game> = emptyList(),
+    /** How many more recently played titles the row could not show. */
+    val recentOverflow: Int = 0,
 )
 
 /** Idle trailer overlay for the hero pane. */

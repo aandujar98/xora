@@ -1607,17 +1607,17 @@ private fun playtimeParts(playTimeMs: Long): Pair<String, String> {
     }
 }
 
-private fun readBatteryPercent(context: Context): Int {
+internal fun readBatteryPercent(context: Context): Int {
     val manager = context.getSystemService(BatteryManager::class.java) ?: return 0
     return manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(0, 100)
 }
 
-private fun isCharging(context: Context): Boolean {
+internal fun isCharging(context: Context): Boolean {
     val manager = context.getSystemService(BatteryManager::class.java) ?: return false
     return manager.isCharging
 }
 
-private fun isWifiConnected(context: Context): Boolean {
+internal fun isWifiConnected(context: Context): Boolean {
     val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
     val network = cm.activeNetwork ?: return false
     val caps = cm.getNetworkCapabilities(network) ?: return false

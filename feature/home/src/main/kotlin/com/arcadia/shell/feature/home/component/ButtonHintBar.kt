@@ -210,7 +210,7 @@ val XoraRomBrowseHints: List<Pair<String, String>> = listOf(
 /** Vita bubble tray over Home XMB. */
 val VitaShortcutLaunchHints: List<Pair<String, String>> = listOf(
     "A" to "Peel to start",
-    "Swipe up" to "Peel",
+    "Drag corner" to "Peel",
     "B" to "Back",
     "X" to "Achievements",
     "LT" to "Circle",
