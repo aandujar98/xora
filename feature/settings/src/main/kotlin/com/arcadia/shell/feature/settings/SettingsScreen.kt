@@ -1353,8 +1353,9 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            text = "Top screen on the primary panel, bottom on the secondary " +
-                                "(clamshell / dual-screen devices).",
+                            text = "On by default. Top DS/3DS screen on the primary panel, " +
+                                "bottom on the secondary (AYN Thor, Pocket DS, and other " +
+                                "clamshells).",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

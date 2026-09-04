@@ -70,6 +70,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -166,11 +167,11 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun refreshExpandTopology() {
-        val secondary = DisplayTopologyMonitor(this).current().secondary?.displayId
-        secondaryDisplayId = secondary
+        val presentation = DisplayTopologyMonitor(this).current().presentationDisplay?.displayId
+        secondaryDisplayId = presentation
         expandActive = xoraSettings.expandDualDisplay &&
             platformId in DUAL_SCREEN_PLATFORMS &&
-            secondary != null
+            presentation != null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -287,6 +288,11 @@ class XoraLibretroActivity : ComponentActivity() {
                     -> ImageView.ScaleType.FIT_CENTER
                 }
             }
+            LaunchedEffect(Unit) {
+                DisplayTopologyMonitor(this@XoraLibretroActivity).topology().collect {
+                    refreshExpandTopology()
+                }
+            }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
 
             if (expandActive) {
@@ -383,7 +389,8 @@ class XoraLibretroActivity : ComponentActivity() {
                 val xora = preferences.xoraEmulatorSettings.first()
                 val expand = xora.expandDualDisplay &&
                     platformId in DUAL_SCREEN_PLATFORMS &&
-                    DisplayTopologyMonitor(this@XoraLibretroActivity).current().secondary != null
+                    DisplayTopologyMonitor(this@XoraLibretroActivity)
+                        .current().presentationDisplay != null
                 LibretroNative.nativeClearCoreVariables()
                 LibretroNative.nativeSetNetplayUsername(xora.netplayNickname)
                 XoraCoreOptions.variablesFor(
