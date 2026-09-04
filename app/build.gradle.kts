@@ -25,8 +25,8 @@ android {
         minSdk = 29
         targetSdk = 37
         // Bump for every Desktop sideload so PackageManager accepts the update.
-        // v0.3.0 revision 3 (revision 1 = 321 GitHub release, revision 2 = 322).
-        versionCode = 323
+        // v0.3.0 revision 4 (revision 1 = 321 GitHub release, 2 = 322, 3 = 323).
+        versionCode = 324
         versionName = "0.3.0"
         // Deep-link scheme for Discord Social SDK AuthenticationActivity.
         manifestPlaceholders["discordApplicationId"] = "1531690290526683176"

@@ -9,28 +9,34 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.rememberThrottledAmbientUnit
@@ -39,134 +45,184 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * Resting dog-ear, in design px: how far the fold already cuts along the top and right edges.
- * Taken from the reference page, where the corner is turned down before you touch it.
+ * PEEL_BOUNDARY.png footprint on the 1920x1080 artboard. The sheet is centred under the status
+ * strip; everything outside it (the wallpaper margin, the strip itself) never moves.
  */
-private const val PEEL_REST_DEPTH = 190f
-/** Corner square that takes the pull, in design px. */
+internal const val PEEL_BOUNDARY_X = 64f
+internal const val PEEL_BOUNDARY_Y = 126f
+internal const val PEEL_BOUNDARY_W = 1792f
+internal const val PEEL_BOUNDARY_H = 888f
+/** Corner radius measured off PEEL_BOUNDARY.png / PEEL_UNDER.png. */
+internal const val PEEL_BOUNDARY_RADIUS = 43f
+
+/**
+ * PEEL_TIP.png is a 45° dog-ear whose fold cuts this far along the sheet's top and right edges
+ * (measured off the asset, in sheet px). The rest pose shows the asset at its own size.
+ */
+internal const val PEEL_TIP_REST_DEPTH = 170f
+/** Corner square that takes the pull, in design px — well past the tip so a thumb can find it. */
 private const val PEEL_GRAB = 430f
-/** Let go past this fraction of the page's full sweep and the sheet comes away. */
 private const val PeelCommitFraction = 0.32f
 private const val PeelAutoMs = 620
 private const val PeelSettleMs = 420
-/** The turned corner breathes at rest so it reads as something to pull. */
-private const val PeelIdleDepth = 26f
+/** The tip lifts and settles at rest so it reads as something to pull. */
+private const val PeelIdleDepth = 10f
 private const val PeelIdleCycleMs = 2_600
-private const val PeelCreaseWidth = 3f
-private const val PeelShadowDepth = 26f
-/** Fraction of the sweep after which the departing sheet starts thinning out. */
-private const val PeelFadeFrom = 0.45f
-
-/** Underside of the page: light where it turns over, shading off toward the tip. */
-private val PeelBackNear = Color(0xFFE9E9E9)
-private val PeelBackFar = Color(0xFF8E8E8E)
+/** Shadow the folded face throws onto the flat sheet, in design px. */
+private const val PeelShadowDepth = 34f
+/** Pulling this many rest-depths brings the shadow to full strength. */
+private const val PeelShadowRamp = 1.5f
+private const val PeelShadowAlpha = 0.32f
 
 /** Unit diagonal — the fold is always 45°, like the Vita's. */
 private const val R2 = 0.70710678f
 
+/** Pure fold geometry, kept off the draw pass so it can be checked in isolation. */
+internal object VitaPeelGeometry {
+    /** Fold depth at which the far corner has gone: the whole sheet has come away. */
+    fun sweep(width: Float, height: Float): Float = width + height
+
+    /** Depth the player has to reach before letting go commits the peel. */
+    fun commitDepth(width: Float, height: Float): Float =
+        sweep(width, height) * PeelCommitFraction
+
+    /** A pull toward the bottom-left turns the corner over: both drag terms add. */
+    fun depthDelta(dragX: Float, dragY: Float): Float = dragY - dragX
+
+    /**
+     * Square the dog-ear asset fills for fold depth [k], in sheet px. Its NE half is the
+     * transparent revealed corner, its SW half the turned-over face; scaling the asset to this
+     * square keeps the face congruent with the fold however far it has been pulled.
+     */
+    fun faceSquare(k: Float, width: Float): Rect = Rect(width - k, 0f, width, k)
+
+    /** How far past rest the pull is, 0..1, for shadows that stay off the untouched asset. */
+    fun pullFraction(k: Float, restDepth: Float): Float =
+        ((k - restDepth) / (restDepth * PeelShadowRamp)).coerceIn(0f, 1f)
+}
+
 /**
- * The LiveArea page, with the Vita's turned-down corner at its top right.
+ * The LiveArea page with a peelable sheet inside [boundary].
  *
- * Pull the corner toward the bottom-left and the sheet comes off the screen; A runs the same
- * pull on its own. The fold is a 45° line sweeping down the page's diagonal, so
- * the bare corner grows the way a peeled sticker does rather than sliding away in one piece.
- * [onPeeled] fires as the page commits, so the launch cinematic starts underneath while the last
- * of the sheet is still travelling.
+ * At rest the sheet shows the wallpaper under a faint outline (PEEL_BOUNDARY) with the asset
+ * dog-ear (PEEL_TIP) turned down at its top-right corner. Dragging the tip toward the bottom-left
+ * folds the sheet along a 45° line: the wallpaper inside the boundary comes away to show its
+ * backing (PEEL_UNDER), while everything outside the boundary stays put. A runs the same pull on
+ * its own. [onPeeled] fires once the whole sheet is off, so the launch takes over from a bare
+ * backing rather than under a still-moving corner.
  */
 @Composable
 internal fun VitaLiveAreaPeel(
     peelRequested: Boolean,
     unit: Float,
+    boundary: DpRect,
     onRequestPeel: () -> Unit,
     onPeeled: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    BoxWithConstraints(modifier = modifier) {
-        val density = LocalDensity.current
-        val pageW = with(density) { maxWidth.toPx() }
-        val pageH = with(density) { maxHeight.toPx() }
-        // Depth runs along the fold's normal: the fold is every point where (w - x) + y equals
-        // it, so 0 is the bare corner and w + h is the far corner, the whole page gone.
-        val sweep = pageW + pageH
-        // Depth, the crease and the shadow are all compared against pixel geometry in the draw
-        // pass and against pixel drag deltas, so they leave design units here.
-        val restDepth = with(density) { (PEEL_REST_DEPTH * unit).dp.toPx() }
-        val idleDepth = with(density) { (PeelIdleDepth * unit).dp.toPx() }
-        val creasePx = with(density) { (PeelCreaseWidth * unit).dp.toPx() }
-        val shadowPx = with(density) { (PeelShadowDepth * unit).dp.toPx() }
+    val density = LocalDensity.current
+    val bounds = with(density) {
+        Rect(
+            boundary.left.toPx(),
+            boundary.top.toPx(),
+            boundary.right.toPx(),
+            boundary.bottom.toPx(),
+        )
+    }
+    val sweep = VitaPeelGeometry.sweep(bounds.width, bounds.height)
+    // Depth, the shadow and the radius are compared against pixel geometry in the draw pass and
+    // against pixel drag deltas, so they leave design units here.
+    val restDepth = with(density) { (PEEL_TIP_REST_DEPTH * unit).dp.toPx() }
+    val idleDepth = with(density) { (PeelIdleDepth * unit).dp.toPx() }
+    val shadowPx = with(density) { (PeelShadowDepth * unit).dp.toPx() }
+    val radiusPx = with(density) { (PEEL_BOUNDARY_RADIUS * unit).dp.toPx() }
 
-        val reduceMotion = rememberReduceMotion()
-        val scope = rememberCoroutineScope()
-        val depth = remember(restDepth, sweep) {
-            Animatable(restDepth).apply { updateBounds(0f, sweep) }
+    val under = painterResource(R.drawable.vita_peel_under)
+    val tip = painterResource(R.drawable.vita_peel_tip)
+    val outline = painterResource(R.drawable.vita_peel_boundary)
+
+    val reduceMotion = rememberReduceMotion()
+    val scope = rememberCoroutineScope()
+    val depth = remember(restDepth, sweep) {
+        Animatable(restDepth).apply { updateBounds(restDepth, sweep) }
+    }
+    val peeled = rememberUpdatedState(onPeeled)
+    var engaged by remember { mutableStateOf(false) }
+    var spent by remember { mutableStateOf(false) }
+    val breath = rememberThrottledAmbientUnit(cycleMs = PeelIdleCycleMs)
+
+    // Read inside the draw lambda so a peel invalidates the drawing, not the composition.
+    val depthNow = {
+        val base = depth.value
+        if (engaged || reduceMotion) {
+            base
+        } else {
+            base + idleDepth * (1f - sin(breath.floatValue * 2f * PI.toFloat())) / 2f
         }
-        val peeled = rememberUpdatedState(onPeeled)
-        var engaged by remember { mutableStateOf(false) }
-        var spent by remember { mutableStateOf(false) }
-        val breath = rememberThrottledAmbientUnit(cycleMs = PeelIdleCycleMs)
+    }
 
-        // Read inside the draw lambda so a peel invalidates the drawing, not the composition.
-        val depthNow = {
-            val base = depth.value
-            if (engaged || reduceMotion) {
-                base
-            } else {
-                base + idleDepth * (1f - sin(breath.floatValue * 2f * PI.toFloat())) / 2f
-            }
+    LaunchedEffect(peelRequested) {
+        if (!peelRequested) return@LaunchedEffect
+        engaged = true
+        spent = true
+        if (reduceMotion) {
+            depth.snapTo(sweep)
+        } else {
+            depth.animateTo(sweep, tween(PeelAutoMs, easing = FastOutSlowInEasing))
         }
+        peeled.value()
+    }
+    val inert = peelRequested || spent
 
-        LaunchedEffect(peelRequested) {
-            if (!peelRequested) return@LaunchedEffect
-            engaged = true
-            spent = true
-            peeled.value()
-            if (reduceMotion) {
-                depth.snapTo(sweep)
-            } else {
-                depth.animateTo(sweep, tween(PeelAutoMs, easing = FastOutSlowInEasing))
-            }
-        }
-        val inert = peelRequested || spent
-
+    Box(modifier = modifier) {
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .drawWithContent {
-                    val k = depthNow().coerceIn(0f, sweep)
-                    clipPath(halfPlane(k, lifted = false)) {
-                        this@drawWithContent.drawContent()
-                    }
-                    drawTurnedCorner(k = k, creasePx = creasePx, shadowPx = shadowPx)
+                    drawContent()
+                    drawPeel(
+                        bounds = bounds,
+                        k = depthNow().coerceIn(0f, sweep),
+                        restDepth = restDepth,
+                        radius = radiusPx,
+                        shadowPx = shadowPx,
+                        under = under,
+                        tip = tip,
+                        outline = outline,
+                    )
                 },
         ) {
             content()
         }
 
         // Only the corner takes the pull, so a stray swipe across the artwork cannot launch.
+        val grab = (PEEL_GRAB * unit).dp
         Box(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .size((PEEL_GRAB * unit).dp)
+                .offset(x = boundary.right - grab, y = boundary.top)
+                .size(grab)
                 .pointerInput(inert) {
                     if (inert) return@pointerInput
                     detectTapGestures { onRequestPeel() }
                 }
                 .pointerInput(inert, sweep) {
                     if (inert) return@pointerInput
-                    val commit = sweep * PeelCommitFraction
+                    val commit = VitaPeelGeometry.commitDepth(bounds.width, bounds.height)
                     detectDragGestures(
                         onDragStart = { engaged = true },
                         onDrag = { change, drag ->
                             change.consume()
-                            // Pulling down-left turns the corner over: both terms add.
-                            scope.launch { depth.snapTo(depth.value + (drag.y - drag.x)) }
+                            scope.launch {
+                                depth.snapTo(
+                                    depth.value + VitaPeelGeometry.depthDelta(drag.x, drag.y),
+                                )
+                            }
                         },
                         onDragEnd = {
                             scope.launch {
                                 if (depth.value >= commit) {
                                     spent = true
-                                    peeled.value()
                                     depth.animateTo(
                                         targetValue = sweep,
                                         animationSpec = tween(
@@ -174,6 +230,7 @@ internal fun VitaLiveAreaPeel(
                                             easing = FastOutSlowInEasing,
                                         ),
                                     )
+                                    peeled.value()
                                 } else {
                                     depth.animateTo(
                                         targetValue = restDepth,
@@ -199,12 +256,87 @@ internal fun VitaLiveAreaPeel(
 }
 
 /**
- * One side of the fold, as a quad big enough to cover the page whatever the fold has reached:
- * [lifted] false is everything still stuck down, true is everything already turned over.
+ * Everything the peel adds on top of the page, all of it inside [bounds]: the backing where the
+ * sheet has come away, the shadow the fold throws, the turned-over face, and the outline.
  */
-private fun DrawScope.halfPlane(k: Float, lifted: Boolean): Path {
-    val w = size.width
-    val big = (w + size.height) * 2f
+private fun DrawScope.drawPeel(
+    bounds: Rect,
+    k: Float,
+    restDepth: Float,
+    radius: Float,
+    shadowPx: Float,
+    under: Painter,
+    tip: Painter,
+    outline: Painter,
+) {
+    val w = bounds.width
+    val h = bounds.height
+    val sheetSize = Size(w, h)
+    val sheet = Path().apply {
+        addRoundRect(RoundRect(Rect(0f, 0f, w, h), CornerRadius(radius)))
+    }
+
+    translate(bounds.left, bounds.top) {
+        // The corner that has come away shows the sheet's backing. The asset carries its own
+        // rounded corners, so nothing outside the boundary is touched.
+        if (k > 0.5f) {
+            clipPath(halfPlane(k, w, h, lifted = true)) {
+                with(under) { draw(sheetSize) }
+            }
+        }
+
+        clipPath(sheet) {
+            if (k > 0.5f) {
+                val face = VitaPeelGeometry.faceSquare(k, w)
+                drawFaceShadow(
+                    face = face,
+                    shadowPx = shadowPx,
+                    alpha = PeelShadowAlpha * VitaPeelGeometry.pullFraction(k, restDepth),
+                )
+                // The dog-ear asset stretched to the fold: its SW half is the face lying on the
+                // flat sheet, its NE half is clear so the backing shows through the corner.
+                translate(face.left, face.top) {
+                    with(tip) { draw(face.size) }
+                }
+            }
+        }
+
+        with(outline) { draw(sheetSize) }
+    }
+}
+
+/** Soft band along the face's two straight edges, cast onto the sheet still lying flat. */
+private fun DrawScope.drawFaceShadow(face: Rect, shadowPx: Float, alpha: Float) {
+    if (alpha <= 0.005f) return
+    val ink = Color.Black.copy(alpha = alpha)
+    // Left edge of the face, running down to just past its bottom corner.
+    drawRect(
+        brush = Brush.horizontalGradient(
+            colors = listOf(Color.Transparent, ink),
+            startX = face.left - shadowPx,
+            endX = face.left,
+        ),
+        topLeft = Offset(face.left - shadowPx, face.top),
+        size = Size(shadowPx, face.height + shadowPx),
+    )
+    // Bottom edge of the face.
+    drawRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(ink, Color.Transparent),
+            startY = face.bottom,
+            endY = face.bottom + shadowPx,
+        ),
+        topLeft = Offset(face.left, face.bottom),
+        size = Size(face.width, shadowPx),
+    )
+}
+
+/**
+ * One side of the fold, as a quad big enough to cover the sheet whatever the fold has reached:
+ * [lifted] true is the corner that has come away, false is everything still stuck down.
+ */
+private fun halfPlane(k: Float, w: Float, h: Float, lifted: Boolean): Path {
+    val big = (w + h) * 2f
     // A point on the fold, the fold's own direction, and the normal into the chosen side.
     val px = w - k
     val nx = if (lifted) R2 else -R2
@@ -215,55 +347,5 @@ private fun DrawScope.halfPlane(k: Float, lifted: Boolean): Path {
         lineTo(px - R2 * big + nx * big, -R2 * big + ny * big)
         lineTo(px + R2 * big + nx * big, R2 * big + ny * big)
         close()
-    }
-}
-
-/**
- * The corner that has turned over: the page's own underside, lit along the crease and shading
- * off toward the tip, with the shadow it throws back onto the part still lying flat.
- */
-private fun DrawScope.drawTurnedCorner(k: Float, creasePx: Float, shadowPx: Float) {
-    if (k <= 0.5f) return
-    val w = size.width
-    val h = size.height
-    val sweep = w + h
-    // The sheet thins as it leaves, so the page dissolves into the launch rather than ending on
-    // a screen of flat grey.
-    val fade = (1f - ((k / sweep) - PeelFadeFrom) / (1f - PeelFadeFrom)).coerceIn(0f, 1f)
-    if (fade <= 0.01f) return
-
-    val corner = Offset(w, 0f)
-    // Foot of the perpendicular from the corner to the fold — where the crease runs deepest.
-    val foldMid = Offset(w - k / 2f, k / 2f)
-
-    clipPath(halfPlane(k, lifted = true)) {
-        drawRect(
-            brush = Brush.linearGradient(
-                colors = listOf(PeelBackNear, PeelBackFar),
-                start = foldMid,
-                end = corner,
-            ),
-            alpha = fade,
-        )
-    }
-
-    clipPath(halfPlane(k, lifted = false)) {
-        drawRect(
-            brush = Brush.linearGradient(
-                colors = listOf(Color.Black.copy(alpha = 0.34f), Color.Transparent),
-                start = foldMid,
-                end = Offset(foldMid.x - R2 * shadowPx, foldMid.y + R2 * shadowPx),
-            ),
-            alpha = fade,
-        )
-    }
-
-    clipRect(0f, 0f, w, h) {
-        drawLine(
-            color = Color.White.copy(alpha = 0.8f * fade),
-            start = Offset(w - k, 0f),
-            end = Offset(w, k),
-            strokeWidth = creasePx,
-        )
     }
 }

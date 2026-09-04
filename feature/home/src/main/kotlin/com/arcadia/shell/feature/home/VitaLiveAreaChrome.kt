@@ -62,13 +62,6 @@ internal const val LIVEAREA_STATUS_H = 60f
 private const val STATUS_TEXT = 26f
 private const val STATUS_PAD_X = 22f
 
-/** Page sheet: a rounded outline over the artwork, whose top-right corner is the peel. */
-internal const val LIVEAREA_FRAME_LEFT = 14f
-internal const val LIVEAREA_FRAME_TOP = 119f
-internal const val LIVEAREA_FRAME_RIGHT_INSET = 65f
-internal const val LIVEAREA_FRAME_BOTTOM_INSET = 85f
-internal const val LIVEAREA_FRAME_RADIUS = 54f
-
 /** Info panel under the box art. */
 internal const val PANEL_X = 97f
 /** Sits clear of the existing box-art plate rather than the reference's higher one. */
