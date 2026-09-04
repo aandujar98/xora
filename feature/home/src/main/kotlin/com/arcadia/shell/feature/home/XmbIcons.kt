@@ -351,15 +351,19 @@ fun XmbVectorIcon(
     }
 }
 
-/** Inner window of [R.drawable.xmb_figma_folder] where cover art / the checker sits. */
-private const val FOLDER_WINDOW_LEFT = 0.060f
-private const val FOLDER_WINDOW_TOP = 0.284f
-private const val FOLDER_WINDOW_RIGHT = 0.947f
-private const val FOLDER_WINDOW_BOTTOM = 0.853f
+/**
+ * Inner checkerboard of [R.drawable.xmb_folder_img] (277×196), just inside the recessed
+ * rails. Photo / video folder covers crop into this whole window so the checker does not
+ * show around the thumbnail.
+ */
+private const val FOLDER_WINDOW_LEFT = 0.065f
+private const val FOLDER_WINDOW_TOP = 0.245f
+private const val FOLDER_WINDOW_RIGHT = 0.931f
+private const val FOLDER_WINDOW_BOTTOM = 0.908f
 
 /**
- * Folder_IMG: the Figma folder glyph with a checker in its window, or a gallery image cropped
- * into that same window when the user has attached one. Content folders (Photos / Videos / Music)
+ * Folder_IMG: the ICONS-2 folder glyph with a checker in its window, or a gallery image cropped
+ * into that whole checker when the folder has a cover. Content folders (Photos / Videos / Music)
  * draw the matching glyph in the window when no cover is set.
  */
 @Composable
