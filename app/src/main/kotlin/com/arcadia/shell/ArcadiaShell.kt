@@ -614,6 +614,14 @@ fun ArcadiaShell(
                             onOpenHomeSettings = onOpenHomeSettings,
                         )
                     },
+                    backdrop = {
+                        Image(
+                            painter = painterResource(R.drawable.sora_settings_hero),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    },
                 )
             }
 
