@@ -12,6 +12,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,14 +43,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,6 +66,8 @@ import com.arcadia.shell.feature.home.StartSettingsCategory
 import com.arcadia.shell.feature.home.StartSettingsRow
 import com.arcadia.shell.feature.home.StartSettingsTrailingIcon
 import com.arcadia.shell.feature.home.StartSettingsUiState
+import com.arcadia.shell.feature.home.XmbIcon
+import com.arcadia.shell.feature.home.vectorDrawableRes
 
 private val ListShape = RoundedCornerShape(22.dp)
 private val TabShape = RoundedCornerShape(12.dp)
@@ -352,216 +355,24 @@ private fun CategoryGlyph(
     tint: Color,
     modifier: Modifier = Modifier,
 ) {
-    Canvas(modifier = modifier.size(24.dp)) {
-        val stroke = Stroke(width = size.minDimension * 0.09f, cap = StrokeCap.Round)
-        when (category) {
-            StartSettingsCategory.Display -> {
-                // Film strip
-                val left = size.width * 0.18f
-                val top = size.height * 0.12f
-                val w = size.width * 0.64f
-                val h = size.height * 0.76f
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(left, top),
-                    size = Size(w, h),
-                    cornerRadius = CornerRadius(3.dp.toPx()),
-                    style = stroke,
-                )
-                val perforations = 4
-                for (i in 0 until perforations) {
-                    val y = top + h * ((i + 0.5f) / perforations)
-                    drawCircle(
-                        color = tint,
-                        radius = size.minDimension * 0.04f,
-                        center = Offset(left + w * 0.14f, y),
-                        style = stroke,
-                    )
-                    drawCircle(
-                        color = tint,
-                        radius = size.minDimension * 0.04f,
-                        center = Offset(left + w * 0.86f, y),
-                        style = stroke,
-                    )
-                }
-            }
-            StartSettingsCategory.Themes -> {
-                // Palette swatches
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.16f,
-                    center = Offset(size.width * 0.34f, size.height * 0.42f),
-                    style = stroke,
-                )
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.16f,
-                    center = Offset(size.width * 0.58f, size.height * 0.42f),
-                    style = stroke,
-                )
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.12f,
-                    center = Offset(size.width * 0.46f, size.height * 0.64f),
-                    style = stroke,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.22f, size.height * 0.78f),
-                    end = Offset(size.width * 0.78f, size.height * 0.78f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-            }
-            StartSettingsCategory.Sound -> {
-                // Eighth note
-                val stemX = size.width * 0.58f
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.16f,
-                    center = Offset(size.width * 0.38f, size.height * 0.68f),
-                    style = stroke,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(stemX, size.height * 0.22f),
-                    end = Offset(stemX, size.height * 0.68f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-                val flag = Path().apply {
-                    moveTo(stemX, size.height * 0.22f)
-                    quadraticTo(
-                        size.width * 0.88f,
-                        size.height * 0.32f,
-                        stemX + size.width * 0.02f,
-                        size.height * 0.48f,
-                    )
-                }
-                drawPath(flag, color = tint, style = stroke)
-            }
-            StartSettingsCategory.Scrape -> {
-                // Folder
-                val path = Path().apply {
-                    moveTo(size.width * 0.14f, size.height * 0.36f)
-                    lineTo(size.width * 0.14f, size.height * 0.28f)
-                    lineTo(size.width * 0.42f, size.height * 0.28f)
-                    lineTo(size.width * 0.50f, size.height * 0.36f)
-                    lineTo(size.width * 0.86f, size.height * 0.36f)
-                    lineTo(size.width * 0.86f, size.height * 0.78f)
-                    lineTo(size.width * 0.14f, size.height * 0.78f)
-                    close()
-                }
-                drawPath(path, color = tint, style = stroke)
-            }
-            StartSettingsCategory.Social -> {
-                // Plug
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(size.width * 0.28f, size.height * 0.38f),
-                    size = Size(size.width * 0.44f, size.height * 0.36f),
-                    cornerRadius = CornerRadius(3.dp.toPx()),
-                    style = stroke,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.40f, size.height * 0.20f),
-                    end = Offset(size.width * 0.40f, size.height * 0.38f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.60f, size.height * 0.20f),
-                    end = Offset(size.width * 0.60f, size.height * 0.38f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.50f, size.height * 0.74f),
-                    end = Offset(size.width * 0.50f, size.height * 0.88f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-            }
-            StartSettingsCategory.Notifications -> {
-                // Bell
-                val dome = Path().apply {
-                    moveTo(size.width * 0.28f, size.height * 0.52f)
-                    quadraticTo(
-                        size.width * 0.28f,
-                        size.height * 0.22f,
-                        size.width * 0.50f,
-                        size.height * 0.20f,
-                    )
-                    quadraticTo(
-                        size.width * 0.72f,
-                        size.height * 0.22f,
-                        size.width * 0.72f,
-                        size.height * 0.52f,
-                    )
-                    lineTo(size.width * 0.78f, size.height * 0.68f)
-                    lineTo(size.width * 0.22f, size.height * 0.68f)
-                    close()
-                }
-                drawPath(dome, color = tint, style = stroke)
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.50f, size.height * 0.12f),
-                    end = Offset(size.width * 0.50f, size.height * 0.20f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.05f,
-                    center = Offset(size.width * 0.50f, size.height * 0.12f),
-                    style = stroke,
-                )
-                drawArc(
-                    color = tint,
-                    startAngle = 20f,
-                    sweepAngle = 140f,
-                    useCenter = false,
-                    topLeft = Offset(size.width * 0.38f, size.height * 0.64f),
-                    size = Size(size.width * 0.24f, size.height * 0.22f),
-                    style = stroke,
-                )
-            }
-            StartSettingsCategory.General -> {
-                // Gear (simple)
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val r = size.minDimension * 0.28f
-                drawCircle(color = tint, radius = r, center = Offset(cx, cy), style = stroke)
-                drawCircle(
-                    color = tint,
-                    radius = r * 0.38f,
-                    center = Offset(cx, cy),
-                    style = stroke,
-                )
-                for (i in 0 until 6) {
-                    val angle = Math.toRadians((i * 60).toDouble())
-                    val inner = r * 1.05f
-                    val outer = r * 1.45f
-                    drawLine(
-                        color = tint,
-                        start = Offset(
-                            cx + (inner * kotlin.math.cos(angle)).toFloat(),
-                            cy + (inner * kotlin.math.sin(angle)).toFloat(),
-                        ),
-                        end = Offset(
-                            cx + (outer * kotlin.math.cos(angle)).toFloat(),
-                            cy + (outer * kotlin.math.sin(angle)).toFloat(),
-                        ),
-                        strokeWidth = stroke.width * 1.2f,
-                        cap = StrokeCap.Round,
-                    )
-                }
-            }
-        }
-    }
+    val icon = category.toXmbIcon()
+    val resId = icon.vectorDrawableRes() ?: return
+    Image(
+        painter = painterResource(resId),
+        contentDescription = null,
+        colorFilter = ColorFilter.tint(tint),
+        modifier = modifier.size(24.dp),
+    )
+}
+
+private fun StartSettingsCategory.toXmbIcon(): XmbIcon = when (this) {
+    StartSettingsCategory.General -> XmbIcon.General
+    StartSettingsCategory.Display -> XmbIcon.Display
+    StartSettingsCategory.Themes -> XmbIcon.Themes
+    StartSettingsCategory.Sound -> XmbIcon.Sound
+    StartSettingsCategory.Scrape -> XmbIcon.Scrape
+    StartSettingsCategory.Social -> XmbIcon.Social
+    StartSettingsCategory.Notifications -> XmbIcon.Notifications
 }
 
 @Composable
