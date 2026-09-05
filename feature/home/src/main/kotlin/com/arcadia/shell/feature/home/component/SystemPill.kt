@@ -166,8 +166,9 @@ private val CardStroke = 3.dp
 private val CardAssetShadowDp = 4.dp
 private val CardShadowInk = Color(0xFF000000)
 private val Game0Border = 3.dp
-private val FavoritePlateW = 178.5.dp
-private val FavoritePlateH = 91.8.dp
+/** Another 15% under the previous 178.5×91.8 plate so the art clears the card chrome. */
+private val FavoritePlateW = 151.725.dp
+private val FavoritePlateH = 78.03.dp
 private val FavoritePlateRadius = 12.dp
 private val ProfileCardWidth = 464.dp
 /** Figma 464×444 (nodes 363:1927 / 710:1769). Live card wraps its content instead of this frame. */
@@ -200,8 +201,8 @@ private val CollapsedAvatarSize = 105.6.dp
 /** Figma crops the disc on both screen edges; this clears the pane padding to get there. */
 private val CollapsedAvatarBleed = 24.dp
 
-/** Expanded header disc — Figma 464×444 card (nodes 363:1927 / 710:1686). */
-private val ProfileAvatarSelectedSize = 115.2.dp
+/** Expanded header disc — 15% smaller than the collapsed RT bubble. */
+private val ProfileAvatarSelectedSize = 89.76.dp
 
 /** Selected drop shadow: X4 Y4 B4 S0. Idle chrome stays 10 / 10 / 15. */
 private val ProfileBubbleSelectedShadow = 4.dp
@@ -469,6 +470,14 @@ fun SystemPill(
             }
         }
 
+            val profileIconAlpha by animateFloatAsState(
+                targetValue = if (systemProfile.favoritePickerOpen) 0f else 1f,
+                animationSpec = tween(
+                    durationMillis = motionMillis(220),
+                    easing = ProfileBubbleEasing,
+                ),
+                label = "profileIconFavoriteFade",
+            )
             androidx.compose.animation.AnimatedVisibility(
                 visible = expanded || !hideCollapsedChrome,
                 enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
@@ -482,6 +491,7 @@ fun SystemPill(
                     avatarImageModel = avatarImageModel,
                     cardWidth = cardWidth,
                     onClick = if (expanded) onEditProfile else onToggle,
+                    modifier = Modifier.graphicsLayer { alpha = profileIconAlpha },
                 )
             }
         }
