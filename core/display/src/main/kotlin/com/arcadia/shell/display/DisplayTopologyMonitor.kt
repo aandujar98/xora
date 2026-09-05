@@ -51,7 +51,7 @@ class DisplayTopologyMonitor(private val context: Context) {
     }.distinctUntilChanged()
 
     private fun readTopology() = DisplayTopology(
-        displays = displayManager.allLogicalDisplays().map { it.toShellDisplay() },
+        displays = context.allGameDisplays().map { it.toShellDisplay() },
         supportsActivitiesOnSecondaryDisplays = supportsActivitiesOnSecondaryDisplays,
     )
 

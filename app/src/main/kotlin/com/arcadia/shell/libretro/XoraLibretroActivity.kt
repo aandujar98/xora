@@ -44,7 +44,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.wrapContentSize
@@ -85,8 +84,11 @@ import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.LocalArcadiaHaze
 import com.arcadia.shell.display.DisplayRefresh
 import com.arcadia.shell.display.DisplayTopologyMonitor
+import com.arcadia.shell.display.ExpandDualDisplayMessages
 import com.arcadia.shell.display.ImmersiveMode
-import com.arcadia.shell.display.SecondaryDisplayPane
+import com.arcadia.shell.display.OverlayPermission
+import com.arcadia.shell.display.SecondDisplayAttachResult
+import com.arcadia.shell.display.SecondDisplayImageHost
 import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.EmulatorMenuAction
 import com.arcadia.shell.feature.home.EmulatorSaveSlotUi
@@ -337,6 +339,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var expandActive by mutableStateOf(false)
     private var secondaryDisplayId by mutableStateOf<Int?>(null)
     private var expandSplitKind by mutableStateOf(DualScreenSplitKind.Stacked)
+    private val secondDisplayHost by lazy { SecondDisplayImageHost(this) }
 
     private var inputManager: InputManager? = null
     private val inputDeviceListener = object : InputManager.InputDeviceListener {
@@ -354,6 +357,72 @@ class XoraLibretroActivity : ComponentActivity() {
         expandActive = xoraSettings.expandDualDisplay &&
             platformId in DUAL_SCREEN_PLATFORMS &&
             presentation != null
+    }
+
+    /**
+     * Attach or tear down the second-display ImageView. Must run on the Activity, not inside
+     * the banner Compose host — gameplay pinning disposes that composition.
+     */
+    private fun syncExpandDisplay(announce: Boolean): SecondDisplayAttachResult {
+        refreshExpandTopology()
+        applyStageSettings(xoraSettings)
+        val result = when {
+            !xoraSettings.expandDualDisplay || platformId !in DUAL_SCREEN_PLATFORMS -> {
+                secondDisplayHost.dismiss()
+                secondaryGameView = null
+                expandActive = false
+                SecondDisplayAttachResult.Hidden
+            }
+            secondaryDisplayId == null -> {
+                secondDisplayHost.dismiss()
+                secondaryGameView = null
+                expandActive = false
+                SecondDisplayAttachResult.NoDisplay
+            }
+            else -> {
+                val attach = secondDisplayHost.show(
+                    displayId = secondaryDisplayId!!,
+                    restart = announce,
+                )
+                secondaryGameView = secondDisplayHost.imageView
+                secondaryGameView?.let { view ->
+                    synchronized(bitmapLock) {
+                        val bmp = bottomBitmap
+                        if (bmp != null && !bmp.isRecycled) {
+                            view.setImageBitmap(bmp)
+                        }
+                    }
+                    bindPointerTouch(view, expandSplitKind.bottomPointerTarget)
+                }
+                expandActive = attach == SecondDisplayAttachResult.ShownPresentation ||
+                    attach == SecondDisplayAttachResult.ShownOverlay
+                attach
+            }
+        }
+        bindExpandPointers()
+        if (announce) announceExpand(result)
+        return result
+    }
+
+    private fun bindExpandPointers() {
+        bindPointerTouch(
+            primaryGameView,
+            if (expandActive) {
+                DualScreenPointerTarget.TopHalf
+            } else {
+                DualScreenPointerTarget.Combined
+            },
+        )
+        if (expandActive) {
+            bindPointerTouch(secondaryGameView, expandSplitKind.bottomPointerTarget)
+        }
+    }
+
+    private fun announceExpand(result: SecondDisplayAttachResult) {
+        showMenuMessage(ExpandDualDisplayMessages.forResult(result))
+        if (result == SecondDisplayAttachResult.NeedsOverlayPermission) {
+            runCatching { startActivity(OverlayPermission.settingsIntent(this)) }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -616,103 +685,14 @@ class XoraLibretroActivity : ComponentActivity() {
             // and this one has nothing to draw the vast majority of a session. Show it only while
             // a banner is up or the dual-screen pane is mounted.
             val activeBanner by shellNotifications.active.collectAsStateWithLifecycle()
-            LaunchedEffect(activeBanner, expandActive) {
-                bannerHostNeeded = activeBanner != null || expandActive
+            LaunchedEffect(activeBanner) {
+                bannerHostNeeded = activeBanner != null
                 syncBannerHost()
             }
-            val xora by preferences.xoraEmulatorSettings.collectAsStateWithLifecycle(
-                initialValue = XoraEmulatorSettings(),
-            )
             val raPrefs by preferences.retroAchievementsSettings.collectAsStateWithLifecycle(
                 initialValue = RetroAchievementsSettings(),
             )
-            LaunchedEffect(xora) {
-                xoraSettings = xora
-                azaharLobbyUi = azaharLobbyUi.copy(
-                    standaloneInstalled =
-                        AzaharPublicLobbies.installedStandalonePackage(packageManager) != null,
-                )
-                if (platformId.equals("3ds", ignoreCase = true)) {
-                    refreshPretendoStatus(xora.threeDsPretendoPrep)
-                }
-                refreshExpandTopology()
-                applyStageSettings(xora)
-                applyAudioVolume(xora.audioVolume)
-                if (gameLoaded && platformId in DUAL_SCREEN_PLATFORMS) {
-                    withContext(emuDispatcher) { applyCoreControllerOptions() }
-                    bindPointerTouch(
-                        primaryGameView,
-                        if (expandActive) {
-                            DualScreenPointerTarget.TopHalf
-                        } else {
-                            DualScreenPointerTarget.Combined
-                        },
-                    )
-                }
-            }
-            LaunchedEffect(Unit) {
-                DisplayTopologyMonitor(this@XoraLibretroActivity).topology().collect {
-                    val wasExpanded = expandActive
-                    refreshExpandTopology()
-                    applyStageSettings(xoraSettings)
-                    if (gameLoaded && platformId in DUAL_SCREEN_PLATFORMS &&
-                        (wasExpanded != expandActive || expandActive)
-                    ) {
-                        withContext(emuDispatcher) { applyCoreControllerOptions() }
-                        bindPointerTouch(
-                            primaryGameView,
-                            if (expandActive) {
-                                DualScreenPointerTarget.TopHalf
-                            } else {
-                                DualScreenPointerTarget.Combined
-                            },
-                        )
-                        if (expandActive) {
-                            bindPointerTouch(
-                                secondaryGameView,
-                                expandSplitKind.bottomPointerTarget,
-                            )
-                        }
-                    }
-                }
-            }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
-
-            if (expandActive) {
-                SecondaryDisplayPane(displayId = secondaryDisplayId) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(androidx.compose.ui.graphics.Color.Black),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        val bottom = bottomBitmap
-                        if (bottom != null) {
-                            XoraScaledGameFrame(
-                                contentWidthPx = bottom.width,
-                                contentHeightPx = bottom.height,
-                                mode = XoraAspectMode.Stretch,
-                                integerScaleCap = xora.integerScale,
-                                modifier = Modifier.fillMaxSize(),
-                            ) {
-                                XoraGameImageView(
-                                    bitmap = bottom,
-                                    frameTick = frameTick,
-                                    aspectMode = XoraAspectMode.Stretch,
-                                    onImageView = { view ->
-                                        secondaryGameView = view
-                                        bindPointerTouch(
-                                            view,
-                                            expandSplitKind.bottomPointerTarget,
-                                        )
-                                    },
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
 
             // Always dark + Haze killed for the whole emulator session. liquidGlass frost over
             // anything near the framebuffer was the wash left after pause submenus / Resume.
@@ -734,6 +714,35 @@ class XoraLibretroActivity : ComponentActivity() {
                             },
                         )
                     }
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            preferences.xoraEmulatorSettings.collect { xora ->
+                val expandChanged = xora.expandDualDisplay != xoraSettings.expandDualDisplay
+                xoraSettings = xora
+                azaharLobbyUi = azaharLobbyUi.copy(
+                    standaloneInstalled =
+                        AzaharPublicLobbies.installedStandalonePackage(packageManager) != null,
+                )
+                if (platformId.equals("3ds", ignoreCase = true)) {
+                    refreshPretendoStatus(xora.threeDsPretendoPrep)
+                }
+                applyAudioVolume(xora.audioVolume)
+                syncExpandDisplay(announce = expandChanged)
+                if (gameLoaded && platformId in DUAL_SCREEN_PLATFORMS) {
+                    withContext(emuDispatcher) { applyCoreControllerOptions() }
+                    bindExpandPointers()
+                }
+            }
+        }
+        lifecycleScope.launch {
+            DisplayTopologyMonitor(this@XoraLibretroActivity).topology().collect {
+                syncExpandDisplay(announce = false)
+                if (gameLoaded && platformId in DUAL_SCREEN_PLATFORMS) {
+                    withContext(emuDispatcher) { applyCoreControllerOptions() }
+                    bindExpandPointers()
                 }
             }
         }
@@ -895,13 +904,16 @@ class XoraLibretroActivity : ComponentActivity() {
             } else {
                 false
             }
-            refreshExpandTopology()
+            val expandResult = syncExpandDisplay(announce = false)
+            bindExpandPointers()
             val bootMsg = when {
                 !saveImport.message.isNullOrBlank() && restored ->
                     "${saveImport.message} · Resumed previous session"
                 !saveImport.message.isNullOrBlank() -> saveImport.message!!
                 restored -> "Resumed previous session"
-                expandActive -> "Expanded · top primary / bottom secondary"
+                expandResult == SecondDisplayAttachResult.ShownPresentation ||
+                    expandResult == SecondDisplayAttachResult.ShownOverlay ->
+                    "Expanded · top primary / bottom secondary"
                 else -> null
             }
             if (!bootMsg.isNullOrBlank()) {
@@ -1421,7 +1433,14 @@ class XoraLibretroActivity : ComponentActivity() {
                 preferences.setXoraAspectMode(XoraAspectMode.Integer)
             }
             EmulatorMenuAction.ToggleExpandDual -> lifecycleScope.launch {
-                preferences.setXoraExpandDualDisplay(!xoraSettings.expandDualDisplay)
+                val enable = !xoraSettings.expandDualDisplay
+                xoraSettings = xoraSettings.copy(expandDualDisplay = enable)
+                preferences.setXoraExpandDualDisplay(enable)
+                syncExpandDisplay(announce = true)
+                if (gameLoaded && platformId in DUAL_SCREEN_PLATFORMS) {
+                    withContext(emuDispatcher) { applyCoreControllerOptions() }
+                    bindExpandPointers()
+                }
             }
             EmulatorMenuAction.ToggleNetplayEnabled -> lifecycleScope.launch {
                 val enable = !xoraSettings.netplayEnabled
@@ -3724,6 +3743,8 @@ class XoraLibretroActivity : ComponentActivity() {
             bottomBitmap = null
         }
         persistSessionForBackground()
+        secondDisplayHost.dismiss()
+        secondaryGameView = null
         runCatching {
             runBlocking(emuDispatcher) { LibretroNative.nativeUnload() }
         }
