@@ -1148,6 +1148,7 @@ private fun PaneForRole(
                         systemProfile = state.systemProfile,
                         trailer = state.trailer,
                         isLaunching = state.isLaunching,
+                        vitaLaunchOpen = state.homeHub.vitaLaunchPageOpen,
                         rssItem = state.rss.selectedItem.takeIf {
                             state.homePage == HomePage.RssFeed
                         },

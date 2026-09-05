@@ -9,7 +9,6 @@ import android.content.res.Configuration
 import android.provider.Settings
 import android.os.PowerManager
 import android.view.accessibility.AccessibilityManager
-import android.widget.ScrollView
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
@@ -349,11 +348,11 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun refreshExpandTopology() {
-        val secondary = DisplayTopologyMonitor(this).current().secondary?.displayId
-        secondaryDisplayId = secondary
+        val presentation = DisplayTopologyMonitor(this).current().presentationDisplay?.displayId
+        secondaryDisplayId = presentation
         expandActive = xoraSettings.expandDualDisplay &&
             platformId in DUAL_SCREEN_PLATFORMS &&
-            secondary != null
+            presentation != null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -833,7 +832,8 @@ class XoraLibretroActivity : ComponentActivity() {
                 }
                 val expand = xora.expandDualDisplay &&
                     platformId in DUAL_SCREEN_PLATFORMS &&
-                    DisplayTopologyMonitor(this@XoraLibretroActivity).current().secondary != null
+                    DisplayTopologyMonitor(this@XoraLibretroActivity)
+                        .current().presentationDisplay != null
                 LibretroNative.nativeClearCoreVariables()
                 LibretroNative.nativeSetNetplayUsername(xora.netplayNickname)
                 XoraCoreOptions.variablesFor(
@@ -1365,7 +1365,7 @@ class XoraLibretroActivity : ComponentActivity() {
         pinGameplaySurfaceRepeatedly()
         keepProfileChipOnTop()
         postWashFrame()
-        gameRoot?.postDelayed({ showWashProbeIfSystemHit() }, WASH_CHECK_DELAY_MS)
+        gameRoot?.postDelayed({ logWashProbeIfSystemHit() }, WASH_CHECK_DELAY_MS)
     }
 
     private fun handleEmulatorMenuAction(action: EmulatorMenuAction) {
@@ -2643,7 +2643,6 @@ class XoraLibretroActivity : ComponentActivity() {
             Log.i("XoraWash", report.toString())
             if (!auto) {
                 copyWashReport(report.toString())
-                showWashReport(report.toString())
             }
         }, root.handler)
     }
@@ -2789,23 +2788,10 @@ class XoraLibretroActivity : ComponentActivity() {
         }.sorted()
     }
 
-    private fun showWashProbeIfSystemHit() {
+    private fun logWashProbeIfSystemHit() {
         if (isFinishing || menuOpen) return
         val probe = collectSystemWashProbe(includeOverlayApps = true)
         Log.i("XoraWash", probe.asText())
-        if (probe.hits.isEmpty()) return
-        showWashReport(
-            buildString {
-                appendLine("WASH PROBE — overlay just closed")
-                probe.hits.forEach { appendLine("ON  $it") }
-                appendLine()
-                appendLine("These sit above the emulator window. Sleep/wake")
-                appendLine("clears a leftover compositor state; turning the")
-                appendLine("flag off stops it coming back.")
-                appendLine("Long-press the profile disc for the full dump")
-                appendLine("(also copied to the clipboard). Tap to dismiss.")
-            },
-        )
     }
 
     private fun copyWashReport(text: String) {
@@ -2847,40 +2833,6 @@ class XoraLibretroActivity : ComponentActivity() {
         val root = gameRoot ?: return
         washReport?.let { root.removeView(it) }
         washReport = null
-    }
-
-    /** On-screen because the whole point is to read it on the handheld the wash happens on. */
-    private fun showWashReport(text: String) {
-        val root = gameRoot ?: return
-        hideWashReport()
-        val density = resources.displayMetrics.density
-        val pad = (12 * density).toInt()
-        val view = TextView(this).apply {
-            setBackgroundColor(AndroidColor.argb(210, 0, 0, 0))
-            setTextColor(AndroidColor.WHITE)
-            textSize = 10f
-            typeface = android.graphics.Typeface.MONOSPACE
-            setPadding(pad, pad, pad, pad)
-            this.text = text
-            isForceDarkAllowed = false
-        }
-        val host = ScrollView(this).apply {
-            isForceDarkAllowed = false
-            isClickable = true
-            setBackgroundColor(AndroidColor.argb(210, 0, 0, 0))
-            layoutParams = FrameLayout.LayoutParams(
-                (root.width * 0.78f).toInt().coerceAtLeast((420 * density).toInt()),
-                (root.height * 0.70f).toInt().coerceAtLeast((220 * density).toInt()),
-                Gravity.TOP or Gravity.START,
-            ).apply {
-                leftMargin = pad
-                topMargin = pad
-            }
-            addView(view)
-            setOnClickListener { hideWashReport() }
-        }
-        washReport = host
-        root.addView(host)
     }
 
     private fun keepProfileChipOnTop() {

@@ -114,7 +114,7 @@ internal data class XoraNetplayInviteOutboxDto(
 
 /** Whole signed-in surface the launcher shows. One identity per device. */
 data class XoraNetworkState(
-    /** False when this build has no client server key — the UI explains instead of erroring. */
+    /** False when the launcher cannot offer XOrA Network sign-in. */
     val configured: Boolean = false,
     /** True until the stored session was restored (or found absent) at launch. */
     val restoring: Boolean = false,

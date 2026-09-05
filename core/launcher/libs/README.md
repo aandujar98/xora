@@ -32,8 +32,10 @@ core/launcher/libs/discord_partner_sdk/include/cdiscord.h
 
 - **Without** the AAR: the app compiles and runs. Rich Presence stays on the status-bridge path;
   Settings shows **SDK missing** with download steps.
-- **With** the AAR: Gradle adds the dependency, enables Prefab + NDK, and builds `libsora_discord`
-  (JNI bridge). Runtime can publish real Rich Presence after Discord account linking.
+- **With** the AAR: Gradle consumes it through `:core:discordpartnersdk` (a project
+  wrapper — AGP cannot take a raw `files("….aar")` on a library module), enables Prefab + NDK,
+  and builds `libsora_discord` (JNI bridge). Runtime can publish real Rich Presence after Discord
+  account linking.
 
 Do **not** commit client secrets. The public Application ID alone is safe to keep in preferences /
 defaults.

@@ -53,7 +53,7 @@ data class ShellUiState(
 
     /** Layout scale for the secondary panel when present. */
     val secondaryUiLayoutScale: Float
-        get() = layoutScaleFor(topology.secondary ?: topology.primary)
+        get() = layoutScaleFor(topology.presentationDisplay ?: topology.primary)
 
     fun layoutScaleFor(display: ShellDisplay?): Float =
         if (uiFitMode == UiFitMode.Auto) computeUiLayoutScale(display) else 1f
@@ -76,7 +76,7 @@ data class ShellUiState(
     /** The pane the built-in display shows, which is always the opposite of the secondary one. */
     val primaryDisplayRole: ScreenRole get() = secondaryDisplayRole.swapped()
 
-    val secondaryDisplayId: Int? get() = topology.secondary?.displayId
+    val secondaryDisplayId: Int? get() = topology.presentationDisplay?.displayId
 
     /** Where the grid currently lives, since that is the screen the user is navigating on. */
     val gridDisplayId: Int?

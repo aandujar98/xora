@@ -239,6 +239,21 @@ const val GAMES_ITEM_LIBRARY = 2
 fun defaultXoraCategoryItemIndex(category: XoraXmbCategory): Int =
     if (category == XoraXmbCategory.Games) GAMES_ITEM_RECENTS else 0
 
+/**
+ * Remembers the hovered row in each top-level XMB tab so L/R (or tapping a category)
+ * lands back on the same item instead of jumping to the default.
+ */
+class XoraCategoryHoverStore {
+    private val hover = mutableMapOf<Int, Int>()
+
+    fun remember(categoryIndex: Int, itemIndex: Int) {
+        hover[categoryIndex] = itemIndex
+    }
+
+    fun restore(categoryIndex: Int, category: XoraXmbCategory): Int =
+        hover[categoryIndex] ?: defaultXoraCategoryItemIndex(category)
+}
+
 fun buildXoraCategoryItems(
     category: XoraXmbCategory,
     /** The player's own display name — not whichever emulator would launch the selected game. */

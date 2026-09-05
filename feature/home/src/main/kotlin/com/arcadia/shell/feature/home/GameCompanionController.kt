@@ -55,9 +55,9 @@ class GameCompanionController @Inject constructor(
      * window is currently hosting the panel.
      */
     val companionDisplayId: StateFlow<Int?> = topologyMonitor.topology()
-        .map { it.secondary?.displayId }
+        .map { it.presentationDisplay?.displayId }
         .distinctUntilChanged()
-        .stateIn(scope, SharingStarted.Eagerly, topologyMonitor.current().secondary?.displayId)
+        .stateIn(scope, SharingStarted.Eagerly, topologyMonitor.current().presentationDisplay?.displayId)
 
     private var resolveJob: Job? = null
 

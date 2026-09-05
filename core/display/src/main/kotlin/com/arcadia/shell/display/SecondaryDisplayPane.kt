@@ -52,9 +52,19 @@ fun SecondaryDisplayPane(
         )
 
         // A display can disappear between the topology snapshot and this call, in which case the
-        // window manager rejects the show outright.
-        runCatching { presentation.show() }
+        // window manager rejects the show outright. Internal presentation panels (AYN Thor
+        // bottom screen) can also reject Presentation while the Activity is on the primary
+        // display — fall back to an overlay window on that panel when overlay permission exists.
+        val presented = runCatching { presentation.show() }.isSuccess
+        val overlay = if (!presented) {
+            DisplayOverlayWindow(context).takeIf { it.show(display.displayId) { currentContent() } }
+        } else {
+            null
+        }
 
-        onDispose { runCatching { presentation.dismiss() } }
+        onDispose {
+            runCatching { presentation.dismiss() }
+            overlay?.dismiss()
+        }
     }
 }

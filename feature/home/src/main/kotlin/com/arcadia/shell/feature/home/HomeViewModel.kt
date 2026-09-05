@@ -104,6 +104,7 @@ import com.arcadia.shell.model.ScreenRole
 import com.arcadia.shell.model.ShortcutSpan
 import com.arcadia.shell.model.swapped
 import com.arcadia.shell.retroachievements.RaConsoleIds
+import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
 import com.arcadia.shell.retroachievements.RaProfile
 import com.arcadia.shell.retroachievements.RaRecentUnlock
@@ -262,6 +263,8 @@ class HomeViewModel @Inject constructor(
     private val xoraReturnItemIndex = mutableMapOf<XoraXmbDepth, Int>()
     /** Last hovered ROM in each platform folder, restored when re-entering that system. */
     private val xoraReturnRomIndex = mutableMapOf<String, Int>()
+    /** Last hovered item in each top-level XMB category tab. */
+    private val xoraCategoryHover = XoraCategoryHoverStore()
     /** Drill-in parents so Cancel returns to the folder the user actually left. */
     private val xoraReturnStack = ArrayDeque<XoraXmbDepth>()
     private val homeShortcutIndex = MutableStateFlow(0)
@@ -3010,29 +3013,47 @@ class HomeViewModel @Inject constructor(
 
     fun prepareVitaShortcutLaunch(index: Int? = null) {
         noteUserActivity()
+        collapseHeroPanels()
         val hub = uiState.value.homeHub
         if (index != null) selectHomeShortcut(index)
         val shortcut = hub.shortcuts.getOrNull(homeShortcutIndex.value) ?: return
         viewModelScope.launch {
             clearVitaShortcutPeel()
-            vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
+            publishVitaShortcutLaunch(shortcut)
             vitaShortcutDepartingIndex.value = null
         }
     }
 
     private fun beginVitaShortcutDepart(index: Int, shortcut: HomeShortcut) {
         playUiOneShot(UiOneShot.BubbleLaunch)
+        collapseHeroPanels()
         clearVitaShortcutPeel()
         vitaShortcutDepartingIndex.value = index
         viewModelScope.launch {
             val resolveJob = launch {
-                vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
+                publishVitaShortcutLaunch(shortcut)
             }
             delay(VitaBubbleDepartMs.toLong())
             resolveJob.join()
             if (vitaShortcutDepartingIndex.value != index) return@launch
             vitaShortcutDepartingIndex.value = null
         }
+    }
+
+    private suspend fun publishVitaShortcutLaunch(shortcut: HomeShortcut) {
+        val preview = resolveVitaShortcutLaunch(shortcut)
+        vitaShortcutLaunch.value = preview
+        hydrateVitaShortcutRa(preview)
+    }
+
+    /** Fill the LiveArea panel's trophy strip for this title once the hash/lookup lands. */
+    private suspend fun hydrateVitaShortcutRa(preview: VitaShortcutLaunchUi) {
+        val game = preview.game?.takeUnless { it.isAndroidApp } ?: return
+        val lookup = runCatching { retroAchievements.lookupSelectedGame(game) }.getOrNull()
+        val progress = (lookup as? RaGameLookup.Matched)?.progress ?: return
+        val current = vitaShortcutLaunch.value ?: return
+        if (current.shortcut.target != preview.shortcut.target) return
+        vitaShortcutLaunch.value = current.copy(raProgress = progress)
     }
 
     /**
@@ -3051,7 +3072,10 @@ class HomeViewModel @Inject constructor(
         val preview = vitaShortcutLaunch.value ?: return
         if (isLaunching.value) return
         playUiOneShot(UiOneShot.BubbleLaunch)
-        openHomeShortcut(preview.shortcut)
+        // The page already resolved the title when it opened, so the cinematic can start on
+        // the frame the sheet comes off instead of after another trip through the library.
+        val game = preview.game
+        if (game != null) launchGame(game) else openHomeShortcut(preview.shortcut)
         vitaLaunchHandoff?.cancel()
         vitaLaunchHandoff = viewModelScope.launch {
             // The page holds the title's artwork through the launch cinematic instead of
@@ -3237,10 +3261,9 @@ class HomeViewModel @Inject constructor(
         ) {
             return
         }
+        rememberXoraCategoryHover()
         xoraCategoryIndex.value = coerced
-        xoraItemIndex.value = defaultXoraCategoryItemIndex(
-            XoraXmbCategory.entries[coerced],
-        )
+        xoraItemIndex.value = restoreXoraCategoryHover(coerced)
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
         xoraReturnStack.clear()
@@ -3454,8 +3477,20 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    private fun rememberXoraCategoryHover() {
+        if (xoraDepth.value != XoraXmbDepth.Category) return
+        xoraCategoryHover.remember(xoraCategoryIndex.value, xoraItemIndex.value)
+    }
+
+    private fun restoreXoraCategoryHover(categoryIndex: Int): Int =
+        xoraCategoryHover.restore(
+            categoryIndex,
+            XoraXmbCategory.entries.getOrElse(categoryIndex) { XoraXmbCategory.Games },
+        )
+
     /** Snapshot the hovered row before drilling into a folder so Cancel can land back on it. */
     private fun rememberXoraFolder(depth: XoraXmbDepth = xoraDepth.value) {
+        rememberXoraCategoryHover()
         xoraReturnItemIndex[depth] = xoraItemIndex.value
         if (xoraReturnStack.lastOrNull() != depth) {
             xoraReturnStack.addLast(depth)
@@ -4837,10 +4872,9 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         val size = XoraXmbCategory.entries.size
         val next = (xoraCategoryIndex.value + delta).mod(size)
+        rememberXoraCategoryHover()
         xoraCategoryIndex.value = next
-        xoraItemIndex.value = defaultXoraCategoryItemIndex(
-            XoraXmbCategory.entries[next],
-        )
+        xoraItemIndex.value = restoreXoraCategoryHover(next)
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
         xoraReturnStack.clear()

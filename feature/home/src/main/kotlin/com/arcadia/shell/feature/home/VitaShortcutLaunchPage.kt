@@ -7,16 +7,13 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +32,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
@@ -68,6 +66,11 @@ private const val LAUNCH_TITLE_SHADOW = 4f
 /** Background fade to white while the tapped bubble is still departing. */
 private const val WhiteFadeInMs = 750
 private const val WhiteHoldRevealMs = 420
+/**
+ * Once the sheet is off, the whole page — bare backing, chrome, status strip — pushes toward the
+ * viewer by this much while it fades, and the game's wallpaper fills the screen behind it.
+ */
+private const val LaunchPagePush = 0.12f
 
 @Composable
 fun VitaShortcutLaunchPage(
@@ -83,7 +86,6 @@ fun VitaShortcutLaunchPage(
     isLaunching: Boolean = false,
     wallpaperAlignX: Float = 0f,
     wallpaperAlignY: Float = 0f,
-    achievementsContent: @Composable BoxScope.() -> Unit = {},
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -138,6 +140,35 @@ fun VitaShortcutLaunchPage(
                 fun py(designY: Float) = ((designY - LIVEAREA_STATUS_H) * unit).dp
                 val status = rememberVitaLiveAreaStatus()
 
+                // The launch plate: the game's wallpaper filling the screen behind the page.
+                // Silent until the sheet is off, then it fades up as the page clears, drifts
+                // in for two seconds and dissolves to black for the emulator hand-off.
+                LaunchPageWallpaper(
+                    page = page,
+                    homeWallpaperPath = homeWallpaperPath,
+                    alignX = wallpaperAlignX,
+                    alignY = wallpaperAlignY,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = artworkScale
+                            scaleY = artworkScale
+                            alpha = cinematic.chrome * cinematic.wallpaperAlpha
+                        },
+                )
+
+                // Everything the player was looking at: the strip, the peeled sheet and its
+                // chrome. It zooms toward the viewer and fades away once the sheet is gone.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val push = 1f + LaunchPagePush * cinematic.chrome
+                            scaleX = push
+                            scaleY = push
+                            alpha = cinematic.chromeAlpha
+                        },
+                ) {
                 VitaLiveAreaStatusBar(
                     backLabel = status.backLabel,
                     timeText = status.timeText,
@@ -149,9 +180,17 @@ fun VitaShortcutLaunchPage(
                     modifier = Modifier.offset(y = originY.dp),
                 )
 
+                val boundaryLeft = (originX + PEEL_BOUNDARY_X * unit).dp
+                val boundaryTop = py(PEEL_BOUNDARY_Y)
                 VitaLiveAreaPeel(
                     peelRequested = peelRequested,
                     unit = unit,
+                    boundary = DpRect(
+                        left = boundaryLeft,
+                        top = boundaryTop,
+                        right = boundaryLeft + du(PEEL_BOUNDARY_W),
+                        bottom = boundaryTop + du(PEEL_BOUNDARY_H),
+                    ),
                     onRequestPeel = onConfirm,
                     onPeeled = onPeeled,
                     modifier = Modifier
@@ -160,32 +199,13 @@ fun VitaShortcutLaunchPage(
                         .height((screenH - originY - LIVEAREA_STATUS_H * unit).dp),
                 ) {
 
-                val wallpaperMotion = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = artworkScale
-                        scaleY = artworkScale
-                        alpha = cinematic.wallpaperAlpha
-                    }
-                if (!page.wallpaperPath.isNullOrBlank()) {
-                    ArtworkImage(
-                        path = page.wallpaperPath,
-                        contentDescription = page.shortcut.title,
-                        fallbackText = "",
-                        contentScale = ContentScale.Crop,
-                        cacheInMemory = false,
-                        decodeMaxEdgePx = 1920,
-                        modifier = wallpaperMotion,
-                    )
-                } else {
-                    HomeWallpaper(
-                        customPath = homeWallpaperPath,
-                        dim = false,
-                        alignX = wallpaperAlignX,
-                        alignY = wallpaperAlignY,
-                        modifier = wallpaperMotion,
-                    )
-                }
+                LaunchPageWallpaper(
+                    page = page,
+                    homeWallpaperPath = homeWallpaperPath,
+                    alignX = wallpaperAlignX,
+                    alignY = wallpaperAlignY,
+                    modifier = Modifier.fillMaxSize(),
+                )
 
                 val cardW = du(LAUNCH_CARD_W)
                 val cardH = du(LAUNCH_CARD_H)
@@ -199,33 +219,7 @@ fun VitaShortcutLaunchPage(
                 val titleY = ruleY - LAUNCH_TITLE_TO_RULE * unit
                 val subtitleY = ruleY + ruleThickness + LAUNCH_RULE_TO_SUBTITLE * unit
 
-                // The sheet's own edge. Its top-right corner is the one that turns down.
-                Box(
-                    modifier = Modifier
-                        .offset(
-                            x = (originX + LIVEAREA_FRAME_LEFT * unit).dp,
-                            y = py(LIVEAREA_FRAME_TOP),
-                        )
-                        .width(
-                            (XORA_DESIGN_WIDTH - LIVEAREA_FRAME_LEFT -
-                                LIVEAREA_FRAME_RIGHT_INSET).let { (it * unit).dp },
-                        )
-                        .height(
-                            (XORA_DESIGN_HEIGHT - LIVEAREA_FRAME_TOP -
-                                LIVEAREA_FRAME_BOTTOM_INSET).let { (it * unit).dp },
-                        )
-                        .border(
-                            width = (2f * unit).dp,
-                            color = Color.White.copy(alpha = 0.45f),
-                            shape = RoundedCornerShape((LIVEAREA_FRAME_RADIUS * unit).dp),
-                        ),
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = cinematic.chromeAlpha },
-                ) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     XmbGamePlate(
                         title = page.shortcut.title,
                         artPath = page.iconPath,
@@ -278,7 +272,7 @@ fun VitaShortcutLaunchPage(
                         title = page.shortcut.title,
                         iconPath = page.iconPath,
                         systemLabel = page.systemLabel,
-                        progress = raProgress,
+                        progress = page.raProgress ?: raProgress,
                         recentGames = page.recentGames,
                         recentOverflow = page.recentOverflow,
                         unit = unit,
@@ -287,8 +281,7 @@ fun VitaShortcutLaunchPage(
                             y = py(PANEL_Y),
                         ),
                     )
-
-                    achievementsContent()
+                }
                 }
                 }
             }
@@ -299,6 +292,36 @@ fun VitaShortcutLaunchPage(
                     .background(Color.White.copy(alpha = whiteAlpha.value.coerceIn(0f, 1f))),
             )
         }
+    }
+}
+
+/** The title's own wallpaper, or the home wallpaper when the shortcut has none. */
+@Composable
+private fun LaunchPageWallpaper(
+    page: VitaShortcutLaunchUi,
+    homeWallpaperPath: String?,
+    alignX: Float,
+    alignY: Float,
+    modifier: Modifier = Modifier,
+) {
+    if (!page.wallpaperPath.isNullOrBlank()) {
+        ArtworkImage(
+            path = page.wallpaperPath,
+            contentDescription = page.shortcut.title,
+            fallbackText = "",
+            contentScale = ContentScale.Crop,
+            cacheInMemory = false,
+            decodeMaxEdgePx = 1920,
+            modifier = modifier,
+        )
+    } else {
+        HomeWallpaper(
+            customPath = homeWallpaperPath,
+            dim = false,
+            alignX = alignX,
+            alignY = alignY,
+            modifier = modifier,
+        )
     }
 }
 
