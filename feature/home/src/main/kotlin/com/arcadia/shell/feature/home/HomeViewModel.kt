@@ -263,6 +263,8 @@ class HomeViewModel @Inject constructor(
     private val xoraReturnItemIndex = mutableMapOf<XoraXmbDepth, Int>()
     /** Last hovered ROM in each platform folder, restored when re-entering that system. */
     private val xoraReturnRomIndex = mutableMapOf<String, Int>()
+    /** Last hovered item in each top-level XMB category tab. */
+    private val xoraCategoryHover = XoraCategoryHoverStore()
     /** Drill-in parents so Cancel returns to the folder the user actually left. */
     private val xoraReturnStack = ArrayDeque<XoraXmbDepth>()
     private val homeShortcutIndex = MutableStateFlow(0)
@@ -3259,10 +3261,9 @@ class HomeViewModel @Inject constructor(
         ) {
             return
         }
+        rememberXoraCategoryHover()
         xoraCategoryIndex.value = coerced
-        xoraItemIndex.value = defaultXoraCategoryItemIndex(
-            XoraXmbCategory.entries[coerced],
-        )
+        xoraItemIndex.value = restoreXoraCategoryHover(coerced)
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
         xoraReturnStack.clear()
@@ -3476,8 +3477,20 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    private fun rememberXoraCategoryHover() {
+        if (xoraDepth.value != XoraXmbDepth.Category) return
+        xoraCategoryHover.remember(xoraCategoryIndex.value, xoraItemIndex.value)
+    }
+
+    private fun restoreXoraCategoryHover(categoryIndex: Int): Int =
+        xoraCategoryHover.restore(
+            categoryIndex,
+            XoraXmbCategory.entries.getOrElse(categoryIndex) { XoraXmbCategory.Games },
+        )
+
     /** Snapshot the hovered row before drilling into a folder so Cancel can land back on it. */
     private fun rememberXoraFolder(depth: XoraXmbDepth = xoraDepth.value) {
+        rememberXoraCategoryHover()
         xoraReturnItemIndex[depth] = xoraItemIndex.value
         if (xoraReturnStack.lastOrNull() != depth) {
             xoraReturnStack.addLast(depth)
@@ -4859,10 +4872,9 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         val size = XoraXmbCategory.entries.size
         val next = (xoraCategoryIndex.value + delta).mod(size)
+        rememberXoraCategoryHover()
         xoraCategoryIndex.value = next
-        xoraItemIndex.value = defaultXoraCategoryItemIndex(
-            XoraXmbCategory.entries[next],
-        )
+        xoraItemIndex.value = restoreXoraCategoryHover(next)
         xoraDepth.value = XoraXmbDepth.Category
         xoraDrilledPlatformId.value = null
         xoraReturnStack.clear()

@@ -73,8 +73,11 @@ fun XoraInGameXmbOverlay(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
+    val categoryHover = remember { XoraCategoryHoverStore() }
     var categoryIndex by remember { mutableIntStateOf(XoraXmbCategory.Games.ordinal) }
-    var itemIndex by remember { mutableIntStateOf(0) }
+    var itemIndex by remember {
+        mutableIntStateOf(defaultXoraCategoryItemIndex(XoraXmbCategory.Games))
+    }
     var depth by remember { mutableStateOf(XoraXmbDepth.Category) }
     val categoryScroll = remember { Animatable(categoryIndex.toFloat()) }
     val itemScroll = remember { Animatable(0f) }
@@ -116,11 +119,15 @@ fun XoraInGameXmbOverlay(
     }
 
     fun selectCategory(index: Int) {
+        if (depth == XoraXmbDepth.Category) {
+            categoryHover.remember(categoryIndex, itemIndex)
+        }
         if (depth != XoraXmbDepth.Category) {
             depth = XoraXmbDepth.Category
         }
-        categoryIndex = index.coerceIn(0, XoraXmbCategory.entries.lastIndex)
-        itemIndex = 0
+        val next = index.coerceIn(0, XoraXmbCategory.entries.lastIndex)
+        categoryIndex = next
+        itemIndex = categoryHover.restore(next, XoraXmbCategory.entries[next])
     }
 
     fun activate() {
@@ -128,6 +135,7 @@ fun XoraInGameXmbOverlay(
         when (val action = item.action) {
             XoraXmbAction.ResumeGame -> onDismiss()
             XoraXmbAction.DrillXoraEmulator -> {
+                categoryHover.remember(categoryIndex, itemIndex)
                 depth = XoraXmbDepth.Emulator
                 itemIndex = 0
             }
@@ -151,7 +159,10 @@ fun XoraInGameXmbOverlay(
             XoraXmbDepth.Emulator -> {
                 depth = XoraXmbDepth.Category
                 categoryIndex = XoraXmbCategory.Games.ordinal
-                itemIndex = 0
+                itemIndex = categoryHover.restore(
+                    XoraXmbCategory.Games.ordinal,
+                    XoraXmbCategory.Games,
+                )
             }
             else -> onDismiss()
         }
