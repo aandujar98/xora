@@ -1061,15 +1061,14 @@ private fun XoraXmbPillChrome(
         )
 
         // Music owns this corner while browsing; the full Now Playing page already has transport,
-        // so the mini player hides there and comes back on exit. The RA card stays hidden until
-        // the XMB is actually sitting on a game (recents / a ROM / in-session Resume).
+        // so the mini player hides there and comes back on exit. The RA card stays on the
+        // lower-right during the Vita launch page (the in-peel copy is gone).
         val musicFocused = state.xoraXmb.category == XoraXmbCategory.Music
         val showMiniPlayer = !launchPageOpen &&
             musicFocused &&
             state.xoraXmb.depth != XoraXmbDepth.NowPlaying &&
             state.xoraXmb.depth != XoraXmbDepth.RaLibrary
-        val showAchievementsCard = !launchPageOpen &&
-            !musicFocused &&
+        val showAchievementsCard = !musicFocused &&
             state.xoraXmb.showsAchievementsCard &&
             state.xoraXmb.depth != XoraXmbDepth.RaLibrary
         if (showMiniPlayer) {

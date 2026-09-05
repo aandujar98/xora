@@ -1,7 +1,6 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -277,23 +276,17 @@ fun HeroPane(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         )
 
-        AnimatedVisibility(
-            visible = !vitaLaunchOpen,
-            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
-            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
+        AchievementsPill(
+            expanded = achievementsExpanded,
+            state = achievements,
+            onToggle = onToggleAchievementsPanel,
+            onSelectTab = onSelectAchievementsTab,
+            onLogin = onLoginRetroAchievements,
+            onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            AchievementsPill(
-                expanded = achievementsExpanded,
-                state = achievements,
-                onToggle = onToggleAchievementsPanel,
-                onSelectTab = onSelectAchievementsTab,
-                onLogin = onLoginRetroAchievements,
-                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-            )
-        }
+        )
         }
 
         if (profileEditing) {

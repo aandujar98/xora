@@ -714,8 +714,6 @@ fun HomePageContent(
                                 launch = launch,
                                 homeWallpaperPath = state.homeHub.wallpaperPath,
                                 peelRequested = state.homeHub.vitaShortcutPeelRequested,
-                                raProgress = launch?.raProgress,
-                                achievements = state.achievements,
                                 onPeelSpeed = onVitaPeelSpeed,
                                 holdWhite = departingIndex != null,
                                 isLaunching = state.isLaunching,

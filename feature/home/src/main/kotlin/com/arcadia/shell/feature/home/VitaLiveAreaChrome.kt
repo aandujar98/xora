@@ -239,8 +239,8 @@ private fun LiveAreaBattery(percent: Int, charging: Boolean, modifier: Modifier 
 }
 
 /**
- * The LiveArea info panel: the game's own icon and name, its system badge, the trophy strip and
- * count with a completion bar, and what has been played lately.
+ * The LiveArea info panel: the game's own icon and name, its system badge, and what has been
+ * played lately. Achievements live on the chrome pill, not inside this card.
  */
 @Composable
 internal fun VitaLiveAreaPanel(
