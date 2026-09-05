@@ -276,17 +276,19 @@ fun HeroPane(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         )
 
-        AchievementsPill(
-            expanded = achievementsExpanded,
-            state = achievements,
-            onToggle = onToggleAchievementsPanel,
-            onSelectTab = onSelectAchievementsTab,
-            onLogin = onLoginRetroAchievements,
-            onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        )
+        if (!vitaLaunchOpen) {
+            AchievementsPill(
+                expanded = achievementsExpanded,
+                state = achievements,
+                onToggle = onToggleAchievementsPanel,
+                onSelectTab = onSelectAchievementsTab,
+                onLogin = onLoginRetroAchievements,
+                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            )
+        }
         }
 
         if (profileEditing) {
