@@ -14,8 +14,8 @@ val localProperties = Properties().apply {
 
 // Nakama client server key (socket.server_key) for api.xoranetwork.com. This is the client API
 // key, NOT the console password / HTTP key / database credentials — those must never ship in the
-// app. The value stays out of git: local.properties `xora.network.server.key` or the
-// XORA_NAKAMA_SERVER_KEY environment variable (CI secret). Blank = feature shows "not configured".
+// app. Prefer local.properties `xora.network.server.key` or XORA_NAKAMA_SERVER_KEY (CI).
+// Website sign-in works without it; email/register/refresh REST still uses this value.
 val xoraNetworkServerKey = (
     localProperties.getProperty("xora.network.server.key")
         ?: System.getenv("XORA_NAKAMA_SERVER_KEY")

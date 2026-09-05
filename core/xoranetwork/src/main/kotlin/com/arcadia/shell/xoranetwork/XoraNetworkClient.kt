@@ -44,8 +44,12 @@ class XoraNetworkClient @Inject constructor(
         const val NOTIFICATIONS_COLLECTION = "xora_notifications"
         const val MESSAGES_COLLECTION = "xora_messages"
 
+        /**
+         * Sign-in talks to account.xoranetwork.com and does not need the Nakama client key.
+         * That key is only for the email/register/refresh REST fallback.
+         */
         val isConfigured: Boolean
-            get() = BuildConfig.XORA_NETWORK_SERVER_KEY.isNotBlank()
+            get() = true
 
         /** Website-hosted avatar. Requires Nakama access+refresh cookies; otherwise 401s. */
         fun avatarUrlFor(username: String): String =
