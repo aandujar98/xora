@@ -40,7 +40,6 @@ object XoraCoreOptions {
             "3ds" -> apply3ds(coreName, settings, expandActive, out)
         }
         applyResolution(platformId, coreName, settings, out)
-        applyAspect(platformId, coreName, settings, out)
         applyNes(platformId, coreName, out)
         applySnes(platformId, coreName, out)
         applyN64(platformId, coreName, out)
@@ -55,6 +54,8 @@ object XoraCoreOptions {
         applyAmiga(platformId, coreName, out)
         applyGba(platformId, coreName, out)
         applyPsp(platformId, coreName, settings, netplay, out)
+        // Last so per-core defaults (N64 4:3, etc.) cannot undo the player's ratio.
+        applyAspect(platformId, coreName, settings, out)
         return out
     }
 
