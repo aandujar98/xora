@@ -29,7 +29,6 @@ import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.rememberLaunchCinematic
-import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ButtonHintBar
 import com.arcadia.shell.feature.home.component.hintsForGuide
 import com.arcadia.shell.feature.home.component.hintsForPage
@@ -37,7 +36,6 @@ import com.arcadia.shell.feature.home.component.hintsForSocialMenu
 import com.arcadia.shell.feature.home.component.hintsForStartSettings
 import com.arcadia.shell.feature.home.component.hintsForSystemMenu
 import com.arcadia.shell.model.ShortcutSpan
-import com.arcadia.shell.retroachievements.RaGameLookup
 
 /**
  * The single-display layout: hero above, Home page below (hub, XMB, or RSS feed).
@@ -410,6 +408,7 @@ fun HomeScreen(
                             systemProfile = state.systemProfile,
                             trailer = state.trailer,
                             isLaunching = state.isLaunching,
+                            vitaLaunchOpen = state.homeHub.vitaLaunchPageOpen,
                             rssItem = state.rss.selectedItem.takeIf {
                                 state.homePage == HomePage.RssFeed
                             },
@@ -710,8 +709,7 @@ fun HomePageContent(
                                 launch = launch,
                                 homeWallpaperPath = state.homeHub.wallpaperPath,
                                 peelRequested = state.homeHub.vitaShortcutPeelRequested,
-                                raProgress = (state.achievements.gameLookup as? RaGameLookup.Matched)
-                                    ?.progress,
+                                raProgress = launch?.raProgress,
                                 holdWhite = departingIndex != null,
                                 isLaunching = state.isLaunching,
                                 wallpaperAlignX = state.homeHub.wallpaperAlignX,
@@ -721,26 +719,6 @@ fun HomePageContent(
                                 },
                                 onPeeled = onLaunchVitaShortcut,
                                 modifier = Modifier.fillMaxSize(),
-                                achievementsContent = {
-                                    if (launch?.game != null) {
-                                        AchievementsPill(
-                                            expanded = state.achievementsPanelExpanded &&
-                                                !state.isLaunching,
-                                            state = state.achievements,
-                                            onToggle = onToggleAchievementsPanel,
-                                            onSelectTab = onSelectAchievementsTab,
-                                            onLogin = onLoginRetroAchievements,
-                                            onLoginWithApiKey =
-                                                onLoginRetroAchievementsWithApiKey,
-                                            modifier = Modifier
-                                                .align(Alignment.BottomEnd)
-                                                .padding(
-                                                    horizontal = 16.dp,
-                                                    vertical = 12.dp,
-                                                ),
-                                        )
-                                    }
-                                },
                             )
                             VitaShortcutTray(
                                 visible = trayOpen,

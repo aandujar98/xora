@@ -8,7 +8,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -87,7 +86,6 @@ fun VitaShortcutLaunchPage(
     isLaunching: Boolean = false,
     wallpaperAlignX: Float = 0f,
     wallpaperAlignY: Float = 0f,
-    achievementsContent: @Composable BoxScope.() -> Unit = {},
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -274,7 +272,7 @@ fun VitaShortcutLaunchPage(
                         title = page.shortcut.title,
                         iconPath = page.iconPath,
                         systemLabel = page.systemLabel,
-                        progress = raProgress,
+                        progress = page.raProgress ?: raProgress,
                         recentGames = page.recentGames,
                         recentOverflow = page.recentOverflow,
                         unit = unit,
@@ -283,8 +281,6 @@ fun VitaShortcutLaunchPage(
                             y = py(PANEL_Y),
                         ),
                     )
-
-                    achievementsContent()
                 }
                 }
                 }

@@ -18,6 +18,7 @@ import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.PlatformSummary
 import com.arcadia.shell.model.ScanProgress
 import com.arcadia.shell.model.ShortcutSpan
+import com.arcadia.shell.retroachievements.RaGameProgress
 
 enum class TabKind { All, Favorites, Recent, Apps, Platform }
 
@@ -135,7 +136,11 @@ data class HomeHubUiState(
     val pendingShortcutSpan: ShortcutSpan = ShortcutSpan.Default,
     /** Non-null while picking a library game or Android app to pin. */
     val shortcutTargetPicker: ShortcutTargetPickerUiState? = null,
-)
+) {
+    /** True while the LiveArea peel page (or its departing bubble) owns the screen. */
+    val vitaLaunchPageOpen: Boolean
+        get() = vitaShortcutLaunch != null || vitaShortcutDepartingIndex != null
+}
 
 /** Isolated Vita shortcut launch page — wallpaper + one game icon + title. */
 data class VitaShortcutLaunchUi(
@@ -151,6 +156,8 @@ data class VitaShortcutLaunchUi(
     val recentGames: List<Game> = emptyList(),
     /** How many more recently played titles the row could not show. */
     val recentOverflow: Int = 0,
+    /** This title's RA set, filled in after the page opens so the panel under the box art updates. */
+    val raProgress: RaGameProgress? = null,
 )
 
 /** Idle trailer overlay for the hero pane. */

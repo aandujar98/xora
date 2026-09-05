@@ -1,6 +1,7 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -90,6 +91,7 @@ fun HeroPane(
     systemProfile: SystemProfileCardState = SystemProfileCardState(),
     trailer: HeroTrailerState = HeroTrailerState(),
     isLaunching: Boolean = false,
+    vitaLaunchOpen: Boolean = false,
     rssItem: RssFeedItem? = null,
     showHomeWallpaper: Boolean = false,
     homeWallpaperPath: String? = null,
@@ -129,9 +131,9 @@ fun HeroPane(
 ) {
     val cinematic = rememberLaunchCinematic(isLaunching)
     val chromeProgress = cinematic.chrome
-    val accountExpanded = accountPanelExpanded && !isLaunching
-    val systemExpanded = systemPanelExpanded && !isLaunching
-    val achievementsExpanded = achievementsPanelExpanded && !isLaunching
+    val accountExpanded = accountPanelExpanded && !isLaunching && !vitaLaunchOpen
+    val systemExpanded = systemPanelExpanded && !isLaunching && !vitaLaunchOpen
+    val achievementsExpanded = achievementsPanelExpanded && !isLaunching && !vitaLaunchOpen
     val artworkScale = launchBackdropScale(cinematic.zoom)
     var profileEditing by remember { mutableStateOf(false) }
 
@@ -241,7 +243,7 @@ fun HeroPane(
             profileAvatarModel = profileAvatarModel,
             accountRows = accountPanelRows,
             selectedRowIndex = accountPanelSelectedIndex,
-            hideCollapsedChrome = activeNotificationPresent,
+            hideCollapsedChrome = vitaLaunchOpen || activeNotificationPresent,
             onToggle = onToggleAccountPanel,
             onSelectTab = onSelectSocialTab,
             onSelectRow = onSelectAccountRow,
@@ -263,6 +265,7 @@ fun HeroPane(
             systemProfile = systemProfile,
             expanded = systemExpanded,
             selectedRowIndex = systemPanelSelectedIndex,
+            hideCollapsedChrome = vitaLaunchOpen,
             onToggle = onToggleSystemPanel,
             onSelectRow = onSelectSystemRow,
             onActivateRow = onActivateSystemRow,
@@ -274,17 +277,23 @@ fun HeroPane(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         )
 
-        AchievementsPill(
-            expanded = achievementsExpanded,
-            state = achievements,
-            onToggle = onToggleAchievementsPanel,
-            onSelectTab = onSelectAchievementsTab,
-            onLogin = onLoginRetroAchievements,
-            onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+        AnimatedVisibility(
+            visible = !vitaLaunchOpen,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-        )
+        ) {
+            AchievementsPill(
+                expanded = achievementsExpanded,
+                state = achievements,
+                onToggle = onToggleAchievementsPanel,
+                onSelectTab = onSelectAchievementsTab,
+                onLogin = onLoginRetroAchievements,
+                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+            )
+        }
         }
 
         if (profileEditing) {

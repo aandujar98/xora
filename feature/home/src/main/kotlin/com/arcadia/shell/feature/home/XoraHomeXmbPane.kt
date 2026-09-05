@@ -987,6 +987,7 @@ private fun XoraXmbPillChrome(
         if (state.profileEditRequest > 0) profileEditing = true
     }
     val launching = state.isLaunching
+    val launchPageOpen = state.homeHub.vitaLaunchPageOpen
     val reduceMotion = rememberReduceMotion()
     val introSlide = rememberIntroSlide(
         reveal = state.homeIntroReveal,
@@ -995,9 +996,9 @@ private fun XoraXmbPillChrome(
     )
     val slidePx = with(LocalDensity.current) { 72.dp.toPx() } * introSlide
     val introAlpha = (1f - introSlide).coerceIn(0f, 1f)
-    val accountExpanded = state.accountPanelExpanded && !launching
-    val systemExpanded = state.systemPanelExpanded && !launching
-    val achievementsExpanded = state.achievementsPanelExpanded && !launching
+    val accountExpanded = state.accountPanelExpanded && !launching && !launchPageOpen
+    val systemExpanded = state.systemPanelExpanded && !launching && !launchPageOpen
+    val achievementsExpanded = state.achievementsPanelExpanded && !launching && !launchPageOpen
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val paneMaxHeight = this.maxHeight
@@ -1010,7 +1011,8 @@ private fun XoraXmbPillChrome(
             profileAvatarModel = state.profileAvatarModel,
             accountRows = state.accountPanelRows,
             selectedRowIndex = state.accountPanelSelectedIndex,
-            hideCollapsedChrome = state.activeNotificationPresent ||
+            hideCollapsedChrome = launchPageOpen ||
+                state.activeNotificationPresent ||
                 state.photos.chromeOverlayOpen ||
                 state.xoraXmb.depth == XoraXmbDepth.RaLibrary,
             onToggle = onToggleAccountPanel,
@@ -1039,7 +1041,8 @@ private fun XoraXmbPillChrome(
             systemProfile = state.systemProfile,
             expanded = systemExpanded,
             selectedRowIndex = state.systemPanelSelectedIndex,
-            hideCollapsedChrome = state.photos.chromeOverlayOpen ||
+            hideCollapsedChrome = launchPageOpen ||
+                state.photos.chromeOverlayOpen ||
                 state.xoraXmb.depth == XoraXmbDepth.RaLibrary,
             onToggle = onToggleSystemPanel,
             onSelectRow = onSelectSystemRow,
@@ -1061,12 +1064,11 @@ private fun XoraXmbPillChrome(
         // so the mini player hides there and comes back on exit. The RA card stays hidden until
         // the XMB is actually sitting on a game (recents / a ROM / in-session Resume).
         val musicFocused = state.xoraXmb.category == XoraXmbCategory.Music
-        val launchGame = state.homeHub.vitaShortcutLaunch?.game
-        val showMiniPlayer = launchGame == null &&
+        val showMiniPlayer = !launchPageOpen &&
             musicFocused &&
             state.xoraXmb.depth != XoraXmbDepth.NowPlaying &&
             state.xoraXmb.depth != XoraXmbDepth.RaLibrary
-        val showAchievementsCard = launchGame == null &&
+        val showAchievementsCard = !launchPageOpen &&
             !musicFocused &&
             state.xoraXmb.showsAchievementsCard &&
             state.xoraXmb.depth != XoraXmbDepth.RaLibrary

@@ -104,6 +104,7 @@ import com.arcadia.shell.model.ScreenRole
 import com.arcadia.shell.model.ShortcutSpan
 import com.arcadia.shell.model.swapped
 import com.arcadia.shell.retroachievements.RaConsoleIds
+import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
 import com.arcadia.shell.retroachievements.RaProfile
 import com.arcadia.shell.retroachievements.RaRecentUnlock
@@ -3010,29 +3011,47 @@ class HomeViewModel @Inject constructor(
 
     fun prepareVitaShortcutLaunch(index: Int? = null) {
         noteUserActivity()
+        collapseHeroPanels()
         val hub = uiState.value.homeHub
         if (index != null) selectHomeShortcut(index)
         val shortcut = hub.shortcuts.getOrNull(homeShortcutIndex.value) ?: return
         viewModelScope.launch {
             clearVitaShortcutPeel()
-            vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
+            publishVitaShortcutLaunch(shortcut)
             vitaShortcutDepartingIndex.value = null
         }
     }
 
     private fun beginVitaShortcutDepart(index: Int, shortcut: HomeShortcut) {
         playUiOneShot(UiOneShot.BubbleLaunch)
+        collapseHeroPanels()
         clearVitaShortcutPeel()
         vitaShortcutDepartingIndex.value = index
         viewModelScope.launch {
             val resolveJob = launch {
-                vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
+                publishVitaShortcutLaunch(shortcut)
             }
             delay(VitaBubbleDepartMs.toLong())
             resolveJob.join()
             if (vitaShortcutDepartingIndex.value != index) return@launch
             vitaShortcutDepartingIndex.value = null
         }
+    }
+
+    private suspend fun publishVitaShortcutLaunch(shortcut: HomeShortcut) {
+        val preview = resolveVitaShortcutLaunch(shortcut)
+        vitaShortcutLaunch.value = preview
+        hydrateVitaShortcutRa(preview)
+    }
+
+    /** Fill the LiveArea panel's trophy strip for this title once the hash/lookup lands. */
+    private suspend fun hydrateVitaShortcutRa(preview: VitaShortcutLaunchUi) {
+        val game = preview.game?.takeUnless { it.isAndroidApp } ?: return
+        val lookup = runCatching { retroAchievements.lookupSelectedGame(game) }.getOrNull()
+        val progress = (lookup as? RaGameLookup.Matched)?.progress ?: return
+        val current = vitaShortcutLaunch.value ?: return
+        if (current.shortcut.target != preview.shortcut.target) return
+        vitaShortcutLaunch.value = current.copy(raProgress = progress)
     }
 
     /**
