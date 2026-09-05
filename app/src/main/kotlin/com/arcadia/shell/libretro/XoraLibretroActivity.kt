@@ -842,6 +842,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     settings = xora,
                     expandActive = expand,
                     netplay = XoraCoreOptions.NetplayContext(),
+                    romPath = romPath.orEmpty(),
                 ).forEach { (key, value) ->
                     LibretroNative.nativeSetCoreVariable(key, value)
                 }
@@ -3060,6 +3061,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 joining = ui.role == XoraNetplayRole.Client,
                 hostAddress = pspAdhocHostAddress(ui),
             ),
+            romPath = romFilePath.orEmpty(),
         ).forEach { (key, value) ->
             LibretroNative.nativeSetCoreVariable(key, value)
         }

@@ -141,6 +141,50 @@ class XoraCoreOptionsTest {
     }
 
     @Test
+    fun ndsCartsForceDsModeAndBuiltinBios() {
+        val melonDsDs = XoraCoreOptions.variablesFor(
+            "nds",
+            "melondsds",
+            settings,
+            romPath = "/storage/ROMs/NDS/Mario Kart DS.nds",
+        )
+        assertEquals("ds", melonDsDs["melonds_console_mode"])
+        assertEquals("ds", melonDsDs["melonds_ds_console_mode"])
+        assertEquals("builtin", melonDsDs["melonds_sysfile_mode"])
+        assertEquals("direct", melonDsDs["melonds_boot_mode"])
+        assertFalse(XoraCoreOptions.ndsRomWantsDsiMode("/storage/ROMs/NDS/Mario Kart DS.nds"))
+
+        val legacy = XoraCoreOptions.variablesFor(
+            "nds",
+            "melonds",
+            settings,
+            romPath = "pokemon.NDS",
+        )
+        assertEquals("DS", legacy["melonds_console_mode"])
+        assertEquals("ds", legacy["melonds_ds_console_mode"])
+    }
+
+    @Test
+    fun dsiWareKeepsDsiConsoleMode() {
+        val vars = XoraCoreOptions.variablesFor(
+            "nds",
+            "melondsds",
+            settings,
+            romPath = "/storage/ROMs/DSi/Flipnote Studio.dsi",
+        )
+        assertEquals("dsi", vars["melonds_console_mode"])
+        assertEquals("dsi", vars["melonds_ds_console_mode"])
+        assertTrue(XoraCoreOptions.ndsRomWantsDsiMode("Flipnote Studio.dsi"))
+        val legacy = XoraCoreOptions.variablesFor(
+            "nds",
+            "melonds",
+            settings,
+            romPath = "game.dsi",
+        )
+        assertEquals("DSi", legacy["melonds_console_mode"])
+    }
+
+    @Test
     fun ndsCanSwitchToWiimmfiOrOff() {
         val wiimmfi = XoraCoreOptions.variablesFor(
             "nds",

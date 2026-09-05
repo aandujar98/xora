@@ -1529,6 +1529,13 @@ fun SettingsScreen(
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 SettingsFieldLabel("Nintendo DS layout")
+                Text(
+                    text = "Regular DS games boot in DS mode with the built-in BIOS so " +
+                        "melonDS DS does not ask for a DSi NAND. DSiWare (.dsi) still " +
+                        "needs a NAND dump in the system folder.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DualScreenLayout.entries.forEach { layout ->
                         FilterChip(

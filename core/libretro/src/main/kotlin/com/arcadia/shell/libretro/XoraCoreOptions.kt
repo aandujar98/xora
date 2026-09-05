@@ -31,10 +31,11 @@ object XoraCoreOptions {
         settings: XoraEmulatorSettings,
         expandActive: Boolean = false,
         netplay: NetplayContext = NetplayContext(),
+        romPath: String = "",
     ): Map<String, String> {
         val out = linkedMapOf<String, String>()
         when (platformId) {
-            "nds" -> applyNds(coreName, settings, expandActive, out)
+            "nds" -> applyNds(coreName, settings, expandActive, romPath, out)
             "3ds" -> apply3ds(coreName, settings, expandActive, out)
         }
         applyResolution(platformId, coreName, settings, out)
@@ -331,6 +332,7 @@ object XoraCoreOptions {
         coreName: String,
         settings: XoraEmulatorSettings,
         expandActive: Boolean,
+        romPath: String,
         out: MutableMap<String, String>,
     ) {
         val layout = if (expandActive) DualScreenLayout.TopBottom else settings.ndsScreenLayout
@@ -341,11 +343,14 @@ object XoraCoreOptions {
         out["melonds_screen_layout"] = melon
         out["melonds_screen_gap"] = gap.toString()
         out["melonds_ds_screen_layout1"] = melonDs
+        out["melonds_screen_layout1"] = melonDs
         out["melonds_ds_number_of_screen_layouts"] = "1"
+        out["melonds_number_of_screen_layouts"] = "1"
         // Absolute stylus — joystick/mouse modes ignore the Android touch screen.
         out["melonds_touch_mode"] = "Touch"
         out["melonds_ds_touch_mode"] = "absolute"
 
+        applyNdsConsoleMode(coreName, romPath, out)
         applyNdsWfc(settings, out)
 
         if (coreName.contains("desmume", ignoreCase = true)) {
@@ -399,6 +404,40 @@ object XoraCoreOptions {
             out["azahar_resolution_factor"] = factor
         }
         // melonDS software renderer ignores most scale factors; leave layout-driven.
+    }
+
+    /**
+     * Regular DS carts must not boot in DSi mode — melonDS DS then demands a NAND dump
+     * and shows the watermelon error. `.dsi` / DSiWare keep DSi so NAND users still work.
+     *
+     * Built-in BIOS + direct boot so a handheld without dumps can play Mario Kart DS.
+     */
+    private fun applyNdsConsoleMode(
+        coreName: String,
+        romPath: String,
+        out: MutableMap<String, String>,
+    ) {
+        val dsi = ndsRomWantsDsiMode(romPath)
+        val melonDsDs = coreName.contains("melondsds", ignoreCase = true) ||
+            coreName.contains("melonds_ds", ignoreCase = true)
+        out["melonds_console_mode"] = when {
+            dsi && melonDsDs -> "dsi"
+            dsi -> "DSi"
+            melonDsDs -> "ds"
+            else -> "DS"
+        }
+        out["melonds_ds_console_mode"] = if (dsi) "dsi" else "ds"
+        out["melonds_sysfile_mode"] = "builtin"
+        out["melonds_ds_sysfile_mode"] = "builtin"
+        out["melonds_boot_mode"] = "direct"
+        out["melonds_ds_boot_mode"] = "direct"
+        out["melonds_boot_directly"] = "enabled"
+    }
+
+    /** True for DSiWare / DSi-exclusive dumps. Regular `.nds` carts stay in DS mode. */
+    internal fun ndsRomWantsDsiMode(romPath: String): Boolean {
+        val ext = romPath.substringAfterLast('.', "").lowercase()
+        return ext == "dsi"
     }
 
     /**
