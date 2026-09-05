@@ -91,6 +91,26 @@ class PlatformResolverTest {
     }
 
     @Test
+    fun `dump library folder name does not matter only the platform folder does`() {
+        listOf(
+            "/storage/emulated/0/My Games/PSP/Crisis Core.iso" to "psp",
+            "/storage/emulated/0/Emulation/PS2/Kingdom Hearts.iso" to "ps2",
+            "/sdcard/ISO Library/GameCube/Wind Waker.iso" to "gamecube",
+            "/storage/XXXX-XXXX/dumps/Wii/Mario Kart.iso" to "wii",
+            "/storage/emulated/0/Retro/PSP Games/Monster Hunter.iso" to "psp",
+            "/storage/emulated/0/anything/PS2 ISOs/Shadow.iso" to "ps2",
+        ).forEach { (path, platformId) ->
+            assertEquals(path, platformId, resolvePath(path.substringAfterLast('/'), path)?.id)
+        }
+        assertNull(
+            resolvePath("Loose.iso", "/storage/emulated/0/My Games/Loose.iso"),
+        )
+        assertNull(
+            resolvePath("Loose.iso", "/storage/emulated/0/Emulation/Loose.iso"),
+        )
+    }
+
+    @Test
     fun `iso files resolve from the added folder name when the walk chain is empty`() {
         val file = ScannedFile(
             name = "Crisis Core.iso",

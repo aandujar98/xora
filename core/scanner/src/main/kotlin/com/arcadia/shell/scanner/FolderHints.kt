@@ -8,9 +8,11 @@ import java.nio.charset.StandardCharsets
  * Folder names the platform resolver can read when deciding whether an ambiguous file (`.iso`,
  * `.zip`) belongs to a console.
  *
- * Walkers used to start [ScannedFile.folderChain] at the library root, so a user who added
- * `ROMS/PSP` or `ROMS/PS2` — the usual layout — produced an empty chain and every ISO was
- * dropped. The root path, the file path, and a SAF tree id all still contain those names.
+ * The dump-library folder can be named anything (`ROMs`, `My Games`, `Emulation`). What
+ * matters is a platform-named folder somewhere under it (`PSP`, `PS2`, `PSP Games`) and the
+ * ROM files inside. Walkers used to start [ScannedFile.folderChain] at the library root, so
+ * adding that platform folder itself left the chain empty and every ISO was dropped. The
+ * file path, SAF tree id, and root label still carry those platform names.
  */
 internal object FolderHints {
 

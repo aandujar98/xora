@@ -470,10 +470,10 @@ private fun LibraryStep(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         StepTitle("Library folders")
         Text(
-            text = "Point XOrA at folders that hold your ROMs and games. A ROMS folder with " +
-                "PSP / PS2 inside is enough — or add those console folders themselves. " +
-                "Names like PSP Games or PS2 ISOs also work. All-files access lets " +
-                "path-based emulators open those files directly.",
+            text = "Point XOrA at the folder that holds your games. That folder can be named " +
+                "anything — ROMs, My Games, Emulation. What matters is the console folders " +
+                "inside it (PSP, PS2, PSP Games, PS2 ISOs) and the ROM files in those. " +
+                "All-files access lets path-based emulators open those files directly.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -558,8 +558,9 @@ private fun EmulatorsStep(
             }
             choices.isEmpty() -> {
                 Text(
-                    text = "XOrA didn't detect any ROMs. Use a path like ROMS/PSP or ROMS/PS2 " +
-                        "(or PSP Games / PS2 ISOs) and try again.",
+                    text = "XOrA didn't detect any ROMs. Put games inside console folders " +
+                        "(PSP, PS2, PSP Games, PS2 ISOs — the parent can be named anything) " +
+                        "and try again.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

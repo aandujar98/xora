@@ -31,9 +31,9 @@ class PlatformResolver @Inject constructor() {
             return forced.takeIf { extension in forced.extensions }
         }
 
-        // Deepest folder first, so roms/nintendo/snes resolves as SNES and not by the parent.
-        // The walk chain alone is not enough: adding ROMS/PSP as the library root used to leave
-        // the chain empty, so every ISO under that folder was discarded.
+        // Deepest platform-named folder wins, so My Games/nintendo/snes is SNES. The parent
+        // dump folder is ignored unless it is itself a console name. The walk chain alone is
+        // not enough: adding …/PSP as the library root used to leave the chain empty.
         val folderMatch = FolderHints.deepestFirst(
             folderChain = file.folderChain,
             filePath = file.filePath,
