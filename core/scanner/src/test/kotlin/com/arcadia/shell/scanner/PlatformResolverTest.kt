@@ -67,14 +67,76 @@ class PlatformResolverTest {
         assertNull(resolver.resolve(file, forcedPlatformId = "ps2"))
     }
 
+    @Test
+    fun `iso files resolve when the console folder is the library root`() {
+        assertEquals(
+            "psp",
+            resolvePath("Crisis Core.iso", "/storage/emulated/0/ROMS/PSP/Crisis Core.iso")?.id,
+        )
+        assertEquals(
+            "ps2",
+            resolvePath("Kingdom Hearts.iso", "/storage/emulated/0/ROMS/PS2/Kingdom Hearts.iso")?.id,
+        )
+        assertEquals(
+            "psp",
+            resolvePath("Monster Hunter.iso", "/sdcard/ROMS/PSP/ISO/Monster Hunter.iso")?.id,
+        )
+        assertEquals(
+            "ps2",
+            resolvePath("Shadow of the Colossus.iso", "/storage/XXXX-XXXX/ROMS/PS2/Shadow.iso")?.id,
+        )
+        assertNull(
+            resolvePath("Mystery.iso", "/storage/emulated/0/Download/Mystery.iso"),
+        )
+    }
+
+    @Test
+    fun `iso files resolve from the added folder name when the walk chain is empty`() {
+        val file = ScannedFile(
+            name = "Crisis Core.iso",
+            filePath = null,
+            documentUri = "content://com.android.externalstorage.documents/tree/primary%3AROMS%2FPSP/document/primary%3AROMS%2FPSP%2FCrisis%20Core.iso",
+            sizeBytes = 1_024,
+            lastModified = 0L,
+            folderChain = emptyList(),
+        )
+        assertEquals(
+            "psp",
+            resolver.resolve(
+                file,
+                forcedPlatformId = null,
+                rootLabel = "PSP",
+                rootLocation = "content://com.android.externalstorage.documents/tree/primary%3AROMS%2FPSP",
+            )?.id,
+        )
+        assertEquals(
+            "ps2",
+            resolver.resolve(
+                scanned("Kingdom Hearts.iso", folders = emptyList(), filePath = null),
+                forcedPlatformId = null,
+                rootLabel = "PS2",
+                rootLocation = "/storage/emulated/0/ROMS/PS2",
+            )?.id,
+        )
+    }
+
     private fun resolve(
         name: String,
         folders: List<String> = emptyList(),
     ) = resolver.resolve(scanned(name, folders), forcedPlatformId = null)
 
-    private fun scanned(name: String, folders: List<String>) = ScannedFile(
+    private fun resolvePath(name: String, filePath: String) = resolver.resolve(
+        scanned(name, folders = emptyList(), filePath = filePath),
+        forcedPlatformId = null,
+    )
+
+    private fun scanned(
+        name: String,
+        folders: List<String>,
+        filePath: String? = "/roms/${folders.joinToString("/")}/$name",
+    ) = ScannedFile(
         name = name,
-        filePath = "/roms/${folders.joinToString("/")}/$name",
+        filePath = filePath,
         documentUri = null,
         sizeBytes = 1_024,
         lastModified = 0L,

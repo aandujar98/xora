@@ -38,7 +38,7 @@ class SafRomWalker @Inject constructor(
             walkDocument(
                 treeUri = treeUri,
                 documentId = rootDocumentId,
-                folderChain = emptyList(),
+                folderChain = FolderHints.seedForRoot(root),
                 depth = 0,
                 recursive = root.recursive,
                 resolvePaths = resolvePaths,

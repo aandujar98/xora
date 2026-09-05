@@ -120,7 +120,12 @@ class LibraryScanner @Inject constructor(
         root: LibraryRoot,
         scanStartedAt: Long,
     ): GameEntity? {
-        val platform = platformResolver.resolve(file, root.forcedPlatformId) ?: return null
+        val platform = platformResolver.resolve(
+            file = file,
+            forcedPlatformId = root.forcedPlatformId,
+            rootLabel = root.label,
+            rootLocation = root.location,
+        ) ?: return null
         val title = TitleCleaner.clean(file.name)
         // Prefer the filesystem path as the stable identity so SAF and all-files scans of the same
         // ROM land on one row that XOrA Emulator can launch.

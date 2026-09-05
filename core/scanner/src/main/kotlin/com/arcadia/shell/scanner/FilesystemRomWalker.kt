@@ -11,7 +11,14 @@ class FilesystemRomWalker @Inject constructor() : RomWalker {
     override fun walk(root: LibraryRoot): Sequence<ScannedFile> = sequence {
         val start = File(root.location)
         if (!start.isDirectory) return@sequence
-        yieldAll(walkDirectory(start, emptyList(), depth = 0, recursive = root.recursive))
+        yieldAll(
+            walkDirectory(
+                start,
+                FolderHints.seedForRoot(root),
+                depth = 0,
+                recursive = root.recursive,
+            ),
+        )
     }
 
     private fun walkDirectory(
