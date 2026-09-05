@@ -266,20 +266,12 @@ class SettingsViewModel @Inject constructor(
         summary: PlatformSummary,
         players: List<Player>,
         preferredPlayerId: String?,
-    ): PlatformPlayerChoice {
-        val candidates = players.filter { summary.platform.id in it.platformIds }
-        // Mirrors GameLauncher: explicit choice, else first installed candidate.
-        val effective = candidates.firstOrNull { it.uniqueId == preferredPlayerId }
-            ?: probe.installedPlayers(candidates).firstOrNull()
-
-        return PlatformPlayerChoice(
-            summary = summary,
-            candidates = candidates,
-            selectedPlayerId = preferredPlayerId,
-            effectivePlayer = effective,
-            isInstalled = effective?.let { probe.isInstalled(it) } == true,
-        )
-    }
+    ): PlatformPlayerChoice = buildPlatformPlayerChoice(
+        summary = summary,
+        players = players,
+        preferredPlayerId = preferredPlayerId,
+        probe = probe,
+    )
 
     fun allFilesAccessIntent(): Intent = storageAccess.allFilesAccessIntent()
 

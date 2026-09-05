@@ -7,6 +7,7 @@ import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.SteamWebApiCredentials
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.XoraEmulatorSettings
+import com.arcadia.shell.launcher.InstalledPlayerProbe
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.model.PlatformSummary
@@ -22,6 +23,25 @@ data class PlatformPlayerChoice(
     val effectivePlayer: Player?,
     val isInstalled: Boolean,
 )
+
+/** Mirrors GameLauncher: explicit choice, else first installed candidate. */
+internal fun buildPlatformPlayerChoice(
+    summary: PlatformSummary,
+    players: List<Player>,
+    preferredPlayerId: String?,
+    probe: InstalledPlayerProbe,
+): PlatformPlayerChoice {
+    val candidates = players.filter { summary.platform.id in it.platformIds }
+    val effective = candidates.firstOrNull { it.uniqueId == preferredPlayerId }
+        ?: probe.installedPlayers(candidates).firstOrNull()
+    return PlatformPlayerChoice(
+        summary = summary,
+        candidates = candidates,
+        selectedPlayerId = preferredPlayerId,
+        effectivePlayer = effective,
+        isInstalled = effective?.let { probe.isInstalled(it) } == true,
+    )
+}
 
 /** One XOrA Libretro core row for Setup → XOrA Emulator status. */
 data class XoraCoreInstallRow(

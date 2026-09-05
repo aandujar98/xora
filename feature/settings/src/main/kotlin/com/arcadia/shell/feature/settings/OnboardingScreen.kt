@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -28,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -144,7 +146,7 @@ fun OnboardingScreen(
                     onSwipe = { direction ->
                         when (direction) {
                             XoraSwipeDirection.Left -> {
-                                if (!state.isLast) viewModel.next()
+                                if (!state.isLast && state.canAdvance) viewModel.next()
                             }
                             XoraSwipeDirection.Right -> {
                                 if (state.canGoBack) viewModel.back()
@@ -170,7 +172,7 @@ fun OnboardingScreen(
                         -> {
                             if (state.isLast) {
                                 viewModel.finish(onFinished)
-                            } else {
+                            } else if (state.canAdvance) {
                                 viewModel.next()
                             }
                             true
@@ -250,6 +252,17 @@ fun OnboardingScreen(
                                 onAddSaf = {
                                     safPicker.launch(viewModel.openDocumentTreeIntent())
                                 },
+                            )
+                            OnboardingStep.Emulators -> EmulatorsStep(
+                                scanRunning = state.scanRunning,
+                                scanCompleted = state.scanCompleted,
+                                scanError = state.scanError,
+                                filesSeen = state.filesSeen,
+                                hasFolders = state.roots.isNotEmpty(),
+                                choices = state.platformChoices,
+                                onEnsureScan = viewModel::ensureLibraryScanned,
+                                onRetry = viewModel::retryLibraryScan,
+                                onSelectPlayer = viewModel::selectPlayer,
                             )
                             OnboardingStep.Scrapers -> TipStep(
                                 title = "Artwork scrapers",
@@ -375,6 +388,7 @@ private fun stepLabel(step: OnboardingStep): String = when (step) {
     OnboardingStep.Welcome -> "Welcome"
     OnboardingStep.DisplayMode -> "Display"
     OnboardingStep.Library -> "Library"
+    OnboardingStep.Emulators -> "Emulators"
     OnboardingStep.Scrapers -> "Artwork"
     OnboardingStep.Social -> "Social"
     OnboardingStep.RetroAchievements -> "Achievements"
@@ -456,8 +470,9 @@ private fun LibraryStep(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         StepTitle("Library folders")
         Text(
-            text = "Point XOrA at folders that hold your ROMs and games. All-files access lets " +
-                "path-based emulators open those files directly.",
+            text = "Point XOrA at folders that hold your ROMs and games. Put disc images in a " +
+                "console folder (PSP, PS2, GameCube) so .iso files can be identified. " +
+                "All-files access lets path-based emulators open those files directly.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -492,6 +507,124 @@ private fun LibraryStep(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun EmulatorsStep(
+    scanRunning: Boolean,
+    scanCompleted: Boolean,
+    scanError: String?,
+    filesSeen: Int,
+    hasFolders: Boolean,
+    choices: List<PlatformPlayerChoice>,
+    onEnsureScan: () -> Unit,
+    onRetry: () -> Unit,
+    onSelectPlayer: (String, String?) -> Unit,
+) {
+    LaunchedEffect(Unit) {
+        onEnsureScan()
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 360.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        StepTitle("Emulators")
+        when {
+            scanRunning || !scanCompleted -> {
+                Text(
+                    text = if (filesSeen > 0) {
+                        "Scanning your library… $filesSeen files so far."
+                    } else {
+                        "Scanning your library for ROMs…"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                CircularProgressIndicator(modifier = Modifier.size(36.dp))
+            }
+            scanError != null -> {
+                Text(
+                    text = scanError,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Button(onClick = onRetry) { Text("Try again") }
+            }
+            choices.isEmpty() -> {
+                Text(
+                    text = "XOrA didn't detect any ROMs. Put games in a console folder " +
+                        "(for example Roms/PSP or Roms/PS2) and try again.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!hasFolders) {
+                    Text(
+                        text = "No library folders yet — go back and add one first.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Button(onClick = onRetry) { Text("Try again") }
+            }
+            else -> {
+                Text(
+                    text = "These systems have games. Pick the emulator XOrA should use for each.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                choices.forEach { choice ->
+                    OnboardingPlatformEmulatorCard(
+                        choice = choice,
+                        onSelect = { playerId ->
+                            onSelectPlayer(choice.summary.platform.id, playerId)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnboardingPlatformEmulatorCard(
+    choice: PlatformPlayerChoice,
+    onSelect: (String?) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = "${choice.summary.platform.displayName} (${choice.summary.gameCount})",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = when {
+                choice.candidates.isEmpty() -> "No launch profile ships for this system yet."
+                choice.effectivePlayer == null -> "Nothing installed that can open these games."
+                choice.isInstalled -> "Opens with ${choice.effectivePlayer.name}"
+                else -> "${choice.effectivePlayer.name} is selected but not installed."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (choice.isInstalled || choice.effectivePlayer == null) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+        )
+        choice.candidates.forEach { player ->
+            FilterChip(
+                selected = choice.selectedPlayerId == player.uniqueId,
+                onClick = {
+                    onSelect(
+                        if (choice.selectedPlayerId == player.uniqueId) null else player.uniqueId,
+                    )
+                },
+                label = { Text(text = player.name) },
+            )
         }
     }
 }
@@ -767,7 +900,10 @@ private fun OnboardingActions(
         if (optional) {
             TextButton(onClick = onSkip) { Text("Skip") }
         }
-        Button(onClick = onNext) {
+        Button(
+            onClick = onNext,
+            enabled = state.canAdvance,
+        ) {
             Text(
                 when {
                     state.isLast -> "Finish"
