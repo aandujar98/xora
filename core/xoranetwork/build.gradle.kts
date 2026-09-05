@@ -12,14 +12,16 @@ val localProperties = Properties().apply {
     if (file.exists()) file.inputStream().use(::load)
 }
 
-// Nakama client server key (socket.server_key) for api.xoranetwork.com. This is the client API
-// key, NOT the console password / HTTP key / database credentials — those must never ship in the
-// app. Prefer local.properties `xora.network.server.key` or XORA_NAKAMA_SERVER_KEY (CI).
-// Website sign-in works without it; email/register/refresh REST still uses this value.
-val xoraNetworkServerKey = (
-    localProperties.getProperty("xora.network.server.key")
-        ?: System.getenv("XORA_NAKAMA_SERVER_KEY")
-    ).orEmpty().trim()
+// Nakama client server key (socket.server_key) for api.xoranetwork.com. This is the public
+// client API key, NOT the console password / HTTP key / database credentials — those must
+// never ship in the app. local.properties `xora.network.server.key` or XORA_NAKAMA_SERVER_KEY
+// override the bundled default. Website sign-in works without it; email/register/refresh REST
+// still uses this value.
+val xoraNetworkServerKey = listOf(
+    localProperties.getProperty("xora.network.server.key"),
+    System.getenv("XORA_NAKAMA_SERVER_KEY"),
+    "4badd4561ab8bea17a809d4d2f1ef6ee7eaed5f87c364b25",
+).first { !it.isNullOrBlank() }.trim()
 
 android {
     namespace = "com.arcadia.shell.xoranetwork"

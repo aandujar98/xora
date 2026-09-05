@@ -46,10 +46,11 @@ class XoraNetworkClient @Inject constructor(
 
         /**
          * Sign-in talks to account.xoranetwork.com and does not need the Nakama client key.
-         * That key is only for the email/register/refresh REST fallback.
+         * That key is only for the email/register/refresh REST fallback. A bundled default
+         * ships in [BuildConfig.XORA_NETWORK_SERVER_KEY].
          */
         val isConfigured: Boolean
-            get() = true
+            get() = BuildConfig.XORA_NETWORK_SERVER_KEY.isNotBlank()
 
         /** Website-hosted avatar. Requires Nakama access+refresh cookies; otherwise 401s. */
         fun avatarUrlFor(username: String): String =
