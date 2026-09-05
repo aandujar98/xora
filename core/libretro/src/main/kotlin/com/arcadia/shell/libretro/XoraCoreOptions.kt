@@ -339,28 +339,34 @@ object XoraCoreOptions {
         val gap = if (expandActive) 0 else settings.ndsScreenGap.coerceIn(0, 100)
         val melon = layout.toMelonDsValue()
         val melonDs = layout.toMelonDsDsValue()
+        val melonDsDsCore = coreName.contains("melondsds", ignoreCase = true) ||
+            coreName.contains("melonds_ds", ignoreCase = true)
 
         out["melonds_screen_layout"] = melon
         out["melonds_screen_gap"] = gap.toString()
-        out["melonds_ds_screen_layout1"] = melonDs
+        out["melonds_ds_screen_gap"] = gap.toString()
+        // melonDS DS keys are `melonds_screen_layout1` (not `melonds_ds_*`).
         out["melonds_screen_layout1"] = melonDs
-        out["melonds_ds_number_of_screen_layouts"] = "1"
+        out["melonds_ds_screen_layout1"] = melonDs
         out["melonds_number_of_screen_layouts"] = "1"
-        // Absolute stylus — joystick/mouse modes ignore the Android touch screen.
-        out["melonds_touch_mode"] = "Touch"
-        out["melonds_ds_touch_mode"] = "absolute"
+        out["melonds_ds_number_of_screen_layouts"] = "1"
+        out["melonds_secondary_screen_scale"] = "100"
+        out["melonds_ds_secondary_screen_scale"] = "100"
+        // Legacy melonDS matches "Touch"; melonDS DS matches kebab-case "touch".
+        out["melonds_touch_mode"] = if (melonDsDsCore) "touch" else "Touch"
+        out["melonds_ds_touch_mode"] = "touch"
 
         applyNdsConsoleMode(coreName, romPath, out)
         applyNdsWfc(settings, out)
 
-        if (coreName.contains("desmume", ignoreCase = true)) {
-            out["desmume_screens_layout"] = when (layout) {
-                DualScreenLayout.LeftRight, DualScreenLayout.RightLeft -> "left/right"
-                DualScreenLayout.TopOnly -> "top only"
-                DualScreenLayout.BottomOnly -> "bottom only"
-                else -> "top/bottom"
-            }
+        // Always write DeSmuME keys — unused keys are ignored by melonDS.
+        out["desmume_screens_layout"] = when (layout) {
+            DualScreenLayout.LeftRight, DualScreenLayout.RightLeft -> "left/right"
+            DualScreenLayout.TopOnly -> "top only"
+            DualScreenLayout.BottomOnly -> "bottom only"
+            else -> "top/bottom"
         }
+        out["desmume_screens_gap"] = gap.toString()
     }
 
     private fun apply3ds(
@@ -371,8 +377,21 @@ object XoraCoreOptions {
     ) {
         val layout = if (expandActive) ThreeDsScreenLayout.TopBottom else settings.threeDsScreenLayout
         val citra = layout.toCitraValue()
+        val panda = when (layout) {
+            ThreeDsScreenLayout.SideBySide -> "side_by_side"
+            ThreeDsScreenLayout.SingleScreen -> "single"
+            else -> "top_bottom"
+        }
         out["citra_layout_option"] = citra
         out["azahar_layout_option"] = citra
+        out["citra2018_layout_option"] = citra
+        out["lime3ds_layout_option"] = citra
+        out["citra_swap_screen"] = "disabled"
+        out["azahar_swap_screen"] = "disabled"
+        out["citra_custom_layout"] = "disabled"
+        out["azahar_custom_layout"] = "disabled"
+        out["panda3ds_layout"] = panda
+        out["panda3ds_screen_layout"] = panda
         // Android Azahar defaults to Vulkan and ignores GET_PREFERRED_HW_RENDER.
         // XOrA only implements GLES SET_HW_RENDER, so Auto/Vulkan prints
         // "Failed to set HW renderer" and aborts load. Force the GLES3 path.
@@ -380,13 +399,6 @@ object XoraCoreOptions {
         out["azahar_graphics_api"] = "OpenGL"
         if (settings.threeDsPretendoPrep) {
             out.putAll(AzaharPretendo.coreOptions())
-        }
-        if (coreName.contains("panda", ignoreCase = true)) {
-            out["panda3ds_layout"] = when (layout) {
-                ThreeDsScreenLayout.SideBySide -> "side_by_side"
-                ThreeDsScreenLayout.SingleScreen -> "single"
-                else -> "top_bottom"
-            }
         }
     }
 

@@ -62,6 +62,26 @@ class DisplayTopologyTest {
     }
 
     @Test
+    fun `large private panel without presentation flag is still an expand target`() {
+        val topology = topology(
+            primary(),
+            ShellDisplay(
+                displayId = 7,
+                name = "Bottom",
+                widthPx = 1280,
+                heightPx = 720,
+                densityDpi = 320,
+                isPrimary = false,
+                isPublic = false,
+                isPresentation = false,
+            ),
+        )
+        assertNull(topology.secondary)
+        assertEquals(7, topology.presentationDisplay?.displayId)
+        assertTrue(topology.isDualScreen)
+    }
+
+    @Test
     fun `empty topology is not dual-screen`() {
         assertFalse(DisplayTopology.Empty.isDualScreen)
         assertNull(DisplayTopology.Empty.presentationDisplay)

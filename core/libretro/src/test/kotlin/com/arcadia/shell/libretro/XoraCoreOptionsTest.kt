@@ -296,9 +296,35 @@ class XoraCoreOptionsTest {
             expandActive = true,
         )
         assertEquals("Top/Bottom", vars["melonds_screen_layout"])
+        assertEquals("top-bottom", vars["melonds_screen_layout1"])
+        assertEquals("top-bottom", vars["melonds_ds_screen_layout1"])
         assertEquals("0", vars["melonds_screen_gap"])
+        assertEquals("top/bottom", vars["desmume_screens_layout"])
         assertEquals("Touch", vars["melonds_touch_mode"])
-        assertEquals("absolute", vars["melonds_ds_touch_mode"])
+        assertEquals("touch", vars["melonds_ds_touch_mode"])
+        assertEquals("100", vars["melonds_secondary_screen_scale"])
+
+        val melonDsDs = XoraCoreOptions.variablesFor(
+            "nds",
+            "melondsds",
+            settings.copy(ndsScreenLayout = DualScreenLayout.BottomOnly),
+            expandActive = true,
+        )
+        assertEquals("top-bottom", melonDsDs["melonds_screen_layout1"])
+        assertEquals("touch", melonDsDs["melonds_touch_mode"])
+        assertEquals("1", melonDsDs["melonds_number_of_screen_layouts"])
+    }
+
+    @Test
+    fun expandWritesDesmumeLayoutForEveryNdsCore() {
+        val vars = XoraCoreOptions.variablesFor(
+            "nds",
+            "desmume",
+            settings.copy(ndsScreenLayout = DualScreenLayout.BottomOnly),
+            expandActive = true,
+        )
+        assertEquals("top/bottom", vars["desmume_screens_layout"])
+        assertEquals("Top/Bottom", vars["melonds_screen_layout"])
     }
 
     @Test
@@ -309,6 +335,22 @@ class XoraCoreOptionsTest {
             settings.copy(threeDsScreenLayout = ThreeDsScreenLayout.SideBySide),
             expandActive = true,
         )
+        assertEquals("Default Top-Bottom Screen", vars["azahar_layout_option"])
+        assertEquals("Default Top-Bottom Screen", vars["citra_layout_option"])
+        assertEquals("Default Top-Bottom Screen", vars["citra2018_layout_option"])
+        assertEquals("top_bottom", vars["panda3ds_layout"])
+        assertEquals("disabled", vars["citra_swap_screen"])
+    }
+
+    @Test
+    fun expandForcesStackedPanda3dsLayout() {
+        val vars = XoraCoreOptions.variablesFor(
+            "3ds",
+            "panda3ds",
+            settings.copy(threeDsScreenLayout = ThreeDsScreenLayout.SingleScreen),
+            expandActive = true,
+        )
+        assertEquals("top_bottom", vars["panda3ds_layout"])
         assertEquals("Default Top-Bottom Screen", vars["azahar_layout_option"])
     }
 }

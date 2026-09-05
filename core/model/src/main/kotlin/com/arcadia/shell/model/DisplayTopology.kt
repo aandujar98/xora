@@ -37,19 +37,36 @@ data class DisplayTopology(
 
     /**
      * Second panel that can host a Presentation or overlay. Prefers a FLAG_PRESENTATION display
-     * (AYN Thor bottom screen) and falls back to a public secondary.
+     * (AYN Thor bottom screen), then a public secondary (HDMI), then any other panel large
+     * enough to be a real screen. Tiny private overlays stay ignored.
      */
     val presentationDisplay: ShellDisplay?
         get() = displays.firstOrNull { !it.isPrimary && it.isPresentation }
             ?: secondary
+            ?: displays.firstOrNull { it.isExpandCandidate }
 
     /** True when two physical panels can show shell / emulator content. */
     val isDualScreen: Boolean get() = primary != null && presentationDisplay != null
 
     companion object {
+        /** Smaller than this on either edge is treated as a system overlay, not a game panel. */
+        const val MIN_EXPAND_EDGE_PX = 240
+
         val Empty = DisplayTopology(
             displays = emptyList(),
             supportsActivitiesOnSecondaryDisplays = false,
         )
     }
 }
+
+/** True for a non-primary panel that can show the DS / 3DS bottom LCD. */
+val ShellDisplay.isExpandCandidate: Boolean
+    get() {
+        if (isPrimary) return false
+        if (widthPx < DisplayTopology.MIN_EXPAND_EDGE_PX ||
+            heightPx < DisplayTopology.MIN_EXPAND_EDGE_PX
+        ) {
+            return false
+        }
+        return true
+    }

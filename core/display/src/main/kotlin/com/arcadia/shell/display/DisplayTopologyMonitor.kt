@@ -51,24 +51,9 @@ class DisplayTopologyMonitor(private val context: Context) {
     }.distinctUntilChanged()
 
     private fun readTopology() = DisplayTopology(
-        displays = allDisplays().map { it.toShellDisplay() },
+        displays = displayManager.allLogicalDisplays().map { it.toShellDisplay() },
         supportsActivitiesOnSecondaryDisplays = supportsActivitiesOnSecondaryDisplays,
     )
-
-    /**
-     * Merge the default display list with [DisplayManager.DISPLAY_CATEGORY_PRESENTATION].
-     * Clamshell handhelds (AYN Thor) sometimes only advertise the bottom panel in that category.
-     */
-    private fun allDisplays(): List<Display> {
-        val byId = LinkedHashMap<Int, Display>()
-        displayManager.displays.filter { it.isValid }.forEach { byId[it.displayId] = it }
-        runCatching {
-            displayManager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
-        }.getOrDefault(emptyArray<Display>()).filter { it.isValid }.forEach { display ->
-            byId.putIfAbsent(display.displayId, display)
-        }
-        return byId.values.toList()
-    }
 
     private fun Display.toShellDisplay(): ShellDisplay {
         // A display context reports the metrics of that specific screen; the deprecated

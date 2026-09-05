@@ -34,8 +34,7 @@ fun SecondaryDisplayPane(
 
     DisposableEffect(displayId, viewModelStoreOwner) {
         val display = displayId
-            ?.let { context.getSystemService(DisplayManager::class.java)?.getDisplay(it) }
-            ?.takeIf { it.isValid }
+            ?.let { context.getSystemService(DisplayManager::class.java)?.resolveDisplay(it) }
 
         if (display == null || viewModelStoreOwner == null) {
             return@DisposableEffect onDispose { }

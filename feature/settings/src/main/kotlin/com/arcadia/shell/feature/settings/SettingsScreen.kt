@@ -1575,9 +1575,10 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            text = "melonDS / Azahar: top screen fills the primary panel, " +
-                                "bottom (touch) screen fills the secondary. On by default " +
-                                "on clamshell / dual-screen devices.",
+                            text = "Top LCD stays on this panel. The DS / 3DS bottom " +
+                                "(touch) screen fills the clamshell bottom panel or an " +
+                                "HDMI / USB-C display. Applies to melonDS, melonDS DS, " +
+                                "DeSmuME, Azahar, Citra, Citra 2018, and Panda3DS.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

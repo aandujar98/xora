@@ -1302,7 +1302,7 @@ private fun paneRows(
             id = "g-dual",
             title = "Expand dual display",
             subtitle = if (settings.expandDualDisplay) {
-                "On · each DS/3DS screen fills a panel"
+                "On · bottom LCD on the other panel"
             } else {
                 "Off · both screens on this display"
             },

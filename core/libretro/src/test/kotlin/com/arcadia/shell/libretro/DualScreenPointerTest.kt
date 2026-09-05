@@ -58,6 +58,36 @@ class DualScreenPointerTest {
     }
 
     @Test
+    fun sideBySideBottomPanelMapsOntoRightFramebufferHalf() {
+        val left = DualScreenPointer.mapViewToPointer(
+            viewX = 0f,
+            viewY = 96f,
+            viewW = 320,
+            viewH = 192,
+            contentW = 320,
+            contentH = 192,
+            fill = true,
+            target = DualScreenPointerTarget.BottomRight,
+            pressed = true,
+        )
+        val right = DualScreenPointer.mapViewToPointer(
+            viewX = 320f,
+            viewY = 96f,
+            viewW = 320,
+            viewH = 192,
+            contentW = 320,
+            contentH = 192,
+            fill = true,
+            target = DualScreenPointerTarget.BottomRight,
+            pressed = true,
+        )
+        assertEquals(0, left!!.x.toInt())
+        assertEquals(DualScreenPointer.AXIS_MAX, right!!.x.toInt())
+        assertEquals(0, left.y.toInt())
+        assertTrue(left.pressed)
+    }
+
+    @Test
     fun topPanelIsNotATouchScreen() {
         val ptr = DualScreenPointer.mapViewToPointer(
             viewX = 64f,

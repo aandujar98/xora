@@ -18,8 +18,10 @@ enum class DualScreenPointerTarget {
     Combined,
     /** Top panel while expand is on — DS / 3DS stylus lives on the other screen. */
     TopHalf,
-    /** Bottom panel while expand is on — the touch screen. */
+    /** Bottom panel for a stacked (top/bottom) packed frame. */
     BottomHalf,
+    /** Bottom panel when the core packed the LCDs side-by-side. */
+    BottomRight,
 }
 
 object DualScreenPointer {
@@ -76,9 +78,14 @@ object DualScreenPointer {
         val nx = ((viewX - left) / width).coerceIn(0f, 1f)
         val ny = ((viewY - top) / height).coerceIn(0f, 1f)
         val inside = viewX >= left && viewX <= rect[2] && viewY >= top && viewY <= rect[3]
-        val x = lerp(AXIS_MIN, AXIS_MAX, nx).toInt().toShort()
+        val x = when (target) {
+            DualScreenPointerTarget.BottomRight -> lerp(0, AXIS_MAX, nx).toInt().toShort()
+            else -> lerp(AXIS_MIN, AXIS_MAX, nx).toInt().toShort()
+        }
         val y = when (target) {
-            DualScreenPointerTarget.Combined -> lerp(AXIS_MIN, AXIS_MAX, ny).toInt().toShort()
+            DualScreenPointerTarget.Combined,
+            DualScreenPointerTarget.BottomRight,
+            -> lerp(AXIS_MIN, AXIS_MAX, ny).toInt().toShort()
             DualScreenPointerTarget.BottomHalf -> lerp(0, AXIS_MAX, ny).toInt().toShort()
             DualScreenPointerTarget.TopHalf -> return null
         }

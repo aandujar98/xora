@@ -64,8 +64,7 @@ class DisplayOverlayWindow(
         if (!OverlayPermission.isGranted(outerContext)) return false
 
         val display = outerContext.getSystemService(DisplayManager::class.java)
-            ?.getDisplay(displayId)
-            ?.takeIf { it.isValid }
+            ?.resolveDisplay(displayId)
             ?: return false
 
         val displayContext = outerContext.createDisplayContext(display)

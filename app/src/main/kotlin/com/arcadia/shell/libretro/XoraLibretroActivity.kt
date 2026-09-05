@@ -336,6 +336,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private var raSettings = RetroAchievementsSettings()
     private var expandActive by mutableStateOf(false)
     private var secondaryDisplayId by mutableStateOf<Int?>(null)
+    private var expandSplitKind by mutableStateOf(DualScreenSplitKind.Stacked)
 
     private var inputManager: InputManager? = null
     private val inputDeviceListener = object : InputManager.InputDeviceListener {
@@ -651,8 +652,28 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             LaunchedEffect(Unit) {
                 DisplayTopologyMonitor(this@XoraLibretroActivity).topology().collect {
+                    val wasExpanded = expandActive
                     refreshExpandTopology()
                     applyStageSettings(xoraSettings)
+                    if (gameLoaded && platformId in DUAL_SCREEN_PLATFORMS &&
+                        (wasExpanded != expandActive || expandActive)
+                    ) {
+                        withContext(emuDispatcher) { applyCoreControllerOptions() }
+                        bindPointerTouch(
+                            primaryGameView,
+                            if (expandActive) {
+                                DualScreenPointerTarget.TopHalf
+                            } else {
+                                DualScreenPointerTarget.Combined
+                            },
+                        )
+                        if (expandActive) {
+                            bindPointerTouch(
+                                secondaryGameView,
+                                expandSplitKind.bottomPointerTarget,
+                            )
+                        }
+                    }
                 }
             }
             LaunchedEffect(raPrefs) { raSettings = raPrefs }
@@ -682,7 +703,7 @@ class XoraLibretroActivity : ComponentActivity() {
                                         secondaryGameView = view
                                         bindPointerTouch(
                                             view,
-                                            DualScreenPointerTarget.BottomHalf,
+                                            expandSplitKind.bottomPointerTarget,
                                         )
                                     },
                                     modifier = Modifier.fillMaxSize(),
@@ -3505,41 +3526,71 @@ class XoraLibretroActivity : ComponentActivity() {
         val h = packed[1]
         if (w <= 0 || h <= 0 || packed.size < w * h + 2) return
         val pixels = packed.copyOfRange(2, 2 + w * h)
-        val split = expandActive && h >= 2
+        val geometry = if (expandActive) DualScreenFrameGeometry.split(w, h, platformId) else null
         // When replacing bitmaps, leave the previous instance unreycled — ImageView may
         // still be drawing the prior Bitmap until the next bind.
         runOnUiThread {
             synchronized(bitmapLock) {
-                if (split) {
-                    val topH = h / 2
-                    val bottomH = h - topH
+                if (geometry != null && !geometry.top.isEmpty && !geometry.bottom.isEmpty) {
+                    expandSplitKind = geometry.kind
+                    val topRect = geometry.top
+                    val bottomRect = geometry.bottom
                     var top = gameBitmap
-                    if (top == null || top.width != w || top.height != topH || top.isRecycled) {
-                        top = Bitmap.createBitmap(w, topH, Bitmap.Config.ARGB_8888)
+                    if (top == null || top.width != topRect.width ||
+                        top.height != topRect.height || top.isRecycled
+                    ) {
+                        top = Bitmap.createBitmap(
+                            topRect.width,
+                            topRect.height,
+                            Bitmap.Config.ARGB_8888,
+                        )
                         top.setHasAlpha(false)
                         gameBitmap = top
                         primaryGameView?.setImageBitmap(top)
                     }
-                    top.setPixels(pixels, 0, w, 0, 0, w, topH)
+                    top.setPixels(
+                        pixels,
+                        topRect.y * w + topRect.x,
+                        w,
+                        0,
+                        0,
+                        topRect.width,
+                        topRect.height,
+                    )
                     top.setHasAlpha(false)
 
                     var bottom = bottomBitmap
-                    if (bottom == null || bottom.width != w || bottom.height != bottomH ||
-                        bottom.isRecycled
+                    if (bottom == null || bottom.width != bottomRect.width ||
+                        bottom.height != bottomRect.height || bottom.isRecycled
                     ) {
-                        bottom = Bitmap.createBitmap(w, bottomH, Bitmap.Config.ARGB_8888)
+                        bottom = Bitmap.createBitmap(
+                            bottomRect.width,
+                            bottomRect.height,
+                            Bitmap.Config.ARGB_8888,
+                        )
                         bottom.setHasAlpha(false)
                         bottomBitmap = bottom
                         secondaryGameView?.setImageBitmap(bottom)
                     }
-                    bottom.setPixels(pixels, topH * w, w, 0, 0, w, bottomH)
+                    bottom.setPixels(
+                        pixels,
+                        bottomRect.y * w + bottomRect.x,
+                        w,
+                        0,
+                        0,
+                        bottomRect.width,
+                        bottomRect.height,
+                    )
                     bottom.setHasAlpha(false)
                     stage?.let { stageView ->
-                        if (stageView.contentWidthPx != w || stageView.contentHeightPx != topH) {
-                            stageView.contentWidthPx = w
-                            stageView.contentHeightPx = topH
+                        if (stageView.contentWidthPx != topRect.width ||
+                            stageView.contentHeightPx != topRect.height
+                        ) {
+                            stageView.contentWidthPx = topRect.width
+                            stageView.contentHeightPx = topRect.height
                         }
                     }
+                    bindPointerTouch(secondaryGameView, geometry.bottomPointerTarget)
                 } else {
                     if (bottomBitmap != null) {
                         bottomBitmap = null
