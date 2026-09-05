@@ -65,18 +65,10 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.arcadia.shell.datastore.DisplayMode
-import com.arcadia.shell.datastore.DualScreenLayout
-import com.arcadia.shell.datastore.NdsWfcServer
 import com.arcadia.shell.datastore.ThemeMode
-import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
-import com.arcadia.shell.datastore.XmbTitleStyle
-import com.arcadia.shell.datastore.XoraAspectMode
-import com.arcadia.shell.datastore.XoraInternalResolution
-import com.arcadia.shell.datastore.label
 import com.arcadia.shell.display.OverlayPermission
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.designsystem.ArcadiaGlass
@@ -95,8 +87,6 @@ import com.arcadia.shell.input.NavAction
 import kotlinx.coroutines.flow.Flow
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.model.RootKind
-import com.arcadia.shell.model.ScreenRole
-import com.arcadia.shell.libretro.netplay.AzaharPublicLobbies
 import kotlin.math.roundToInt
 
 /**
@@ -1493,87 +1483,6 @@ fun SettingsScreen(
             }
         }
 
-        item(key = "xora_ds_3ds") {
-            val xora = state.xoraEmulator
-            SettingsCard(
-                title = "Nintendo DS / 3DS",
-                iconRes = DsR.drawable.xmb_figma_device,
-                focused = focusedCardKey == "xora_ds_3ds",
-                modifier = Modifier.animateItem(),
-            ) {
-                SettingsFieldLabel("Nintendo DS layout")
-                Text(
-                    text = "Regular DS games boot in DS mode with the built-in BIOS so " +
-                        "melonDS DS does not ask for a DSi NAND. DSiWare (.dsi) still " +
-                        "needs a NAND dump in the system folder.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DualScreenLayout.entries.forEach { layout ->
-                        FilterChip(
-                            selected = xora.ndsScreenLayout == layout,
-                            onClick = { viewModel.setXoraNdsScreenLayout(layout) },
-                            label = { Text(text = layout.label()) },
-                        )
-                    }
-                }
-                SettingsFieldLabel("DS screen gap (${xora.ndsScreenGap}px)")
-                Slider(
-                    value = xora.ndsScreenGap.toFloat(),
-                    onValueChange = { viewModel.setXoraNdsScreenGap(it.roundToInt()) },
-                    valueRange = 0f..64f,
-                    steps = 15,
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                SettingsFieldLabel("Nintendo 3DS layout")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ThreeDsScreenLayout.entries.forEach { layout ->
-                        FilterChip(
-                            selected = xora.threeDsScreenLayout == layout,
-                            onClick = { viewModel.setXora3dsScreenLayout(layout) },
-                            label = { Text(text = layout.label()) },
-                        )
-                    }
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Expand to dual displays",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            text = "Top LCD stays on this panel. The DS / 3DS bottom " +
-                                "(touch) screen fills the clamshell bottom panel or an " +
-                                "HDMI / USB-C display. Applies to melonDS, melonDS DS, " +
-                                "DeSmuME, Azahar, Citra, Citra 2018, and Panda3DS.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = xora.expandDualDisplay,
-                        onCheckedChange = viewModel::setXoraExpandDualDisplay,
-                    )
-                }
-                SettingsFieldLabel("Internal resolution (3DS / Azahar)")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    XoraInternalResolution.entries.forEach { res ->
-                        FilterChip(
-                            selected = xora.internalResolution == res,
-                            onClick = { viewModel.setXoraInternalResolution(res) },
-                            label = { Text(text = res.label()) },
-                        )
-                    }
-                }
-            }
-        }
-
         item(key = "xora_bezels") {
             val xora = state.xoraEmulator
             SettingsCard(
@@ -1669,7 +1578,6 @@ private fun setupSectionCardKeys(section: SetupSection): List<String> = when (se
         "emulators_choose_hint",
         "emulators_scan",
         "xora_emulator_cores",
-        "xora_ds_3ds",
         "xora_bezels",
     )
 }

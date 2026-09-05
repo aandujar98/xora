@@ -105,6 +105,12 @@ sealed class EmulatorMenuAction {
     data object CycleInternalResolution : EmulatorMenuAction()
     data object CycleIntegerScale : EmulatorMenuAction()
     data object ToggleExpandDual : EmulatorMenuAction()
+    data object CycleNdsLayout : EmulatorMenuAction()
+    data object CycleNdsGap : EmulatorMenuAction()
+    data object Cycle3dsLayout : EmulatorMenuAction()
+    data class SetNetplayNickname(val nickname: String) : EmulatorMenuAction()
+    data class SetNetplayListenPort(val port: Int) : EmulatorMenuAction()
+    data class SetNdsWfcCustomDns(val dns: String) : EmulatorMenuAction()
     data object ToggleNetplayEnabled : EmulatorMenuAction()
     data object ToggleNetplayOnline : EmulatorMenuAction()
     data object HostNetplay : EmulatorMenuAction()
@@ -347,9 +353,17 @@ fun XoraEmulatorSideMenu(
     val ipFocus = remember { FocusRequester() }
     val portFocus = remember { FocusRequester() }
     val codeFocus = remember { FocusRequester() }
+    val nickFocus = remember { FocusRequester() }
+    val listenPortFocus = remember { FocusRequester() }
+    val dnsFocus = remember { FocusRequester() }
     var ipDraft by remember(joinAddress) { mutableStateOf(joinAddress) }
     var portDraft by remember(joinPort) { mutableStateOf(joinPort.toString()) }
     var codeDraft by remember(joinCode) { mutableStateOf(joinCode) }
+    var nickDraft by remember(settings.netplayNickname) { mutableStateOf(settings.netplayNickname) }
+    var listenPortDraft by remember(settings.netplayPort) {
+        mutableStateOf(settings.netplayPort.toString())
+    }
+    var dnsDraft by remember(settings.ndsWfcCustomDns) { mutableStateOf(settings.ndsWfcCustomDns) }
 
     fun parsedJoinPort(): Int =
         portDraft.toIntOrNull()?.coerceIn(MIN_NETPLAY_PORT, MAX_NETPLAY_PORT)
@@ -361,6 +375,22 @@ fun XoraEmulatorSideMenu(
 
     fun commitJoinCode() {
         onAction(EmulatorMenuAction.SetJoinCode(codeDraft))
+    }
+
+    fun parsedListenPort(): Int =
+        listenPortDraft.toIntOrNull()?.coerceIn(MIN_NETPLAY_PORT, MAX_NETPLAY_PORT)
+            ?: DEFAULT_NETPLAY_PORT
+
+    fun commitNickname() {
+        onAction(EmulatorMenuAction.SetNetplayNickname(nickDraft))
+    }
+
+    fun commitListenPort() {
+        onAction(EmulatorMenuAction.SetNetplayListenPort(parsedListenPort()))
+    }
+
+    fun commitWfcDns() {
+        onAction(EmulatorMenuAction.SetNdsWfcCustomDns(dnsDraft))
     }
 
     LaunchedEffect(rootFocus, pane) {
@@ -413,6 +443,24 @@ fun XoraEmulatorSideMenu(
             "np-code" -> {
                 runCatching {
                     codeFocus.requestFocus()
+                    keyboard?.show()
+                }
+            }
+            "np-nick" -> {
+                runCatching {
+                    nickFocus.requestFocus()
+                    keyboard?.show()
+                }
+            }
+            "np-listen-port" -> {
+                runCatching {
+                    listenPortFocus.requestFocus()
+                    keyboard?.show()
+                }
+            }
+            "wfc-dns" -> {
+                runCatching {
+                    dnsFocus.requestFocus()
                     keyboard?.show()
                 }
             }
@@ -627,6 +675,56 @@ fun XoraEmulatorSideMenu(
                                     codeDraft = XoraNetplayProtocol.filterSessionCodeDraft(it)
                                 },
                                 onCommit = { commitJoinCode() },
+                                onClick = { activatePaneAt(index) },
+                            )
+                            "np-nick" -> JoinTargetField(
+                                label = "Nickname",
+                                value = nickDraft,
+                                selected = selected,
+                                placeholder = "Player",
+                                keyboardType = KeyboardType.Text,
+                                imeAction = ImeAction.Next,
+                                focusRequester = nickFocus,
+                                onValueChange = { draft ->
+                                    nickDraft = draft.filter { ch ->
+                                        ch.isLetterOrDigit() || ch in " ._-"
+                                    }.take(24)
+                                },
+                                onCommit = { commitNickname() },
+                                onNext = {
+                                    listenPortFocus.requestFocus()
+                                    keyboard?.show()
+                                },
+                                onClick = { activatePaneAt(index) },
+                            )
+                            "np-listen-port" -> JoinTargetField(
+                                label = "Listen port",
+                                value = listenPortDraft,
+                                selected = selected,
+                                placeholder = DEFAULT_NETPLAY_PORT.toString(),
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Done,
+                                focusRequester = listenPortFocus,
+                                onValueChange = {
+                                    listenPortDraft = it.filter { ch -> ch.isDigit() }.take(5)
+                                },
+                                onCommit = { commitListenPort() },
+                                onClick = { activatePaneAt(index) },
+                            )
+                            "wfc-dns" -> JoinTargetField(
+                                label = "Custom WFC DNS",
+                                value = dnsDraft,
+                                selected = selected,
+                                placeholder = "178.62.43.212",
+                                keyboardType = KeyboardType.Uri,
+                                imeAction = ImeAction.Done,
+                                focusRequester = dnsFocus,
+                                onValueChange = { draft ->
+                                    dnsDraft = draft.filter { ch ->
+                                        ch.isDigit() || ch == '.' || ch == ':'
+                                    }.take(64)
+                                },
+                                onCommit = { commitWfcDns() },
                                 onClick = { activatePaneAt(index) },
                             )
                             else -> SideMenuRow(
@@ -856,7 +954,7 @@ private fun paneRows(
             icon = XmbIcon.Emulator,
             action = EmulatorMenuAction.ToggleBezel,
         ),
-    )
+    ) + dualScreenOverlayRows(settings, platformId)
     EmulatorMenuPane.Netplay -> {
         val online = settings.netplayUseRelay
         val modeRows = if (online) {
@@ -961,6 +1059,18 @@ private fun paneRows(
                 },
                 icon = XmbIcon.Network,
                 action = EmulatorMenuAction.ToggleNetplayOnline,
+            ),
+            MenuRow(
+                id = "np-nick",
+                title = "Nickname",
+                subtitle = settings.netplayNickname.ifBlank { "Player" },
+                icon = XmbIcon.User,
+            ),
+            MenuRow(
+                id = "np-listen-port",
+                title = "Listen port",
+                subtitle = settings.netplayPort.toString(),
+                icon = XmbIcon.Network,
             ),
         ) + modeRows + publicLobbyNetplayRows(platformId, settings, publicLobbies, pretendo) + buildList {
             if (netplaySessionMode(platformId).isSharedConsole()) {
@@ -1286,30 +1396,12 @@ private fun paneRows(
             action = EmulatorMenuAction.CycleIntegerScale,
         ),
         MenuRow(
-            id = "g-res",
-            title = "Internal resolution",
-            subtitle = settings.internalResolution.label(),
-            icon = XmbIcon.Display,
-            action = EmulatorMenuAction.CycleInternalResolution,
-        ),
-        MenuRow(
             id = "g-bezel",
             title = if (settings.bezelsEnabled) "NSO bezel on" else "No NSO bezel",
             icon = XmbIcon.Emulator,
             action = EmulatorMenuAction.ToggleBezel,
         ),
-        MenuRow(
-            id = "g-dual",
-            title = "Expand dual display",
-            subtitle = if (settings.expandDualDisplay) {
-                "On · bottom LCD on the other panel"
-            } else {
-                "Off · both screens on this display"
-            },
-            icon = XmbIcon.Display,
-            action = EmulatorMenuAction.ToggleExpandDual,
-        ),
-    )
+    ) + dualScreenOverlayRows(settings, platformId)
     EmulatorMenuPane.Audio -> listOf(
         MenuRow(
             id = "vol",
@@ -1332,6 +1424,67 @@ private fun paneRows(
         publicLobbies = publicLobbies,
     )
     EmulatorMenuPane.Pretendo -> pretendoPaneRows(pretendo)
+}
+
+private fun dualScreenOverlayRows(
+    settings: XoraEmulatorSettings,
+    platformId: String,
+): List<MenuRow> = buildList {
+    if (isXoraNdsPlatform(platformId)) {
+        add(
+            MenuRow(
+                id = "nds-layout",
+                title = "DS layout",
+                subtitle = "${settings.ndsScreenLayout.label()} · A cycles",
+                icon = XmbIcon.Display,
+                action = EmulatorMenuAction.CycleNdsLayout,
+            ),
+        )
+        add(
+            MenuRow(
+                id = "nds-gap",
+                title = "DS screen gap",
+                subtitle = "${settings.ndsScreenGap}px · A steps",
+                icon = XmbIcon.Display,
+                action = EmulatorMenuAction.CycleNdsGap,
+            ),
+        )
+    }
+    if (isXora3dsPlatform(platformId)) {
+        add(
+            MenuRow(
+                id = "3ds-layout",
+                title = "3DS layout",
+                subtitle = "${settings.threeDsScreenLayout.label()} · A cycles",
+                icon = XmbIcon.Display,
+                action = EmulatorMenuAction.Cycle3dsLayout,
+            ),
+        )
+        add(
+            MenuRow(
+                id = "g-res",
+                title = "Internal resolution",
+                subtitle = settings.internalResolution.label(),
+                icon = XmbIcon.Display,
+                action = EmulatorMenuAction.CycleInternalResolution,
+            ),
+        )
+    }
+    if (isXoraDualScreenPlatform(platformId)) {
+        add(
+            MenuRow(
+                id = "g-dual",
+                title = "Expand dual display",
+                subtitle = if (settings.expandDualDisplay) {
+                    "On · bottom LCD on the other panel"
+                } else {
+                    "Off · both screens on this display"
+                },
+                icon = XmbIcon.Display,
+                action = EmulatorMenuAction.ToggleExpandDual,
+            ),
+        )
+    }
 }
 
 private fun publicLobbyNetplayRows(
@@ -1404,12 +1557,12 @@ private fun publicLobbyPaneRows(
             icon = XmbIcon.Play,
         ),
         MenuRow(
-            id = "wfc-note",
-            title = "Custom DNS",
-            subtitle = if (settings.ndsWfcServer == NdsWfcServer.Custom) {
-                settings.ndsWfcCustomDns.ifBlank { "Set a DNS in Settings" }
-            } else {
-                "Type a custom WFC DNS in Settings → Nintendo DS"
+            id = "wfc-dns",
+            title = "Custom WFC DNS",
+            subtitle = when {
+                settings.ndsWfcCustomDns.isNotBlank() -> settings.ndsWfcCustomDns
+                settings.ndsWfcServer == NdsWfcServer.Custom -> "Type a DNS, then A to apply"
+                else -> "Optional · applying this switches the server to Custom"
             },
             icon = XmbIcon.Settings,
         ),

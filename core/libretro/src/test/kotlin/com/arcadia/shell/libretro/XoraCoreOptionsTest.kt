@@ -7,6 +7,8 @@ import com.arcadia.shell.datastore.ThreeDsScreenLayout
 import com.arcadia.shell.datastore.WIIMMFI_WFC_DNS
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
+import com.arcadia.shell.datastore.next
+import com.arcadia.shell.datastore.nextNdsScreenGap
 import com.arcadia.shell.datastore.nextPublic
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -389,6 +391,13 @@ class XoraCoreOptionsTest {
         )
         assertEquals("4:3", ps1["swanstation_Display.AspectRatio"])
         assertEquals("4:3", ps1["duckstation_Display.AspectRatio"])
+    }
+
+    @Test
+    fun hostOverlayCyclesDsAnd3dsLayouts() {
+        assertEquals(DualScreenLayout.LeftRight, DualScreenLayout.BottomTop.next())
+        assertEquals(8, nextNdsScreenGap(0))
+        assertEquals(ThreeDsScreenLayout.LargeSmall, ThreeDsScreenLayout.SingleScreen.next())
     }
 
     @Test

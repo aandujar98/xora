@@ -74,11 +74,13 @@ import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
+import com.arcadia.shell.datastore.NdsWfcServer
 import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.datastore.label
 import com.arcadia.shell.datastore.next
+import com.arcadia.shell.datastore.nextNdsScreenGap
 import com.arcadia.shell.datastore.nextPublic
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.LocalArcadiaHaze
@@ -1476,6 +1478,44 @@ class XoraLibretroActivity : ComponentActivity() {
                 if (gameLoaded && platformId in DUAL_SCREEN_PLATFORMS) {
                     withContext(emuDispatcher) { applyCoreControllerOptions() }
                     bindExpandPointers()
+                }
+            }
+            EmulatorMenuAction.CycleNdsLayout -> lifecycleScope.launch {
+                val next = xoraSettings.ndsScreenLayout.next()
+                preferences.setXoraNdsScreenLayout(next)
+                showMenuMessage("DS layout ${next.label()}")
+            }
+            EmulatorMenuAction.CycleNdsGap -> lifecycleScope.launch {
+                val next = nextNdsScreenGap(xoraSettings.ndsScreenGap)
+                preferences.setXoraNdsScreenGap(next)
+                showMenuMessage("DS gap ${next}px")
+            }
+            EmulatorMenuAction.Cycle3dsLayout -> lifecycleScope.launch {
+                val next = xoraSettings.threeDsScreenLayout.next()
+                preferences.setXora3dsScreenLayout(next)
+                showMenuMessage("3DS layout ${next.label()}")
+            }
+            is EmulatorMenuAction.SetNetplayNickname -> lifecycleScope.launch {
+                preferences.setXoraNetplayNickname(action.nickname)
+                showMenuMessage("Nickname ${action.nickname.trim().ifBlank { "Player" }}")
+            }
+            is EmulatorMenuAction.SetNetplayListenPort -> lifecycleScope.launch {
+                preferences.setXoraNetplayPort(action.port)
+                showMenuMessage("Listen port ${action.port}")
+            }
+            is EmulatorMenuAction.SetNdsWfcCustomDns -> lifecycleScope.launch {
+                val dns = action.dns.trim()
+                preferences.setXoraNdsWfcCustomDns(dns)
+                if (dns.isNotBlank()) {
+                    preferences.setXoraNdsWfcServer(NdsWfcServer.Custom)
+                    xoraSettings = xoraSettings.copy(
+                        ndsWfcServer = NdsWfcServer.Custom,
+                        ndsWfcCustomDns = dns,
+                    )
+                    withContext(emuDispatcher) { applyCoreControllerOptions() }
+                    showMenuMessage("WFC custom DNS $dns")
+                } else {
+                    showMenuMessage("Custom WFC DNS cleared")
                 }
             }
             EmulatorMenuAction.ToggleNetplayEnabled -> lifecycleScope.launch {

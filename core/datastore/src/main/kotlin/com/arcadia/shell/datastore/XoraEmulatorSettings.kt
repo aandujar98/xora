@@ -241,6 +241,24 @@ fun DualScreenLayout.toMelonDsDsValue(): String = when (this) {
     DualScreenLayout.HybridBottom -> "hybrid-bottom"
 }
 
+fun DualScreenLayout.next(): DualScreenLayout {
+    val all = DualScreenLayout.entries
+    return all[(ordinal + 1) % all.size]
+}
+
+fun ThreeDsScreenLayout.next(): ThreeDsScreenLayout {
+    val all = ThreeDsScreenLayout.entries
+    return all[(ordinal + 1) % all.size]
+}
+
+/** Overlay A-press steps for the DS gap (px). */
+fun nextNdsScreenGap(current: Int): Int {
+    val steps = listOf(0, 8, 16, 24, 32, 48, 64)
+    val exact = steps.indexOf(current)
+    if (exact >= 0) return steps[(exact + 1) % steps.size]
+    return steps.firstOrNull { it > current } ?: steps.first()
+}
+
 fun DualScreenLayout.label(): String = when (this) {
     DualScreenLayout.TopBottom -> "Top / Bottom"
     DualScreenLayout.BottomTop -> "Bottom / Top"
