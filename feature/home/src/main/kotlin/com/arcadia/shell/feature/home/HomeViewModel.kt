@@ -336,6 +336,7 @@ class HomeViewModel @Inject constructor(
     private val startSettingsOpen = MutableStateFlow(false)
     private val startSettingsCategory = MutableStateFlow(StartSettingsCategory.Display)
     private val startSettingsRowIndex = MutableStateFlow(0)
+    private val startSettingsInCategory = MutableStateFlow(false)
     private val systemUpdate = MutableStateFlow(SystemUpdateUiState())
     /** Release the last check found, kept out of UI state because only the download needs it. */
     private var pendingUpdateRelease: GithubApkRelease? = null
@@ -515,8 +516,13 @@ class HomeViewModel @Inject constructor(
     private val guideFlow = combine(
         guideOpen,
         guideSelectedIndex,
-        combine(startSettingsOpen, startSettingsCategory, startSettingsRowIndex) { open, category, row ->
-            Triple(open, category, row)
+        combine(
+            startSettingsOpen,
+            startSettingsCategory,
+            startSettingsRowIndex,
+            startSettingsInCategory,
+        ) { open, category, row, inCategory ->
+            StartSettingsNav(open, category, row, inCategory)
         },
         isScraping,
         raSettingsState,
@@ -524,13 +530,21 @@ class HomeViewModel @Inject constructor(
         GuideAndStartChrome(
             guideOpen = open,
             guideSelectedIndex = index,
-            startSettingsOpen = start.first,
-            startSettingsCategory = start.second,
-            startSettingsRowIndex = start.third,
+            startSettingsOpen = start.open,
+            startSettingsCategory = start.category,
+            startSettingsRowIndex = start.rowIndex,
+            startSettingsInCategory = start.inCategory,
             isScraping = scraping,
             raSettings = ra,
         )
     }
+
+    private data class StartSettingsNav(
+        val open: Boolean,
+        val category: StartSettingsCategory,
+        val rowIndex: Int,
+        val inCategory: Boolean,
+    )
 
     private data class GuideAndStartChrome(
         val guideOpen: Boolean,
@@ -538,6 +552,7 @@ class HomeViewModel @Inject constructor(
         val startSettingsOpen: Boolean,
         val startSettingsCategory: StartSettingsCategory,
         val startSettingsRowIndex: Int,
+        val startSettingsInCategory: Boolean,
         val isScraping: Boolean,
         val raSettings: RetroAchievementsSettings,
     )
@@ -644,6 +659,7 @@ class HomeViewModel @Inject constructor(
             startSettingsOpen = guide.startSettingsOpen,
             startSettingsCategory = guide.startSettingsCategory,
             startSettingsRowIndex = guide.startSettingsRowIndex,
+            startSettingsInCategory = guide.startSettingsInCategory,
             isScraping = guide.isScraping,
             raSettings = guide.raSettings,
             xoraEmulator = xoraEmulator,
@@ -849,6 +865,7 @@ class HomeViewModel @Inject constructor(
         val startSettingsOpen: Boolean,
         val startSettingsCategory: StartSettingsCategory,
         val startSettingsRowIndex: Int,
+        val startSettingsInCategory: Boolean,
         val isScraping: Boolean,
         val raSettings: RetroAchievementsSettings,
         val xoraEmulator: XoraEmulatorSettings,
@@ -887,6 +904,8 @@ class HomeViewModel @Inject constructor(
     private var photoSlideshowJob: Job? = null
     private var photoControlsHideJob: Job? = null
     private var raGameDetailJob: Job? = null
+    private var raFollowedGamesJob: Job? = null
+    private var raCompareJob: Job? = null
     private var pendingDeletePhotoId: String? = null
     /** Debounce for layer-changing photo actions so one press cannot fire through two layers. */
     private var lastPhotoLayerActionMs = 0L
@@ -943,6 +962,7 @@ class HomeViewModel @Inject constructor(
             startSettingsOpen = overlay.startSettingsOpen,
             startSettingsCategory = overlay.startSettingsCategory,
             startSettingsRowIndex = overlay.startSettingsRowIndex,
+            startSettingsInCategory = overlay.startSettingsInCategory,
             isScraping = overlay.isScraping,
             raSettings = overlay.raSettings,
             xoraEmulator = overlay.xoraEmulator,
@@ -2037,6 +2057,7 @@ class HomeViewModel @Inject constructor(
         startSettingsOpen: Boolean,
         startSettingsCategory: StartSettingsCategory,
         startSettingsRowIndex: Int,
+        startSettingsInCategory: Boolean,
         isScraping: Boolean,
         raSettings: RetroAchievementsSettings,
         xoraEmulator: XoraEmulatorSettings,
@@ -2074,15 +2095,19 @@ class HomeViewModel @Inject constructor(
             steam = social.steam,
         )
         val guideIndex = guideSelectedIndex.coerceIn(0, (guideRows.size - 1).coerceAtLeast(0))
-        val startRows = buildStartSettingsRows(
-            category = startSettingsCategory,
-            settings = chrome.settings,
-            isScraping = isScraping,
-            isScanning = chrome.progress.isRunning,
-            hasCustomBgm = !theme.customBgmPath.isNullOrBlank(),
-            detectedResolutionLabel = detectedResolutionLabel(),
-            raSettings = raSettings,
-        )
+        val startRows = if (startSettingsInCategory) {
+            buildStartSettingsRows(
+                category = startSettingsCategory,
+                settings = chrome.settings,
+                isScraping = isScraping,
+                isScanning = chrome.progress.isRunning,
+                hasCustomBgm = !theme.customBgmPath.isNullOrBlank(),
+                detectedResolutionLabel = detectedResolutionLabel(),
+                raSettings = raSettings,
+            )
+        } else {
+            buildStartSettingsCategoryRows()
+        }
         val startRowIndex = startSettingsRowIndex.coerceIn(0, (startRows.size - 1).coerceAtLeast(0))
         val quickLaunch = quickLaunchGames(libraryGames)
         val continueGame = libraryGames
@@ -2277,6 +2302,7 @@ class HomeViewModel @Inject constructor(
             startSettings = StartSettingsUiState(
                 open = startSettingsOpen,
                 category = startSettingsCategory,
+                inCategory = startSettingsInCategory,
                 selectedRowIndex = startRowIndex,
                 rows = startRows,
                 settings = chrome.settings,
@@ -6669,16 +6695,40 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun onRaLibraryNavAction(action: NavAction) {
-        val detailOpen = raLibraryUi.value.gameDetailOpen
+        val ra = raLibraryUi.value
+        val detailOpen = ra.gameDetailOpen
         when (action) {
-            NavAction.Up -> if (detailOpen) moveRaCheevoSelection(0, -1) else moveRaLibrarySelection(-1)
-            NavAction.Down -> if (detailOpen) moveRaCheevoSelection(0, 1) else moveRaLibrarySelection(1)
-            NavAction.Left -> if (detailOpen) moveRaCheevoSelection(-1, 0) else cycleRaLibraryTab(-1)
-            NavAction.Right -> if (detailOpen) moveRaCheevoSelection(1, 0) else cycleRaLibraryTab(1)
+            NavAction.Up -> when {
+                detailOpen -> moveRaCheevoSelection(0, -1)
+                ra.focusColumn == RaLibraryFocusColumn.Following -> moveRaFollowingSelection(-1)
+                else -> moveRaLibrarySelection(-1)
+            }
+            NavAction.Down -> when {
+                detailOpen -> moveRaCheevoSelection(0, 1)
+                ra.focusColumn == RaLibraryFocusColumn.Following -> moveRaFollowingSelection(1)
+                else -> moveRaLibrarySelection(1)
+            }
+            NavAction.Left -> when {
+                detailOpen -> moveRaCheevoSelection(-1, 0)
+                ra.following.isNotEmpty() ->
+                    raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Following) }
+                else -> cycleRaLibraryTab(-1)
+            }
+            NavAction.Right -> when {
+                detailOpen -> moveRaCheevoSelection(1, 0)
+                ra.following.isNotEmpty() ->
+                    raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Games) }
+                else -> cycleRaLibraryTab(1)
+            }
             NavAction.PreviousPlatform -> cycleRaLibraryPlatform(-1)
             NavAction.NextPlatform -> cycleRaLibraryPlatform(1)
             NavAction.Confirm -> activateRaLibrarySelection()
-            NavAction.Cancel -> if (detailOpen) closeRaGameDetail() else closeRaLibrary()
+            NavAction.Cancel -> when {
+                detailOpen -> closeRaGameDetail()
+                ra.viewingFollower -> closeFollowedUser()
+                else -> closeRaLibrary()
+            }
+            NavAction.Options -> toggleRaCompare()
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             NavAction.ToggleSystemPanel -> toggleSystemPanel()
             NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
@@ -6775,11 +6825,16 @@ class HomeViewModel @Inject constructor(
         if (startSettingsOpen.value) closeStartSettings() else openStartSettings()
     }
 
-    fun openStartSettings(category: StartSettingsCategory = StartSettingsCategory.Display) {
+    fun openStartSettings(category: StartSettingsCategory? = null) {
         noteUserActivity()
         collapseHeroPanels()
         if (guideOpen.value) closeGuide()
-        startSettingsCategory.value = category
+        if (category != null) {
+            startSettingsCategory.value = category
+            startSettingsInCategory.value = true
+        } else {
+            startSettingsInCategory.value = false
+        }
         startSettingsRowIndex.value = 0
         startSettingsOpen.value = true
         gamepadDispatcher.startSettingsOpen = true
@@ -6789,13 +6844,26 @@ class HomeViewModel @Inject constructor(
         if (!startSettingsOpen.value) return
         noteUserActivity()
         startSettingsOpen.value = false
+        startSettingsInCategory.value = false
         gamepadDispatcher.startSettingsOpen = false
+    }
+
+    /** Back from a category returns to the list; Back on the list closes. */
+    fun dismissStartSettings() {
+        if (!startSettingsOpen.value) return
+        noteUserActivity()
+        if (startSettingsInCategory.value) {
+            startSettingsInCategory.value = false
+            startSettingsRowIndex.value = 0
+        } else {
+            closeStartSettings()
+        }
     }
 
     fun selectStartSettingsCategory(category: StartSettingsCategory) {
         noteUserActivity()
-        if (startSettingsCategory.value == category) return
         startSettingsCategory.value = category
+        startSettingsInCategory.value = true
         startSettingsRowIndex.value = 0
     }
 
@@ -6821,12 +6889,9 @@ class HomeViewModel @Inject constructor(
         when (action) {
             NavAction.Up -> moveStartSettingsRow(-1)
             NavAction.Down -> moveStartSettingsRow(1)
-            NavAction.Left, NavAction.PreviousPlatform ->
-                selectStartSettingsCategory(startSettingsCategory.value.previous())
-            NavAction.Right, NavAction.NextPlatform ->
-                selectStartSettingsCategory(startSettingsCategory.value.next())
             NavAction.Confirm -> activateStartSettingsSelection()
-            NavAction.Cancel, NavAction.Menu -> closeStartSettings()
+            NavAction.Cancel -> dismissStartSettings()
+            NavAction.Menu -> closeStartSettings()
             // Absorb everything else so Select, face buttons, etc. do not leak through.
             else -> Unit
         }
@@ -6901,6 +6966,7 @@ class HomeViewModel @Inject constructor(
                 }
                 preferences.setUiFitMode(next)
             }
+            is StartSettingsAction.OpenCategory -> selectStartSettingsCategory(action.category)
             StartSettingsAction.OpenSystemDisplay -> {
                 closeStartSettings()
                 openSystemSettings(Settings.ACTION_DISPLAY_SETTINGS)
@@ -7434,6 +7500,16 @@ class HomeViewModel @Inject constructor(
             rememberXoraFolder()
             xoraDepth.value = XoraXmbDepth.RaLibrary
         }
+        raLibraryUi.update {
+            it.copy(
+                viewedUser = null,
+                viewedUserGames = emptyList(),
+                viewedUserLoading = false,
+                compareEnabled = false,
+                compareProgress = null,
+                focusColumn = RaLibraryFocusColumn.Games,
+            )
+        }
         refreshRaLibrary()
     }
 
@@ -7452,8 +7528,40 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         raLibraryUi.update { current ->
             val size = current.visibleGames.size
-            if (size == 0) current
-            else current.copy(selectedIndex = index.coerceIn(0, size - 1))
+            if (size == 0) {
+                current.copy(focusColumn = RaLibraryFocusColumn.Games)
+            } else {
+                current.copy(
+                    selectedIndex = index.coerceIn(0, size - 1),
+                    focusColumn = RaLibraryFocusColumn.Games,
+                )
+            }
+        }
+    }
+
+    fun selectRaFollowingIndex(index: Int) {
+        noteUserActivity()
+        raLibraryUi.update { current ->
+            val last = (current.following.size - 1).coerceAtLeast(0)
+            current.copy(
+                followingIndex = if (current.following.isEmpty()) 0 else index.coerceIn(0, last),
+                focusColumn = RaLibraryFocusColumn.Following,
+            )
+        }
+    }
+
+    fun toggleRaCompare() {
+        noteUserActivity()
+        val enabling = !raLibraryUi.value.compareEnabled
+        raLibraryUi.update {
+            it.copy(
+                compareEnabled = enabling,
+                compareProgress = if (enabling) it.compareProgress else null,
+            )
+        }
+        val detail = raLibraryUi.value.gameDetail
+        if (enabling && detail != null) {
+            loadRaCompareProgress(detail.gameId)
         }
     }
 
@@ -7480,21 +7588,47 @@ class HomeViewModel @Inject constructor(
 
     fun closeRaGameDetail() {
         raGameDetailJob?.cancel()
+        raCompareJob?.cancel()
         raLibraryUi.update {
             it.copy(
                 gameDetail = null,
                 gameDetailLoading = false,
                 gameDetailError = null,
                 cheevoIndex = 0,
+                compareProgress = null,
+            )
+        }
+    }
+
+    fun closeFollowedUser() {
+        raFollowedGamesJob?.cancel()
+        closeRaGameDetail()
+        raLibraryUi.update {
+            it.copy(
+                viewedUser = null,
+                viewedUserGames = emptyList(),
+                viewedUserLoading = false,
+                selectedIndex = 0,
+                focusColumn = RaLibraryFocusColumn.Following,
             )
         }
     }
 
     fun activateRaLibrarySelection() {
-        val row = uiState.value.raLibrary.selectedGame ?: return
-        if (uiState.value.raLibrary.gameDetailOpen &&
-            uiState.value.raLibrary.gameDetail?.gameId == row.game.gameId &&
-            !uiState.value.raLibrary.gameDetailLoading
+        val ra = uiState.value.raLibrary
+        if (ra.focusColumn == RaLibraryFocusColumn.Following) {
+            val follower = ra.selectedFollower ?: return
+            if (follower.username.equals(ra.viewedUser, ignoreCase = true)) {
+                raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Games) }
+                return
+            }
+            openFollowedUser(follower.username)
+            return
+        }
+        val row = ra.selectedGame ?: return
+        if (ra.gameDetailOpen &&
+            ra.gameDetail?.gameId == row.game.gameId &&
+            !ra.gameDetailLoading
         ) {
             return
         }
@@ -7508,17 +7642,24 @@ class HomeViewModel @Inject constructor(
                     it.copy(
                         isLoading = false,
                         games = emptyList(),
+                        following = emptyList(),
+                        followingLoading = false,
                         error = "Sign in to RetroAchievements to see your library.",
                     )
                 }
                 return@launch
             }
-            raLibraryUi.update { it.copy(isLoading = true, error = null) }
+            raLibraryUi.update {
+                it.copy(isLoading = true, followingLoading = true, error = null, followingError = null)
+            }
             val progress = retroAchievements.fetchCompletionProgress()
             val recent = retroAchievements.fetchRecentUnlocks().getOrElse { emptyList() }
+            val following = retroAchievements.fetchUsersIFollow()
             if (recent.isNotEmpty()) emitNewRaUnlockBanners(recent)
             val badgesByTitle = recent.groupBy { it.gameTitle.lowercase() }
             raLibraryUi.update { current ->
+                val nextFollowing = following.getOrElse { emptyList() }
+                    .sortedByDescending { user -> user.points }
                 progress.fold(
                     onSuccess = { games ->
                         current.copy(
@@ -7536,16 +7677,28 @@ class HomeViewModel @Inject constructor(
                                 0,
                                 (games.size - 1).coerceAtLeast(0),
                             ),
+                            following = nextFollowing,
+                            followingIndex = current.followingIndex.coerceIn(
+                                0,
+                                (nextFollowing.size - 1).coerceAtLeast(0),
+                            ),
+                            followingLoading = false,
+                            followingError = following.exceptionOrNull()?.message,
                         )
                     },
                     onFailure = { error ->
                         current.copy(
                             isLoading = false,
                             error = error.message ?: "Could not load RetroAchievements library.",
+                            following = nextFollowing,
+                            followingLoading = false,
+                            followingError = following.exceptionOrNull()?.message,
                         )
                     },
                 )
             }
+            val viewed = raLibraryUi.value.viewedUser
+            if (!viewed.isNullOrBlank()) openFollowedUser(viewed)
         }
     }
 
@@ -7555,7 +7708,58 @@ class HomeViewModel @Inject constructor(
         raLibraryUi.update { current ->
             current.copy(
                 selectedIndex = (current.selectedIndex + delta).coerceIn(0, size - 1),
+                focusColumn = RaLibraryFocusColumn.Games,
             )
+        }
+    }
+
+    private fun moveRaFollowingSelection(delta: Int) {
+        val size = raLibraryUi.value.following.size
+        if (size == 0) return
+        raLibraryUi.update { current ->
+            current.copy(
+                followingIndex = (current.followingIndex + delta).coerceIn(0, size - 1),
+                focusColumn = RaLibraryFocusColumn.Following,
+            )
+        }
+    }
+
+    private fun openFollowedUser(username: String) {
+        noteUserActivity()
+        closeRaGameDetail()
+        raFollowedGamesJob?.cancel()
+        raLibraryUi.update {
+            it.copy(
+                viewedUser = username,
+                viewedUserGames = emptyList(),
+                viewedUserLoading = true,
+                selectedIndex = 0,
+                platformFilter = null,
+                focusColumn = RaLibraryFocusColumn.Games,
+            )
+        }
+        raFollowedGamesJob = viewModelScope.launch {
+            val result = retroAchievements.fetchCompletionProgress(forUser = username)
+            raLibraryUi.update { current ->
+                if (!username.equals(current.viewedUser, ignoreCase = true)) current
+                else result.fold(
+                    onSuccess = { games ->
+                        current.copy(
+                            viewedUserLoading = false,
+                            viewedUserGames = games.map { game ->
+                                RaLibraryGameRow(game = game)
+                            },
+                            selectedIndex = 0,
+                        )
+                    },
+                    onFailure = {
+                        current.copy(
+                            viewedUserLoading = false,
+                            viewedUserGames = emptyList(),
+                        )
+                    },
+                )
+            }
         }
     }
 
@@ -7594,16 +7798,19 @@ class HomeViewModel @Inject constructor(
     private fun openRaGameDetail(gameId: Int) {
         noteUserActivity()
         raGameDetailJob?.cancel()
+        raCompareJob?.cancel()
         raLibraryUi.update {
             it.copy(
                 gameDetailLoading = true,
                 gameDetailError = null,
                 gameDetail = it.gameDetail?.takeIf { detail -> detail.gameId == gameId },
                 cheevoIndex = if (it.gameDetail?.gameId == gameId) it.cheevoIndex else 0,
+                compareProgress = it.compareProgress?.takeIf { progress -> progress.gameId == gameId },
             )
         }
+        val forUser = raLibraryUi.value.viewedUser
         raGameDetailJob = viewModelScope.launch {
-            val result = retroAchievements.fetchGameProgress(gameId)
+            val result = retroAchievements.fetchGameProgress(gameId, forUser = forUser)
             raLibraryUi.update { current ->
                 result.fold(
                     onSuccess = { progress ->
@@ -7625,6 +7832,34 @@ class HomeViewModel @Inject constructor(
                         )
                     },
                 )
+            }
+            if (raLibraryUi.value.compareEnabled) {
+                loadRaCompareProgress(gameId)
+            }
+        }
+    }
+
+    private fun loadRaCompareProgress(gameId: Int) {
+        val current = raLibraryUi.value
+        val forUser = if (current.viewingFollower) {
+            null
+        } else {
+            current.selectedFollower?.username
+        }
+        if (!current.viewingFollower && forUser.isNullOrBlank()) {
+            raLibraryUi.update {
+                it.copy(compareProgress = null)
+            }
+            return
+        }
+        raCompareJob?.cancel()
+        raCompareJob = viewModelScope.launch {
+            val result = retroAchievements.fetchGameProgress(gameId, forUser = forUser)
+            result.onSuccess { progress ->
+                raLibraryUi.update { state ->
+                    if (state.gameDetail?.gameId != gameId) state
+                    else state.copy(compareProgress = progress)
+                }
             }
         }
     }

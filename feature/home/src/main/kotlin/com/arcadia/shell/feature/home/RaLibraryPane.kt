@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -78,7 +77,7 @@ import com.arcadia.shell.designsystem.xmbAssetShadow
 import com.arcadia.shell.feature.home.component.ProfileAvatar
 import com.arcadia.shell.feature.home.component.xmb.drawableResForPlatformId
 import com.arcadia.shell.retroachievements.RaAchievement
-import com.arcadia.shell.retroachievements.RaGameProgress
+import com.arcadia.shell.retroachievements.RaFollowedUser
 import com.arcadia.shell.retroachievements.RaProfile
 import kotlinx.coroutines.delay
 
@@ -98,6 +97,8 @@ fun RaLibraryPane(
     populateCheevos: Boolean = true,
     onSelectCheevoIndex: (Int) -> Unit = {},
     onCloseGameDetail: () -> Unit = {},
+    onSelectFollowingIndex: (Int) -> Unit = {},
+    onToggleCompare: () -> Unit = {},
 ) {
     val ra = state.raLibrary
     val visible = ra.visibleGames
@@ -136,9 +137,13 @@ fun RaLibraryPane(
                 profile = state.profile,
                 profileAvatarModel = state.profileAvatarModel,
                 raProfile = state.achievements.profile,
-                tab = ra.tab,
-                platformFilter = ra.platformFilter,
+                ra = ra,
                 onSelectTab = onSelectTab,
+                onSelectFollowingIndex = { index ->
+                    onSelectFollowingIndex(index)
+                    onActivate()
+                },
+                onToggleCompare = onToggleCompare,
                 modifier = Modifier
                     .widthIn(min = 260.dp, max = 320.dp)
                     .fillMaxHeight(),
@@ -152,6 +157,17 @@ fun RaLibraryPane(
             ) {
                 when {
                     ra.isLoading && visible.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+
+                    ra.viewedUserLoading && visible.isEmpty() -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -194,6 +210,8 @@ fun RaLibraryPane(
                             XoraOutlinedText(
                                 text = if (!state.achievements.credentials.isConfigured) {
                                     "Sign in to RetroAchievements to see your library."
+                                } else if (ra.viewingFollower) {
+                                    "No RetroAchievements progress for ${ra.viewedUser}."
                                 } else {
                                     "No RetroAchievements progress yet."
                                 },
@@ -205,6 +223,17 @@ fun RaLibraryPane(
                     }
 
                     else -> {
+                        if (ra.viewingFollower) {
+                            XoraOutlinedText(
+                                text = "${ra.viewedUser}'s games",
+                                fontFamily = XoraFonts.Title,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 20.sp,
+                                outlineWidth = 2.dp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         LazyColumn(
                             state = listState,
                             modifier = Modifier
@@ -219,7 +248,8 @@ fun RaLibraryPane(
                             ) { index, row ->
                                 RaLibraryGameRowCard(
                                     row = row,
-                                    selected = index == ra.selectedIndex,
+                                    selected = ra.focusColumn == RaLibraryFocusColumn.Games &&
+                                        index == ra.selectedIndex,
                                     populateCheevos = cheevosReady,
                                     appearIndex = index,
                                     onClick = {
@@ -261,6 +291,7 @@ fun RaLibraryPane(
                 onSelectCheevo = onSelectCheevoIndex,
                 onRetry = onActivate,
                 onClose = onCloseGameDetail,
+                onToggleCompare = onToggleCompare,
             )
         }
     }
@@ -271,9 +302,10 @@ private fun RaLibrarySidePanel(
     profile: com.arcadia.shell.datastore.LocalProfile,
     profileAvatarModel: String?,
     raProfile: RaProfile?,
-    tab: RaLibraryTab,
-    platformFilter: String?,
+    ra: RaLibraryUiState,
     onSelectTab: (RaLibraryTab) -> Unit,
+    onSelectFollowingIndex: (Int) -> Unit,
+    onToggleCompare: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(30.dp)
@@ -338,24 +370,41 @@ private fun RaLibrarySidePanel(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             RaTabChip(
                 label = "By Platform",
-                selected = tab == RaLibraryTab.ByPlatform,
+                selected = ra.tab == RaLibraryTab.ByPlatform,
                 onClick = { onSelectTab(RaLibraryTab.ByPlatform) },
             )
             RaTabChip(
                 label = "Recently Earned",
-                selected = tab == RaLibraryTab.RecentlyEarned,
+                selected = ra.tab == RaLibraryTab.RecentlyEarned,
                 onClick = { onSelectTab(RaLibraryTab.RecentlyEarned) },
             )
             RaTabChip(
                 label = "Completion",
-                selected = tab == RaLibraryTab.Completion,
+                selected = ra.tab == RaLibraryTab.Completion,
                 onClick = { onSelectTab(RaLibraryTab.Completion) },
+            )
+            RaTabChip(
+                label = if (ra.compareEnabled) {
+                    val peer = ra.comparePeer?.username ?: ra.viewedUser
+                    if (peer.isNullOrBlank()) "Compare cheevos · On" else "Compare vs $peer"
+                } else {
+                    "Compare cheevos"
+                },
+                selected = ra.compareEnabled,
+                onClick = onToggleCompare,
             )
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        RaFollowingLeaderboard(
+            ra = ra,
+            onSelectFollowingIndex = onSelectFollowingIndex,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+        )
+
         XoraOutlinedText(
-            text = "LB / RB  ${platformFilter ?: "All platforms"}",
+            text = "LB / RB  ${ra.platformFilter ?: "All platforms"}",
             fontFamily = XoraFonts.Secondary,
             fontSize = 13.sp,
             outlineWidth = 1.5.dp,
@@ -363,6 +412,146 @@ private fun RaLibrarySidePanel(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+private fun RaFollowingLeaderboard(
+    ra: RaLibraryUiState,
+    onSelectFollowingIndex: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(ra.followingIndex, ra.following.size) {
+        if (ra.following.isEmpty()) return@LaunchedEffect
+        listState.animateScrollToItem(
+            ra.followingIndex.coerceIn(0, ra.following.lastIndex),
+        )
+    }
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        XoraOutlinedText(
+            text = "Following",
+            fontFamily = XoraFonts.XmbLabel,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp,
+            outlineWidth = 2.dp,
+        )
+        when {
+            ra.followingLoading && ra.following.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp))
+                }
+            }
+            ra.following.isEmpty() -> {
+                XoraOutlinedText(
+                    text = ra.followingError
+                        ?: "Follow people on RetroAchievements to see their scores.",
+                    fontFamily = XoraFonts.Secondary,
+                    fontSize = 12.sp,
+                    outlineWidth = 1.5.dp,
+                    fillColor = Color.White.copy(alpha = 0.7f),
+                )
+            }
+            else -> {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    itemsIndexed(
+                        items = ra.following,
+                        key = { _, user -> user.username },
+                    ) { index, user ->
+                        RaFollowedUserRow(
+                            user = user,
+                            selected = ra.focusColumn == RaLibraryFocusColumn.Following &&
+                                index == ra.followingIndex,
+                            viewing = user.username.equals(ra.viewedUser, ignoreCase = true),
+                            onClick = { onSelectFollowingIndex(index) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RaFollowedUserRow(
+    user: RaFollowedUser,
+    selected: Boolean,
+    viewing: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    val bg by animateColorAsState(
+        targetValue = when {
+            selected -> Color.White.copy(alpha = 0.22f)
+            viewing -> Color.White.copy(alpha = 0.12f)
+            else -> Color.White.copy(alpha = 0.06f)
+        },
+        label = "raFollowBg",
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(bg)
+            .then(
+                if (selected || viewing) {
+                    Modifier.border(
+                        1.5.dp,
+                        Color.White.copy(alpha = if (selected) 0.55f else 0.28f),
+                        shape,
+                    )
+                } else {
+                    Modifier
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        val context = LocalContext.current
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(user.userPicUrl)
+                .crossfade(80)
+                .build(),
+            contentDescription = user.username,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(percent = 50))
+                .background(Color.White.copy(alpha = 0.12f)),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = user.username,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontFamily = XoraFonts.XmbLabel,
+                ),
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "${user.points} pts",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = XoraFonts.Secondary,
+                ),
+                color = Color.White.copy(alpha = 0.7f),
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -722,6 +911,7 @@ private fun RaGameCheevoWindow(
     onSelectCheevo: (Int) -> Unit,
     onRetry: () -> Unit,
     onClose: () -> Unit,
+    onToggleCompare: () -> Unit,
 ) {
     val shape = RoundedCornerShape(24.dp)
     Box(
@@ -754,7 +944,19 @@ private fun RaGameCheevoWindow(
             val detail = ra.gameDetail
             val headerGame = detail?.title ?: ra.selectedGame?.game?.title.orEmpty()
             val headerConsole = detail?.consoleName ?: ra.selectedGame?.game?.consoleName.orEmpty()
-            val headerProgress = detail?.progressLabel ?: ra.selectedGame?.game?.progressLabel.orEmpty()
+            val headerProgress = if (ra.compareEnabled) {
+                val you = if (ra.viewingFollower) ra.compareProgress else detail
+                val them = if (ra.viewingFollower) detail else ra.compareProgress
+                val themName = ra.viewedUser ?: ra.selectedFollower?.username ?: "Them"
+                listOfNotNull(
+                    you?.progressLabel?.let { "You $it" },
+                    them?.progressLabel?.let { "$themName $it" },
+                ).joinToString("  ·  ").ifBlank {
+                    detail?.progressLabel ?: ra.selectedGame?.game?.progressLabel.orEmpty()
+                }
+            } else {
+                detail?.progressLabel ?: ra.selectedGame?.game?.progressLabel.orEmpty()
+            }
             val headerIcon = detail?.imageIconUrl ?: ra.selectedGame?.game?.imageIconUrl.orEmpty()
             val context = LocalContext.current
 
@@ -800,6 +1002,11 @@ private fun RaGameCheevoWindow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                RaTabChip(
+                    label = if (ra.compareEnabled) "Comparing" else "Compare",
+                    selected = ra.compareEnabled,
+                    onClick = onToggleCompare,
+                )
             }
 
             when {
@@ -877,6 +1084,9 @@ private fun RaGameCheevoWindow(
                             RaCheevoGridTile(
                                 cheevo = cheevo,
                                 selected = index == ra.cheevoIndex,
+                                compareEnabled = ra.compareEnabled,
+                                otherEarned = ra.compareAchievement(cheevo.id)?.earned == true,
+                                otherHardcore = ra.compareAchievement(cheevo.id)?.earnedHardcore == true,
                                 onClick = { onSelectCheevo(index) },
                             )
                         }
@@ -892,11 +1102,7 @@ private fun RaGameCheevoWindow(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (selected != null) {
-                    val status = when {
-                        selected.earnedHardcore -> "Hardcore · ${selected.points} pts"
-                        selected.earned -> "Earned · ${selected.points} pts"
-                        else -> "Locked · ${selected.points} pts"
-                    }
+                    val status = ra.cheevoStatusLine(selected)
                     Text(
                         text = selected.title,
                         style = MaterialTheme.typography.titleSmall.copy(
@@ -935,6 +1141,9 @@ private fun RaCheevoGridTile(
     cheevo: RaAchievement,
     selected: Boolean,
     onClick: () -> Unit,
+    compareEnabled: Boolean = false,
+    otherEarned: Boolean = false,
+    otherHardcore: Boolean = false,
 ) {
     val earned = cheevo.earned
     val edge = when {
@@ -976,6 +1185,17 @@ private fun RaCheevoGridTile(
                     },
                 ),
         )
+        if (compareEnabled && otherEarned) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+                    .size(10.dp)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(if (otherHardcore) CheevoHardcoreEdge else CheevoEarnedEdge)
+                    .border(1.dp, Color.Black.copy(alpha = 0.45f), RoundedCornerShape(percent = 50)),
+            )
+        }
     }
 }
 

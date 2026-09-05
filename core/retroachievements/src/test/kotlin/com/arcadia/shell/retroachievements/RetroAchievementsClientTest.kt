@@ -103,6 +103,48 @@ class RetroAchievementsClientTest {
     }
 
     @Test
+    fun `users I follow parses Results envelope`() {
+        val parsed = RetroAchievementsClient.parseUsersIFollow(
+            """
+            {
+              "Count": 2,
+              "Total": 2,
+              "Results": [
+                {
+                  "User": "Alice",
+                  "Points": 12000,
+                  "PointsSoftcore": 40,
+                  "IsFollowingMe": true
+                },
+                {
+                  "User": "Bob",
+                  "Points": "800",
+                  "PointsSoftcore": "0",
+                  "IsFollowingMe": 0
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        assertEquals(2, parsed.size)
+        assertEquals("Alice", parsed[0].username)
+        assertEquals(12000, parsed[0].points)
+        assertEquals(40, parsed[0].pointsSoftcore)
+        assertTrue(parsed[0].isFollowingMe)
+        assertEquals("Bob", parsed[1].username)
+        assertEquals(800, parsed[1].points)
+        assertFalse(parsed[1].isFollowingMe)
+    }
+
+    @Test
+    fun `users I follow accepts a bare array`() {
+        val parsed = RetroAchievementsClient.parseUsersIFollow(
+            """[{"User":"Carol","Points":15}]""",
+        )
+        assertEquals(listOf(RaFollowedUser("Carol", 15)), parsed)
+    }
+
+    @Test
     fun `core clause normalizes libretro suffix`() {
         assertEquals("mupen64plus_next_libretro", RaUserAgent.coreClause("mupen64plus_next"))
         assertEquals("mupen64plus_next_libretro", RaUserAgent.coreClause("mupen64plus_next_libretro.so"))

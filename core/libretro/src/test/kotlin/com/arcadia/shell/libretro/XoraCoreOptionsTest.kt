@@ -255,6 +255,23 @@ class XoraCoreOptionsTest {
     }
 
     @Test
+    fun threeDsPinsAccurateLightingAndNearestSampling() {
+        val vars = XoraCoreOptions.variablesFor("3ds", "azahar", settings)
+        assertEquals("enabled", vars["citra_use_hw_shader"])
+        assertEquals("enabled", vars["azahar_use_hw_shader"])
+        assertEquals("enabled", vars["citra_shaders_accurate_mul"])
+        assertEquals("enabled", vars["azahar_shaders_accurate_mul"])
+        assertEquals("none", vars["citra_texture_filter"])
+        assertEquals("none", vars["azahar_texture_filter"])
+        assertEquals("NearestNeighbor", vars["citra_texture_sampling"])
+        assertEquals("NearestNeighbor", vars["azahar_texture_sampling"])
+        val citra = XoraCoreOptions.variablesFor("3ds", "citra", settings)
+        assertEquals("enabled", citra["citra_shaders_accurate_mul"])
+        assertEquals("NearestNeighbor", citra["citra_texture_sampling"])
+        assertEquals("none", citra["citra_texture_filter"])
+    }
+
+    @Test
     fun azaharForcesOpenGlInsteadOfAndroidVulkanDefault() {
         val vars = XoraCoreOptions.variablesFor("3ds", "azahar", settings)
         assertEquals("OpenGL", vars["citra_graphics_api"])

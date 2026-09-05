@@ -403,6 +403,18 @@ object XoraCoreOptions {
         // "Failed to set HW renderer" and aborts load. Force the GLES3 path.
         out["citra_graphics_api"] = "OpenGL"
         out["azahar_graphics_api"] = "OpenGL"
+        // Azahar/Citra GLES defaults blow out lighting (inaccurate HW mul) and smear the
+        // native 400×240 dither with linear sampling + xBRZ/Anime4K. Pin accurate mul,
+        // nearest sampling, and no texture filter so the image stays the designed brightness
+        // without the grainy upscale haze.
+        out["citra_use_hw_shader"] = "enabled"
+        out["azahar_use_hw_shader"] = "enabled"
+        out["citra_shaders_accurate_mul"] = "enabled"
+        out["azahar_shaders_accurate_mul"] = "enabled"
+        out["citra_texture_filter"] = "none"
+        out["azahar_texture_filter"] = "none"
+        out["citra_texture_sampling"] = "NearestNeighbor"
+        out["azahar_texture_sampling"] = "NearestNeighbor"
         if (settings.threeDsPretendoPrep) {
             out.putAll(AzaharPretendo.coreOptions())
         }

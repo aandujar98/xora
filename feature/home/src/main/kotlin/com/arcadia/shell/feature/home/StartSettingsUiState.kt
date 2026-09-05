@@ -15,9 +15,9 @@ import com.arcadia.shell.designsystem.ShellThemeId
 import com.arcadia.shell.model.ScreenRole
 
 /**
- * Start-button app config popup: categorized quick settings with a glass list + icon rail.
+ * Start-button app config popup: a category list that drills into each page.
  *
- * Rail order (top → bottom): Display, Themes, Sound, Scrape, Social, Notifications, General.
+ * Root order: Display, Themes, Sound, Scrape, Social, Notifications, General.
  */
 enum class StartSettingsCategory {
     Display,
@@ -76,6 +76,9 @@ sealed interface StartSettingsAction {
     data object CycleUiTextScale : StartSettingsAction
     data object ToggleUiFitMode : StartSettingsAction
     data object OpenSystemDisplay : StartSettingsAction
+
+    /** Drill from the category list into one settings page. */
+    data class OpenCategory(val category: StartSettingsCategory) : StartSettingsAction
 
     /** Apply a launcher theme pack by stable id. */
     data class SelectShellTheme(val themeId: String) : StartSettingsAction
@@ -139,6 +142,8 @@ sealed interface StartSettingsAction {
 data class StartSettingsUiState(
     val open: Boolean = false,
     val category: StartSettingsCategory = StartSettingsCategory.Display,
+    /** False = category list; true = rows for [category]. */
+    val inCategory: Boolean = false,
     val selectedRowIndex: Int = 0,
     val rows: List<StartSettingsRow> = emptyList(),
     /** Snapshot labels driven by live [ShellSettings]. */
@@ -147,7 +152,40 @@ data class StartSettingsUiState(
     val isScanning: Boolean = false,
 ) {
     val selectedRow: StartSettingsRow? get() = rows.getOrNull(selectedRowIndex)
+
+    val title: String
+        get() = if (inCategory) startSettingsCategoryTitle(category) else "Settings"
 }
+
+fun startSettingsCategoryTitle(category: StartSettingsCategory): String = when (category) {
+    StartSettingsCategory.Display -> "Display"
+    StartSettingsCategory.Themes -> "Themes"
+    StartSettingsCategory.Sound -> "Sound"
+    StartSettingsCategory.Scrape -> "Scrape"
+    StartSettingsCategory.Social -> "Social"
+    StartSettingsCategory.Notifications -> "Notifications"
+    StartSettingsCategory.General -> "General"
+}
+
+fun startSettingsCategorySubtitle(category: StartSettingsCategory): String = when (category) {
+    StartSettingsCategory.Display -> "Screen, trailers & text"
+    StartSettingsCategory.Themes -> "Presets, wallpaper & shop"
+    StartSettingsCategory.Sound -> "Music & UI volume"
+    StartSettingsCategory.Scrape -> "Artwork, trailers & RetroAchievements"
+    StartSettingsCategory.Social -> "Friends, Steam & Discord"
+    StartSettingsCategory.Notifications -> "Banners & friend alerts"
+    StartSettingsCategory.General -> "Home, updates & power"
+}
+
+fun buildStartSettingsCategoryRows(): List<StartSettingsRow> =
+    StartSettingsCategory.entries.map { category ->
+        StartSettingsRow.Action(
+            id = "category_${category.name}",
+            title = startSettingsCategoryTitle(category),
+            subtitle = startSettingsCategorySubtitle(category),
+            action = StartSettingsAction.OpenCategory(category),
+        )
+    }
 
 fun buildStartSettingsRows(
     category: StartSettingsCategory,
@@ -617,12 +655,3 @@ private fun trailerSourceLabel(preference: TrailerSourcePreference): String = wh
     TrailerSourcePreference.Igdb -> "IGDB"
 }
 
-fun StartSettingsCategory.next(): StartSettingsCategory {
-    val values = StartSettingsCategory.entries
-    return values[(ordinal + 1) % values.size]
-}
-
-fun StartSettingsCategory.previous(): StartSettingsCategory {
-    val values = StartSettingsCategory.entries
-    return values[(ordinal - 1 + values.size) % values.size]
-}

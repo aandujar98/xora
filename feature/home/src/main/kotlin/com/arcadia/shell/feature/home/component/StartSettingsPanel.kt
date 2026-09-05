@@ -12,7 +12,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,11 +45,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,19 +59,16 @@ import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberGlassTokens
-import com.arcadia.shell.feature.home.StartSettingsCategory
 import com.arcadia.shell.feature.home.StartSettingsRow
 import com.arcadia.shell.feature.home.StartSettingsTrailingIcon
 import com.arcadia.shell.feature.home.StartSettingsUiState
-import com.arcadia.shell.feature.home.XmbIcon
-import com.arcadia.shell.feature.home.vectorDrawableRes
 
 private val ListShape = RoundedCornerShape(22.dp)
-private val TabShape = RoundedCornerShape(12.dp)
 private val RowFocusShape = RoundedCornerShape(14.dp)
 
 /**
- * Start-button app config: dual floating glass panels (list + category rail).
+ * Start-button app config: one floating glass list. Root is the category list;
+ * Confirm drills in, Back returns to the list.
  *
  * Overlay (not Dialog) so Dual Mode [android.app.Presentation] panes can host it without a
  * nested window. Enter/exit uses scale+fade with a light spring overshoot.
@@ -82,9 +76,9 @@ private val RowFocusShape = RoundedCornerShape(14.dp)
 @Composable
 fun StartSettingsPanel(
     state: StartSettingsUiState,
-    onSelectCategory: (StartSettingsCategory) -> Unit,
     onSelectRow: (Int) -> Unit,
     onActivate: () -> Unit,
+    onBack: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -95,7 +89,7 @@ fun StartSettingsPanel(
         stiffness = Spring.StiffnessMediumLow,
     )
 
-    BackHandler(enabled = state.open, onBack = onDismiss)
+    BackHandler(enabled = state.open, onBack = onBack)
 
     AnimatedVisibility(
         visible = state.open,
@@ -137,52 +131,36 @@ fun StartSettingsPanel(
                     .padding(horizontal = 10.dp, vertical = 14.dp),
             ) {
                 Text(
-                    text = categoryTitle(state.category),
+                    text = state.title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = glass.content,
-                    modifier = Modifier.padding(horizontal = 12.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    StartSettingsCategory.entries.forEach { category ->
-                        CategoryTab(
-                            category = category,
-                            selected = category == state.category,
-                            tint = glass.content,
-                            onClick = { onSelectCategory(category) },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                         .height(1.dp)
                         .background(glass.border.copy(alpha = 0.35f)),
                 )
                 val categoryFadeIn = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
                 val categoryFadeOut = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
+                val pageKey = if (state.inCategory) "cat:${state.category.name}" else "root"
                 AnimatedContent(
-                    targetState = state.category,
+                    targetState = pageKey,
                     transitionSpec = {
                         categoryFadeIn togetherWith categoryFadeOut
                     },
-                    label = "startSettingsCategory",
+                    label = "startSettingsPage",
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                ) { category ->
-                    val rows = if (category == state.category) state.rows else emptyList()
+                ) { page ->
+                    val rows = state.rows.takeIf { page == pageKey }.orEmpty()
                     val listState = rememberLazyListState()
-                    LaunchedEffect(state.selectedRowIndex, category, rows.size) {
-                        if (category != state.category || rows.isEmpty()) return@LaunchedEffect
+                    LaunchedEffect(state.selectedRowIndex, page, rows.size) {
+                        if (rows.isEmpty()) return@LaunchedEffect
                         listState.animateScrollToItem(
                             state.selectedRowIndex.coerceIn(0, rows.lastIndex),
                         )
@@ -311,70 +289,6 @@ private fun StartSettingsListRow(
     }
 }
 
-/** Compact header tab: glyph over an accent underline when focused. */
-@Composable
-private fun CategoryTab(
-    category: StartSettingsCategory,
-    selected: Boolean,
-    tint: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val theme = LocalShellTheme.current.colors
-    val highlight by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Fast),
-        label = "categoryTabFocus",
-    )
-    Column(
-        modifier = modifier
-            .clip(TabShape)
-            .background(theme.focusEnd.copy(alpha = 0.22f * highlight))
-            .clickable(onClick = onClick)
-            .padding(vertical = 7.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        CategoryGlyph(
-            category = category,
-            tint = if (selected) tint else tint.copy(alpha = 0.5f),
-        )
-        Box(
-            modifier = Modifier
-                .width(18.dp)
-                .height(2.dp)
-                .clip(RoundedCornerShape(1.dp))
-                .background(theme.focusEnd.copy(alpha = highlight)),
-        )
-    }
-}
-
-@Composable
-private fun CategoryGlyph(
-    category: StartSettingsCategory,
-    tint: Color,
-    modifier: Modifier = Modifier,
-) {
-    val icon = category.toXmbIcon()
-    val resId = icon.vectorDrawableRes() ?: return
-    Image(
-        painter = painterResource(resId),
-        contentDescription = null,
-        colorFilter = ColorFilter.tint(tint),
-        modifier = modifier.size(24.dp),
-    )
-}
-
-private fun StartSettingsCategory.toXmbIcon(): XmbIcon = when (this) {
-    StartSettingsCategory.General -> XmbIcon.General
-    StartSettingsCategory.Display -> XmbIcon.Display
-    StartSettingsCategory.Themes -> XmbIcon.Themes
-    StartSettingsCategory.Sound -> XmbIcon.Sound
-    StartSettingsCategory.Scrape -> XmbIcon.Scrape
-    StartSettingsCategory.Social -> XmbIcon.Social
-    StartSettingsCategory.Notifications -> XmbIcon.Notifications
-}
-
 @Composable
 private fun PencilGlyph(tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier.size(18.dp)) {
@@ -418,14 +332,4 @@ private fun ToggleGlyph(checked: Boolean, tint: Color, modifier: Modifier = Modi
                 .background(Color.White.copy(alpha = 0.92f)),
         )
     }
-}
-
-private fun categoryTitle(category: StartSettingsCategory): String = when (category) {
-    StartSettingsCategory.Display -> "Display"
-    StartSettingsCategory.Themes -> "Themes"
-    StartSettingsCategory.Sound -> "Sound"
-    StartSettingsCategory.Scrape -> "Scrape"
-    StartSettingsCategory.Social -> "Social"
-    StartSettingsCategory.Notifications -> "Notifications"
-    StartSettingsCategory.General -> "General"
 }

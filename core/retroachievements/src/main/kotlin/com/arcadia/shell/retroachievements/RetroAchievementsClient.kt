@@ -316,6 +316,7 @@ class RetroAchievementsClient @Inject constructor(
     suspend fun fetchGameProgress(
         credentials: RetroAchievementsCredentials,
         gameId: Int,
+        forUser: String? = null,
     ): Result<RaGameProgress> = withContext(Dispatchers.IO) {
         if (!credentials.isConfigured) {
             return@withContext Result.failure(IllegalStateException("Not signed in."))
@@ -325,11 +326,36 @@ class RetroAchievementsClient @Inject constructor(
                 "$API_BASE/API_GetGameInfoAndUserProgress.php",
                 mapOf(
                     "y" to credentials.apiKey,
-                    "u" to credentials.username,
+                    "u" to webApiUser(credentials, forUser),
                     "g" to gameId.toString(),
                 ),
             )
             parseGameProgress(body)
+        }
+    }
+
+    /**
+     * People the signed-in account follows, with hardcore / softcore scores.
+     * [API_GetUsersIFollow] — paginated, max 500 per page.
+     */
+    suspend fun fetchUsersIFollow(
+        credentials: RetroAchievementsCredentials,
+        count: Int = FOLLOW_PAGE_SIZE,
+        offset: Int = 0,
+    ): Result<List<RaFollowedUser>> = withContext(Dispatchers.IO) {
+        if (!credentials.isConfigured) {
+            return@withContext Result.failure(IllegalStateException("Not signed in."))
+        }
+        runCatching {
+            val body = get(
+                "$API_BASE/API_GetUsersIFollow.php",
+                mapOf(
+                    "y" to credentials.apiKey,
+                    "c" to count.coerceIn(1, 500).toString(),
+                    "o" to offset.coerceAtLeast(0).toString(),
+                ),
+            )
+            parseUsersIFollow(body, json)
         }
     }
 
@@ -375,6 +401,7 @@ class RetroAchievementsClient @Inject constructor(
         credentials: RetroAchievementsCredentials,
         count: Int = COMPLETION_PAGE_SIZE,
         offset: Int = 0,
+        forUser: String? = null,
     ): Result<List<RaCompletionGame>> = withContext(Dispatchers.IO) {
         if (!credentials.isConfigured) {
             return@withContext Result.failure(IllegalStateException("Not signed in."))
@@ -384,7 +411,7 @@ class RetroAchievementsClient @Inject constructor(
                 "$API_BASE/API_GetUserCompletionProgress.php",
                 mapOf(
                     "y" to credentials.apiKey,
-                    "u" to credentials.username,
+                    "u" to webApiUser(credentials, forUser),
                     "c" to count.coerceIn(1, 500).toString(),
                     "o" to offset.coerceAtLeast(0).toString(),
                 ),
@@ -392,6 +419,9 @@ class RetroAchievementsClient @Inject constructor(
             parseCompletionProgress(body)
         }
     }
+
+    private fun webApiUser(credentials: RetroAchievementsCredentials, forUser: String?): String =
+        forUser?.trim()?.takeIf { it.isNotBlank() } ?: credentials.username
 
     private fun parseCompletionProgress(body: String): List<RaCompletionGame> {
         val root = json.parseToJsonElement(body).jsonObject
@@ -523,6 +553,40 @@ class RetroAchievementsClient @Inject constructor(
 
         /** First page of the RA library list (API max 500). */
         const val COMPLETION_PAGE_SIZE = 200
+
+        /** First page of people you follow (API max 500). */
+        const val FOLLOW_PAGE_SIZE = 200
+
+        /**
+         * Parses [API_GetUsersIFollow] JSON. Exposed for unit tests.
+         * Accepts either `{ "Results": [...] }` or a bare array.
+         */
+        fun parseUsersIFollow(
+            body: String,
+            json: Json = Json { ignoreUnknownKeys = true },
+        ): List<RaFollowedUser> {
+            val element = json.parseToJsonElement(body)
+            val results = element.jsonObjectOrNull()?.get("Results")?.jsonArray
+                ?: element.jsonArrayOrNull()
+                ?: return emptyList()
+            return results.mapNotNull { item ->
+                val obj = item.jsonObject
+                val user = obj.flexibleString("User")?.trim().orEmpty()
+                if (user.isBlank()) return@mapNotNull null
+                RaFollowedUser(
+                    username = user,
+                    points = obj.flexibleInt("Points") ?: 0,
+                    pointsSoftcore = obj.flexibleInt("PointsSoftcore") ?: 0,
+                    isFollowingMe = obj.flexibleBoolean("IsFollowingMe") ?: false,
+                )
+            }
+        }
+
+        private fun kotlinx.serialization.json.JsonElement.jsonObjectOrNull() =
+            runCatching { jsonObject }.getOrNull()
+
+        private fun kotlinx.serialization.json.JsonElement.jsonArrayOrNull() =
+            runCatching { jsonArray }.getOrNull()
 
         fun looksLikeHtml(body: String): Boolean {
             val trimmed = body.trimStart('\uFEFF', ' ', '\t', '\r', '\n')

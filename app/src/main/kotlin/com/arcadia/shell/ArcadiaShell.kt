@@ -555,6 +555,8 @@ fun ArcadiaShell(
                     onRetryRaLibrary = homeViewModel::refreshRaLibrary,
                     onSelectRaCheevoIndex = homeViewModel::selectRaCheevoIndex,
                     onCloseRaGameDetail = homeViewModel::closeRaGameDetail,
+                    onSelectRaFollowingIndex = homeViewModel::selectRaFollowingIndex,
+                    onToggleRaCompare = homeViewModel::toggleRaCompare,
                     onSelectHomeShard = homeViewModel::selectHomeShard,
                     onActivateHomeShard = homeViewModel::activateHomeShard,
                     onSelectHomeShortcut = homeViewModel::selectHomeShortcut,
@@ -1010,9 +1012,9 @@ private fun StartSettingsOverlay(
 ) {
     StartSettingsPanel(
         state = state.startSettings,
-        onSelectCategory = homeViewModel::selectStartSettingsCategory,
         onSelectRow = homeViewModel::selectStartSettingsRow,
         onActivate = { homeViewModel.activateStartSettingsSelection() },
+        onBack = homeViewModel::dismissStartSettings,
         onDismiss = homeViewModel::closeStartSettings,
         modifier = modifier,
     )
@@ -1217,6 +1219,8 @@ private fun PaneForRole(
                     onRetryRaLibrary = homeViewModel::refreshRaLibrary,
                     onSelectRaCheevoIndex = homeViewModel::selectRaCheevoIndex,
                     onCloseRaGameDetail = homeViewModel::closeRaGameDetail,
+                    onSelectRaFollowingIndex = homeViewModel::selectRaFollowingIndex,
+                    onToggleRaCompare = homeViewModel::toggleRaCompare,
                     onSelectHomeShard = homeViewModel::selectHomeShard,
                     onActivateHomeShard = homeViewModel::activateHomeShard,
                     onSelectHomeShortcut = homeViewModel::selectHomeShortcut,

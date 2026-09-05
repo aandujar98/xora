@@ -163,8 +163,17 @@ class RetroAchievementsRepository @Inject constructor(
     suspend fun fetchCompletionProgress(
         count: Int = RetroAchievementsClient.COMPLETION_PAGE_SIZE,
         offset: Int = 0,
+        forUser: String? = null,
     ): Result<List<RaCompletionGame>> =
-        client.fetchCompletionProgress(currentCredentials(), count = count, offset = offset)
+        client.fetchCompletionProgress(
+            currentCredentials(),
+            count = count,
+            offset = offset,
+            forUser = forUser,
+        )
+
+    suspend fun fetchUsersIFollow(): Result<List<RaFollowedUser>> =
+        client.fetchUsersIFollow(currentCredentials())
 
     /**
      * Resolve a ROM MD5 to a RetroAchievements game id using the same Connect + Web API hash
@@ -178,12 +187,12 @@ class RetroAchievementsRepository @Inject constructor(
     }
 
     /** Web API progress for a RetroAchievements game the emulator already identified. */
-    suspend fun fetchGameProgress(gameId: Int): Result<RaGameProgress> {
+    suspend fun fetchGameProgress(gameId: Int, forUser: String? = null): Result<RaGameProgress> {
         val creds = currentCredentials()
         if (!creds.isConfigured) {
             return Result.failure(IllegalStateException("Not signed in."))
         }
-        return client.fetchGameProgress(creds, gameId)
+        return client.fetchGameProgress(creds, gameId, forUser)
     }
 
     /**

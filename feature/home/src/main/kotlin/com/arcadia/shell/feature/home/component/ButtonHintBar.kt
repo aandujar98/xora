@@ -311,19 +311,20 @@ val RssFeedHints: List<Pair<String, String>> = listOf(
 )
 
 val RaLibraryHints: List<Pair<String, String>> = listOf(
-    "U/D" to "Game",
-    "L/R" to "Tab",
+    "U/D" to "Move",
+    "L/R" to "Following",
     "LB/RB" to "Platform",
-    "A" to "Cheevos",
+    "A" to "Select",
     "B" to "Back",
+    "Options" to "Compare",
     "LT" to "Social",
     "Start+Select" to "Guide",
 )
 
 val RaCheevoGridHints: List<Pair<String, String>> = listOf(
     "U/D/L/R" to "Cheevo",
-    "LB/RB" to "Platform",
     "B" to "Games",
+    "Options" to "Compare",
     "LT" to "Social",
     "Start+Select" to "Guide",
 )
@@ -364,11 +365,9 @@ val SystemMenuHints: List<Pair<String, String>> = listOf(
 
 val StartSettingsHints: List<Pair<String, String>> = listOf(
     "U/D" to "Move",
-    "L/R" to "Category",
     "Swipe" to "Scroll",
-    "LB/RB" to "Category",
-    "A" to "Activate",
-    "B" to "Close",
+    "A" to "Open",
+    "B" to "Back",
     "Start" to "Close",
 )
 

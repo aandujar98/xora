@@ -35,6 +35,16 @@ sealed interface RaPasswordLoginResult {
     ) : RaPasswordLoginResult
 }
 
+/** One person from [API_GetUsersIFollow] — used by the RA library leaderboard. */
+data class RaFollowedUser(
+    val username: String,
+    val points: Int,
+    val pointsSoftcore: Int = 0,
+    val isFollowingMe: Boolean = false,
+) {
+    val userPicUrl: String get() = RaProfile.userPicUrlFor(username)
+}
+
 data class RaProfile(
     val username: String,
     val totalPoints: Int,
