@@ -92,7 +92,6 @@ import com.arcadia.shell.feature.home.component.NowPlayingPill
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.feature.home.component.XmbStarFieldLayer
-import com.arcadia.shell.libretro.XoraAspectLetterbox
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
@@ -215,50 +214,8 @@ fun XoraHomeXmbPane(
         wallpaperAlpha = cinematic.wallpaperAlpha,
     )
 
-    XoraAspectLetterbox(
-        mode = state.xoraEmulator.aspectMode,
-        modifier = modifier.fillMaxSize(),
-        hud = {
-            if (showPillChrome) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = chromeAlpha },
-                ) {
-                    XoraXmbPillChrome(
-                        state = state,
-                        onToggleAccountPanel = onToggleAccountPanel,
-                        onToggleSystemPanel = onToggleSystemPanel,
-                        onToggleAchievementsPanel = onToggleAchievementsPanel,
-                        onSelectSocialTab = onSelectSocialTab,
-                        onSelectAccountRow = onSelectAccountRow,
-                        onActivateAccountRow = onActivateAccountRow,
-                        onSelectSystemRow = onSelectSystemRow,
-                        onActivateSystemRow = onActivateSystemRow,
-                        onOpenNotifications = onOpenNotifications,
-                        onSystemStatusDraftChange = onSystemStatusDraftChange,
-                        onSaveCustomStatus = onSaveCustomStatus,
-                        onClearCustomStatus = onClearCustomStatus,
-                        onSaveProfile = onSaveProfile,
-                        onSelectAvatarPreset = onSelectAvatarPreset,
-                        onRequestLocalAvatar = onRequestLocalAvatar,
-                        onUseRaAvatar = onUseRaAvatar,
-                        onUseDiscordAvatar = onUseDiscordAvatar,
-                        onUseXoraAvatar = onUseXoraAvatar,
-                        onXoraPresenceMode = onXoraPresenceMode,
-                        onClearAvatar = onClearAvatar,
-                        onClearNotifications = onClearNotifications,
-                        onFriendSearchChange = onFriendSearchChange,
-                        onReplyDraftChange = onReplyDraftChange,
-                        onSelectAchievementsTab = onSelectAchievementsTab,
-                        onLoginRetroAchievements = onLoginRetroAchievements,
-                        onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                        onSignOutRetroAchievements = onSignOutRetroAchievements,
-                    )
-                }
-            }
-        },
-    ) {
+    // Full-bleed: emulator aspect ratio must not crop this wallpaper or the XMB chrome.
+    Box(modifier = modifier.fillMaxSize()) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -464,6 +421,44 @@ fun XoraHomeXmbPane(
         // with the menu. Pill chrome stays put so LT/RT remain visible over the bubbles.
         overlayContent()
     }
+        if (showPillChrome) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = chromeAlpha },
+            ) {
+                XoraXmbPillChrome(
+                    state = state,
+                    onToggleAccountPanel = onToggleAccountPanel,
+                    onToggleSystemPanel = onToggleSystemPanel,
+                    onToggleAchievementsPanel = onToggleAchievementsPanel,
+                    onSelectSocialTab = onSelectSocialTab,
+                    onSelectAccountRow = onSelectAccountRow,
+                    onActivateAccountRow = onActivateAccountRow,
+                    onSelectSystemRow = onSelectSystemRow,
+                    onActivateSystemRow = onActivateSystemRow,
+                    onOpenNotifications = onOpenNotifications,
+                    onSystemStatusDraftChange = onSystemStatusDraftChange,
+                    onSaveCustomStatus = onSaveCustomStatus,
+                    onClearCustomStatus = onClearCustomStatus,
+                    onSaveProfile = onSaveProfile,
+                    onSelectAvatarPreset = onSelectAvatarPreset,
+                    onRequestLocalAvatar = onRequestLocalAvatar,
+                    onUseRaAvatar = onUseRaAvatar,
+                    onUseDiscordAvatar = onUseDiscordAvatar,
+                    onUseXoraAvatar = onUseXoraAvatar,
+                    onXoraPresenceMode = onXoraPresenceMode,
+                    onClearAvatar = onClearAvatar,
+                    onClearNotifications = onClearNotifications,
+                    onFriendSearchChange = onFriendSearchChange,
+                    onReplyDraftChange = onReplyDraftChange,
+                    onSelectAchievementsTab = onSelectAchievementsTab,
+                    onLoginRetroAchievements = onLoginRetroAchievements,
+                    onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
+                    onSignOutRetroAchievements = onSignOutRetroAchievements,
+                )
+            }
+        }
     }
 }
 
@@ -533,50 +528,8 @@ fun XoraXmbHeroDetail(
     val recedeScale = 1f - (recede * 0.12f)
     val recedeAlpha = 1f - recede
 
-    XoraAspectLetterbox(
-        mode = state.xoraEmulator.aspectMode,
-        modifier = modifier.fillMaxSize(),
-        hud = {
-            if (showPillChrome) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = chromeAlpha },
-                ) {
-                    XoraXmbPillChrome(
-                        state = state,
-                        onToggleAccountPanel = onToggleAccountPanel,
-                        onToggleSystemPanel = onToggleSystemPanel,
-                        onToggleAchievementsPanel = onToggleAchievementsPanel,
-                        onSelectSocialTab = onSelectSocialTab,
-                        onSelectAccountRow = onSelectAccountRow,
-                        onActivateAccountRow = onActivateAccountRow,
-                        onSelectSystemRow = onSelectSystemRow,
-                        onActivateSystemRow = onActivateSystemRow,
-                        onOpenNotifications = onOpenNotifications,
-                        onSystemStatusDraftChange = onSystemStatusDraftChange,
-                        onSaveCustomStatus = onSaveCustomStatus,
-                        onClearCustomStatus = onClearCustomStatus,
-                        onSaveProfile = onSaveProfile,
-                        onSelectAvatarPreset = onSelectAvatarPreset,
-                        onRequestLocalAvatar = onRequestLocalAvatar,
-                        onUseRaAvatar = onUseRaAvatar,
-                        onUseDiscordAvatar = onUseDiscordAvatar,
-                        onUseXoraAvatar = onUseXoraAvatar,
-                        onXoraPresenceMode = onXoraPresenceMode,
-                        onClearAvatar = onClearAvatar,
-                        onClearNotifications = onClearNotifications,
-                        onFriendSearchChange = onFriendSearchChange,
-                        onReplyDraftChange = onReplyDraftChange,
-                        onSelectAchievementsTab = onSelectAchievementsTab,
-                        onLoginRetroAchievements = onLoginRetroAchievements,
-                        onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                        onSignOutRetroAchievements = onSignOutRetroAchievements,
-                    )
-                }
-            }
-        },
-    ) {
+    // Full-bleed: emulator aspect ratio must not crop this wallpaper or the XMB chrome.
+    Box(modifier = modifier.fillMaxSize()) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -714,6 +667,44 @@ fun XoraXmbHeroDetail(
             }
         }
     }
+        if (showPillChrome) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = chromeAlpha },
+            ) {
+                XoraXmbPillChrome(
+                    state = state,
+                    onToggleAccountPanel = onToggleAccountPanel,
+                    onToggleSystemPanel = onToggleSystemPanel,
+                    onToggleAchievementsPanel = onToggleAchievementsPanel,
+                    onSelectSocialTab = onSelectSocialTab,
+                    onSelectAccountRow = onSelectAccountRow,
+                    onActivateAccountRow = onActivateAccountRow,
+                    onSelectSystemRow = onSelectSystemRow,
+                    onActivateSystemRow = onActivateSystemRow,
+                    onOpenNotifications = onOpenNotifications,
+                    onSystemStatusDraftChange = onSystemStatusDraftChange,
+                    onSaveCustomStatus = onSaveCustomStatus,
+                    onClearCustomStatus = onClearCustomStatus,
+                    onSaveProfile = onSaveProfile,
+                    onSelectAvatarPreset = onSelectAvatarPreset,
+                    onRequestLocalAvatar = onRequestLocalAvatar,
+                    onUseRaAvatar = onUseRaAvatar,
+                    onUseDiscordAvatar = onUseDiscordAvatar,
+                    onUseXoraAvatar = onUseXoraAvatar,
+                    onXoraPresenceMode = onXoraPresenceMode,
+                    onClearAvatar = onClearAvatar,
+                    onClearNotifications = onClearNotifications,
+                    onFriendSearchChange = onFriendSearchChange,
+                    onReplyDraftChange = onReplyDraftChange,
+                    onSelectAchievementsTab = onSelectAchievementsTab,
+                    onLoginRetroAchievements = onLoginRetroAchievements,
+                    onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
+                    onSignOutRetroAchievements = onSignOutRetroAchievements,
+                )
+            }
+        }
     }
 }
 

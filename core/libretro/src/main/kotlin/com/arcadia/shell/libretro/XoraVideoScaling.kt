@@ -71,34 +71,24 @@ fun computeXoraGameRect(
 }
 
 /**
- * Letterbox for the XOrA XMB launcher. Auto / integer / stretch fill the panel (there is no
- * framebuffer). Forced ratios (16:9, 1:1, 4:3, …) get the same black bars as in-game.
+ * XMB / wallpaper plate. Aspect mode is an emulator-only setting — the launcher always
+ * fills the physical panel so a 4:3 or 1:1 game ratio never crops the menu backdrop.
  */
 fun computeXoraLauncherRect(
     viewW: Int,
     viewH: Int,
-    aspectMode: XoraAspectMode,
+    @Suppress("UNUSED_PARAMETER") aspectMode: XoraAspectMode,
 ): IntArray {
     if (viewW <= 0 || viewH <= 0) return intArrayOf(0, 0, viewW, viewH)
-    return when (aspectMode) {
-        XoraAspectMode.Core, XoraAspectMode.Integer, XoraAspectMode.Stretch ->
-            intArrayOf(0, 0, viewW, viewH)
-        else -> computeXoraGameRect(
-            viewW = viewW,
-            viewH = viewH,
-            contentWidthPx = 16,
-            contentHeightPx = 9,
-            aspectMode = aspectMode,
-        )
-    }
+    return intArrayOf(0, 0, viewW, viewH)
 }
 
 /**
- * Letterboxes [content] (XMB, wallpaper, in-game frame) to [mode].
+ * Full-bleed launcher plate. [mode] is ignored — aspect ratio belongs to the in-game
+ * framebuffer via [computeXoraGameRect] / [XoraScaledGameFrame], not the XMB.
  *
- * [hud] is laid out in the physical panel, not the letterboxed plate. LT Social and RT Profile
- * have to stay on the real corners — putting them inside a 1:1 plate on a 16:9 (or an OEM
- * landscape-locked square panel like RG Rotate) crops or hides those windows.
+ * [hud] is laid out in the physical panel so LT Social and RT Profile stay on the real
+ * corners even on OEM landscape-locked square panels (RG Rotate).
  */
 @Composable
 fun XoraAspectLetterbox(

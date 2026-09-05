@@ -88,9 +88,9 @@ class XoraGameRectTest {
     }
 
     @Test
-    fun launcher1x1LetterboxesAWidePanel() {
+    fun launcher1x1FillsAWidePanel() {
         val rect = computeXoraLauncherRect(1920, 1080, XoraAspectMode.Ratio1x1)
-        assertArrayEquals(intArrayOf(420, 0, 1500, 1080), rect)
+        assertArrayEquals(intArrayOf(0, 0, 1920, 1080), rect)
     }
 
     @Test
@@ -102,19 +102,14 @@ class XoraGameRectTest {
     @Test
     fun launcher1x1OnALandscapeLockedSquareWindow() {
         // Some OEMs letterbox sensorLandscape into 16:9 on a 720×720 panel.
+        // The XMB still fills that window — aspect ratio is emulator-only.
         val rect = computeXoraLauncherRect(720, 405, XoraAspectMode.Ratio1x1)
-        assertEquals(405, rect[3] - rect[1])
-        assertEquals(405, rect[2] - rect[0])
-        assertTrue(rect[0] > 0)
+        assertArrayEquals(intArrayOf(0, 0, 720, 405), rect)
     }
 
     @Test
-    fun launcher4x3LetterboxesAWidePanel() {
+    fun launcher4x3FillsAWidePanel() {
         val rect = computeXoraLauncherRect(1920, 1080, XoraAspectMode.Ratio4x3)
-        val width = rect[2] - rect[0]
-        val height = rect[3] - rect[1]
-        assertEquals(1080, height)
-        assertEquals(1440, width)
-        assertEquals(240, rect[0])
+        assertArrayEquals(intArrayOf(0, 0, 1920, 1080), rect)
     }
 }

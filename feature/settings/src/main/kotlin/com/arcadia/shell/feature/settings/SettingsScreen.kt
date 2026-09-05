@@ -1496,9 +1496,10 @@ fun SettingsScreen(
                 modifier = Modifier.animateItem(),
             ) {
                 Text(
-                    text = "Aspect ratio applies to every core, including the XOrA emulator. " +
-                        "Auto keeps the framebuffer. 16:9, 1:1, 4:3 and the other ratios " +
-                        "letterbox a forced box. DS / 3DS layout options are below.",
+                    text = "Aspect ratio applies only while a game is running in the built-in " +
+                        "emulator — not the XMB wallpaper or menu. Auto keeps the framebuffer. " +
+                        "16:9, 1:1, 4:3 and the other ratios letterbox the game. DS / 3DS " +
+                        "layout options are below.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

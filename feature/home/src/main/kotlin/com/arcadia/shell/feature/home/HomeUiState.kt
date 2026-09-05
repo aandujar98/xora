@@ -264,7 +264,7 @@ data class HomeUiState(
     val homeHub: HomeHubUiState = HomeHubUiState(),
     /** Classic XOrA XMB navigation state for [HomePage.Home]. */
     val xoraXmb: XoraXmbUiState = XoraXmbUiState(),
-    /** Emulator display prefs — [XoraEmulatorSettings.aspectMode] also letterboxes the XMB. */
+    /** Emulator display prefs. Aspect mode applies in-game only, never to the XMB backdrop. */
     val xoraEmulator: XoraEmulatorSettings = XoraEmulatorSettings(),
     val tabs: List<LibraryTab> = emptyList(),
     val selectedTabIndex: Int = 0,
