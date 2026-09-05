@@ -33,6 +33,7 @@ internal fun rememberEditorRows(
     currentEmulatorLabel: String?,
     artAlignX: Float,
     artAlignY: Float,
+    mediaEpoch: Int,
     onStartRename: () -> Unit,
     onOpenArtPicker: (ArtSlot) -> Unit,
     actions: RomEditorActions,
@@ -49,6 +50,7 @@ internal fun rememberEditorRows(
     currentEmulatorLabel,
     artAlignX,
     artAlignY,
+    mediaEpoch,
 ) {
     when (section) {
         RomEditorSection.Details -> detailRows(game, customTitle, hidden, onStartRename, actions)
@@ -190,6 +192,7 @@ private fun artworkRows(
 
 private fun audioRows(game: Game, actions: RomEditorActions): List<RomEditorRow> = buildList {
     val resolved = RomSoundBiteLocator.resolve(game)
+    val hasBite = resolved != null
     add(
         RomEditorRow(
             key = "bite",
@@ -202,15 +205,25 @@ private fun audioRows(game: Game, actions: RomEditorActions): List<RomEditorRow>
             hint = "Plays under the title while you browse. Drops in as " +
                 "\"${game.fileName.substringBeforeLast('.')}.mp3\" beside the ROM too.",
             onActivate = actions.onPickSoundBite,
-            onClear = actions.onClearSoundBite.takeIf { !game.soundBitePath.isNullOrBlank() },
+            onClear = actions.onClearSoundBite.takeIf { hasBite },
         ),
     )
-    if (resolved != null) {
+    if (hasBite) {
         add(
             RomEditorRow(
                 key = "preview",
                 label = "Preview sound bite",
                 onActivate = actions.onPreviewSoundBite,
+            ),
+        )
+        add(
+            RomEditorRow(
+                key = "removebite",
+                label = "Remove sound bite",
+                hint = "Stops the clip on the XMB. Also deletes a matching mp3 / wav " +
+                    "sitting beside the ROM.",
+                onActivate = actions.onClearSoundBite,
+                destructive = true,
             ),
         )
     }

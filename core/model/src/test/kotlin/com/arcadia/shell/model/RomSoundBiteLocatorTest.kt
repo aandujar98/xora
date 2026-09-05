@@ -76,4 +76,32 @@ class RomSoundBiteLocatorTest {
         assertTrue(RomSoundBiteLocator.isAudioFile("Theme.Wav"))
         assertFalse(RomSoundBiteLocator.isAudioFile("Theme.ogg"))
     }
+
+    @Test
+    fun deleteSidecarsRemovesMatchingClipAndLeavesOtherGames() {
+        val dir = kotlin.io.path.createTempDirectory("xora-soundbite").toFile()
+        try {
+            val rom = java.io.File(dir, "Super Mario 64.z64").apply { writeText("rom") }
+            val bite = java.io.File(dir, "Super Mario 64.mp3").apply { writeText("audio") }
+            val other = java.io.File(dir, "Chrono Trigger.mp3").apply { writeText("keep") }
+            assertEquals(
+                bite.absolutePath,
+                RomSoundBiteLocator.findSidecar(rom.absolutePath, "Super Mario 64", rom.name),
+            )
+            val removed = RomSoundBiteLocator.deleteSidecars(
+                romFilePath = rom.absolutePath,
+                title = "Super Mario 64",
+                romFileName = rom.name,
+            )
+            assertEquals(1, removed)
+            assertFalse(bite.exists())
+            assertTrue(other.exists())
+            assertEquals(
+                null,
+                RomSoundBiteLocator.findSidecar(rom.absolutePath, "Super Mario 64", rom.name),
+            )
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

@@ -49,6 +49,26 @@ object RomSoundBiteLocator {
             cleanedAudio.equals(cleanedTitle, ignoreCase = true)
     }
 
+    /**
+     * Deletes sidecar clips that [findSidecar] would play for this ROM. Imported bites live
+     * in app storage and are cleared separately.
+     */
+    fun deleteSidecars(romFilePath: String?, title: String, romFileName: String): Int {
+        val rom = romFilePath?.let(::File)?.takeIf { it.path.isNotBlank() } ?: return 0
+        val dirs = listOfNotNull(rom.parentFile, rom.parentFile?.parentFile)
+            .distinctBy { it.absolutePath }
+        var removed = 0
+        for (dir in dirs) {
+            val files = dir.listFiles() ?: continue
+            files
+                .filter { it.isFile && it.length() > 0L && matches(it.name, title, romFileName) }
+                .forEach { file ->
+                    if (file.delete()) removed++
+                }
+        }
+        return removed
+    }
+
     fun findSidecar(romFilePath: String?, title: String, romFileName: String): String? {
         val rom = romFilePath?.let(::File)?.takeIf { it.path.isNotBlank() } ?: return null
         val dirs = listOfNotNull(rom.parentFile, rom.parentFile?.parentFile)

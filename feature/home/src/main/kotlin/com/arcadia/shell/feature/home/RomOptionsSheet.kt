@@ -203,11 +203,14 @@ fun RomOptionsSheet(
                 title = "Sound bite",
                 status = soundBiteStatus(game),
                 onChange = onPickSoundBite,
-                onClear = onClearSoundBite.takeIf { !game.soundBitePath.isNullOrBlank() },
+                onClear = onClearSoundBite.takeIf {
+                    RomSoundBiteLocator.resolve(game) != null
+                },
                 onExtra = onPreviewSoundBite.takeIf {
                     RomSoundBiteLocator.resolve(game) != null
                 },
                 extraLabel = "Preview",
+                clearLabel = "Remove",
             )
             MediaRow(
                 title = "Idle video",
@@ -371,6 +374,7 @@ private fun MediaRow(
     onClear: (() -> Unit)?,
     onExtra: (() -> Unit)? = null,
     extraLabel: String = "",
+    clearLabel: String = "Clear",
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(text = title, style = MaterialTheme.typography.titleSmall)
@@ -390,7 +394,7 @@ private fun MediaRow(
                 TextButton(onClick = onExtra) { Text(extraLabel) }
             }
             if (onClear != null) {
-                TextButton(onClick = onClear) { Text("Clear") }
+                TextButton(onClick = onClear) { Text(clearLabel) }
             }
         }
     }

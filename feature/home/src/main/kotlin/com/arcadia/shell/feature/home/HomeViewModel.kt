@@ -1327,7 +1327,8 @@ class HomeViewModel @Inject constructor(
                 }
                 .distinctUntilChanged(),
             appForegroundTracker.isForeground,
-        ) { focus, foreground ->
+            customMediaEpoch,
+        ) { focus, foreground, _ ->
             if (!foreground || focus == null) {
                 null
             } else {
@@ -8451,10 +8452,19 @@ class HomeViewModel @Inject constructor(
 
     fun clearGameSoundBite(gameId: String) {
         viewModelScope.launch {
+            val game = libraryRepository.findById(gameId)
             gameCustomMediaStore.clearSoundBite(gameId)
             libraryRepository.setSoundBitePath(gameId, null)
+            if (game != null) {
+                RomSoundBiteLocator.deleteSidecars(
+                    romFilePath = game.filePath,
+                    title = game.title,
+                    romFileName = game.fileName,
+                )
+            }
             gameSoundBitePlayer.stop()
-            emit(HomeEvent.ShowMessage("Sound bite cleared."))
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Sound bite removed."))
         }
     }
 

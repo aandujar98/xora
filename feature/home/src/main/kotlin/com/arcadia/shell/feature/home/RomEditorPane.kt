@@ -160,6 +160,7 @@ fun RomEditorPane(
     currentEmulatorLabel: String?,
     artAlignX: Float,
     artAlignY: Float,
+    mediaEpoch: Int = 0,
     artPicker: ArtPickerUiState,
     navActions: Flow<NavAction>,
     actions: RomEditorActions,
@@ -199,6 +200,7 @@ fun RomEditorPane(
         currentEmulatorLabel = currentEmulatorLabel,
         artAlignX = artAlignX,
         artAlignY = artAlignY,
+        mediaEpoch = mediaEpoch,
         onStartRename = {
             renameDraft = customTitle ?: game.title
             mode = EditorMode.Rename
@@ -545,6 +547,15 @@ private fun EditorRowItem(row: RomEditorRow, active: Boolean) {
                 color = if (active) Color.White else Color.White.copy(alpha = 0.75f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (active && row.onClear != null) {
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "X · Remove",
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = 0.78f),
+                maxLines = 1,
             )
         }
     }

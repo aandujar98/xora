@@ -874,6 +874,7 @@ fun ArcadiaShell(
                 currentEmulatorLabel = emulatorLabel,
                 artAlignX = state.gameArtAlignments[gameId]?.x ?: 0f,
                 artAlignY = state.gameArtAlignments[gameId]?.y ?: 0f,
+                mediaEpoch = mediaEpoch,
                 artPicker = artPicker,
                 navActions = homeViewModel.sheetNavActionFlow,
                 actions = RomEditorActions(
