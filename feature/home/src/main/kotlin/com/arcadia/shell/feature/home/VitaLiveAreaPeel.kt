@@ -77,6 +77,9 @@ private const val PeelShadowAlpha = 0.32f
 /** Unit diagonal — the fold is always 45°, like the Vita's. */
 private const val R2 = 0.70710678f
 
+/** How fast the player is dragging the dog-ear, used to pick a peel one-shot. */
+enum class VitaPeelDragSpeed { Slow, Mid, Fast }
+
 /** Pure fold geometry, kept off the draw pass so it can be checked in isolation. */
 internal object VitaPeelGeometry {
     /** Fold depth at which the far corner has gone: the whole sheet has come away. */
@@ -99,6 +102,23 @@ internal object VitaPeelGeometry {
     /** How far past rest the pull is, 0..1, for shadows that stay off the untouched asset. */
     fun pullFraction(k: Float, restDepth: Float): Float =
         ((k - restDepth) / (restDepth * PeelShadowRamp)).coerceIn(0f, 1f)
+
+    /**
+     * Classify peel drag speed from the fold-depth delta over [dtMs].
+     * Thresholds are px/sec of fold depth (sheet pixels, not design units).
+     */
+    fun dragSpeed(depthDeltaPx: Float, dtMs: Float): VitaPeelDragSpeed {
+        if (dtMs <= 0f) return VitaPeelDragSpeed.Mid
+        val pxPerSec = kotlin.math.abs(depthDeltaPx) / dtMs * 1000f
+        return when {
+            pxPerSec < SLOW_PX_PER_SEC -> VitaPeelDragSpeed.Slow
+            pxPerSec < FAST_PX_PER_SEC -> VitaPeelDragSpeed.Mid
+            else -> VitaPeelDragSpeed.Fast
+        }
+    }
+
+    private const val SLOW_PX_PER_SEC = 450f
+    private const val FAST_PX_PER_SEC = 1_400f
 }
 
 /**
@@ -119,6 +139,7 @@ internal fun VitaLiveAreaPeel(
     onRequestPeel: () -> Unit,
     onPeeled: () -> Unit,
     modifier: Modifier = Modifier,
+    onPeelSpeed: (VitaPeelDragSpeed?) -> Unit = {},
     content: @Composable BoxScope.() -> Unit,
 ) {
     val density = LocalDensity.current
@@ -148,6 +169,7 @@ internal fun VitaLiveAreaPeel(
         Animatable(restDepth).apply { updateBounds(restDepth, sweep) }
     }
     val peeled = rememberUpdatedState(onPeeled)
+    val peelSpeed = rememberUpdatedState(onPeelSpeed)
     var engaged by remember { mutableStateOf(false) }
     var spent by remember { mutableStateOf(false) }
     val breath = rememberThrottledAmbientUnit(cycleMs = PeelIdleCycleMs)
@@ -166,11 +188,13 @@ internal fun VitaLiveAreaPeel(
         if (!peelRequested) return@LaunchedEffect
         engaged = true
         spent = true
+        peelSpeed.value(VitaPeelDragSpeed.Mid)
         if (reduceMotion) {
             depth.snapTo(sweep)
         } else {
             depth.animateTo(sweep, tween(PeelAutoMs, easing = FastOutSlowInEasing))
         }
+        peelSpeed.value(null)
         peeled.value()
     }
     val inert = peelRequested || spent
@@ -209,17 +233,31 @@ internal fun VitaLiveAreaPeel(
                 .pointerInput(inert, sweep) {
                     if (inert) return@pointerInput
                     val commit = VitaPeelGeometry.commitDepth(bounds.width, bounds.height)
+                    var lastDragAtMs = 0L
+                    var lastBand: VitaPeelDragSpeed? = null
                     detectDragGestures(
-                        onDragStart = { engaged = true },
+                        onDragStart = {
+                            engaged = true
+                            lastDragAtMs = 0L
+                            lastBand = null
+                        },
                         onDrag = { change, drag ->
                             change.consume()
+                            val now = change.uptimeMillis
+                            val dt = if (lastDragAtMs == 0L) 16f else (now - lastDragAtMs).toFloat()
+                            lastDragAtMs = now
+                            val delta = VitaPeelGeometry.depthDelta(drag.x, drag.y)
+                            val band = VitaPeelGeometry.dragSpeed(delta, dt.coerceAtLeast(1f))
+                            if (band != lastBand) {
+                                lastBand = band
+                                peelSpeed.value(band)
+                            }
                             scope.launch {
-                                depth.snapTo(
-                                    depth.value + VitaPeelGeometry.depthDelta(drag.x, drag.y),
-                                )
+                                depth.snapTo(depth.value + delta)
                             }
                         },
                         onDragEnd = {
+                            peelSpeed.value(null)
                             scope.launch {
                                 if (depth.value >= commit) {
                                     spent = true
@@ -244,6 +282,7 @@ internal fun VitaLiveAreaPeel(
                             }
                         },
                         onDragCancel = {
+                            peelSpeed.value(null)
                             scope.launch {
                                 depth.animateTo(restDepth, spring(dampingRatio = 0.62f))
                                 engaged = false

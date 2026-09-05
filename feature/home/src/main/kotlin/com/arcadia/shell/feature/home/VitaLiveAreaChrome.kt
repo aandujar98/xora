@@ -32,7 +32,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -48,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.model.Game
-import com.arcadia.shell.retroachievements.RaGameProgress
 import com.arcadia.shell.feature.home.component.isCharging
 import com.arcadia.shell.feature.home.component.isWifiConnected
 import com.arcadia.shell.feature.home.component.readBatteryPercent
@@ -73,16 +71,12 @@ private const val PANEL_PAD = 22f
 private const val PANEL_ICON = 152f
 private const val PANEL_TITLE_SIZE = 35f
 private const val PANEL_BADGE_H = 34f
-private const val PANEL_THUMB = 70f
-private const val PANEL_THUMB_GAP = 11f
 private const val PANEL_ROW_TEXT = 27f
 
 private val StatusFill = Color(0xFF404040)
 private val PanelFill = Color(0x59000000)
 private val PanelBorder = Color(0x66FFFFFF)
 private val PanelInk = Color(0xFFFFFFFF)
-private val PanelTrack = Color(0x4DFFFFFF)
-private val PanelTrackFill = Color(0xFFF3B463)
 private val PanelChipFill = Color(0x40FFFFFF)
 
 /** What the LiveArea status strip shows. */
@@ -253,7 +247,6 @@ internal fun VitaLiveAreaPanel(
     title: String,
     iconPath: String?,
     systemLabel: String,
-    progress: RaGameProgress?,
     recentGames: List<Game>,
     recentOverflow: Int,
     unit: Float,
@@ -305,11 +298,7 @@ internal fun VitaLiveAreaPanel(
                     )
                     PanelChip(text = systemLabel, unit = unit, style = ink)
                 }
-                Spacer(Modifier.height((10f * unit).dp))
-                TrophyStrip(progress = progress, unit = unit)
                 Spacer(Modifier.weight(1f))
-                TrophyCount(progress = progress, unit = unit, style = ink)
-                Spacer(Modifier.height((12f * unit).dp))
                 RecentlyPlayedRow(
                     games = recentGames,
                     overflow = recentOverflow,
@@ -342,132 +331,6 @@ private fun PanelChip(text: String, unit: Float, style: TextStyle) {
             style = style.copy(fontSize = with(density) { (22f * unit).dp.toSp() }),
             maxLines = 1,
         )
-    }
-}
-
-/** Trophy badges for this game — earned in colour, the rest greyed, as on the Vita. */
-@Composable
-private fun TrophyStrip(progress: RaGameProgress?, unit: Float) {
-    val slots = 7
-    val badges = progress?.achievements.orEmpty().take(slots)
-    Row(horizontalArrangement = Arrangement.spacedBy((PANEL_THUMB_GAP * unit).dp)) {
-        repeat(slots) { i ->
-            val badge = badges.getOrNull(i)
-            Box(
-                modifier = Modifier
-                    .requiredSize((PANEL_THUMB * unit).dp)
-                    .clip(RoundedCornerShape((8f * unit).dp))
-                    .background(Color.White.copy(alpha = 0.14f))
-                    .border(
-                        width = (1.5f * unit).dp,
-                        color = PanelBorder,
-                        shape = RoundedCornerShape((8f * unit).dp),
-                    ),
-            ) {
-                if (badge != null) {
-                    ArtworkImage(
-                        path = badge.badgeUrl,
-                        contentDescription = badge.title,
-                        fallbackText = "",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    if (!badge.earned) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xB3202020)),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TrophyCount(progress: RaGameProgress?, unit: Float, style: TextStyle) {
-    val density = LocalDensity.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        TrophyGlyph(modifier = Modifier.size((36f * unit).dp))
-        Spacer(Modifier.width((10f * unit).dp))
-        Text(
-            text = "${progress?.numAwardedToUser ?: 0}",
-            style = style.copy(fontSize = with(density) { (38f * unit).dp.toSp() }),
-            maxLines = 1,
-        )
-        Text(
-            text = "/${progress?.numAchievements ?: 0}",
-            style = style.copy(
-                fontSize = with(density) { (24f * unit).dp.toSp() },
-                color = PanelInk.copy(alpha = 0.75f),
-            ),
-            maxLines = 1,
-        )
-        Spacer(Modifier.width((18f * unit).dp))
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height((22f * unit).dp)
-                .clip(RoundedCornerShape(percent = 50))
-                .background(PanelTrack),
-        ) {
-            val fraction = progress?.completionFraction ?: 0f
-            if (fraction > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(fraction.coerceAtLeast(0.04f))
-                        .clip(RoundedCornerShape(percent = 50))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(PanelTrackFill, PanelTrackFill.copy(alpha = 0.85f)),
-                            ),
-                        ),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TrophyGlyph(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val cup = Size(w * 0.52f, h * 0.42f)
-        drawArc(
-            color = Color.White,
-            startAngle = 0f,
-            sweepAngle = 180f,
-            useCenter = true,
-            topLeft = Offset(w * 0.24f, h * 0.14f),
-            size = cup,
-        )
-        drawRect(
-            color = Color.White,
-            topLeft = Offset(w * 0.46f, h * 0.52f),
-            size = Size(w * 0.08f, h * 0.2f),
-        )
-        drawRoundRect(
-            color = Color.White,
-            topLeft = Offset(w * 0.28f, h * 0.72f),
-            size = Size(w * 0.44f, h * 0.12f),
-            cornerRadius = CornerRadius(h * 0.04f, h * 0.04f),
-        )
-        val handle = Stroke(width = w * 0.06f)
-        for (side in listOf(-1f, 1f)) {
-            val cx = w * 0.5f + side * w * 0.3f
-            drawArc(
-                color = Color.White,
-                startAngle = if (side < 0) 90f else 270f,
-                sweepAngle = 180f,
-                useCenter = false,
-                topLeft = Offset(cx - w * 0.09f, h * 0.16f),
-                size = Size(w * 0.18f, h * 0.24f),
-                style = handle,
-            )
-        }
     }
 }
 

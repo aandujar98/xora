@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -43,7 +45,9 @@ import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xmbAssetShadow
+import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
+import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaGameProgress
 import kotlin.math.min
 
@@ -81,6 +85,8 @@ fun VitaShortcutLaunchPage(
     onPeeled: () -> Unit,
     modifier: Modifier = Modifier,
     raProgress: RaGameProgress? = null,
+    achievements: AchievementsUiState? = null,
+    onPeelSpeed: (VitaPeelDragSpeed?) -> Unit = {},
     peelRequested: Boolean = false,
     holdWhite: Boolean = false,
     isLaunching: Boolean = false,
@@ -193,6 +199,7 @@ fun VitaShortcutLaunchPage(
                     ),
                     onRequestPeel = onConfirm,
                     onPeeled = onPeeled,
+                    onPeelSpeed = onPeelSpeed,
                     modifier = Modifier
                         .offset(y = (originY + LIVEAREA_STATUS_H * unit).dp)
                         .fillMaxWidth()
@@ -272,7 +279,6 @@ fun VitaShortcutLaunchPage(
                         title = page.shortcut.title,
                         iconPath = page.iconPath,
                         systemLabel = page.systemLabel,
-                        progress = page.raProgress ?: raProgress,
                         recentGames = page.recentGames,
                         recentOverflow = page.recentOverflow,
                         unit = unit,
@@ -281,6 +287,35 @@ fun VitaShortcutLaunchPage(
                             y = py(PANEL_Y),
                         ),
                     )
+
+                    val launchProgress = page.raProgress ?: raProgress
+                    val launchAchievements = if (achievements == null) {
+                        null
+                    } else if (launchProgress != null) {
+                        achievements.copy(gameLookup = RaGameLookup.Matched(launchProgress))
+                    } else {
+                        achievements
+                    }
+                    if (launchAchievements != null) {
+                        Box(
+                            modifier = Modifier
+                                .offset(x = boundaryLeft, y = boundaryTop)
+                                .width(du(PEEL_BOUNDARY_W))
+                                .height(du(PEEL_BOUNDARY_H)),
+                        ) {
+                            AchievementsPill(
+                                expanded = false,
+                                state = launchAchievements,
+                                onToggle = {},
+                                onSelectTab = {},
+                                onLogin = { _, _ -> },
+                                onLoginWithApiKey = { _, _ -> },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(16.dp),
+                            )
+                        }
+                    }
                 }
                 }
                 }

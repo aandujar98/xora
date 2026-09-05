@@ -60,4 +60,12 @@ class VitaPeelGeometryTest {
         assertTrue(mid > 0f && mid < 1f)
         assertEquals(1f, VitaPeelGeometry.pullFraction(rest * 4f, rest), 0f)
     }
+
+    @Test
+    fun `drag speed bands match slow mid and fast peel samples`() {
+        assertEquals(VitaPeelDragSpeed.Slow, VitaPeelGeometry.dragSpeed(8f, 32f))
+        assertEquals(VitaPeelDragSpeed.Mid, VitaPeelGeometry.dragSpeed(16f, 16f))
+        assertEquals(VitaPeelDragSpeed.Fast, VitaPeelGeometry.dragSpeed(80f, 16f))
+        assertEquals(VitaPeelDragSpeed.Mid, VitaPeelGeometry.dragSpeed(10f, 0f))
+    }
 }
