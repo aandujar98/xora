@@ -72,6 +72,10 @@ class NowPlayingController @Inject constructor(
     /** Fired after a queue skip so Home can mirror Spotify Web API play when needed. */
     var onTrackAdvanced: ((MusicTrack) -> Unit)? = null
 
+    /** True while the boot clip owns the speakers; device Now Playing is paused until it ends. */
+    private var bootIntroActive: Boolean = false
+    private var bootIntroPausedDevice: Boolean = false
+
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
             AudioManager.AUDIOFOCUS_GAIN -> {
@@ -313,6 +317,26 @@ class NowPlayingController @Inject constructor(
             null
         }
         player = created
+    }
+
+    /**
+     * Pause on-device Now Playing while the cold-start boot clip plays so its audio is the only
+     * soundtrack. Restores the same track when the boot screen finishes. Spotify is left alone —
+     * that stream lives in another app.
+     */
+    fun setBootIntroActive(active: Boolean) {
+        if (bootIntroActive == active) return
+        bootIntroActive = active
+        if (active) {
+            val current = stateFlow.value
+            if (current.track?.source == MusicSource.Device && current.isPlaying) {
+                pauseDevice()
+                bootIntroPausedDevice = true
+            }
+        } else if (bootIntroPausedDevice) {
+            bootIntroPausedDevice = false
+            if (!stateFlow.value.isPlaying) resumeDevice()
+        }
     }
 
     /**

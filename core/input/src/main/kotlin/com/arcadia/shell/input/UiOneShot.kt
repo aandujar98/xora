@@ -14,8 +14,7 @@ enum class UiOneShot {
     BootVita,
     /** Confirm a ROM from the XMB (`boot_3.wav`). */
     BootXmb,
-    /** LiveArea peel drag — slow / mid / fast loops (`peel_*.wav`). */
-    PeelSlow,
+    /** LiveArea peel drag — mid / fast loops (`peel_*.wav`). Slow drag is silent. */
     PeelMid,
     PeelFast,
     /** Stop the looping peel sample when the finger lifts. */

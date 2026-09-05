@@ -64,7 +64,6 @@ class UiSoundController @Inject constructor(
     private var bubbleLaunchId: Int = 0
     private var bootVitaId: Int = 0
     private var bootXmbId: Int = 0
-    private var peelSlowId: Int = 0
     private var peelMidId: Int = 0
     private var peelFastId: Int = 0
     /** Active looping peel stream so speed changes replace rather than stack. */
@@ -74,6 +73,8 @@ class UiSoundController @Inject constructor(
     private var volume: Float = DEFAULT_UI_SFX_VOLUME
     private var notificationSoundEnabled: Boolean = true
     private var foreground: Boolean = false
+    /** Boot clip owns the speakers — suppress clicks, loops, and banners until it finishes. */
+    private var bootIntroActive: Boolean = false
 
     /** Light debounce when hat + DPAD key both emit the same direction for one physical press. */
     private var lastCursorAction: NavAction? = null
@@ -136,7 +137,7 @@ class UiSoundController @Inject constructor(
             }
         }
         gamepadDispatcher.uiOneShotPlayer = UiOneShotPlayer { shot ->
-            if (foreground) {
+            if (foreground && !bootIntroActive) {
                 when (shot) {
                     UiOneShot.FriendsTab -> play(friendsTabId)
                     UiOneShot.ProfileTab -> play(profileTabId)
@@ -150,7 +151,6 @@ class UiSoundController @Inject constructor(
                         stopPeel()
                         play(bootXmbId)
                     }
-                    UiOneShot.PeelSlow -> playPeel(peelSlowId)
                     UiOneShot.PeelMid -> playPeel(peelMidId)
                     UiOneShot.PeelFast -> playPeel(peelFastId)
                     UiOneShot.PeelStop -> stopPeel()
@@ -162,6 +162,18 @@ class UiSoundController @Inject constructor(
     fun onForeground() {
         foreground = true
         ensurePool()
+    }
+
+    /** Mute menu SFX (and stop any peel loop) while the boot video is playing. */
+    fun setBootIntroActive(active: Boolean) {
+        if (bootIntroActive == active) return
+        bootIntroActive = active
+        if (active) {
+            stopPeel()
+            runCatching { soundPool?.autoPause() }
+        } else {
+            runCatching { soundPool?.autoResume() }
+        }
     }
 
     fun onBackground() {
@@ -184,7 +196,6 @@ class UiSoundController @Inject constructor(
         bubbleLaunchId = 0
         bootVitaId = 0
         bootXmbId = 0
-        peelSlowId = 0
         peelMidId = 0
         peelFastId = 0
         peelStreamId = 0
@@ -211,6 +222,7 @@ class UiSoundController @Inject constructor(
     fun playCursor() = play(cursorId)
 
     private fun playFor(action: NavAction) {
+        if (bootIntroActive) return
         val soundId = when (action) {
             NavAction.Left,
             NavAction.Right,
@@ -261,6 +273,7 @@ class UiSoundController @Inject constructor(
     }
 
     private fun play(soundId: Int) {
+        if (bootIntroActive) return
         if (soundId == 0) return
         val v = volume.coerceIn(0f, 1f)
         if (v <= 0f) return
@@ -272,6 +285,7 @@ class UiSoundController @Inject constructor(
 
     /** Loop the matching peel sample while the dog-ear is moving; swap on speed-band change. */
     private fun playPeel(soundId: Int) {
+        if (bootIntroActive) return
         if (soundId == 0) return
         if (soundId == peelSoundId && peelStreamId != 0) return
         stopPeel()
@@ -325,7 +339,6 @@ class UiSoundController @Inject constructor(
                     bubbleLaunchId = created.loadQuietly(R.raw.bubble_launch)
                     bootVitaId = created.loadQuietly(R.raw.boot_vita)
                     bootXmbId = created.loadQuietly(R.raw.boot_3)
-                    peelSlowId = created.loadQuietly(R.raw.peel_slow)
                     peelMidId = created.loadQuietly(R.raw.peel_mid)
                     peelFastId = created.loadQuietly(R.raw.peel_fast)
                 }

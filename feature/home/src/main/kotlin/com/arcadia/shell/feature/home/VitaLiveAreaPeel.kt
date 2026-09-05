@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.rememberThrottledAmbientUnit
+import com.arcadia.shell.input.UiOneShot
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.sin
@@ -79,6 +80,15 @@ private const val R2 = 0.70710678f
 
 /** How fast the player is dragging the dog-ear, used to pick a peel one-shot. */
 enum class VitaPeelDragSpeed { Slow, Mid, Fast }
+
+/** Slow drag is silent; mid/fast loop; lift stops any loop that was playing. */
+internal fun vitaPeelOneShot(speed: VitaPeelDragSpeed?): UiOneShot =
+    when (speed) {
+        VitaPeelDragSpeed.Slow -> UiOneShot.PeelStop
+        VitaPeelDragSpeed.Mid -> UiOneShot.PeelMid
+        VitaPeelDragSpeed.Fast -> UiOneShot.PeelFast
+        null -> UiOneShot.PeelStop
+    }
 
 /** Pure fold geometry, kept off the draw pass so it can be checked in isolation. */
 internal object VitaPeelGeometry {

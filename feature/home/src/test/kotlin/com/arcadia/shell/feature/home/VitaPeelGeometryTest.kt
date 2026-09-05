@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home
 
+import com.arcadia.shell.input.UiOneShot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,5 +68,13 @@ class VitaPeelGeometryTest {
         assertEquals(VitaPeelDragSpeed.Mid, VitaPeelGeometry.dragSpeed(16f, 16f))
         assertEquals(VitaPeelDragSpeed.Fast, VitaPeelGeometry.dragSpeed(80f, 16f))
         assertEquals(VitaPeelDragSpeed.Mid, VitaPeelGeometry.dragSpeed(10f, 0f))
+    }
+
+    @Test
+    fun `slow peel is silent and lift stops any loop`() {
+        assertEquals(UiOneShot.PeelStop, vitaPeelOneShot(VitaPeelDragSpeed.Slow))
+        assertEquals(UiOneShot.PeelMid, vitaPeelOneShot(VitaPeelDragSpeed.Mid))
+        assertEquals(UiOneShot.PeelFast, vitaPeelOneShot(VitaPeelDragSpeed.Fast))
+        assertEquals(UiOneShot.PeelStop, vitaPeelOneShot(null))
     }
 }

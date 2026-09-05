@@ -93,9 +93,12 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(homeState.bootIntroOpen, homeState.homeIntroReveal) {
-                backgroundMusic.setBootIntroActive(
-                    homeState.bootIntroOpen && !homeState.homeIntroReveal,
-                )
+                val bootPlaying = homeState.bootIntroOpen && !homeState.homeIntroReveal
+                backgroundMusic.setBootIntroActive(bootPlaying)
+                uiSounds.setBootIntroActive(bootPlaying)
+            }
+            LaunchedEffect(homeState.isLaunching) {
+                backgroundMusic.setGameLaunchActive(homeState.isLaunching)
             }
 
             LaunchedEffect(shellState.prefsReady, shellState.showOnboarding) {

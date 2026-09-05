@@ -1285,10 +1285,25 @@ class HomeViewModel @Inject constructor(
             .launchIn(viewModelScope)
 
         // Focused ROM sound bite: imported clip, or Game name.mp3 / .wav next to the ROM.
+        // Boot video and launch cinematics own the speakers — never start a bite under them.
+        uiState
+            .map { it.bootIntroOpen && !it.homeIntroReveal }
+            .distinctUntilChanged()
+            .onEach { bootPlaying ->
+                if (bootPlaying) {
+                    gameSoundBitePlayer.stop()
+                    nowPlayingController.setBootIntroActive(true)
+                } else {
+                    nowPlayingController.setBootIntroActive(false)
+                }
+            }
+            .launchIn(viewModelScope)
+
         combine(
             uiState
                 .map { state ->
                     if (state.isLaunching) return@map null
+                    if (state.bootIntroOpen && !state.homeIntroReveal) return@map null
                     val game = state.xoraXmb.focusGame
                         ?.takeIf { !it.isAndroidApp }
                         ?.takeIf {
@@ -3069,6 +3084,7 @@ class HomeViewModel @Inject constructor(
     fun completeVitaShortcutLaunch() {
         val preview = vitaShortcutLaunch.value ?: return
         if (isLaunching.value) return
+        gameSoundBitePlayer.stop()
         playUiOneShot(UiOneShot.BootVita)
         // The page already resolved the title when it opened, so the cinematic can start on
         // the frame the sheet comes off instead of after another trip through the library.
@@ -7757,14 +7773,7 @@ class HomeViewModel @Inject constructor(
     }
 
     fun playVitaPeelSfx(speed: VitaPeelDragSpeed?) {
-        playUiOneShot(
-            when (speed) {
-                VitaPeelDragSpeed.Slow -> UiOneShot.PeelSlow
-                VitaPeelDragSpeed.Mid -> UiOneShot.PeelMid
-                VitaPeelDragSpeed.Fast -> UiOneShot.PeelFast
-                null -> UiOneShot.PeelStop
-            },
-        )
+        playUiOneShot(vitaPeelOneShot(speed))
     }
 
     fun saveProfile(displayName: String, avatarPresetId: String) {
@@ -8152,10 +8161,12 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         collapseHeroPanels()
         closeGuide()
+        gameSoundBitePlayer.stop()
+        // Hold BGM fade from the first boot sample, not after the cinematic coroutine starts.
+        isLaunching.value = true
         if (playBootSfx) playUiOneShot(UiOneShot.BootXmb)
 
         viewModelScope.launch {
-            isLaunching.value = true
             // Publish Playing before the cinematic / Activity handoff. Waiting until after
             // startActivity let onResume flicker the status back to Browsing XOrA.
             if (discordRichPresence.state.value.isConfigured) {

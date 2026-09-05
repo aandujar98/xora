@@ -66,9 +66,11 @@ class BackgroundMusicController @Inject constructor(
     private var bootIntroActive: Boolean = false
     /** When true, a ROM sound bite owns the speakers; BGM fades out then pauses. */
     private var soundBiteActive: Boolean = false
-    /** 1 = full BGM, 0 = silent under a sound bite. */
-    private var soundBiteFade: Float = 1f
-    private var soundBiteFadeJob: Job? = null
+    /** When true, a game-launch boot one-shot owns the speakers; BGM fades out then pauses. */
+    private var gameLaunchActive: Boolean = false
+    /** 1 = full BGM, 0 = silent under a sound bite or launch boot. */
+    private var overlayFade: Float = 1f
+    private var overlayFadeJob: Job? = null
     private var crossfadeJob: Job? = null
     /** Outgoing player during a soft mix; released when the fade completes or is cancelled. */
     private var fadingOutPlayer: MediaPlayer? = null
@@ -155,15 +157,31 @@ class BackgroundMusicController @Inject constructor(
     fun setSoundBiteActive(active: Boolean) {
         if (soundBiteActive == active) return
         soundBiteActive = active
-        soundBiteFadeJob?.cancel()
-        if (active) {
-            soundBiteFadeJob = scope.launch {
-                fadeSoundBite(to = 0f)
+        syncOverlayDuck()
+    }
+
+    /**
+     * Fade shell BGM out as a game-launch boot sample plays (XMB confirm or Vita peel-complete),
+     * then restore it if the launch fails and the shell stays in front.
+     */
+    fun setGameLaunchActive(active: Boolean) {
+        if (gameLaunchActive == active) return
+        gameLaunchActive = active
+        syncOverlayDuck()
+    }
+
+    private fun overlayShouldDuck(): Boolean = soundBiteActive || gameLaunchActive
+
+    private fun syncOverlayDuck() {
+        val duck = overlayShouldDuck()
+        overlayFadeJob?.cancel()
+        if (duck) {
+            overlayFadeJob = scope.launch {
+                fadeOverlay(to = 0f)
                 runCatching { player?.pause() }
             }
         } else {
-            soundBiteFadeJob = scope.launch {
-                soundBiteFade = 0f
+            overlayFadeJob = scope.launch {
                 applyVolume()
                 if (shouldPlayBgm()) {
                     requestAudioFocus()
@@ -173,7 +191,7 @@ class BackgroundMusicController @Inject constructor(
                         runCatching { media.start() }
                     }
                 }
-                fadeSoundBite(to = 1f)
+                fadeOverlay(to = 1f)
             }
         }
     }
@@ -207,7 +225,7 @@ class BackgroundMusicController @Inject constructor(
             !onboardingActive &&
             !libraryMusicActive &&
             !bootIntroActive &&
-            !(soundBiteActive && soundBiteFade <= 0.001f)
+            !(overlayShouldDuck() && overlayFade <= 0.001f)
 
     private fun syncPlayback() {
         if (!shouldPlayBgm()) {
@@ -393,23 +411,23 @@ class BackgroundMusicController @Inject constructor(
     }
 
     private fun currentVolume(): Float =
-        (volume * duckFactor * soundBiteFade).coerceIn(0f, 1f)
+        (volume * duckFactor * overlayFade).coerceIn(0f, 1f)
 
-    private suspend fun fadeSoundBite(to: Float) {
-        val from = soundBiteFade
+    private suspend fun fadeOverlay(to: Float) {
+        val from = overlayFade
         if (from == to) {
             applyVolume()
             return
         }
-        val steps = SOUNDBITE_FADE_STEPS
-        val stepMs = SOUNDBITE_FADE_MS / steps
+        val steps = OVERLAY_FADE_STEPS
+        val stepMs = OVERLAY_FADE_MS / steps
         for (i in 1..steps) {
             val t = i.toFloat() / steps
-            soundBiteFade = from + (to - from) * t
+            overlayFade = from + (to - from) * t
             applyVolume()
             delay(stepMs)
         }
-        soundBiteFade = to
+        overlayFade = to
         applyVolume()
     }
 
@@ -467,7 +485,7 @@ class BackgroundMusicController @Inject constructor(
         const val KEY_DEFAULT = "__default__"
         const val KEY_UNLOADED = "__unloaded__"
         const val CROSSFADE_STEPS = 24
-        const val SOUNDBITE_FADE_MS = 240L
-        const val SOUNDBITE_FADE_STEPS = 16
+        const val OVERLAY_FADE_MS = 240L
+        const val OVERLAY_FADE_STEPS = 16
     }
 }
