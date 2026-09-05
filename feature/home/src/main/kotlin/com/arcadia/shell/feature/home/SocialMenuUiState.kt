@@ -287,7 +287,7 @@ sealed interface SystemPanelRow {
     data object Notifications : SystemPanelRow
     /** Activity / custom status bubble. */
     data object Status : SystemPanelRow
-    /** Favorite RetroAchievements game (plus placeholder when unset). */
+    /** Favorite library game (plus placeholder when unset). */
     data object FavoriteGame : SystemPanelRow
     data object EditProfile : SystemPanelRow
     /** Recently played title shown in the expanded RT card. */
@@ -299,19 +299,19 @@ sealed interface SystemPanelRow {
     data object AllSettings : SystemPanelRow
     /** Clear the pinned favorite (only while the favorite picker is open). */
     data object ClearFavorite : SystemPanelRow
-    /** One RetroAchievements completion-progress game in the favorite picker. */
-    data class RaFavoritePick(val gameId: Int) : SystemPanelRow
+    /** One ROM from the local library in the favorite picker. */
+    data class LibraryFavoritePick(val gameId: String) : SystemPanelRow
 }
 
 fun buildSystemPanelRows(
     jumpBackGames: List<String> = emptyList(),
     favoritePickerOpen: Boolean = false,
-    favoritePickerGameIds: List<Int> = emptyList(),
+    favoritePickerGameIds: List<String> = emptyList(),
 ): List<SystemPanelRow> =
     if (favoritePickerOpen) {
         buildList {
             add(SystemPanelRow.ClearFavorite)
-            favoritePickerGameIds.forEach { add(SystemPanelRow.RaFavoritePick(it)) }
+            favoritePickerGameIds.forEach { add(SystemPanelRow.LibraryFavoritePick(it)) }
         }
     } else {
         buildList {

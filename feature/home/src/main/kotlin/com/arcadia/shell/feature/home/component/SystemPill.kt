@@ -124,7 +124,6 @@ import com.arcadia.shell.feature.home.SystemPanelRow
 import com.arcadia.shell.feature.home.SystemProfileCardState
 import com.arcadia.shell.feature.home.buildSystemPanelRows
 import com.arcadia.shell.model.Game
-import com.arcadia.shell.retroachievements.RaCompletionGame
 import com.arcadia.shell.retroachievements.RaRecentUnlock
 import com.arcadia.shell.xoranetwork.xoraAppearanceLabel
 import kotlinx.coroutines.delay
@@ -167,8 +166,8 @@ private val CardStroke = 3.dp
 private val CardAssetShadowDp = 4.dp
 private val CardShadowInk = Color(0xFF000000)
 private val Game0Border = 3.dp
-private val FavoritePlateW = 210.dp
-private val FavoritePlateH = 108.dp
+private val FavoritePlateW = 178.5.dp
+private val FavoritePlateH = 91.8.dp
 private val FavoritePlateRadius = 12.dp
 private val ProfileCardWidth = 464.dp
 /** Figma 464×444 (nodes 363:1927 / 710:1769). Live card wraps its content instead of this frame. */
@@ -196,13 +195,13 @@ private fun vibrantFillBrush(accent: Color): Brush =
     Brush.verticalGradient(listOf(lerp(accent, Color.White, 0.42f), accent))
 
 /** Collapsed RT chrome is the profile picture alone, tucked into the corner. */
-private val CollapsedAvatarSize = 88.dp
+private val CollapsedAvatarSize = 105.6.dp
 
 /** Figma crops the disc on both screen edges; this clears the pane padding to get there. */
 private val CollapsedAvatarBleed = 24.dp
 
 /** Expanded header disc — Figma 464×444 card (nodes 363:1927 / 710:1686). */
-private val ProfileAvatarSelectedSize = 96.dp
+private val ProfileAvatarSelectedSize = 115.2.dp
 
 /** Selected drop shadow: X4 Y4 B4 S0. Idle chrome stays 10 / 10 / 15. */
 private val ProfileBubbleSelectedShadow = 4.dp
@@ -277,7 +276,7 @@ fun SystemPill(
         buildSystemPanelRows(
             jumpBackGames = jumpBackGames.map { it.id },
             favoritePickerOpen = systemProfile.favoritePickerOpen,
-            favoritePickerGameIds = systemProfile.favoritePickerGames.map { it.gameId },
+            favoritePickerGameIds = systemProfile.favoritePickerGames.map { it.id },
         )
     }
 
@@ -1115,9 +1114,10 @@ private fun FavoriteGameSection(
                 contentAlignment = Alignment.Center,
             ) {
                 if (favorite != null && favorite.imageIconUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = favorite.imageIconUrl,
+                    ArtworkImage(
+                        path = favorite.imageIconUrl,
                         contentDescription = favorite.title,
+                        fallbackText = favorite.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().clip(artShape),
                     )
@@ -1197,7 +1197,7 @@ private fun FavoritePickerPanel(
             color = Color.White.copy(alpha = 0.78f),
         )
         Text(
-            text = "From your RetroAchievements progress",
+            text = "From your library",
             style = MaterialTheme.typography.labelSmall,
             color = Color.White.copy(alpha = 0.5f),
         )
@@ -1227,7 +1227,7 @@ private fun FavoritePickerPanel(
             else -> {
                 val rows = buildSystemPanelRows(
                     favoritePickerOpen = true,
-                    favoritePickerGameIds = state.favoritePickerGames.map { it.gameId },
+                    favoritePickerGameIds = state.favoritePickerGames.map { it.id },
                 )
                 LazyColumn(
                     state = listState,
@@ -1238,7 +1238,7 @@ private fun FavoritePickerPanel(
                 ) {
                     itemsIndexed(rows, key = { _, row ->
                         when (row) {
-                            is SystemPanelRow.RaFavoritePick -> "ra_${row.gameId}"
+                            is SystemPanelRow.LibraryFavoritePick -> "lib_${row.gameId}"
                             else -> row::class.simpleName.orEmpty()
                         }
                     }) { index, row ->
@@ -1253,12 +1253,12 @@ private fun FavoritePickerPanel(
                                     onActivateRow(index)
                                 },
                             )
-                            is SystemPanelRow.RaFavoritePick -> {
+                            is SystemPanelRow.LibraryFavoritePick -> {
                                 val game = state.favoritePickerGames.firstOrNull {
-                                    it.gameId == row.gameId
+                                    it.id == row.gameId
                                 }
                                 if (game != null) {
-                                    RaFavoritePickRow(
+                                    LibraryFavoritePickRow(
                                         game = game,
                                         selected = selected,
                                         onClick = {
@@ -1278,12 +1278,13 @@ private fun FavoritePickerPanel(
 }
 
 @Composable
-private fun RaFavoritePickRow(
-    game: RaCompletionGame,
+private fun LibraryFavoritePickRow(
+    game: Game,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(12.dp)
+    val (amount, unit) = playtimeParts(game.playTimeMs)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1304,14 +1305,13 @@ private fun RaFavoritePickRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.White.copy(alpha = 0.08f)),
         ) {
-            if (game.imageIconUrl.isNotBlank()) {
-                AsyncImage(
-                    model = game.imageIconUrl,
-                    contentDescription = game.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            ArtworkImage(
+                path = game.gridArt,
+                contentDescription = game.title,
+                fallbackText = game.title.take(1),
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -1323,7 +1323,7 @@ private fun RaFavoritePickRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "${game.consoleName} · ${game.progressLabel}",
+                text = "${game.platform.displayName} · $amount $unit",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White.copy(alpha = 0.5f),
                 maxLines = 1,

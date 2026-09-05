@@ -35,7 +35,6 @@ import com.arcadia.shell.datastore.PendingNetplayJoin
 import com.arcadia.shell.datastore.PlatformArtStore
 import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.PlatformEmulatorChoice
-import com.arcadia.shell.datastore.ProfileFavoriteRaGame
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
@@ -108,7 +107,6 @@ import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
 import com.arcadia.shell.retroachievements.RaProfile
 import com.arcadia.shell.retroachievements.RaRecentUnlock
-import com.arcadia.shell.retroachievements.RaCompletionGame
 import com.arcadia.shell.retroachievements.RetroAchievementsClient
 import com.arcadia.shell.retroachievements.RetroAchievementsRepository
 import com.arcadia.shell.scanner.LibraryRootManager
@@ -327,7 +325,7 @@ class HomeViewModel @Inject constructor(
     private val systemStatusDraft = MutableStateFlow("")
     private val systemFavoritePickerOpen = MutableStateFlow(false)
     private val systemFavoritePickerLoading = MutableStateFlow(false)
-    private val systemFavoritePickerGames = MutableStateFlow<List<RaCompletionGame>>(emptyList())
+    private val systemFavoritePickerGames = MutableStateFlow<List<Game>>(emptyList())
     private val systemFavoritePickerError = MutableStateFlow<String?>(null)
     private val achievementsPanelExpanded = MutableStateFlow(false)
     private val achievementsUi = MutableStateFlow(AchievementsUiState())
@@ -3071,11 +3069,11 @@ class HomeViewModel @Inject constructor(
     fun completeVitaShortcutLaunch() {
         val preview = vitaShortcutLaunch.value ?: return
         if (isLaunching.value) return
-        playUiOneShot(UiOneShot.BubbleLaunch)
+        playUiOneShot(UiOneShot.BootVita)
         // The page already resolved the title when it opened, so the cinematic can start on
         // the frame the sheet comes off instead of after another trip through the library.
         val game = preview.game
-        if (game != null) launchGame(game) else openHomeShortcut(preview.shortcut)
+        if (game != null) launchGame(game, playBootSfx = false) else openHomeShortcut(preview.shortcut)
         vitaLaunchHandoff?.cancel()
         vitaLaunchHandoff = viewModelScope.launch {
             // The page holds the title's artwork through the launch cinematic instead of
@@ -5868,13 +5866,13 @@ class HomeViewModel @Inject constructor(
             }
             SystemPanelRow.FavoriteGame -> openFavoritePicker()
             SystemPanelRow.ClearFavorite -> {
-                clearFavoriteRaGame()
+                clearFavoriteLibraryGame()
                 closeFavoritePicker()
             }
-            is SystemPanelRow.RaFavoritePick -> {
-                val game = systemFavoritePickerGames.value.firstOrNull { it.gameId == row.gameId }
+            is SystemPanelRow.LibraryFavoritePick -> {
+                val game = systemFavoritePickerGames.value.firstOrNull { it.id == row.gameId }
                 if (game != null) {
-                    setFavoriteRaGame(game)
+                    setFavoriteLibraryGame(game)
                     closeFavoritePicker()
                 }
             }
@@ -5990,7 +5988,7 @@ class HomeViewModel @Inject constructor(
         return buildSystemPanelRows(
             jumpBackGames = jumpIds,
             favoritePickerOpen = systemFavoritePickerOpen.value,
-            favoritePickerGameIds = systemFavoritePickerGames.value.map { it.gameId },
+            favoritePickerGameIds = systemFavoritePickerGames.value.map { it.id },
         )
     }
 
@@ -6027,18 +6025,16 @@ class HomeViewModel @Inject constructor(
     ) { profile, presence, games, chrome, xora ->
         val custom = profile.customStatus?.takeIf { it.isNotBlank() }
         val activityLine = resolveActivityStatusLine(presence.activity)
-        val favorite = profile.favoriteRaGame?.let { pinned ->
-            val playTime = games
-                .filter { !it.isAndroidApp }
-                .firstOrNull { it.title.equals(pinned.title, ignoreCase = true) }
-                ?.playTimeMs
-                ?: 0L
-            SystemFavoriteGame(
-                raGameId = pinned.gameId,
-                title = pinned.title,
-                imageIconUrl = pinned.imageIconUrl,
-                playTimeMs = playTime,
-            )
+        val favorite = profile.favoriteLibraryGameId?.let { pinnedId ->
+            games.firstOrNull { !it.isAndroidApp && it.id == pinnedId }?.let { game ->
+                SystemFavoriteGame(
+                    libraryGameId = game.id,
+                    title = game.title,
+                    imageIconUrl = game.gridArt.orEmpty(),
+                    playTimeMs = game.playTimeMs,
+                    platformName = game.platform.displayName,
+                )
+            }
         }
         SystemProfileCardState(
             statusLine = custom ?: activityLine,
@@ -6059,7 +6055,7 @@ class HomeViewModel @Inject constructor(
     private data class SystemProfilePickerBits(
         val favoritePickerOpen: Boolean,
         val favoritePickerLoading: Boolean,
-        val favoritePickerGames: List<RaCompletionGame>,
+        val favoritePickerGames: List<Game>,
         val favoritePickerError: String?,
     )
 
@@ -6068,7 +6064,7 @@ class HomeViewModel @Inject constructor(
         val statusDraft: String,
         val favoritePickerOpen: Boolean,
         val favoritePickerLoading: Boolean,
-        val favoritePickerGames: List<RaCompletionGame>,
+        val favoritePickerGames: List<Game>,
         val favoritePickerError: String?,
     )
 
@@ -6123,22 +6119,18 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             systemFavoritePickerLoading.value = true
             systemFavoritePickerError.value = null
-            val result = retroAchievements.fetchCompletionProgress(count = 50)
+            val games = libraryRepository.observeGames().first()
+                .filter { !it.isAndroidApp }
+                .sortedWith(
+                    compareByDescending<Game> { it.lastPlayedAt ?: 0L }
+                        .thenBy { it.sortKey },
+                )
             systemFavoritePickerLoading.value = false
-            result.fold(
-                onSuccess = { games ->
-                    systemFavoritePickerGames.value = games
-                    if (games.isEmpty()) {
-                        systemFavoritePickerError.value =
-                            "No RetroAchievements games yet. Earn progress to pin a favorite."
-                    }
-                },
-                onFailure = { error ->
-                    systemFavoritePickerGames.value = emptyList()
-                    systemFavoritePickerError.value =
-                        error.message ?: "Could not load RetroAchievements games."
-                },
-            )
+            systemFavoritePickerGames.value = games
+            if (games.isEmpty()) {
+                systemFavoritePickerError.value =
+                    "No games in your library yet. Add a ROM folder to pin a favorite."
+            }
         }
     }
 
@@ -6150,21 +6142,15 @@ class HomeViewModel @Inject constructor(
         systemPanelSelectedIndex.value = 0
     }
 
-    private fun setFavoriteRaGame(game: RaCompletionGame) {
+    private fun setFavoriteLibraryGame(game: Game) {
         viewModelScope.launch {
-            preferences.setProfileFavoriteRaGame(
-                ProfileFavoriteRaGame(
-                    gameId = game.gameId,
-                    title = game.title,
-                    imageIconUrl = game.imageIconUrl,
-                ),
-            )
+            preferences.setProfileFavoriteLibraryGame(game.id)
         }
     }
 
-    private fun clearFavoriteRaGame() {
+    private fun clearFavoriteLibraryGame() {
         viewModelScope.launch {
-            preferences.setProfileFavoriteRaGame(null)
+            preferences.setProfileFavoriteLibraryGame(null)
         }
     }
 
@@ -7770,6 +7756,17 @@ class HomeViewModel @Inject constructor(
         gamepadDispatcher.uiOneShotPlayer?.play(shot)
     }
 
+    fun playVitaPeelSfx(speed: VitaPeelDragSpeed?) {
+        playUiOneShot(
+            when (speed) {
+                VitaPeelDragSpeed.Slow -> UiOneShot.PeelSlow
+                VitaPeelDragSpeed.Mid -> UiOneShot.PeelMid
+                VitaPeelDragSpeed.Fast -> UiOneShot.PeelFast
+                null -> UiOneShot.PeelStop
+            },
+        )
+    }
+
     fun saveProfile(displayName: String, avatarPresetId: String) {
         viewModelScope.launch {
             preferences.setProfile(displayName, avatarPresetId)
@@ -8150,11 +8147,12 @@ class HomeViewModel @Inject constructor(
         launchGame(game, targetDisplayId)
     }
 
-    fun launchGame(game: Game, targetDisplayId: Int? = null) {
+    fun launchGame(game: Game, targetDisplayId: Int? = null, playBootSfx: Boolean = true) {
         if (isLaunching.value) return
         noteUserActivity()
         collapseHeroPanels()
         closeGuide()
+        if (playBootSfx) playUiOneShot(UiOneShot.BootXmb)
 
         viewModelScope.launch {
             isLaunching.value = true
