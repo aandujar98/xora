@@ -49,6 +49,18 @@ class PlatformResolverTest {
     }
 
     @Test
+    fun `shared iso files resolve from games and isos folder names`() {
+        assertEquals("psp", resolve("Crisis Core.iso", folders = listOf("PSP Games"))?.id)
+        assertEquals("psp", resolve("Monster Hunter.cso", folders = listOf("pspgames"))?.id)
+        assertEquals("ps2", resolve("Kingdom Hearts.iso", folders = listOf("PS2 ISOs"))?.id)
+        assertEquals("ps2", resolve("Shadow of the Colossus.iso", folders = listOf("ps2games"))?.id)
+        assertEquals("gamecube", resolve("Wind Waker.iso", folders = listOf("GameCube ISOs"))?.id)
+        assertEquals("wii", resolve("Mario Kart.iso", folders = listOf("Wii Games"))?.id)
+        assertNull(resolve("Mystery.iso", folders = listOf("ISOs")))
+        assertNull(resolve("Mystery.iso", folders = listOf("Games")))
+    }
+
+    @Test
     fun `forced platform accepts zipped dumps for that system`() {
         val file = scanned("Metroid.zip", folders = emptyList())
         assertEquals("nes", resolver.resolve(file, forcedPlatformId = "nes")?.id)

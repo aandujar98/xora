@@ -48,6 +48,69 @@ class PlatformCatalogTest {
     @Test
     fun `an unknown folder name matches nothing`() {
         assertNull(PlatformCatalog.byFolderName("screenshots"))
+        assertNull(PlatformCatalog.byFolderName("Games"))
+        assertNull(PlatformCatalog.byFolderName("ISOs"))
+        assertNull(PlatformCatalog.byFolderName("ROMs"))
+    }
+
+    @Test
+    fun `console folders accept games isos and roms suffixes`() {
+        listOf(
+            "PSP Games" to "psp",
+            "pspgames" to "psp",
+            "PSP ISOs" to "psp",
+            "psp iso" to "psp",
+            "PS2 Games" to "ps2",
+            "ps2games" to "ps2",
+            "PS2 ISOs" to "ps2",
+            "ps2isos" to "ps2",
+            "PlayStation 2 Games" to "ps2",
+            "PlayStation Portable Games" to "psp",
+            "GameCube ISOs" to "gamecube",
+            "GC Games" to "gamecube",
+            "Wii Games" to "wii",
+            "SNES ROMs" to "snes",
+            "N64 Games" to "n64",
+            "GB Games" to "gb",
+            "GBC Games" to "gbc",
+            "GBA ROMs" to "gba",
+            "PS1 ISOs" to "ps1",
+            "PS3 Games" to "ps3",
+            "Dreamcast ISOs" to "dreamcast",
+            "ROMs PSP" to "psp",
+            "ISO PS2" to "ps2",
+        ).forEach { (folder, platformId) ->
+            assertEquals(folder, platformId, PlatformCatalog.byFolderName(folder)?.id)
+        }
+    }
+
+    @Test
+    fun `every platform alias still matches when games or isos is glued on`() {
+        PlatformCatalog.platforms.forEach { platform ->
+            val alias = platform.folderAliases.first()
+            listOf("${alias}games", "${alias} Games", "${alias}isos", "$alias ISOs", "${alias}roms")
+                .forEach { folder ->
+                    assertEquals(
+                        "$folder should stay ${platform.id}",
+                        platform.id,
+                        PlatformCatalog.byFolderName(folder)?.id,
+                    )
+                }
+        }
+    }
+
+    @Test
+    fun `suffix words do not steal gamecube game boy or playstation portable`() {
+        assertEquals("gamecube", PlatformCatalog.byFolderName("GameCube")?.id)
+        assertEquals("gamecube", PlatformCatalog.byFolderName("GameCube Games")?.id)
+        assertEquals("gb", PlatformCatalog.byFolderName("Game Boy")?.id)
+        assertEquals("gbc", PlatformCatalog.byFolderName("Game Boy Color")?.id)
+        assertEquals("gbc", PlatformCatalog.byFolderName("Game Boy Color Games")?.id)
+        assertEquals("gba", PlatformCatalog.byFolderName("Game Boy Advance")?.id)
+        assertEquals("gamegear", PlatformCatalog.byFolderName("Game Gear")?.id)
+        assertEquals("psp", PlatformCatalog.byFolderName("PlayStation Portable")?.id)
+        assertEquals("ps2", PlatformCatalog.byFolderName("PlayStation 2")?.id)
+        assertEquals("ps1", PlatformCatalog.byFolderName("PlayStation")?.id)
     }
 
     /**

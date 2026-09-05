@@ -377,9 +377,20 @@ object PlatformCatalog {
         else -> byId[id] ?: GamePlatform.Unknown
     }
 
-    /** Matches a directory name against known aliases, ignoring case, spaces, and separators. */
-    fun byFolderName(folderName: String): GamePlatform? =
-        byFolderAlias[normalizeFolderName(folderName)]
+    /**
+     * Matches a directory name against known aliases, ignoring case, spaces, and separators.
+     *
+     * People often name dumps `PSP Games`, `ps2isos`, or `SNES ROMs`. Those extra words are
+     * stripped after an exact alias check so `GameCube` and `PlayStation Portable` stay intact.
+     */
+    fun byFolderName(folderName: String): GamePlatform? {
+        val normalized = normalizeFolderName(folderName)
+        if (normalized.isEmpty()) return null
+        byFolderAlias[normalized]?.let { return it }
+        val stripped = stripFolderNameFillers(normalized)
+        if (stripped.isEmpty() || stripped == normalized) return null
+        return byFolderAlias[stripped]
+    }
 
     fun byExclusiveExtension(extension: String): GamePlatform? {
         val ext = extension.lowercase()
@@ -389,4 +400,57 @@ object PlatformCatalog {
 
     private fun normalizeFolderName(name: String): String =
         name.lowercase().filter { it.isLetterOrDigit() }
+
+    /**
+     * Drops library words (`games`, `isos`, `roms`, …). Suffixes are removed first so
+     * `GameCube ISOs` stays GameCube instead of losing the leading `game`. Longest tokens win
+     * so `isos` is not read as `iso` + `s`.
+     */
+    private fun stripFolderNameFillers(normalized: String): String =
+        peelFillers(normalized, fromEnd = true)
+            ?: peelFillers(normalized, fromEnd = false)
+            ?: normalized
+
+    private fun peelFillers(start: String, fromEnd: Boolean): String? {
+        var current = start
+        while (current.isNotEmpty()) {
+            if (current in byFolderAlias) return current
+            val filler = folderNameFillers.firstOrNull { token ->
+                current.length > token.length &&
+                    if (fromEnd) current.endsWith(token) else current.startsWith(token)
+            } ?: return null
+            current = if (fromEnd) current.dropLast(filler.length) else current.drop(filler.length)
+        }
+        return null
+    }
+
+    private val folderNameFillers = listOf(
+        "emulators",
+        "emulator",
+        "collections",
+        "collection",
+        "backups",
+        "backup",
+        "folders",
+        "folder",
+        "library",
+        "images",
+        "image",
+        "dumps",
+        "dump",
+        "discs",
+        "disc",
+        "disks",
+        "disk",
+        "games",
+        "game",
+        "roms",
+        "rom",
+        "isos",
+        "iso",
+        "files",
+        "file",
+        "titles",
+        "title",
+    ).sortedByDescending { it.length }
 }

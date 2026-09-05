@@ -471,8 +471,8 @@ private fun LibraryStep(
         StepTitle("Library folders")
         Text(
             text = "Point XOrA at folders that hold your ROMs and games. Put disc images in a " +
-                "console folder (PSP, PS2, GameCube) so .iso files can be identified. " +
-                "All-files access lets path-based emulators open those files directly.",
+                "console folder (PSP, PSP Games, PS2 ISOs, GameCube) so .iso files can be " +
+                "identified. All-files access lets path-based emulators open those files directly.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -558,7 +558,7 @@ private fun EmulatorsStep(
             choices.isEmpty() -> {
                 Text(
                     text = "XOrA didn't detect any ROMs. Put games in a console folder " +
-                        "(for example Roms/PSP or Roms/PS2) and try again.",
+                        "(for example PSP Games, pspgames, or PS2 ISOs) and try again.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
