@@ -3051,7 +3051,10 @@ class HomeViewModel @Inject constructor(
         val preview = vitaShortcutLaunch.value ?: return
         if (isLaunching.value) return
         playUiOneShot(UiOneShot.BubbleLaunch)
-        openHomeShortcut(preview.shortcut)
+        // The page already resolved the title when it opened, so the cinematic can start on
+        // the frame the sheet comes off instead of after another trip through the library.
+        val game = preview.game
+        if (game != null) launchGame(game) else openHomeShortcut(preview.shortcut)
         vitaLaunchHandoff?.cancel()
         vitaLaunchHandoff = viewModelScope.launch {
             // The page holds the title's artwork through the launch cinematic instead of

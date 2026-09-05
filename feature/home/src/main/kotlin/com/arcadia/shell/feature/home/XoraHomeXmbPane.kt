@@ -419,11 +419,8 @@ fun XoraHomeXmbPane(
 
             }
 
-            // Vita tray rides above the receding XMB. Pill chrome stays put so LT/RT
-            // remain visible over the bubbles. RA also sits outside recede — putting it
-            // inside would fade the cheevos out as the menu tries to fade in.
-            overlayContent()
-
+            // RA sits outside recede — putting it inside would fade the cheevos out as the
+            // menu tries to fade in.
             val raEnterMs = if (reduceMotion) 0 else ArcadiaMotion.Medium
             val raDelayMs = if (reduceMotion) 0 else 180
             AnimatedVisibility(
@@ -460,6 +457,12 @@ fun XoraHomeXmbPane(
             }
 
         }
+
+        // Vita tray rides above the receding XMB, and outside the XMB's chrome fade: once the
+        // sheet is peeled the launch page runs its own cinematic (page pushes and clears, the
+        // game's wallpaper fills the screen and dissolves), so the XMB must not fade it away
+        // with the menu. Pill chrome stays put so LT/RT remain visible over the bubbles.
+        overlayContent()
     }
     }
 }
