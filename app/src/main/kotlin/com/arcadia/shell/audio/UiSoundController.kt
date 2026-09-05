@@ -62,6 +62,14 @@ class UiSoundController @Inject constructor(
     private var navCloseId: Int = 0
     /** Vita shortcut bubble confirm (`bubble_launch.wav`). */
     private var bubbleLaunchId: Int = 0
+    private var bootVitaId: Int = 0
+    private var bootXmbId: Int = 0
+    private var peelSlowId: Int = 0
+    private var peelMidId: Int = 0
+    private var peelFastId: Int = 0
+    /** Active looping peel stream so speed changes replace rather than stack. */
+    private var peelStreamId: Int = 0
+    private var peelSoundId: Int = 0
 
     private var volume: Float = DEFAULT_UI_SFX_VOLUME
     private var notificationSoundEnabled: Boolean = true
@@ -134,6 +142,18 @@ class UiSoundController @Inject constructor(
                     UiOneShot.ProfileTab -> play(profileTabId)
                     UiOneShot.NavClose -> play(navCloseId)
                     UiOneShot.BubbleLaunch -> play(bubbleLaunchId)
+                    UiOneShot.BootVita -> {
+                        stopPeel()
+                        play(bootVitaId)
+                    }
+                    UiOneShot.BootXmb -> {
+                        stopPeel()
+                        play(bootXmbId)
+                    }
+                    UiOneShot.PeelSlow -> playPeel(peelSlowId)
+                    UiOneShot.PeelMid -> playPeel(peelMidId)
+                    UiOneShot.PeelFast -> playPeel(peelFastId)
+                    UiOneShot.PeelStop -> stopPeel()
                 }
             }
         }
@@ -162,6 +182,13 @@ class UiSoundController @Inject constructor(
         profileTabId = 0
         navCloseId = 0
         bubbleLaunchId = 0
+        bootVitaId = 0
+        bootXmbId = 0
+        peelSlowId = 0
+        peelMidId = 0
+        peelFastId = 0
+        peelStreamId = 0
+        peelSoundId = 0
     }
 
     /** Banner appear chime — friend online, download complete, RetroAchievement unlock. */
@@ -243,6 +270,26 @@ class UiSoundController @Inject constructor(
         }
     }
 
+    /** Loop the matching peel sample while the dog-ear is moving; swap on speed-band change. */
+    private fun playPeel(soundId: Int) {
+        if (soundId == 0) return
+        if (soundId == peelSoundId && peelStreamId != 0) return
+        stopPeel()
+        val v = volume.coerceIn(0f, 1f)
+        if (v <= 0f) return
+        peelSoundId = soundId
+        peelStreamId = runCatching {
+            soundPool?.play(soundId, v, v, /* priority */ 2, /* loop */ -1, /* rate */ 1f)
+        }.getOrNull() ?: 0
+    }
+
+    private fun stopPeel() {
+        val stream = peelStreamId
+        peelStreamId = 0
+        peelSoundId = 0
+        if (stream != 0) runCatching { soundPool?.stop(stream) }
+    }
+
     /** Short XMB-style tick on each launcher cursor step (independent of UI SFX volume). */
     private fun vibrateCursor() {
         val vibrator = vibrator ?: return
@@ -256,7 +303,7 @@ class UiSoundController @Inject constructor(
         val pool = runCatching {
             SoundPool.Builder()
                 // Hold-repeat can fire cursor every ~70ms; keep enough streams that clicks stay audible.
-                .setMaxStreams(8)
+                .setMaxStreams(10)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         // GAME (not SONIFICATION): handhelds/TV often keep the system stream muted
@@ -272,10 +319,15 @@ class UiSoundController @Inject constructor(
                     ngId = created.loadQuietly(R.raw.nav_back)
                     notificationId = created.loadQuietly(R.raw.notif_banner)
                     netplayInviteId = created.loadQuietly(R.raw.error_popup)
-                    friendsTabId = created.loadQuietly(R.raw.friends_tab)
+                    friendsTabId = created.loadQuietly(R.raw.nav_friend)
                     profileTabId = created.loadQuietly(R.raw.profile_tab)
                     navCloseId = created.loadQuietly(R.raw.nav_close)
                     bubbleLaunchId = created.loadQuietly(R.raw.bubble_launch)
+                    bootVitaId = created.loadQuietly(R.raw.boot_vita)
+                    bootXmbId = created.loadQuietly(R.raw.boot_3)
+                    peelSlowId = created.loadQuietly(R.raw.peel_slow)
+                    peelMidId = created.loadQuietly(R.raw.peel_mid)
+                    peelFastId = created.loadQuietly(R.raw.peel_fast)
                 }
         }.getOrNull()
         soundPool = pool
