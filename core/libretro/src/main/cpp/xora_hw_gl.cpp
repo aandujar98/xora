@@ -122,8 +122,8 @@ bool create_fbo_unlocked(unsigned width, unsigned height) {
 
     glGenTextures(1, &g_color);
     glBindTexture(GL_TEXTURE_2D, g_color);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(
@@ -468,9 +468,11 @@ bool read_frame(unsigned width, unsigned height, std::vector<uint32_t>& dst) {
             uint8_t g = row[x * 4 + 1];
             uint8_t b = row[x * 4 + 2];
             const uint8_t a = row[x * 4 + 3];
-            // Un-premultiply then force opaque. Premul RGB with A forced to 0xFF looked
-            // washed / milky after pause overlays recomposited the present path.
-            if (a > 0 && a < 255) {
+            // Un-premultiply only when RGB is a valid premul sample (channel <= A).
+            // Straight-alpha 2D UI (3DS bottom LCD, pause chrome) has RGB > A; treating
+            // that as premul blows the plate into a bright / pasty wash. Opaque 3D
+            // (A == 255) is unchanged. Then force opaque for the software present path.
+            if (a > 0 && a < 255 && r <= a && g <= a && b <= a) {
                 r = static_cast<uint8_t>(std::min(255, (static_cast<int>(r) * 255) / a));
                 g = static_cast<uint8_t>(std::min(255, (static_cast<int>(g) * 255) / a));
                 b = static_cast<uint8_t>(std::min(255, (static_cast<int>(b) * 255) / a));

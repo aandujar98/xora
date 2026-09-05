@@ -1,5 +1,8 @@
 package com.arcadia.shell.retroachievements
 
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+
 /**
  * Connect API login2 session. [token] is the Connect token (`t=`), which is distinct from the
  * control-panel Web API key (`y=`). SORA still needs a Web API key for profile / progress calls.
@@ -41,21 +44,52 @@ data class RaFollowedUser(
     val points: Int,
     val pointsSoftcore: Int = 0,
     val isFollowingMe: Boolean = false,
+    /** Stable RA ULID. Prefer this over [username] for Web API lookups after rename. */
+    val ulid: String = "",
+    /**
+     * [API_GetUserProfile] `UserPic` (login-name path). Follow list `User` is the display
+     * name; `UserPic/{display_name}.png` 404s or serves the default silhouette.
+     */
+    val userPicPath: String? = null,
 ) {
-    val userPicUrl: String get() = RaProfile.userPicUrlFor(username)
+    val userPicUrl: String get() = RaProfile.userPicUrlFrom(username, userPicPath)
+
+    /** ULID when present, otherwise the display name — accepted by `u=` on Web API. */
+    val profileLookup: String
+        get() = ulid.trim().ifBlank { username.trim() }
 }
 
 data class RaProfile(
     val username: String,
     val totalPoints: Int,
     val totalSoftcorePoints: Int,
+    /** Relative `/UserPic/{login}.png` (or absolute URL) from [API_GetUserProfile]. */
+    val userPicPath: String? = null,
 ) {
-    /** Public media CDN path for the signed-in user's profile picture. */
-    val userPicUrl: String get() = userPicUrlFor(username)
+    /** Public media CDN path for this profile's picture. */
+    val userPicUrl: String get() = userPicUrlFrom(username, userPicPath)
 
     companion object {
-        fun userPicUrlFor(username: String): String =
-            "https://media.retroachievements.org/UserPic/${username.trim()}.png"
+        fun userPicUrlFor(username: String): String = userPicUrlFrom(username)
+
+        /**
+         * Build a media URL. Prefer [userPicPath] from the profile API (login name).
+         * Display-name fallbacks are encoded so spaces do not produce a broken path.
+         */
+        fun userPicUrlFrom(username: String, userPicPath: String? = null): String {
+            val path = userPicPath?.trim().orEmpty()
+            if (path.isNotEmpty()) {
+                return when {
+                    path.startsWith("http://") || path.startsWith("https://") -> path
+                    path.startsWith("/") -> "https://media.retroachievements.org$path"
+                    else -> "https://media.retroachievements.org/${path.trimStart('/')}"
+                }
+            }
+            val key = username.trim()
+            if (key.isEmpty()) return ""
+            val encoded = URLEncoder.encode(key, StandardCharsets.UTF_8).replace("+", "%20")
+            return "https://media.retroachievements.org/UserPic/$encoded.png"
+        }
     }
 }
 

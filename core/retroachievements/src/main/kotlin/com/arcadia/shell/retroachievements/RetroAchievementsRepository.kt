@@ -7,9 +7,16 @@ import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.scraper.RaHashRules
 import com.arcadia.shell.scraper.RomHasher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
@@ -28,6 +35,8 @@ class RetroAchievementsRepository @Inject constructor(
     private val libraryRepository: LibraryRepository,
 ) {
     private val gameIdByMd5 = ConcurrentHashMap<String, Int>()
+    /** ULID (or lowercased display name) → [API_GetUserProfile] `UserPic` path. */
+    private val userPicPathByKey = ConcurrentHashMap<String, String>()
 
     val credentials: Flow<RetroAchievementsCredentials> = preferences.retroAchievements
 
@@ -172,8 +181,47 @@ class RetroAchievementsRepository @Inject constructor(
             forUser = forUser,
         )
 
-    suspend fun fetchUsersIFollow(): Result<List<RaFollowedUser>> =
-        client.fetchUsersIFollow(currentCredentials())
+    suspend fun fetchUsersIFollow(): Result<List<RaFollowedUser>> {
+        val credentials = currentCredentials()
+        return client.fetchUsersIFollow(credentials).map { users ->
+            hydrateFollowedUserPics(credentials, users)
+        }
+    }
+
+    /**
+     * Follow list `User` is the display name; RA serves avatars at `UserPic/{login}.png`.
+     * Resolve each row via ULID (or name) and cache the `UserPic` path.
+     */
+    private suspend fun hydrateFollowedUserPics(
+        credentials: RetroAchievementsCredentials,
+        users: List<RaFollowedUser>,
+    ): List<RaFollowedUser> = withContext(Dispatchers.IO) {
+        val gate = Semaphore(FOLLOW_PIC_CONCURRENCY)
+        coroutineScope {
+            users.map { user ->
+                async {
+                    gate.withPermit { hydrateOneFollowedUserPic(credentials, user) }
+                }
+            }.awaitAll()
+        }
+    }
+
+    private suspend fun hydrateOneFollowedUserPic(
+        credentials: RetroAchievementsCredentials,
+        user: RaFollowedUser,
+    ): RaFollowedUser {
+        if (!user.userPicPath.isNullOrBlank()) return user
+        val cacheKey = user.ulid.trim().ifBlank { user.username.trim().lowercase() }
+        if (cacheKey.isEmpty()) return user
+        userPicPathByKey[cacheKey]?.let { return user.copy(userPicPath = it) }
+        val lookup = user.profileLookup
+        if (lookup.isBlank()) return user
+        val profile = client.fetchProfile(credentials, lookup).getOrNull() ?: return user
+        val path = profile.userPicPath?.trim().orEmpty()
+        if (path.isEmpty()) return user
+        userPicPathByKey[cacheKey] = path
+        return user.copy(userPicPath = path)
+    }
 
     /**
      * Resolve a ROM MD5 to a RetroAchievements game id using the same Connect + Web API hash
@@ -394,6 +442,7 @@ class RetroAchievementsRepository @Inject constructor(
         const val TAG = "RetroAchievements"
         const val HASH_TIMEOUT_MS = 45_000L
         const val API_TIMEOUT_MS = 30_000L
+        const val FOLLOW_PIC_CONCURRENCY = 8
         private val CONNECT_JSON = Json { ignoreUnknownKeys = true }
     }
 }

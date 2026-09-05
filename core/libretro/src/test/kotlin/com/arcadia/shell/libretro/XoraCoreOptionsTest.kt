@@ -265,10 +265,16 @@ class XoraCoreOptionsTest {
         assertEquals("none", vars["azahar_texture_filter"])
         assertEquals("NearestNeighbor", vars["citra_texture_sampling"])
         assertEquals("NearestNeighbor", vars["azahar_texture_sampling"])
+        assertEquals("disabled", vars["citra_use_shader_jit"])
+        assertEquals("disabled", vars["azahar_use_shader_jit"])
+        assertEquals("disabled", vars["citra_use_disk_shader_cache"])
+        assertEquals("disabled", vars["azahar_use_disk_shader_cache"])
         val citra = XoraCoreOptions.variablesFor("3ds", "citra", settings)
         assertEquals("enabled", citra["citra_shaders_accurate_mul"])
         assertEquals("NearestNeighbor", citra["citra_texture_sampling"])
         assertEquals("none", citra["citra_texture_filter"])
+        assertEquals("disabled", citra["citra_use_shader_jit"])
+        assertEquals("disabled", citra["citra_use_disk_shader_cache"])
     }
 
     @Test

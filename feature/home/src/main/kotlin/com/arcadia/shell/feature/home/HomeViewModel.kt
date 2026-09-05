@@ -103,6 +103,7 @@ import com.arcadia.shell.model.ScreenRole
 import com.arcadia.shell.model.ShortcutSpan
 import com.arcadia.shell.model.swapped
 import com.arcadia.shell.retroachievements.RaConsoleIds
+import com.arcadia.shell.retroachievements.RaFollowedUser
 import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
 import com.arcadia.shell.retroachievements.RaProfile
@@ -7622,7 +7623,7 @@ class HomeViewModel @Inject constructor(
                 raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Games) }
                 return
             }
-            openFollowedUser(follower.username)
+            openFollowedUser(follower)
             return
         }
         val row = ra.selectedGame ?: return
@@ -7698,7 +7699,12 @@ class HomeViewModel @Inject constructor(
                 )
             }
             val viewed = raLibraryUi.value.viewedUser
-            if (!viewed.isNullOrBlank()) openFollowedUser(viewed)
+            if (!viewed.isNullOrBlank()) {
+                val follower = raLibraryUi.value.following.firstOrNull {
+                    it.username.equals(viewed, ignoreCase = true)
+                } ?: RaFollowedUser(username = viewed, points = 0)
+                openFollowedUser(follower)
+            }
         }
     }
 
@@ -7724,13 +7730,13 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun openFollowedUser(username: String) {
+    private fun openFollowedUser(user: RaFollowedUser) {
         noteUserActivity()
         closeRaGameDetail()
         raFollowedGamesJob?.cancel()
         raLibraryUi.update {
             it.copy(
-                viewedUser = username,
+                viewedUser = user.username,
                 viewedUserGames = emptyList(),
                 viewedUserLoading = true,
                 selectedIndex = 0,
@@ -7739,9 +7745,9 @@ class HomeViewModel @Inject constructor(
             )
         }
         raFollowedGamesJob = viewModelScope.launch {
-            val result = retroAchievements.fetchCompletionProgress(forUser = username)
+            val result = retroAchievements.fetchCompletionProgress(forUser = user.profileLookup)
             raLibraryUi.update { current ->
-                if (!username.equals(current.viewedUser, ignoreCase = true)) current
+                if (!user.username.equals(current.viewedUser, ignoreCase = true)) current
                 else result.fold(
                     onSuccess = { games ->
                         current.copy(
@@ -7808,7 +7814,13 @@ class HomeViewModel @Inject constructor(
                 compareProgress = it.compareProgress?.takeIf { progress -> progress.gameId == gameId },
             )
         }
-        val forUser = raLibraryUi.value.viewedUser
+        val forUser = raLibraryUi.value.let { state ->
+            if (state.viewingFollower) {
+                state.comparePeer?.profileLookup ?: state.viewedUser
+            } else {
+                null
+            }
+        }
         raGameDetailJob = viewModelScope.launch {
             val result = retroAchievements.fetchGameProgress(gameId, forUser = forUser)
             raLibraryUi.update { current ->
@@ -7844,7 +7856,7 @@ class HomeViewModel @Inject constructor(
         val forUser = if (current.viewingFollower) {
             null
         } else {
-            current.selectedFollower?.username
+            current.selectedFollower?.profileLookup
         }
         if (!current.viewingFollower && forUser.isNullOrBlank()) {
             raLibraryUi.update {

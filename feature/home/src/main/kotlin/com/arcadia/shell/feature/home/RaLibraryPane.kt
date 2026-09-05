@@ -335,19 +335,25 @@ private fun RaLibrarySidePanel(
             maxLines = 2,
         )
 
+        val viewedFollower = if (ra.viewingFollower) ra.comparePeer else null
+        val headerName = viewedFollower?.username
+            ?: raProfile?.username
+            ?: profile.displayName
+        val headerPic = viewedFollower?.userPicUrl ?: profileAvatarModel
+        val headerPoints = viewedFollower?.points ?: raProfile?.totalPoints
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ProfileAvatar(
-                displayName = profile.displayName,
-                presetId = profile.avatarPresetId,
+                displayName = headerName,
+                presetId = if (viewedFollower != null) "preset_0" else profile.avatarPresetId,
                 size = 48.dp,
-                imageModel = profileAvatarModel,
+                imageModel = headerPic,
             )
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 XoraOutlinedText(
-                    text = raProfile?.username ?: profile.displayName,
+                    text = headerName,
                     fontFamily = XoraFonts.XmbLabel,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
@@ -355,9 +361,9 @@ private fun RaLibrarySidePanel(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                raProfile?.let {
+                headerPoints?.let { points ->
                     XoraOutlinedText(
-                        text = "${it.totalPoints} pts",
+                        text = "$points pts",
                         fontFamily = XoraFonts.Secondary,
                         fontSize = 13.sp,
                         outlineWidth = 1.5.dp,
@@ -519,18 +525,11 @@ private fun RaFollowedUserRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        val context = LocalContext.current
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(user.userPicUrl)
-                .crossfade(80)
-                .build(),
-            contentDescription = user.username,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(percent = 50))
-                .background(Color.White.copy(alpha = 0.12f)),
+        ProfileAvatar(
+            displayName = user.username,
+            presetId = "preset_0",
+            size = 32.dp,
+            imageModel = user.userPicUrl.takeIf { it.isNotBlank() },
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(

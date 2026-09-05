@@ -170,25 +170,24 @@ class RetroAchievementsClient @Inject constructor(
         }
     }
 
-    suspend fun fetchProfile(credentials: RetroAchievementsCredentials): Result<RaProfile> =
+    suspend fun fetchProfile(
+        credentials: RetroAchievementsCredentials,
+        forUser: String? = null,
+    ): Result<RaProfile> =
         withContext(Dispatchers.IO) {
             if (!credentials.isConfigured) {
                 return@withContext Result.failure(IllegalStateException("Not signed in."))
             }
             runCatching {
+                val lookup = webApiUser(credentials, forUser)
                 val body = get(
                     "$API_BASE/API_GetUserProfile.php",
                     mapOf(
                         "y" to credentials.apiKey,
-                        "u" to credentials.username,
+                        "u" to lookup,
                     ),
                 )
-                val obj = json.parseToJsonElement(body).jsonObject
-                RaProfile(
-                    username = obj.string("User") ?: credentials.username,
-                    totalPoints = obj.int("TotalPoints") ?: 0,
-                    totalSoftcorePoints = obj.int("TotalSoftcorePoints") ?: 0,
-                )
+                parseUserProfile(body, lookup, json)
             }
         }
 
@@ -558,6 +557,25 @@ class RetroAchievementsClient @Inject constructor(
         const val FOLLOW_PAGE_SIZE = 200
 
         /**
+         * Parses [API_GetUserProfile] JSON. Exposed for unit tests.
+         * [UserPic] is the login-name path the media CDN actually serves.
+         */
+        fun parseUserProfile(
+            body: String,
+            fallbackUsername: String,
+            json: Json = Json { ignoreUnknownKeys = true },
+        ): RaProfile {
+            val obj = json.parseToJsonElement(body).jsonObject
+            return RaProfile(
+                username = obj.flexibleString("User")?.trim().orEmpty()
+                    .ifBlank { fallbackUsername },
+                totalPoints = obj.flexibleInt("TotalPoints") ?: 0,
+                totalSoftcorePoints = obj.flexibleInt("TotalSoftcorePoints") ?: 0,
+                userPicPath = obj.flexibleString("UserPic")?.trim()?.takeIf { it.isNotEmpty() },
+            )
+        }
+
+        /**
          * Parses [API_GetUsersIFollow] JSON. Exposed for unit tests.
          * Accepts either `{ "Results": [...] }` or a bare array.
          */
@@ -578,6 +596,8 @@ class RetroAchievementsClient @Inject constructor(
                     points = obj.flexibleInt("Points") ?: 0,
                     pointsSoftcore = obj.flexibleInt("PointsSoftcore") ?: 0,
                     isFollowingMe = obj.flexibleBoolean("IsFollowingMe") ?: false,
+                    ulid = obj.flexibleString("ULID")?.trim().orEmpty(),
+                    userPicPath = obj.flexibleString("UserPic")?.trim()?.takeIf { it.isNotEmpty() },
                 )
             }
         }

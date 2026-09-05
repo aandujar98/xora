@@ -415,6 +415,13 @@ object XoraCoreOptions {
         out["azahar_texture_filter"] = "none"
         out["citra_texture_sampling"] = "NearestNeighbor"
         out["azahar_texture_sampling"] = "NearestNeighbor"
+        // GLES shader JIT is documented to cause graphical issues; skip the disk cache so a
+        // previous inaccurate-mul compile cannot keep washing the bottom LCD after we pin
+        // accurate lighting.
+        out["citra_use_shader_jit"] = "disabled"
+        out["azahar_use_shader_jit"] = "disabled"
+        out["citra_use_disk_shader_cache"] = "disabled"
+        out["azahar_use_disk_shader_cache"] = "disabled"
         if (settings.threeDsPretendoPrep) {
             out.putAll(AzaharPretendo.coreOptions())
         }
