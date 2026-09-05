@@ -20,6 +20,10 @@ import com.arcadia.shell.launcher.PlayerSeeder
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.AppForegroundTracker
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
+import com.arcadia.shell.scanner.LibraryAutoScanner
+import com.arcadia.shell.scanner.LibraryScanner
+import com.arcadia.shell.scraper.LibraryHashScheduler
+import com.arcadia.shell.scraper.ScraperScheduler
 import com.arcadia.shell.xoranetwork.XoraNetworkAuthCookies
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -45,6 +50,10 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var shellSystemNotifier: ShellSystemNotifier
     @Inject lateinit var gameCompanionController: GameCompanionController
     @Inject lateinit var xoraNetworkAuthCookies: XoraNetworkAuthCookies
+    @Inject lateinit var libraryAutoScanner: LibraryAutoScanner
+    @Inject lateinit var libraryScanner: LibraryScanner
+    @Inject lateinit var libraryHashScheduler: LibraryHashScheduler
+    @Inject lateinit var scraperScheduler: ScraperScheduler
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -52,6 +61,21 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         // Seeding touches the database, so it must not run on the main thread during startup.
         applicationScope.launch { playerSeeder.seedIfNeeded() }
+        libraryAutoScanner.start()
+        libraryScanner.progress
+            .distinctUntilChanged { old, new ->
+                old.finishedAt == new.finishedAt && old.isRunning == new.isRunning
+            }
+            .onEach { progress ->
+                if (progress.isRunning || progress.finishedAt == null || progress.error != null) {
+                    return@onEach
+                }
+                libraryHashScheduler.enqueue(rehashAll = false, replace = false)
+                if (preferences.settings.first().scrapeAfterScan) {
+                    scraperScheduler.enqueue()
+                }
+            }
+            .launchIn(applicationScope)
 
         // Banner vs Android status-bar routing (ON_RESUME / ON_PAUSE).
         appForegroundTracker.start()
@@ -76,6 +100,7 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
                 override fun onStart(owner: LifecycleOwner) {
                     // Republish after Custom Tab / Discord OAuth / brief backgrounding.
                     discordRichPresence.onAppForeground()
+                    libraryAutoScanner.onAppForeground()
                 }
 
                 override fun onStop(owner: LifecycleOwner) {

@@ -1206,7 +1206,8 @@ fun SettingsScreen(
 
                 SettingsFieldLabel("Scan")
                 Text(
-                    text = "${state.gameCount} games indexed.",
+                    text = "${state.gameCount} games indexed. XOrA scans automatically when " +
+                        "you add a folder and when files change inside it.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (state.scanProgress.isRunning) {
