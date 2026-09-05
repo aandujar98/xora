@@ -109,6 +109,7 @@ fun XoraHomeXmbPane(
     onSelectCategory: (Int) -> Unit,
     onSelectItem: (Int) -> Unit,
     onActivateItem: () -> Unit,
+    onDrillOut: () -> Unit = {},
     onToggleAccountPanel: () -> Unit = {},
     onToggleSystemPanel: () -> Unit = {},
     onToggleAchievementsPanel: () -> Unit = {},
@@ -368,8 +369,9 @@ fun XoraHomeXmbPane(
                         },
                         onSelectItem = onSelectItem,
                         onActivateItem = onActivateItem,
+                        onBack = onDrillOut,
                         modifier = Modifier.fillMaxSize(),
-                        titleStyle = xmb.titleStyle,
+                        titleStyle = XmbTitleStyle.Text,
                         trailer = state.trailer,
                     )
                     else -> XmbCross(
@@ -1006,6 +1008,19 @@ private fun XoraXmbPillChrome(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val paneMaxHeight = this.maxHeight
+        if (accountExpanded || systemExpanded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) {
+                        if (accountExpanded) onToggleAccountPanel()
+                        if (systemExpanded) onToggleSystemPanel()
+                    },
+            )
+        }
         // Only the expanded pill's own collapsed chrome hides (inside each pill).
         // Sibling pills and the XMB stay visible.
         AccountPill(

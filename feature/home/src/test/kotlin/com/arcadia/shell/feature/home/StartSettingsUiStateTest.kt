@@ -31,4 +31,34 @@ class StartSettingsUiStateTest {
         assertFalse(root.inCategory)
         assertTrue(drilled.inCategory)
     }
+
+    @Test
+    fun displayPageDropsHomeDualScreenRows() {
+        val rows = buildStartSettingsRows(
+            category = StartSettingsCategory.Display,
+            settings = com.arcadia.shell.datastore.ShellSettings(),
+            isScraping = false,
+            isScanning = false,
+            hasCustomBgm = false,
+        )
+        val ids = rows.map { it.id }
+        assertFalse(ids.contains("switch_mode"))
+        assertFalse(ids.contains("second_screen"))
+        assertTrue(ids.contains("trailer_display"))
+    }
+
+    @Test
+    fun generalPageDropsXmbTitleStyle() {
+        val rows = buildStartSettingsRows(
+            category = StartSettingsCategory.General,
+            settings = com.arcadia.shell.datastore.ShellSettings(),
+            isScraping = false,
+            isScanning = false,
+            hasCustomBgm = false,
+        )
+        val ids = rows.map { it.id }
+        assertFalse(ids.contains("xmb_title_style"))
+        assertTrue(ids.contains("edit_home"))
+        assertTrue(ids.contains("all_settings"))
+    }
 }

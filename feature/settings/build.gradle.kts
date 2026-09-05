@@ -30,6 +30,7 @@ dependencies {
     implementation(project(":core:datastore"))
     // OverlayPermission — the companion bottom screen needs a user-granted overlay toggle.
     implementation(project(":core:display"))
+    implementation(project(":core:input"))
     implementation(project(":core:launcher"))
     implementation(project(":core:libretro"))
     implementation(project(":core:scanner"))

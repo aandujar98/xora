@@ -139,6 +139,7 @@ fun XoraCardBrowsePane(
     mode: CardBrowseMode,
     onSelectItem: (Int) -> Unit,
     onActivateItem: () -> Unit,
+    onBack: () -> Unit = {},
     modifier: Modifier = Modifier,
     /** ROM rows honour the shell's title preference: clear-logo art or plain text. */
     titleStyle: XmbTitleStyle = XmbTitleStyle.TitleIcons,
@@ -188,18 +189,30 @@ fun XoraCardBrowsePane(
         val arrowScale = min(ARROW_SIZE / arrowW, ARROW_SIZE / arrowH)
         val visArrowW = arrowW * arrowScale
         val visArrowH = arrowH * arrowScale
-        XmbVectorIcon(
-            icon = XmbIcon.Back,
-            width = (visArrowW * unit).dp,
-            height = (visArrowH * unit).dp,
-            glass = false,
-            outlined = false,
-            strokeWidth = 0.dp,
-            modifier = Modifier.offset(
-                x = designX(ARROW_CENTER_X - (visArrowW / 2f)),
-                y = designY(ROW_CENTER_Y - (visArrowH / 2f)),
-            ),
-        )
+        val arrowTap = maxOf((56f * unit).dp, (visArrowW * unit).dp, (visArrowH * unit).dp)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .offset(
+                    x = designX(ARROW_CENTER_X) - arrowTap / 2f,
+                    y = designY(ROW_CENTER_Y) - arrowTap / 2f,
+                )
+                .size(arrowTap)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onBack,
+                ),
+        ) {
+            XmbVectorIcon(
+                icon = XmbIcon.Back,
+                width = (visArrowW * unit).dp,
+                height = (visArrowH * unit).dp,
+                glass = false,
+                outlined = false,
+                strokeWidth = 0.dp,
+            )
+        }
 
         // Far cards first so the enlarged focus card layers over its neighbours. Keyed on the
         // item so the reshuffling draw order does not restart each card's artwork request.

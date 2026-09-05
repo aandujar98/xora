@@ -62,12 +62,11 @@ data class ShellUiState(
         formatDisplayResolution(display)
 
     /**
-     * Whether the shell should open a secondary Presentation and split Hero / Library.
-     * Requires Dual preference **and** a second physical display; otherwise falls back to
-     * the single-screen composed host.
+     * Home XMB is single-screen. Dual-display Presentation split is no longer offered
+     * from launcher settings; DS / 3DS still expand from the emulator overlay.
      */
     val useDualLayout: Boolean
-        get() = displayMode == DisplayMode.Dual && topology.isDualScreen
+        get() = false
 
     /** Full-screen onboarding instead of the Home hub. */
     val showOnboarding: Boolean

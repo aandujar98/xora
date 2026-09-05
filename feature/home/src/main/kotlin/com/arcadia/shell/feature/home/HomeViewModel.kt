@@ -2122,7 +2122,6 @@ class HomeViewModel @Inject constructor(
             "Favorite" -> GamesSecondarySlot.Favorite
             else -> GamesSecondarySlot.Continue
         }
-        val xmbTitleStyle = chrome.settings.xmbTitleStyle
         val xoraCategory = XoraXmbCategory.entries.getOrElse(theme.xora.categoryIndex) {
             XoraXmbCategory.Games
         }
@@ -2267,7 +2266,7 @@ class HomeViewModel @Inject constructor(
                 drilledPlatformId = theme.xora.drilledPlatformId,
                 items = xoraItems,
                 gamesSecondarySlot = gamesSecondarySlot,
-                titleStyle = xmbTitleStyle,
+                titleStyle = XmbTitleStyle.Text,
                 focusTitle = xoraSelected?.title ?: xoraCategory.label,
                 focusSubtitle = xoraSelected?.subtitle ?: xoraCategory.label,
                 focusGame = xoraFocusGame,
@@ -2279,7 +2278,7 @@ class HomeViewModel @Inject constructor(
             selectedGameIndex = gameIndex,
             hiddenGameIds = hiddenIds,
             gameArtAlignments = chrome.artAlignments,
-            displayMode = chrome.settings.displayMode,
+            displayMode = DisplayMode.Single,
             gridColumns = chrome.settings.gridColumns.coerceIn(2, 6),
             scanProgress = chrome.progress,
             hasStorageAccess = storageAccess.hasAllFilesAccess,
@@ -2752,6 +2751,30 @@ class HomeViewModel @Inject constructor(
         onNavAction(action)
     }
 
+    /** Two-finger vertical flick on Home opens or closes the Vita shortcut tray. */
+    fun onTwoFingerSwipe(direction: com.arcadia.shell.designsystem.XoraSwipeDirection) {
+        noteUserActivity()
+        when (direction) {
+            com.arcadia.shell.designsystem.XoraSwipeDirection.Down -> openVitaShortcutTray()
+            com.arcadia.shell.designsystem.XoraSwipeDirection.Up -> closeVitaShortcutTray()
+            com.arcadia.shell.designsystem.XoraSwipeDirection.Left,
+            com.arcadia.shell.designsystem.XoraSwipeDirection.Right,
+            -> Unit
+        }
+    }
+
+    /** Touch back-arrow on a drilled XMB page (systems, ROMs, music, …). */
+    fun navigateXoraBack() {
+        drillOutXora()
+    }
+
+    /** One-finger vertical flick on the Vita tray jumps a whole page of bubbles. */
+    fun shiftVitaShortcutPage(delta: Int) {
+        val hub = uiState.value.homeHub
+        if (!hub.vitaShortcutTrayOpen || hub.vitaShortcutLaunch != null) return
+        moveVitaShortcutPage(delta, hub)
+    }
+
     private fun onNavAction(action: NavAction) {
         val state = uiState.value
 
@@ -2828,6 +2851,12 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        // Themes customize sheet: B (and Start) close the window. Do not jump to Settings.
+        if (state.homeHub.themesOpen) {
+            if (action == NavAction.Cancel || action == NavAction.Menu) dismissThemesSheet()
+            return
+        }
+
         // Start on XMB home focuses Settings; elsewhere toggles the quick-settings popup.
         if (action == NavAction.Menu) {
             if (state.guideOpen) closeGuide()
@@ -2886,12 +2915,6 @@ class HomeViewModel @Inject constructor(
         // Add-shortcut overlay (type chooser or game/app target list) captures nav.
         if (state.homeHub.addShortcutOpen) {
             onAddShortcutNavAction(action, state)
-            return
-        }
-
-        // Themes overlay: B dismisses; other hub nav stays blocked while open.
-        if (state.homeHub.themesOpen) {
-            if (action == NavAction.Cancel) dismissThemesSheet()
             return
         }
 
@@ -3304,6 +3327,18 @@ class HomeViewModel @Inject constructor(
         val nextRows = vitaTrayPageRows(slotCount, nextPage)
         if (nextRows.isEmpty()) return
         landOn(nextRows, if (delta > 0) 0 else nextRows.lastIndex)
+    }
+
+    private fun moveVitaShortcutPage(delta: Int, hub: HomeHubUiState) {
+        noteUserActivity()
+        val slotCount = vitaTraySlotCount(hub)
+        val pageCount = vitaTrayPageCount(slotCount)
+        if (pageCount <= 1 || delta == 0) return
+        val focus = hub.shortcutIndex.coerceIn(0, slotCount - 1)
+        val page = focus / VITA_TRAY_PAGE_SIZE
+        val next = (page + delta).coerceIn(0, pageCount - 1)
+        if (next == page) return
+        homeShortcutIndex.value = (next * VITA_TRAY_PAGE_SIZE).coerceIn(0, slotCount - 1)
     }
 
     private fun vitaTraySlotCount(hub: HomeHubUiState): Int {
@@ -6849,11 +6884,13 @@ class HomeViewModel @Inject constructor(
         gamepadDispatcher.startSettingsOpen = false
     }
 
-    /** Back from a category returns to the list; Back on the list closes. */
+    /** Back from a category returns to the list; Back on the list closes. Themes closes outright. */
     fun dismissStartSettings() {
         if (!startSettingsOpen.value) return
         noteUserActivity()
-        if (startSettingsInCategory.value) {
+        if (startSettingsInCategory.value &&
+            startSettingsCategory.value != StartSettingsCategory.Themes
+        ) {
             startSettingsInCategory.value = false
             startSettingsRowIndex.value = 0
         } else {

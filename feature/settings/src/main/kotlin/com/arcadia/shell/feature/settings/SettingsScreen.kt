@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,9 +39,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -78,6 +81,7 @@ import com.arcadia.shell.display.OverlayPermission
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LiquidGlassSurface
@@ -85,7 +89,10 @@ import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.designsystem.R as DsR
+import com.arcadia.shell.input.NavAction
+import kotlinx.coroutines.flow.Flow
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.model.RootKind
 import com.arcadia.shell.model.ScreenRole
@@ -105,6 +112,8 @@ fun SettingsScreen(
     systemSection: @Composable () -> Unit = {},
     /** Host art — the same settings hero used on the companion display. */
     backdrop: @Composable BoxScope.() -> Unit = {},
+    padActions: Flow<NavAction>? = null,
+    onPadCapture: (Boolean) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -112,9 +121,68 @@ fun SettingsScreen(
     var showMusicFolderPicker by remember { mutableStateOf(false) }
     var section by remember { mutableStateOf(SetupSection.Display) }
     val listState = rememberLazyListState()
+    var padOnTabs by remember { mutableStateOf(true) }
+    var padCardIndex by remember { mutableIntStateOf(0) }
 
     // Switching tabs must land at the top, not halfway down the previous section.
-    LaunchedEffect(section) { listState.scrollToItem(0) }
+    LaunchedEffect(section) {
+        listState.scrollToItem(0)
+        padCardIndex = 0
+        padOnTabs = true
+    }
+
+    DisposableEffect(onPadCapture) {
+        onPadCapture(true)
+        onDispose { onPadCapture(false) }
+    }
+    LaunchedEffect(padActions, section, padOnTabs, padCardIndex) {
+        val flow = padActions ?: return@LaunchedEffect
+        val cards = setupSectionCardKeys(section)
+        flow.collect { action ->
+            when (action) {
+                NavAction.Left -> {
+                    val entries = SetupSection.entries
+                    val idx = entries.indexOf(section)
+                    section = entries[(idx - 1 + entries.size) % entries.size]
+                }
+                NavAction.Right -> {
+                    val entries = SetupSection.entries
+                    val idx = entries.indexOf(section)
+                    section = entries[(idx + 1) % entries.size]
+                }
+                NavAction.Down -> {
+                    if (padOnTabs) {
+                        padOnTabs = false
+                        padCardIndex = 0
+                    } else if (cards.isNotEmpty()) {
+                        padCardIndex = (padCardIndex + 1).coerceAtMost(cards.lastIndex)
+                    }
+                }
+                NavAction.Up -> {
+                    if (!padOnTabs && padCardIndex > 0) {
+                        padCardIndex -= 1
+                    } else {
+                        padOnTabs = true
+                    }
+                }
+                NavAction.Confirm -> {
+                    if (padOnTabs && cards.isNotEmpty()) {
+                        padOnTabs = false
+                        padCardIndex = 0
+                    }
+                }
+                NavAction.Cancel, NavAction.Menu -> onBack()
+                else -> Unit
+            }
+        }
+    }
+    LaunchedEffect(section, padOnTabs, padCardIndex) {
+        if (padOnTabs) return@LaunchedEffect
+        val cards = setupSectionCardKeys(section)
+        val index = padCardIndex.coerceIn(0, (cards.size - 1).coerceAtLeast(0))
+        // header is item 0; status banner may insert item 1
+        listState.animateScrollToItem((index + 1).coerceAtLeast(0))
+    }
 
     BackHandler(onBack = onBack)
 
@@ -170,6 +238,7 @@ fun SettingsScreen(
         exit = fadeOut(enterTween),
         modifier = modifier.fillMaxSize(),
     ) {
+    ArcadiaTheme(darkTheme = true) {
     Box(modifier = Modifier.fillMaxSize()) {
         backdrop()
         Box(
@@ -184,6 +253,11 @@ fun SettingsScreen(
                     ),
                 ),
         )
+    val focusedCardKey = if (padOnTabs) {
+        null
+    } else {
+        setupSectionCardKeys(section).getOrNull(padCardIndex)
+    }
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -302,6 +376,7 @@ fun SettingsScreen(
             SettingsCard(
                 title = "Appearance",
                 iconRes = DsR.drawable.xmb_figma_device,
+                focused = focusedCardKey == "appearance",
                 modifier = Modifier.animateItem(),
             ) {
                 SettingsFieldLabel("Theme")
@@ -321,27 +396,6 @@ fun SettingsScreen(
                             },
                         )
                     }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-
-                SettingsFieldLabel("XMB game titles")
-                Text(
-                    text = "Clear logos beside box art, or plain text titles.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = state.settings.xmbTitleStyle == XmbTitleStyle.TitleIcons,
-                        onClick = { viewModel.setXmbTitleStyle(XmbTitleStyle.TitleIcons) },
-                        label = { Text(text = "Title icons") },
-                    )
-                    FilterChip(
-                        selected = state.settings.xmbTitleStyle == XmbTitleStyle.Text,
-                        onClick = { viewModel.setXmbTitleStyle(XmbTitleStyle.Text) },
-                        label = { Text(text = "Text") },
-                    )
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
@@ -416,33 +470,12 @@ fun SettingsScreen(
             SettingsCard(
                 title = "Library / Layout",
                 iconRes = DsR.drawable.xmb_figma_folder,
+                focused = focusedCardKey == "library_layout",
                 modifier = Modifier.animateItem(),
             ) {
-                SettingsFieldLabel("Display mode")
-                Text(
-                    text = "Single screen uses a vertical game selector on one display. Dual screen " +
-                        "splits library and artwork when a second display is available.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = state.settings.displayMode == DisplayMode.Single,
-                        onClick = { viewModel.setDisplayMode(DisplayMode.Single) },
-                        label = { Text(text = "Single screen") },
-                    )
-                    FilterChip(
-                        selected = state.settings.displayMode == DisplayMode.Dual,
-                        onClick = { viewModel.setDisplayMode(DisplayMode.Dual) },
-                        label = { Text(text = "Dual screen") },
-                    )
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-
                 SettingsFieldLabel("Library columns: ${state.settings.gridColumns}")
                 Text(
-                    text = "Columns for the dual-screen library grid.",
+                    text = "Columns for the RSS feed grid.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -455,38 +488,6 @@ fun SettingsScreen(
                         )
                     }
                 }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-
-                SettingsFieldLabel("Second screen shows")
-                Text(
-                    text = "Used when Dual screen mode has a second display.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ScreenRole.entries.forEach { role ->
-                        FilterChip(
-                            selected = state.settings.secondaryDisplayRole == role,
-                            onClick = { viewModel.setSecondaryDisplayRole(role) },
-                            enabled = state.settings.displayMode == DisplayMode.Dual,
-                            label = {
-                                Text(
-                                    text = when (role) {
-                                        ScreenRole.Hero -> "Artwork"
-                                        ScreenRole.Grid -> "Library"
-                                    },
-                                )
-                            },
-                        )
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-
-                CompanionScreenPermissionRow(
-                    enabled = state.settings.displayMode == DisplayMode.Dual,
-                )
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
@@ -520,6 +521,7 @@ fun SettingsScreen(
             SettingsCard(
                 title = "Audio",
                 iconRes = DsR.drawable.xmb_figma_music,
+                focused = focusedCardKey == "audio",
                 modifier = Modifier.animateItem(),
             ) {
                 SettingsFieldLabel("Background music")
@@ -621,6 +623,7 @@ fun SettingsScreen(
             SettingsCard(
                 title = "Trailers",
                 iconRes = DsR.drawable.xmb_figma_video,
+                focused = focusedCardKey == "trailers",
                 modifier = Modifier.animateItem(),
             ) {
                 Text(
@@ -1308,6 +1311,7 @@ fun SettingsScreen(
             SettingsCard(
                 title = "Detect installed emulators",
                 iconRes = DsR.drawable.xmb_figma_game,
+                focused = focusedCardKey == "emulators_scan",
                 modifier = Modifier.animateItem(),
             ) {
                 Text(
@@ -1326,6 +1330,7 @@ fun SettingsScreen(
             SettingsCard(
                 title = "XOrA Emulator (Libretro)",
                 iconRes = DsR.drawable.xmb_figma_game,
+                focused = focusedCardKey == "xora_emulator_cores",
                 modifier = Modifier.animateItem(),
             ) {
                 Text(
@@ -1488,46 +1493,14 @@ fun SettingsScreen(
             }
         }
 
-        item(key = "xora_display") {
+        item(key = "xora_ds_3ds") {
             val xora = state.xoraEmulator
             SettingsCard(
-                title = "XOrA · Display",
+                title = "Nintendo DS / 3DS",
                 iconRes = DsR.drawable.xmb_figma_device,
+                focused = focusedCardKey == "xora_ds_3ds",
                 modifier = Modifier.animateItem(),
             ) {
-                Text(
-                    text = "Aspect ratio applies only while a game is running in the built-in " +
-                        "emulator — not the XMB wallpaper or menu. Auto keeps the framebuffer. " +
-                        "16:9, 1:1, 4:3 and the other ratios letterbox the game. DS / 3DS " +
-                        "layout options are below.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SettingsFieldLabel("Aspect ratio")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    XoraAspectMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = xora.aspectMode == mode,
-                            onClick = { viewModel.setXoraAspectMode(mode) },
-                            label = { Text(text = mode.label()) },
-                        )
-                    }
-                }
-                if (xora.aspectMode == XoraAspectMode.Integer) {
-                    val scaleLabel = if (xora.integerScale == 0) {
-                        "Auto (largest fit)"
-                    } else {
-                        "${xora.integerScale}×"
-                    }
-                    SettingsFieldLabel("Integer scale · $scaleLabel")
-                    Slider(
-                        value = xora.integerScale.toFloat(),
-                        onValueChange = { viewModel.setXoraIntegerScale(it.roundToInt()) },
-                        valueRange = 0f..6f,
-                        steps = 5,
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 SettingsFieldLabel("Nintendo DS layout")
                 Text(
                     text = "Regular DS games boot in DS mode with the built-in BIOS so " +
@@ -1606,6 +1579,7 @@ fun SettingsScreen(
             SettingsCard(
                 title = "XOrA · System bezels",
                 iconRes = DsR.drawable.xmb_figma_photo,
+                focused = focusedCardKey == "xora_bezels",
                 modifier = Modifier.animateItem(),
             ) {
                 Text(
@@ -1639,280 +1613,6 @@ fun SettingsScreen(
             }
         }
 
-        item(key = "xora_netplay") {
-            val xora = state.xoraEmulator
-            var nickDraft by remember(xora.netplayNickname) {
-                mutableStateOf(xora.netplayNickname)
-            }
-            var hostDraft by remember(xora.netplayHostAddress) {
-                mutableStateOf(xora.netplayHostAddress)
-            }
-            var portDraft by remember(xora.netplayPort.toString()) {
-                mutableStateOf(xora.netplayPort.toString())
-            }
-            SettingsCard(
-                title = "XOrA · Netplay",
-                iconRes = DsR.drawable.xmb_figma_network,
-                modifier = Modifier.animateItem(),
-            ) {
-                Text(
-                    text = "Host or join from the in-game side menu (Pause → Netplay). " +
-                        "Home consoles (NES, SNES, N64, Genesis, PS1, GameCube, …) share one " +
-                        "game on the host — players 2–4 watch a compressed picture of that " +
-                        "screen. Handhelds each run their own game. Online uses a 6-character " +
-                        "XOrA Network code. Local Wireless uses an IP and port on the same Wi‑Fi. " +
-                        "Nickname is shared with cores (DS MAC, PPSSPP MAC, Libretro username).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "Online home consoles and handhelds are fine on decent home Wi‑Fi. " +
-                        "About 3 Mbps host upload and joiner download is enough. 8+ Mbps " +
-                        "matches Local Wireless. Same-Wi‑Fi Local Wireless still has less delay.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(text = "Enable netplay", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = xora.netplayEnabled,
-                        onCheckedChange = viewModel::setXoraNetplayEnabled,
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = if (xora.netplayUseRelay) "Online" else "Local Wireless",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Switch(
-                        checked = xora.netplayUseRelay,
-                        onCheckedChange = viewModel::setXoraNetplayUseRelay,
-                        enabled = xora.netplayEnabled,
-                    )
-                }
-                SettingsFieldLabel("Nickname")
-                OutlinedTextField(
-                    value = nickDraft,
-                    onValueChange = { nickDraft = it.take(24) },
-                    singleLine = true,
-                    enabled = xora.netplayEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused) {
-                                viewModel.setXoraNetplayNickname(nickDraft)
-                            }
-                        },
-                )
-                SettingsFieldLabel("Listen port")
-                OutlinedTextField(
-                    value = portDraft,
-                    onValueChange = { raw ->
-                        portDraft = raw.filter { it.isDigit() }.take(5)
-                    },
-                    singleLine = true,
-                    enabled = xora.netplayEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused) {
-                                portDraft.toIntOrNull()?.let(viewModel::setXoraNetplayPort)
-                            }
-                        },
-                )
-                SettingsFieldLabel("Default join address")
-                OutlinedTextField(
-                    value = hostDraft,
-                    onValueChange = { hostDraft = it.take(128) },
-                    singleLine = true,
-                    enabled = xora.netplayEnabled,
-                    placeholder = { Text("192.168.1.10 or 192.168.1.10:55435") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused) {
-                                viewModel.setXoraNetplayHostAddress(hostDraft)
-                            }
-                        },
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(text = "Spectator when joining", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = xora.netplaySpectator,
-                        onCheckedChange = viewModel::setXoraNetplaySpectator,
-                        enabled = xora.netplayEnabled,
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Text(
-                    text = "Nintendo DS · Nintendo WFC",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "melonDS talks to fan-run Nintendo WFC servers (Kaeru, Wiimmfi). " +
-                        "Open Nintendo Wi-Fi Connection inside the game — Mario Kart DS " +
-                        "matchmaking is that menu, not XOrA Host/Join.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NdsWfcServer.entries.forEach { server ->
-                        FilterChip(
-                            selected = xora.ndsWfcServer == server,
-                            onClick = { viewModel.setXoraNdsWfcServer(server) },
-                            label = { Text(text = server.label()) },
-                        )
-                    }
-                }
-                if (xora.ndsWfcServer == NdsWfcServer.Custom) {
-                    var dnsDraft by remember(xora.ndsWfcCustomDns) {
-                        mutableStateOf(xora.ndsWfcCustomDns)
-                    }
-                    SettingsFieldLabel("Custom WFC DNS")
-                    OutlinedTextField(
-                        value = dnsDraft,
-                        onValueChange = { dnsDraft = it.take(64) },
-                        singleLine = true,
-                        placeholder = { Text("178.62.43.212") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onFocusChanged { focus ->
-                                if (!focus.isFocused) {
-                                    viewModel.setXoraNdsWfcCustomDns(dnsDraft)
-                                }
-                            },
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Text(
-                    text = "PSP · PPSSPP AdHoc",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "Each PSP runs its own PPSSPP. WLAN and Pro AdHoc are how games " +
-                        "see other players. Hosting an XOrA session makes this device the " +
-                        "AdHoc server; joiners use the host IP (Default join address / " +
-                        "the host's advertised LAN IP).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(text = "Enable PPSSPP WLAN / AdHoc", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = xora.pspAdhocEnabled,
-                        onCheckedChange = viewModel::setXoraPspAdhocEnabled,
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "This device is the AdHoc server",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            text = "Turn on for one phone when you are not using XOrA Host/Join.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = xora.pspAdhocIsServer,
-                        onCheckedChange = viewModel::setXoraPspAdhocIsServer,
-                        enabled = xora.pspAdhocEnabled,
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Text(
-                    text = "3DS · Azahar rooms",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "Azahar/Citra rooms are ENet Direct Connect IPs from the community " +
-                        "registry. Blank uses ${AzaharPublicLobbies.COMMUNITY_AZAHAR_API}. " +
-                        "XOrA Host/Join is on Netplay — it is not an Azahar room. Sitting in " +
-                        "a listed room still needs standalone Azahar. Mario Kart 7 open is " +
-                        "pinned at the top of Public lobbies.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                var lobbyDraft by remember(xora.azaharLobbyApiUrl) {
-                    mutableStateOf(xora.azaharLobbyApiUrl)
-                }
-                SettingsFieldLabel("Public lobby API")
-                OutlinedTextField(
-                    value = lobbyDraft,
-                    onValueChange = { lobbyDraft = it.take(256) },
-                    singleLine = true,
-                    placeholder = { Text(AzaharPublicLobbies.COMMUNITY_AZAHAR_API) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused) {
-                                viewModel.setXoraAzaharLobbyApiUrl(lobbyDraft)
-                            }
-                        },
-                )
-                Text(
-                    text = "GET {url}/lobby. Community registry is " +
-                        "${AzaharPublicLobbies.COMMUNITY_AZAHAR_API}. Room rows show ip:port.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Text(
-                    text = "3DS · Cart dumps",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "Azahar will not launch encrypted games (standalone or in XOrA). " +
-                        "Use a decrypted .cci — a decrypted .3ds of the same CCI image also " +
-                        "works. Encrypted 1:1 dumps fail. Homebrew .3dsx is fine. XOrA " +
-                        "cannot decrypt carts.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Text(
-                    text = "3DS · Pretendo",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "Pretendo cannot run in XOrA Emulator. DS Kaeru works here " +
-                        "because melonDS libretro has a WFC DNS option. 3DS Pretendo is " +
-                        "Nimbus (Home Menu CIA) plus a dumped NAND, plus standalone Azahar's " +
-                        "LLE online modules and 3GX plugin loader — Azahar libretro never " +
-                        "reads those settings. Play Pretendo titles in standalone Azahar.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
         if (state.platformChoices.isEmpty()) {
             item(key = "emulators_empty") {
                 Text(
@@ -1937,6 +1637,7 @@ fun SettingsScreen(
     }
     }
     }
+    }
 }
 
 /**
@@ -1948,13 +1649,29 @@ private enum class SetupSection(
     val description: String,
     val iconRes: Int,
 ) {
-    Display("Display", "Theme, layout, and how the library is presented", DsR.drawable.xmb_figma_device),
+    Display("Display", "Theme, trailers, and library text", DsR.drawable.xmb_figma_device),
     Audio("Audio", "Soundtrack and interface sounds", DsR.drawable.xmb_figma_music),
     Media("Media", "Trailers and artwork scraping", DsR.drawable.xmb_figma_video),
     Accounts("Accounts", "RetroAchievements, Steam, and Discord", DsR.drawable.xmb_figma_network),
     Storage("Storage", "Library folders, scanning, and app sync", DsR.drawable.xmb_figma_folder),
     System("System", "Home screen role and onboarding", DsR.drawable.xmb_figma_settings),
     Emulators("Emulators", "XOrA Emulator and per-system players", DsR.drawable.xmb_figma_game),
+}
+
+private fun setupSectionCardKeys(section: SetupSection): List<String> = when (section) {
+    SetupSection.Display -> listOf("appearance", "library_layout")
+    SetupSection.Audio -> listOf("audio")
+    SetupSection.Media -> listOf("trailers", "scrapers")
+    SetupSection.Accounts -> listOf("ra", "social")
+    SetupSection.Storage -> listOf("storage")
+    SetupSection.System -> listOf("system")
+    SetupSection.Emulators -> listOf(
+        "emulators_choose_hint",
+        "emulators_scan",
+        "xora_emulator_cores",
+        "xora_ds_3ds",
+        "xora_bezels",
+    )
 }
 
 @Composable
@@ -2265,13 +1982,20 @@ private fun SettingsCard(
     title: String,
     modifier: Modifier = Modifier,
     iconRes: Int? = null,
+    focused: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    LiquidGlassSurface(
-        modifier = modifier.fillMaxWidth(),
-        shape = ArcadiaGlass.CardShape,
-        tone = GlassTone.OverMedia,
-        intensity = GlassIntensity.Standard,
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (focused) {
+                    Modifier.border(2.dp, Color.White.copy(alpha = 0.88f), ArcadiaGlass.CardShape)
+                } else {
+                    Modifier
+                },
+            )
+            .xoraModalGlass(ArcadiaGlass.CardShape, shimmer = false),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),

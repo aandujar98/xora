@@ -340,7 +340,9 @@ fun ArcadiaShell(
     // are ordinary forms. Bottom sheets keep the dispatcher on so Select/U/D/B reach SheetNavCapture.
     LaunchedEffect(route, dialogOverlayOpen, shellState.showOnboarding) {
         homeViewModel.gamepadDispatcher.isEnabled =
-            route == ShellRoute.Home && !dialogOverlayOpen && !shellState.showOnboarding
+            (route == ShellRoute.Home || route == ShellRoute.Settings) &&
+                !dialogOverlayOpen &&
+                !shellState.showOnboarding
     }
 
     // Idle trailers are Home-only; Settings, options, Guide, Start config, welcome-back, boot, and launch overlay must return to artwork.
@@ -497,9 +499,14 @@ fun ArcadiaShell(
             !state.welcomeBackOpen &&
             !state.isLaunching
         val swipeModifier = if (swipeEnabled) {
-            Modifier.xoraSwipeNavigate { direction ->
-                homeViewModel.onTouchNav(direction.toNavAction())
-            }
+            Modifier.xoraSwipeNavigate(
+                onSwipe = { direction ->
+                    homeViewModel.onTouchNav(direction.toNavAction())
+                },
+                onTwoFingerSwipe = { direction ->
+                    homeViewModel.onTwoFingerSwipe(direction)
+                },
+            )
         } else {
             Modifier
         }
@@ -567,6 +574,8 @@ fun ArcadiaShell(
                     onSelectXoraCategory = homeViewModel::selectXoraCategory,
                     onSelectXoraItem = homeViewModel::selectXoraItem,
                     onActivateXoraItem = homeViewModel::activateXoraSelection,
+                    onDrillOutXora = homeViewModel::navigateXoraBack,
+                    onShiftVitaShortcutPage = homeViewModel::shiftVitaShortcutPage,
                     onToggleNowPlaying = homeViewModel::toggleNowPlaying,
                     onSkipPreviousTrack = homeViewModel::skipPreviousTrack,
                     onSkipNextTrack = homeViewModel::skipNextTrack,
@@ -626,6 +635,8 @@ fun ArcadiaShell(
                 SettingsScreen(
                     onBack = { route = ShellRoute.Home },
                     onGoToOnboarding = onRestartOnboarding,
+                    padActions = homeViewModel.sheetNavActionFlow,
+                    onPadCapture = homeViewModel::setBottomSheetNavOpen,
                     systemSection = {
                         HomeRoleCard(
                             state = shellState.homeRole,
@@ -748,9 +759,13 @@ fun ArcadiaShell(
                                 enabled = !state.bootIntroOpen &&
                                     !state.welcomeBackOpen &&
                                     !state.isLaunching,
-                            ) { direction ->
-                                homeViewModel.onTouchNav(direction.toNavAction())
-                            },
+                                onSwipe = { direction ->
+                                    homeViewModel.onTouchNav(direction.toNavAction())
+                                },
+                                onTwoFingerSwipe = { direction ->
+                                    homeViewModel.onTwoFingerSwipe(direction)
+                                },
+                            ),
                     ) {
                         val companion = gameCompanion
                         if (companion != null) {
@@ -1231,6 +1246,8 @@ private fun PaneForRole(
                     onSelectXoraCategory = homeViewModel::selectXoraCategory,
                     onSelectXoraItem = homeViewModel::selectXoraItem,
                     onActivateXoraItem = homeViewModel::activateXoraSelection,
+                    onDrillOutXora = homeViewModel::navigateXoraBack,
+                    onShiftVitaShortcutPage = homeViewModel::shiftVitaShortcutPage,
                     onToggleNowPlaying = homeViewModel::toggleNowPlaying,
                     onSkipPreviousTrack = homeViewModel::skipPreviousTrack,
                     onSkipNextTrack = homeViewModel::skipNextTrack,

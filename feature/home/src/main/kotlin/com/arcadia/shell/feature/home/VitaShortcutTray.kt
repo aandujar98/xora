@@ -68,8 +68,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.rememberAmbientMotionActive
+import com.arcadia.shell.designsystem.xoraSwipeNavigate
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.launcher.InstalledAppSync
@@ -148,6 +150,7 @@ fun VitaShortcutTray(
     onSelect: (Int) -> Unit,
     onActivate: (Int) -> Unit,
     onAddSlot: () -> Unit,
+    onPageSwipe: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
     departingIndex: Int? = null,
     suppressIdleBubbles: Boolean = false,
@@ -173,7 +176,21 @@ fun VitaShortcutTray(
         exit = exit,
         modifier = modifier,
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .xoraSwipeNavigate(
+                    horizontal = false,
+                    vertical = true,
+                    onSwipe = { direction ->
+                        when (direction) {
+                            XoraSwipeDirection.Down -> onPageSwipe(1)
+                            XoraSwipeDirection.Up -> onPageSwipe(-1)
+                            else -> Unit
+                        }
+                    },
+                ),
+        ) {
             val unit = min(
                 maxWidth.value / XORA_DESIGN_WIDTH,
                 maxHeight.value / XORA_DESIGN_HEIGHT,

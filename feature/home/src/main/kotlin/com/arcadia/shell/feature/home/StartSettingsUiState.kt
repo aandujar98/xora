@@ -1,6 +1,5 @@
 package com.arcadia.shell.feature.home
 
-import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.ShellSettings
@@ -8,11 +7,9 @@ import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UiFitMode
-import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.datastore.uiTextScaleLabel
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.ShellThemeId
-import com.arcadia.shell.model.ScreenRole
 
 /**
  * Start-button app config popup: a category list that drills into each page.
@@ -200,24 +197,6 @@ fun buildStartSettingsRows(
     raSettings: RetroAchievementsSettings = RetroAchievementsSettings(),
 ): List<StartSettingsRow> = when (category) {
     StartSettingsCategory.Display -> listOf(
-        StartSettingsRow.Action(
-            id = "switch_mode",
-            title = "Switch Mode",
-            subtitle = when (settings.displayMode) {
-                DisplayMode.Single -> "Single screen"
-                DisplayMode.Dual -> "Dual screen"
-            },
-            action = StartSettingsAction.SwitchDisplayMode,
-        ),
-        StartSettingsRow.Action(
-            id = "second_screen",
-            title = "Second screen shows",
-            subtitle = when (settings.secondaryDisplayRole) {
-                ScreenRole.Hero -> "Artwork"
-                ScreenRole.Grid -> "Library"
-            },
-            action = StartSettingsAction.CycleSecondaryRole,
-        ),
         StartSettingsRow.Action(
             id = "ui_fit",
             title = "Fit screen resolution",
@@ -590,15 +569,6 @@ fun buildStartSettingsRows(
                 else -> "Continue"
             },
             action = StartSettingsAction.CycleGamesSecondarySlot,
-        ),
-        StartSettingsRow.Action(
-            id = "xmb_title_style",
-            title = "XMB game titles",
-            subtitle = when (settings.xmbTitleStyle) {
-                XmbTitleStyle.TitleIcons -> "Title icons"
-                XmbTitleStyle.Text -> "Text"
-            },
-            action = StartSettingsAction.CycleXmbTitleStyle,
         ),
         StartSettingsRow.Action(
             id = "edit_home",

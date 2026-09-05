@@ -133,8 +133,8 @@ data class ShellSettings(
      * effectively decides which screen the user is looking at while navigating.
      */
     val secondaryDisplayRole: ScreenRole = ScreenRole.Hero,
-    /** Single composed layout vs dual-display Presentation split. Defaults to Dual. */
-    val displayMode: DisplayMode = DisplayMode.Dual,
+    /** Single composed layout vs dual-display Presentation split. Home XMB is single-screen. */
+    val displayMode: DisplayMode = DisplayMode.Single,
     /**
      * Auto-detect the panel resolution and scale the whole UI to fit.
      * Defaults to [UiFitMode.Auto].
@@ -160,7 +160,7 @@ data class ShellSettings(
     /**
      * XMB ROM browse: clear-logo title icons vs plain text titles.
      */
-    val xmbTitleStyle: XmbTitleStyle = XmbTitleStyle.TitleIcons,
+    val xmbTitleStyle: XmbTitleStyle = XmbTitleStyle.Text,
     /**
      * Download each game's scanned manual during a metadata scrape, for the companion screen to
      * page through. Off by default: manuals are the largest media ScreenScraper serves, and a big
@@ -376,7 +376,7 @@ class ShellPreferences @Inject constructor(
                 ?: ScreenRole.Hero,
             displayMode = prefs[Keys.DISPLAY_MODE]
                 ?.let { name -> runCatching { DisplayMode.valueOf(name) }.getOrNull() }
-                ?: DisplayMode.Dual,
+                ?: DisplayMode.Single,
             uiFitMode = prefs[Keys.UI_FIT_MODE]
                 ?.let { name -> runCatching { UiFitMode.valueOf(name) }.getOrNull() }
                 ?: UiFitMode.Auto,
@@ -391,7 +391,7 @@ class ShellPreferences @Inject constructor(
             gamesSecondarySlot = prefs[Keys.GAMES_SECONDARY_SLOT] ?: "Continue",
             xmbTitleStyle = prefs[Keys.XMB_TITLE_STYLE]
                 ?.let { name -> runCatching { XmbTitleStyle.valueOf(name) }.getOrNull() }
-                ?: XmbTitleStyle.TitleIcons,
+                ?: XmbTitleStyle.Text,
             manualScrapeEnabled = prefs[Keys.MANUAL_SCRAPE_ENABLED] ?: false,
             androidAppSyncEnabled = prefs[Keys.ANDROID_APP_SYNC_ENABLED] ?: true,
             lastScanAt = prefs[Keys.LAST_SCAN_AT] ?: 0,

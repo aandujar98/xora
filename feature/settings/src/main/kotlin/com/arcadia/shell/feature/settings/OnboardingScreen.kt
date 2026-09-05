@@ -436,24 +436,20 @@ private fun DisplayModeStep(
     mode: DisplayMode,
     onSelect: (DisplayMode) -> Unit,
 ) {
+    LaunchedEffect(Unit) { onSelect(DisplayMode.Single) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        StepTitle("Display mode")
+        StepTitle("Display")
         Text(
-            text = "Single keeps a vertical game selector on one screen. Dual splits library " +
-                "and artwork when a second display is available.",
+            text = "The Home XMB is a single-screen menu. DS and 3DS games still use their " +
+                "own dual-LCD layout from the emulator overlay.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             FilterChip(
-                selected = mode == DisplayMode.Single,
+                selected = true,
                 onClick = { onSelect(DisplayMode.Single) },
                 label = { Text("Single screen") },
-            )
-            FilterChip(
-                selected = mode == DisplayMode.Dual,
-                onClick = { onSelect(DisplayMode.Dual) },
-                label = { Text("Dual screen") },
             )
         }
     }

@@ -275,7 +275,7 @@ data class HomeUiState(
     /** Per-game cover pan inside the Game Icon. */
     val gameArtAlignments: Map<String, GameArtAlignment> = emptyMap(),
     /** Single-screen vertical selector vs dual-screen horizontal XMB. */
-    val displayMode: DisplayMode = DisplayMode.Dual,
+    val displayMode: DisplayMode = DisplayMode.Single,
     /** Column count for the RSS feed grid (nav math + layout). */
     val gridColumns: Int = 3,
     val scanProgress: ScanProgress = ScanProgress(),
