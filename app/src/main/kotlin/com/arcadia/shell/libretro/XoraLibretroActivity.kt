@@ -93,6 +93,7 @@ import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.EmulatorMenuAction
 import com.arcadia.shell.feature.home.EmulatorSaveSlotUi
 import com.arcadia.shell.feature.home.GameCompanionController
+import com.arcadia.shell.feature.home.GameSoundBitePlayer
 import com.arcadia.shell.feature.home.LocalInGameXmbController
 import com.arcadia.shell.feature.home.NetplayInvitePrompt
 import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
@@ -192,6 +193,7 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var xoraCookies: XoraNetworkAuthCookies
     @Inject lateinit var discordRichPresence: DiscordRichPresence
     @Inject lateinit var gameCompanionController: GameCompanionController
+    @Inject lateinit var gameSoundBitePlayer: GameSoundBitePlayer
 
     @Volatile private var menuOpen = false
     /** True while the in-game menu is showing or the user left Pause on. */
@@ -339,6 +341,12 @@ class XoraLibretroActivity : ComponentActivity() {
     private var expandActive by mutableStateOf(false)
     private var secondaryDisplayId by mutableStateOf<Int?>(null)
     private var expandSplitKind by mutableStateOf(DualScreenSplitKind.Stacked)
+    private var lastExpandSplit: DualScreenFrameSplit? = null
+    /**
+     * Session latch for Expand. DS / 3DS boot with it on; a later Graphics / Settings
+     * toggle writes here so a stale DataStore emit cannot fight the player.
+     */
+    @Volatile private var expandSessionOn: Boolean? = null
     private val secondDisplayHost by lazy { SecondDisplayImageHost(this) }
 
     private var inputManager: InputManager? = null
@@ -357,6 +365,29 @@ class XoraLibretroActivity : ComponentActivity() {
         expandActive = xoraSettings.expandDualDisplay &&
             platformId in DUAL_SCREEN_PLATFORMS &&
             presentation != null
+    }
+
+    /**
+     * DS and 3DS always start with Expand dual display on so the bottom LCD can leave
+     * this panel when a second display is present. The Graphics toggle still turns it off
+     * for the rest of this session.
+     */
+    private fun autoEnableExpandForDualScreen(settings: XoraEmulatorSettings): XoraEmulatorSettings {
+        if (platformId !in DUAL_SCREEN_PLATFORMS) return settings
+        val latched = expandSessionOn
+        if (latched == null) {
+            val enable = true
+            expandSessionOn = enable
+            if (!settings.expandDualDisplay) {
+                lifecycleScope.launch { preferences.setXoraExpandDualDisplay(true) }
+            }
+            return if (settings.expandDualDisplay) settings else settings.copy(expandDualDisplay = true)
+        }
+        return if (settings.expandDualDisplay == latched) {
+            settings
+        } else {
+            settings.copy(expandDualDisplay = latched)
+        }
     }
 
     /**
@@ -719,7 +750,8 @@ class XoraLibretroActivity : ComponentActivity() {
         }
 
         lifecycleScope.launch {
-            preferences.xoraEmulatorSettings.collect { xora ->
+            preferences.xoraEmulatorSettings.collect { incoming ->
+                val xora = autoEnableExpandForDualScreen(incoming)
                 val expandChanged = xora.expandDualDisplay != xoraSettings.expandDualDisplay
                 xoraSettings = xora
                 azaharLobbyUi = azaharLobbyUi.copy(
@@ -856,7 +888,7 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             // Core init + first frames must share one OS thread (Mupen/libco).
             val ok = withContext(emuDispatcher) {
-                val xora = preferences.xoraEmulatorSettings.first()
+                val xora = autoEnableExpandForDualScreen(preferences.xoraEmulatorSettings.first())
                 if (platformId.equals("3ds", ignoreCase = true) && xora.threeDsPretendoPrep) {
                     AzaharPretendo.ensureDirs(coreStore.saveDirFor("3ds"))
                 }
@@ -1434,6 +1466,7 @@ class XoraLibretroActivity : ComponentActivity() {
             }
             EmulatorMenuAction.ToggleExpandDual -> lifecycleScope.launch {
                 val enable = !xoraSettings.expandDualDisplay
+                expandSessionOn = enable
                 xoraSettings = xoraSettings.copy(expandDualDisplay = enable)
                 preferences.setXoraExpandDualDisplay(enable)
                 syncExpandDisplay(announce = true)
@@ -2538,6 +2571,7 @@ class XoraLibretroActivity : ComponentActivity() {
     }
 
     private fun restoreShellPresence() {
+        gameSoundBitePlayer.setPlaybackSuppressed(false)
         if (discordRichPresence.state.value.activity is DiscordPresenceActivity.Playing) {
             discordRichPresence.setActivity(DiscordPresenceActivity.InSora)
         }
@@ -3158,16 +3192,43 @@ class XoraLibretroActivity : ComponentActivity() {
             }
         }
         val drawable = view.drawable
-        val mapped = DualScreenPointer.mapViewToPointer(
-            viewX = event.x,
-            viewY = event.y,
-            viewW = view.width,
-            viewH = view.height,
-            contentW = drawable?.intrinsicWidth ?: view.width,
-            contentH = drawable?.intrinsicHeight ?: view.height,
-            fill = view.scaleType == ImageView.ScaleType.FIT_XY,
-            target = target,
-            pressed = true,
+        val contentW = drawable?.intrinsicWidth ?: view.width
+        val contentH = drawable?.intrinsicHeight ?: view.height
+        val fill = view.scaleType == ImageView.ScaleType.FIT_XY
+        val split = lastExpandSplit
+        val mapped = (
+            if (
+                expandActive &&
+                split != null &&
+                target != DualScreenPointerTarget.TopHalf &&
+                target != DualScreenPointerTarget.Combined
+            ) {
+                DualScreenPointer.mapViewToPackedRect(
+                    viewX = event.x,
+                    viewY = event.y,
+                    viewW = view.width,
+                    viewH = view.height,
+                    contentW = contentW,
+                    contentH = contentH,
+                    fill = fill,
+                    frameW = split.frameWidth,
+                    frameH = split.frameHeight,
+                    rect = split.bottom,
+                    pressed = true,
+                )
+            } else {
+                DualScreenPointer.mapViewToPointer(
+                    viewX = event.x,
+                    viewY = event.y,
+                    viewW = view.width,
+                    viewH = view.height,
+                    contentW = contentW,
+                    contentH = contentH,
+                    fill = fill,
+                    target = target,
+                    pressed = true,
+                )
+            }
         ) ?: run {
             releasePointer()
             return false
@@ -3552,6 +3613,7 @@ class XoraLibretroActivity : ComponentActivity() {
             synchronized(bitmapLock) {
                 if (geometry != null && !geometry.top.isEmpty && !geometry.bottom.isEmpty) {
                     expandSplitKind = geometry.kind
+                    lastExpandSplit = geometry
                     val topRect = geometry.top
                     val bottomRect = geometry.bottom
                     var top = gameBitmap
@@ -3611,6 +3673,7 @@ class XoraLibretroActivity : ComponentActivity() {
                     }
                     bindPointerTouch(secondaryGameView, geometry.bottomPointerTarget)
                 } else {
+                    lastExpandSplit = null
                     if (bottomBitmap != null) {
                         bottomBitmap = null
                         secondaryGameView?.setImageDrawable(null)

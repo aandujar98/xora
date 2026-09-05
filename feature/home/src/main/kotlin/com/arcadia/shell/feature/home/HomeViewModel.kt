@@ -1302,7 +1302,8 @@ class HomeViewModel @Inject constructor(
         combine(
             uiState
                 .map { state ->
-                    if (state.isLaunching) return@map null
+                    // Do not null this out on [isLaunching]. That restart-plays the bite when
+                    // launch() returns and the same game is still focused.
                     if (state.bootIntroOpen && !state.homeIntroReveal) return@map null
                     val game = state.xoraXmb.focusGame
                         ?.takeIf { !it.isAndroidApp }
@@ -8162,7 +8163,9 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         collapseHeroPanels()
         closeGuide()
-        gameSoundBitePlayer.stop()
+        // Hold the bite through the cinematic and the emulator handoff. stop() alone is not
+        // enough — the focus collector would see the same path again and call play().
+        gameSoundBitePlayer.setPlaybackSuppressed(true)
         // Hold BGM fade from the first boot sample, not after the cinematic coroutine starts.
         isLaunching.value = true
         if (playBootSfx) playUiOneShot(UiOneShot.BootXmb)
@@ -8238,6 +8241,7 @@ class HomeViewModel @Inject constructor(
                 }
                 if (result !is LaunchResult.Launched) {
                     restoreBrowsingPresence()
+                    gameSoundBitePlayer.setPlaybackSuppressed(false)
                 }
             } finally {
                 isLaunching.value = false
@@ -8257,6 +8261,7 @@ class HomeViewModel @Inject constructor(
      * fires on quit. Built-in emulator [finish] calls this so Discord returns to Browsing XOrA.
      */
     fun onPlaySessionEnded() {
+        gameSoundBitePlayer.setPlaybackSuppressed(false)
         restoreBrowsingPresence()
         gameCompanionController.endSession()
     }
@@ -8266,6 +8271,12 @@ class HomeViewModel @Inject constructor(
      * even if [onPaused] never ran (second display / companion pane).
      */
     fun onShellRegainedFocus() {
+        val awayMs = backgroundedAtElapsed?.let { SystemClock.elapsedRealtime() - it } ?: 0L
+        // startActivity often flickers focus for a frame. Only lift the bite hold after a
+        // real trip away (external emulator) so launch cannot restart the clip.
+        if (!isLaunching.value && awayMs >= PLAYING_PRESENCE_RETURN_MS) {
+            gameSoundBitePlayer.setPlaybackSuppressed(false)
+        }
         maybeRestoreBrowsingPresence()
     }
 
@@ -8426,6 +8437,7 @@ class HomeViewModel @Inject constructor(
             runCatching {
                 val path = gameCustomMediaStore.importSoundBite(gameId, uri)
                 libraryRepository.setSoundBitePath(gameId, path)
+                bumpCustomMedia()
                 gameSoundBitePlayer.play(path)
                 emit(HomeEvent.ShowMessage("Sound bite updated."))
             }.onFailure { error ->

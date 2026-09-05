@@ -9,6 +9,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -515,7 +516,17 @@ private fun EditorRowItem(row: RomEditorRow, active: Boolean) {
             .padding(horizontal = 18.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .then(
+                    if (row.onActivate != null) {
+                        Modifier.clickable(onClick = row.onActivate)
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
             Text(
                 text = row.label,
                 style = MaterialTheme.typography.titleMedium,
@@ -549,13 +560,19 @@ private fun EditorRowItem(row: RomEditorRow, active: Boolean) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (active && row.onClear != null) {
+        if (row.onClear != null) {
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "X · Remove",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.78f),
+                text = "Remove",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.error,
                 maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = row.onClear)
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
             )
         }
     }

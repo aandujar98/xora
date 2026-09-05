@@ -190,15 +190,16 @@ private fun artworkRows(
     }
 }
 
-private fun audioRows(game: Game, actions: RomEditorActions): List<RomEditorRow> = buildList {
+internal fun audioRows(game: Game, actions: RomEditorActions): List<RomEditorRow> = buildList {
     val resolved = RomSoundBiteLocator.resolve(game)
-    val hasBite = resolved != null
+    val hasImported = !game.soundBitePath.isNullOrBlank()
+    val hasBite = resolved != null || hasImported
     add(
         RomEditorRow(
             key = "bite",
             label = "Sound bite",
             value = when {
-                !game.soundBitePath.isNullOrBlank() -> "Your clip"
+                hasImported -> "Your clip"
                 resolved != null -> "Found beside ROM"
                 else -> "None"
             },
@@ -216,17 +217,23 @@ private fun audioRows(game: Game, actions: RomEditorActions): List<RomEditorRow>
                 onActivate = actions.onPreviewSoundBite,
             ),
         )
-        add(
-            RomEditorRow(
-                key = "removebite",
-                label = "Remove sound bite",
-                hint = "Stops the clip on the XMB. Also deletes a matching mp3 / wav " +
-                    "sitting beside the ROM.",
-                onActivate = actions.onClearSoundBite,
-                destructive = true,
-            ),
-        )
     }
+    add(
+        RomEditorRow(
+            key = "removebite",
+            label = "Remove sound bite",
+            value = if (hasBite) "Set" else "None",
+            hint = if (hasBite) {
+                "Stops the clip on the XMB. Also deletes a matching mp3 / wav " +
+                    "sitting beside the ROM."
+            } else {
+                "No clip is attached to this title."
+            },
+            onActivate = actions.onClearSoundBite.takeIf { hasBite },
+            onClear = actions.onClearSoundBite.takeIf { hasBite },
+            destructive = true,
+        ),
+    )
 }
 
 private fun videoRows(

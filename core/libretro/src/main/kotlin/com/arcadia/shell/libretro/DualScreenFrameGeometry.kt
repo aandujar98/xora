@@ -31,6 +31,8 @@ data class DualScreenFrameSplit(
     val kind: DualScreenSplitKind,
     val top: DualScreenFrameRect,
     val bottom: DualScreenFrameRect,
+    val frameWidth: Int,
+    val frameHeight: Int,
 ) {
     val bottomPointerTarget: DualScreenPointerTarget get() = kind.bottomPointerTarget
 }
@@ -51,7 +53,9 @@ object DualScreenFrameGeometry {
             return DualScreenFrameSplit(
                 kind = DualScreenSplitKind.Stacked,
                 top = DualScreenFrameRect(0, 0, width, topH),
-                bottom = DualScreenFrameRect(0, topH, width, height - topH),
+                bottom = stackedBottom(width, height, topH, platformId),
+                frameWidth = width,
+                frameHeight = height,
             )
         }
         threeDsSideBySide(width, height, platformId)?.let { return it }
@@ -60,7 +64,43 @@ object DualScreenFrameGeometry {
             kind = DualScreenSplitKind.SideBySide,
             top = DualScreenFrameRect(0, 0, leftW, height),
             bottom = DualScreenFrameRect(leftW, 0, width - leftW, height),
+            frameWidth = width,
+            frameHeight = height,
         )
+    }
+
+    /**
+     * 3DS stacked frames are 400×480 (and integer scales). The bottom LCD is 320×240
+     * centered in the lower 400×240 band — sending the full-width half to the second
+     * panel stretches the side padding and the touch screen looks letterboxed.
+     */
+    private fun stackedBottom(
+        width: Int,
+        height: Int,
+        topH: Int,
+        platformId: String,
+    ): DualScreenFrameRect {
+        val bottomH = height - topH
+        if (!platformId.equals("3ds", ignoreCase = true)) {
+            return DualScreenFrameRect(0, topH, width, bottomH)
+        }
+        val scale = when {
+            width % 400 == 0 &&
+                width / 400 in 1..8 &&
+                height == 480 * (width / 400) -> width / 400
+            else -> null
+        }
+        if (scale != null) {
+            return DualScreenFrameRect(
+                x = 40 * scale,
+                y = 240 * scale,
+                width = 320 * scale,
+                height = 240 * scale,
+            )
+        }
+        val bottomW = ((width * 320L) / 400L).toInt().coerceAtLeast(1)
+        val x = ((width - bottomW) / 2).coerceAtLeast(0)
+        return DualScreenFrameRect(x, topH, bottomW, bottomH)
     }
 
     /**
@@ -83,6 +123,8 @@ object DualScreenFrameGeometry {
             kind = DualScreenSplitKind.SideBySide,
             top = DualScreenFrameRect(0, 0, topW, height),
             bottom = DualScreenFrameRect(topW, 0, width - topW, height),
+            frameWidth = width,
+            frameHeight = height,
         )
     }
 }

@@ -92,5 +92,41 @@ object DualScreenPointer {
         return LibretroPointer(x = x, y = y, pressed = pressed && inside)
     }
 
+    /**
+     * Maps a finger on a cropped LCD (the 3DS 320×240 touch screen inside a 400-wide
+     * stacked frame) onto pointer space for the **full** packed framebuffer.
+     */
+    fun mapViewToPackedRect(
+        viewX: Float,
+        viewY: Float,
+        viewW: Int,
+        viewH: Int,
+        contentW: Int,
+        contentH: Int,
+        fill: Boolean,
+        frameW: Int,
+        frameH: Int,
+        rect: DualScreenFrameRect,
+        pressed: Boolean,
+    ): LibretroPointer? {
+        if (viewW <= 0 || viewH <= 0 || frameW <= 0 || frameH <= 0 || rect.isEmpty) return null
+        val bounds = contentRect(viewW, viewH, contentW, contentH, fill)
+        val left = bounds[0].toFloat()
+        val top = bounds[1].toFloat()
+        val width = (bounds[2] - bounds[0]).toFloat()
+        val height = (bounds[3] - bounds[1]).toFloat()
+        if (width < 1f || height < 1f) return null
+        val nx = ((viewX - left) / width).coerceIn(0f, 1f)
+        val ny = ((viewY - top) / height).coerceIn(0f, 1f)
+        val inside = viewX >= left && viewX <= bounds[2] && viewY >= top && viewY <= bounds[3]
+        val px = (rect.x + nx * rect.width) / frameW.toFloat()
+        val py = (rect.y + ny * rect.height) / frameH.toFloat()
+        return LibretroPointer(
+            x = lerp(AXIS_MIN, AXIS_MAX, px).toInt().toShort(),
+            y = lerp(AXIS_MIN, AXIS_MAX, py).toInt().toShort(),
+            pressed = pressed && inside,
+        )
+    }
+
     private fun lerp(a: Int, b: Int, t: Float): Float = a + (b - a) * t
 }

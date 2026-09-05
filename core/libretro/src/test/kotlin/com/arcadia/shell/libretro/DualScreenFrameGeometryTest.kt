@@ -16,13 +16,20 @@ class DualScreenFrameGeometryTest {
     }
 
     @Test
-    fun stacked3dsIsCutAtHalfHeight() {
+    fun stacked3dsCropsCenteredBottomLcd() {
         val split = DualScreenFrameGeometry.split(400, 480, "3ds")!!
         assertEquals(DualScreenSplitKind.Stacked, split.kind)
-        assertEquals(240, split.top.height)
-        assertEquals(240, split.bottom.height)
-        assertEquals(0, split.top.y)
-        assertEquals(240, split.bottom.y)
+        assertEquals(DualScreenFrameRect(0, 0, 400, 240), split.top)
+        assertEquals(DualScreenFrameRect(40, 240, 320, 240), split.bottom)
+        assertEquals(400, split.frameWidth)
+        assertEquals(480, split.frameHeight)
+    }
+
+    @Test
+    fun scaledStacked3dsCropsCenteredBottomLcd() {
+        val split = DualScreenFrameGeometry.split(800, 960, "3ds")!!
+        assertEquals(DualScreenFrameRect(0, 0, 800, 480), split.top)
+        assertEquals(DualScreenFrameRect(80, 480, 640, 480), split.bottom)
     }
 
     @Test

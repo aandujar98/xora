@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class GameSoundBitePlayer @Inject constructor() {
     private var player: MediaPlayer? = null
     private var lastPath: String? = null
+    @Volatile private var playbackSuppressed = false
     private val _holdsBackgroundMusic = MutableStateFlow(false)
 
     /**
@@ -22,7 +23,17 @@ class GameSoundBitePlayer @Inject constructor() {
      */
     val holdsBackgroundMusic: StateFlow<Boolean> = _holdsBackgroundMusic.asStateFlow()
 
+    /**
+     * Launch owns the speakers. While suppressed, [play] is a no-op so the focus pipeline
+     * cannot restart the clip after [stop] clears [lastPath].
+     */
+    fun setPlaybackSuppressed(suppressed: Boolean) {
+        playbackSuppressed = suppressed
+        if (suppressed) stop()
+    }
+
     fun play(path: String?) {
+        if (playbackSuppressed) return
         val file = path?.takeIf { it.isNotBlank() }?.let(::File)
         if (file == null || !file.isFile || file.length() <= 0L) {
             stop()

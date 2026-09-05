@@ -199,19 +199,24 @@ fun RomOptionsSheet(
                 onChange = onPickBackground,
                 onClear = onClearBackground.takeIf { !game.heroImagePath.isNullOrBlank() },
             )
+            val hasSoundBite = RomSoundBiteLocator.resolve(game) != null ||
+                !game.soundBitePath.isNullOrBlank()
             MediaRow(
                 title = "Sound bite",
                 status = soundBiteStatus(game),
                 onChange = onPickSoundBite,
-                onClear = onClearSoundBite.takeIf {
-                    RomSoundBiteLocator.resolve(game) != null
-                },
-                onExtra = onPreviewSoundBite.takeIf {
-                    RomSoundBiteLocator.resolve(game) != null
-                },
+                onClear = onClearSoundBite.takeIf { hasSoundBite },
+                onExtra = onPreviewSoundBite.takeIf { hasSoundBite },
                 extraLabel = "Preview",
                 clearLabel = "Remove",
             )
+            TextButton(
+                onClick = onClearSoundBite,
+                enabled = hasSoundBite,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Remove sound bite")
+            }
             MediaRow(
                 title = "Idle video",
                 status = pathStatus(idleVideoPath),

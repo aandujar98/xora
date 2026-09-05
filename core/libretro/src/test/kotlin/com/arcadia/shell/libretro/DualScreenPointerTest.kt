@@ -128,4 +128,40 @@ class DualScreenPointerTest {
         )
         assertFalse(outside!!.pressed)
     }
+
+    @Test
+    fun packed3dsBottomMapsOntoCenteredTouchLcd() {
+        val left = DualScreenPointer.mapViewToPackedRect(
+            viewX = 0f,
+            viewY = 120f,
+            viewW = 320,
+            viewH = 240,
+            contentW = 320,
+            contentH = 240,
+            fill = true,
+            frameW = 400,
+            frameH = 480,
+            rect = DualScreenFrameRect(40, 240, 320, 240),
+            pressed = true,
+        )
+        val right = DualScreenPointer.mapViewToPackedRect(
+            viewX = 320f,
+            viewY = 120f,
+            viewW = 320,
+            viewH = 240,
+            contentW = 320,
+            contentH = 240,
+            fill = true,
+            frameW = 400,
+            frameH = 480,
+            rect = DualScreenFrameRect(40, 240, 320, 240),
+            pressed = true,
+        )
+        val span = DualScreenPointer.AXIS_MAX - DualScreenPointer.AXIS_MIN
+        val expectedLeft = (DualScreenPointer.AXIS_MIN + span * (40f / 400f)).toInt()
+        val expectedRight = (DualScreenPointer.AXIS_MIN + span * (360f / 400f)).toInt()
+        assertEquals(expectedLeft, left!!.x.toInt())
+        assertEquals(expectedRight, right!!.x.toInt())
+        assertTrue(left.pressed)
+    }
 }
