@@ -1093,6 +1093,13 @@ class HomeViewModel @Inject constructor(
                 applyXoraNetworkIdentity(forceAvatar = false)
             }
         }
+        // Music column used to stay empty after process death until the user re-picked the folder.
+        loadMusicAlbumsForColumn()
+        preferences.settings
+            .map { it.musicLibraryPath.orEmpty() }
+            .distinctUntilChanged()
+            .onEach { loadMusicAlbumsForColumn() }
+            .launchIn(viewModelScope)
         // Friend-online / friend-request / message / netplay banners from XOrA Network state diffs.
         xoraNetwork.state
             .onEach { emitXoraNetworkBanners(it) }
@@ -1302,8 +1309,9 @@ class HomeViewModel @Inject constructor(
         combine(
             uiState
                 .map { state ->
-                    // Do not null this out on [isLaunching]. That restart-plays the bite when
-                    // launch() returns and the same game is still focused.
+                    // Do not null this out on [isLaunching] alone. That restart-plays the bite
+                    // when launch() returns and the same game is still focused. Play-session
+                    // gating below keeps the clip off while the emulator owns the speakers.
                     if (state.bootIntroOpen && !state.homeIntroReveal) return@map null
                     val game = state.xoraXmb.focusGame
                         ?.takeIf { !it.isAndroidApp }
@@ -1329,8 +1337,10 @@ class HomeViewModel @Inject constructor(
                 .distinctUntilChanged(),
             appForegroundTracker.isForeground,
             customMediaEpoch,
-        ) { focus, foreground, _ ->
-            if (!foreground || focus == null) {
+            isLaunching,
+            gameSoundBitePlayer.playbackSuppressed,
+        ) { focus, foreground, _, launching, suppressed ->
+            if (!foreground || focus == null || launching || suppressed) {
                 null
             } else {
                 RomSoundBiteLocator.resolve(
@@ -1611,9 +1621,9 @@ class HomeViewModel @Inject constructor(
             val key = friend.username.lowercase()
             if (key in knownOnlineXoraUsernames) continue
             knownOnlineXoraUsernames.add(key)
-            shellNotifications.emit(
+            emitShellBanner(
                 ShellNotification.FriendOnline(
-                    id = "xora-online:$key:${SystemClock.elapsedRealtime()}",
+                    id = "xora-online:$key",
                     displayName = friend.displayName.ifBlank { friend.username },
                     network = FriendNetwork.Xora,
                     avatarUrl = friend.resolvedAvatarUrl,
@@ -1629,9 +1639,9 @@ class HomeViewModel @Inject constructor(
             if (key in knownXoraInviteUsernames) continue
             knownXoraInviteUsernames.add(key)
             announcedRequests.add(key)
-            shellNotifications.emit(
+            emitShellBanner(
                 ShellNotification.XoraFriendRequest(
-                    id = "xora-request:$key:${SystemClock.elapsedRealtime()}",
+                    id = "xora-request:$key",
                     displayName = invite.displayName.ifBlank { invite.username },
                     avatarUrl = invite.resolvedAvatarUrl,
                 ),
@@ -1664,7 +1674,7 @@ class HomeViewModel @Inject constructor(
                     val code = live?.code?.let { XoraNetplayProtocol.normalizeSessionCode(it) }
                         ?: XoraNetplayProtocol.extractSessionCode(item.body)
                         ?: ""
-                    shellNotifications.emit(
+                    emitShellBanner(
                         ShellNotification.XoraNetplayInvite(
                             id = "xora-netplay:$key",
                             displayName = sender,
@@ -1679,7 +1689,7 @@ class HomeViewModel @Inject constructor(
                 }
                 item.isFriendRequest -> {
                     if (fromKey !in announcedRequests) {
-                        shellNotifications.emit(
+                        emitShellBanner(
                             ShellNotification.XoraFriendRequest(
                                 id = "xora-request:$key",
                                 displayName = sender,
@@ -1688,7 +1698,7 @@ class HomeViewModel @Inject constructor(
                         )
                     }
                 }
-                item.isMessage -> shellNotifications.emit(
+                item.isMessage -> emitShellBanner(
                     ShellNotification.XoraMessage(
                         id = "xora-message:$key",
                         sender = sender,
@@ -1718,9 +1728,14 @@ class HomeViewModel @Inject constructor(
             )
             if (shellNotifications.isSuppressed(banner)) continue
             rememberNetplayInvitePrompt(invite)
-            shellNotifications.emit(banner)
+            emitShellBanner(banner)
         }
         knownNetplayInviteKeys.retainAll(netplayInviteKeys)
+    }
+
+    private fun emitShellBanner(notification: ShellNotification) {
+        if (shellNotifications.isSuppressed(notification)) return
+        shellNotifications.emit(notification)
     }
 
     private fun rememberNetplayInvitePrompt(invite: XoraNetplayInviteRecord) {
@@ -5931,6 +5946,31 @@ class HomeViewModel @Inject constructor(
 
     fun clearNotificationHistory() {
         noteUserActivity()
+        val network = xoraNetwork.state.value
+        val inboxKeys = buildList {
+            for (item in network.notifications) {
+                val key = item.id.ifBlank { item.createdAt + item.fromUsername + item.body }
+                add("xora-message:$key")
+                add("xora-request:$key")
+                add("xora-netplay:$key")
+                knownXoraNotificationIds.add(key)
+            }
+            for (invite in network.netplayInvites) {
+                add("xora-netplay:${invite.dedupeKey()}")
+                netplaySessionDismissalKey(
+                    invite.fromUsername.ifBlank { invite.fromDisplayName },
+                    invite.code,
+                )?.let { add(it) }
+                knownNetplayInviteKeys.add(invite.dedupeKey())
+            }
+            for (friend in network.acceptedFriends.filter { it.online }) {
+                knownOnlineXoraUsernames.add(friend.username.lowercase())
+            }
+            for (invite in network.incomingInvites) {
+                knownXoraInviteUsernames.add(invite.username.lowercase())
+            }
+        }
+        if (inboxKeys.isNotEmpty()) shellNotifications.suppressKeys(inboxKeys)
         shellNotifications.clearHistory()
         notificationHistorySelectedIndex.value = 0
     }
@@ -6981,6 +7021,21 @@ class HomeViewModel @Inject constructor(
             StartSettingsAction.ToggleNotificationSound -> viewModelScope.launch {
                 preferences.setNotificationSoundEnabled(
                     !preferences.settings.first().notificationSoundEnabled,
+                )
+            }
+            StartSettingsAction.ToggleDiscordFriendOnline -> viewModelScope.launch {
+                preferences.setDiscordFriendOnlineNotifications(
+                    !preferences.settings.first().discordFriendOnlineNotifications,
+                )
+            }
+            StartSettingsAction.ToggleSteamFriendOnline -> viewModelScope.launch {
+                preferences.setSteamFriendOnlineNotifications(
+                    !preferences.settings.first().steamFriendOnlineNotifications,
+                )
+            }
+            StartSettingsAction.ToggleXoraFriendOnline -> viewModelScope.launch {
+                preferences.setXoraFriendOnlineNotifications(
+                    !preferences.settings.first().xoraFriendOnlineNotifications,
                 )
             }
             StartSettingsAction.TestNotification -> {
@@ -8271,12 +8326,9 @@ class HomeViewModel @Inject constructor(
      * even if [onPaused] never ran (second display / companion pane).
      */
     fun onShellRegainedFocus() {
-        val awayMs = backgroundedAtElapsed?.let { SystemClock.elapsedRealtime() - it } ?: 0L
-        // startActivity often flickers focus for a frame. Only lift the bite hold after a
-        // real trip away (external emulator) so launch cannot restart the clip.
-        if (!isLaunching.value && awayMs >= PLAYING_PRESENCE_RETURN_MS) {
-            gameSoundBitePlayer.setPlaybackSuppressed(false)
-        }
+        // Dual-screen / ArcOS keep MainActivity resumed. Lifting the bite hold here is what
+        // restarted the clip over gameplay ~1.5s after launch. [onPlaySessionEnded] and
+        // [restoreShellPresence] are the only places that unsuppress.
         maybeRestoreBrowsingPresence()
     }
 

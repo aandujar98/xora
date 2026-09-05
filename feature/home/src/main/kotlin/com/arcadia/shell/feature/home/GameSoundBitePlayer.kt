@@ -14,8 +14,9 @@ import kotlinx.coroutines.flow.asStateFlow
 class GameSoundBitePlayer @Inject constructor() {
     private var player: MediaPlayer? = null
     private var lastPath: String? = null
-    @Volatile private var playbackSuppressed = false
+    private val _playbackSuppressed = MutableStateFlow(false)
     private val _holdsBackgroundMusic = MutableStateFlow(false)
+    val playbackSuppressed: StateFlow<Boolean> = _playbackSuppressed.asStateFlow()
 
     /**
      * True while a bite is playing or about to play (focus settle). The shell fades BGM out
@@ -28,12 +29,12 @@ class GameSoundBitePlayer @Inject constructor() {
      * cannot restart the clip after [stop] clears [lastPath].
      */
     fun setPlaybackSuppressed(suppressed: Boolean) {
-        playbackSuppressed = suppressed
+        _playbackSuppressed.value = suppressed
         if (suppressed) stop()
     }
 
     fun play(path: String?) {
-        if (playbackSuppressed) return
+        if (_playbackSuppressed.value) return
         val file = path?.takeIf { it.isNotBlank() }?.let(::File)
         if (file == null || !file.isFile || file.length() <= 0L) {
             stop()

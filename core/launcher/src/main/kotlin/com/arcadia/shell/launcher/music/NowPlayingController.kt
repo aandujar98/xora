@@ -263,15 +263,23 @@ class NowPlayingController @Inject constructor(
             startPositionTicker()
             return
         }
-        releasePlayer()
+        // Hold audio focus and keep isPlaying true across the swap. Releasing first, then
+        // flipping isPlaying off, lets shell BGM steal focus before prepareAsync finishes —
+        // the old track stops and the new one never starts until the user leaves and retries.
+        if (!requestAudioFocus()) {
+            stateFlow.update {
+                it.copy(track = track, isPlaying = false, positionMs = 0)
+            }
+            return
+        }
         stateFlow.value = NowPlayingState(
             track = track,
-            isPlaying = false,
+            isPlaying = true,
             positionMs = 0,
             shuffle = stateFlow.value.shuffle,
             repeat = stateFlow.value.repeat,
         )
-        if (!requestAudioFocus()) return
+        releasePlayer()
         val created = runCatching {
             MediaPlayer().apply {
                 setAudioAttributes(

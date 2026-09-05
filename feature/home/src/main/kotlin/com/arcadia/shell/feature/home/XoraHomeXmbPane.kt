@@ -169,8 +169,14 @@ fun XoraHomeXmbPane(
         XoraXmbDepth.Category -> xmb.selectedItem?.heroPath
         else -> null
     }
-    val backdropArtPath = musicArtPath
-        ?: heroGame?.heroImagePath ?: heroGame?.boxArtPath ?: heroGame?.logoImagePath
+    val backdropArtPath = musicArtPath ?: when {
+        xmb.depth == XoraXmbDepth.Roms ||
+            xmb.selectedItem?.action is XoraXmbAction.LaunchGame ||
+            xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ->
+            heroGame?.boxArtPath ?: heroGame?.heroImagePath ?: heroGame?.logoImagePath
+        else ->
+            heroGame?.heroImagePath ?: heroGame?.boxArtPath ?: heroGame?.logoImagePath
+    }
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
 
@@ -296,7 +302,10 @@ fun XoraHomeXmbPane(
                 if (!fullTrailer) {
                     // PS5-style ambient dust between the wallpaper and the menu chrome.
                     XmbStarFieldLayer(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .xoraDesignCanvas()
+                            .clipToBounds(),
                     )
                 }
 
@@ -559,7 +568,7 @@ fun XoraXmbHeroDetail(
                     xmb.depth == XoraXmbDepth.Roms ||
                         xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
                         xmb.selectedItem?.action is XoraXmbAction.LaunchGame
-                }?.let { it.heroImagePath ?: it.boxArtPath ?: it.logoImagePath },
+                }?.let { it.boxArtPath ?: it.heroImagePath ?: it.logoImagePath },
                 settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
                     XMB_GAME_SELECT_SETTLE_MS
                 } else {
@@ -866,9 +875,9 @@ private fun XoraRomHeroBackdrop(
                         .graphicsLayer { alpha = scrimAlpha }
                         .background(
                             Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.10f),
-                                0.45f to Color.Black.copy(alpha = 0.04f),
-                                1f to Color.Black.copy(alpha = 0.10f),
+                                0f to Color.Black.copy(alpha = 0.32f),
+                                0.45f to Color.Black.copy(alpha = 0.18f),
+                                1f to Color.Black.copy(alpha = 0.36f),
                             ),
                         ),
                 )
@@ -878,9 +887,9 @@ private fun XoraRomHeroBackdrop(
                         .graphicsLayer { alpha = scrimAlpha }
                         .background(
                             Brush.horizontalGradient(
-                                0f to Color.Black.copy(alpha = 0.10f),
-                                0.4f to Color.Black.copy(alpha = 0.02f),
-                                1f to Color.Black.copy(alpha = 0.08f),
+                                0f to Color.Black.copy(alpha = 0.28f),
+                                0.4f to Color.Black.copy(alpha = 0.08f),
+                                1f to Color.Black.copy(alpha = 0.22f),
                             ),
                         ),
                 )

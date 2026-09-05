@@ -119,6 +119,9 @@ sealed interface StartSettingsAction {
     // Notifications
     data object ToggleNotifications : StartSettingsAction
     data object ToggleNotificationSound : StartSettingsAction
+    data object ToggleDiscordFriendOnline : StartSettingsAction
+    data object ToggleSteamFriendOnline : StartSettingsAction
+    data object ToggleXoraFriendOnline : StartSettingsAction
     data object TestNotification : StartSettingsAction
 
     // General
@@ -498,6 +501,39 @@ fun buildStartSettingsRows(
             subtitle = if (settings.notificationSoundEnabled) "On · banners & system alerts" else "Off",
             checked = settings.notificationSoundEnabled,
             action = StartSettingsAction.ToggleNotificationSound,
+        ),
+        StartSettingsRow.Toggle(
+            id = "discord_online",
+            title = "Discord friends online",
+            subtitle = if (settings.discordFriendOnlineNotifications) {
+                "Banner when a Discord friend comes online"
+            } else {
+                "Hidden"
+            },
+            checked = settings.discordFriendOnlineNotifications,
+            action = StartSettingsAction.ToggleDiscordFriendOnline,
+        ),
+        StartSettingsRow.Toggle(
+            id = "steam_online",
+            title = "Steam friends online",
+            subtitle = if (settings.steamFriendOnlineNotifications) {
+                "Banner when a Steam friend comes online"
+            } else {
+                "Hidden"
+            },
+            checked = settings.steamFriendOnlineNotifications,
+            action = StartSettingsAction.ToggleSteamFriendOnline,
+        ),
+        StartSettingsRow.Toggle(
+            id = "xora_online",
+            title = "XOrA Network friends online",
+            subtitle = if (settings.xoraFriendOnlineNotifications) {
+                "Banner when an XOrA friend comes online"
+            } else {
+                "Hidden"
+            },
+            checked = settings.xoraFriendOnlineNotifications,
+            action = StartSettingsAction.ToggleXoraFriendOnline,
         ),
         StartSettingsRow.Action(
             id = "test_notification",

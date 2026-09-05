@@ -85,7 +85,13 @@ fun AccountPill(
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
-    val pillFriends = remember(socialMenu.circlePins, socialMenu.steam.friends, socialMenu.discord.friends) {
+    val pillFriends = remember(
+        socialMenu.circlePins,
+        socialMenu.steam.friends,
+        socialMenu.discord.friends,
+        socialMenu.xoraNetwork.acceptedFriends,
+        socialMenu.xoraNetwork.friendsLoading,
+    ) {
         circlePillAvatars(socialMenu)
     }
     // Same tally as the panel's Notifications pill so the collapsed badge cannot disagree.

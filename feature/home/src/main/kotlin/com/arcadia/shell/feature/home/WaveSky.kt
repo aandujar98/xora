@@ -12,11 +12,33 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import kotlin.math.max
+import kotlin.math.min
 
 /** The Figma artboard the shell is authored against; every design measurement is in its units. */
 internal const val XORA_DESIGN_WIDTH = 1920f
 internal const val XORA_DESIGN_HEIGHT = 1080f
+
+/**
+ * Contain-fits the 1920×1080 artboard inside the host. Chrome that uses this stays on the XMB
+ * plate instead of drawing into the letterbox bars around a non-16:9 panel.
+ */
+fun Modifier.xoraDesignCanvas(): Modifier = layout { measurable, constraints ->
+    val maxW = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+    val maxH = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+    val unit = min(maxW / XORA_DESIGN_WIDTH, maxH / XORA_DESIGN_HEIGHT)
+    val width = (XORA_DESIGN_WIDTH * unit).toInt().coerceIn(1, constraints.maxWidth)
+    val height = (XORA_DESIGN_HEIGHT * unit).toInt().coerceIn(1, constraints.maxHeight)
+    val placeable = measurable.measure(Constraints.fixed(width, height))
+    layout(constraints.maxWidth, constraints.maxHeight) {
+        placeable.place(
+            x = (constraints.maxWidth - placeable.width) / 2,
+            y = (constraints.maxHeight - placeable.height) / 2,
+        )
+    }
+}
 
 private val WaveGradientStart = Color(0xFF2ACBFD)
 private val WaveGradientEnd = Color(0xFFB6FCFD)

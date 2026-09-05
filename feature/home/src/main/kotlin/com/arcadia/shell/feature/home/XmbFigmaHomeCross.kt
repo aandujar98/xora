@@ -691,7 +691,10 @@ private fun isGamePlate(item: XoraXmbItem): Boolean = isRecentsItem(item)
  * game collections, plus Photo / Video / Music content folders).
  */
 private fun hasCoverArt(item: XoraXmbItem): Boolean =
-    !item.icon.isFolderGlyph() && !item.artPath.isNullOrBlank() && !isProfileRow(item)
+    !item.icon.isFolderGlyph() &&
+        !item.artPath.isNullOrBlank() &&
+        !isProfileRow(item) &&
+        item.action !is XoraXmbAction.DrillSystem
 
 private fun isProfileRow(item: XoraXmbItem): Boolean =
     item.id == "profile" || item.action is XoraXmbAction.OpenProfile

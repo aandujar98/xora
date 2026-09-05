@@ -233,6 +233,9 @@ data class ShellSettings(
     val notificationsEnabled: Boolean = true,
     /** Play a short UI chime when a shell notification banner becomes visible. */
     val notificationSoundEnabled: Boolean = true,
+    val discordFriendOnlineNotifications: Boolean = true,
+    val steamFriendOnlineNotifications: Boolean = true,
+    val xoraFriendOnlineNotifications: Boolean = true,
     /**
      * Legacy: when true and no Choose Emulator entry for N64, launch via RetroArch
      * Mupen64Plus-Next. Superseded by per-platform Choose Emulator; kept so existing
@@ -420,6 +423,9 @@ class ShellPreferences @Inject constructor(
                 ?: DEFAULT_SHELL_THEME_ID,
             notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true,
             notificationSoundEnabled = prefs[Keys.NOTIFICATION_SOUND_ENABLED] ?: true,
+            discordFriendOnlineNotifications = prefs[Keys.DISCORD_FRIEND_ONLINE_NOTIFICATIONS] ?: true,
+            steamFriendOnlineNotifications = prefs[Keys.STEAM_FRIEND_ONLINE_NOTIFICATIONS] ?: true,
+            xoraFriendOnlineNotifications = prefs[Keys.XORA_FRIEND_ONLINE_NOTIFICATIONS] ?: true,
             n64UseMupen64PlusNext = prefs[Keys.N64_USE_MUPEN64PLUS_NEXT] ?: false,
             showHiddenGames = prefs[Keys.SHOW_HIDDEN_GAMES] ?: false,
         )
@@ -788,6 +794,18 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setNotificationSoundEnabled(enabled: Boolean) = edit {
         it[Keys.NOTIFICATION_SOUND_ENABLED] = enabled
+    }
+
+    suspend fun setDiscordFriendOnlineNotifications(enabled: Boolean) = edit {
+        it[Keys.DISCORD_FRIEND_ONLINE_NOTIFICATIONS] = enabled
+    }
+
+    suspend fun setSteamFriendOnlineNotifications(enabled: Boolean) = edit {
+        it[Keys.STEAM_FRIEND_ONLINE_NOTIFICATIONS] = enabled
+    }
+
+    suspend fun setXoraFriendOnlineNotifications(enabled: Boolean) = edit {
+        it[Keys.XORA_FRIEND_ONLINE_NOTIFICATIONS] = enabled
     }
 
     suspend fun setN64UseMupen64PlusNext(enabled: Boolean) = edit {
@@ -1323,6 +1341,12 @@ class ShellPreferences @Inject constructor(
         val SHELL_THEME_ID = stringPreferencesKey("shell_theme_id")
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         val NOTIFICATION_SOUND_ENABLED = booleanPreferencesKey("notification_sound_enabled")
+        val DISCORD_FRIEND_ONLINE_NOTIFICATIONS =
+            booleanPreferencesKey("discord_friend_online_notifications")
+        val STEAM_FRIEND_ONLINE_NOTIFICATIONS =
+            booleanPreferencesKey("steam_friend_online_notifications")
+        val XORA_FRIEND_ONLINE_NOTIFICATIONS =
+            booleanPreferencesKey("xora_friend_online_notifications")
         val N64_USE_MUPEN64PLUS_NEXT = booleanPreferencesKey("n64_use_mupen64plus_next")
         val XORA_NDS_LAYOUT = stringPreferencesKey("xora_nds_screen_layout")
         val XORA_NDS_GAP = intPreferencesKey("xora_nds_screen_gap")

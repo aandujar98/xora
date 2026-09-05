@@ -64,6 +64,11 @@ class ShellNotificationCenter @Inject constructor(
         scope.launch(Dispatchers.IO) { preferences.addDismissedShellNotificationIds(ids) }
     }
     private var holdJob: Job? = null
+    @Volatile private var queueGeneration = 0
+
+    @Volatile var discordFriendOnlineEnabled: Boolean = true
+    @Volatile var steamFriendOnlineEnabled: Boolean = true
+    @Volatile var xoraFriendOnlineEnabled: Boolean = true
 
     /**
      * Master enable for banners **and** Android notifications.
@@ -89,12 +94,14 @@ class ShellNotificationCenter @Inject constructor(
         }
         scope.launch {
             for (notification in inbound) {
+                val gen = queueGeneration
                 _active.value = notification
                 holdJob = launch {
                     delay(HOLD_MS)
                     clearIfCurrent(notification.id)
                 }
                 holdJob?.join()
+                if (queueGeneration != gen) continue
                 delay(GAP_MS)
             }
         }
@@ -102,6 +109,7 @@ class ShellNotificationCenter @Inject constructor(
 
     fun emit(notification: ShellNotification, force: Boolean = false) {
         if (!notificationsEnabled && !force) return
+        if (!force && !friendOnlineAllowed(notification)) return
         if (isSuppressed(notification)) return
         if (!recentIds.add(notification.id)) return
         if (recentIds.size > MAX_RECENT_IDS) {
@@ -182,7 +190,14 @@ class ShellNotificationCenter @Inject constructor(
     }
 
     fun clearHistory() {
-        val keys = _history.value.flatMap { it.notification.dismissalKeys() }
+        queueGeneration++
+        val pending = mutableListOf<ShellNotification>()
+        while (true) {
+            val dropped = inbound.tryReceive().getOrNull() ?: break
+            pending += dropped
+        }
+        val keys = (_history.value.map { it.notification } + _recent.value + pending)
+            .flatMap { it.dismissalKeys() }
         if (keys.isNotEmpty()) dismissed.dismiss(keys)
         _history.value = emptyList()
         _unreadCount.value = 0
@@ -191,6 +206,15 @@ class ShellNotificationCenter @Inject constructor(
         holdJob?.cancel()
         holdJob = null
         _active.value = null
+    }
+
+    private fun friendOnlineAllowed(notification: ShellNotification): Boolean {
+        val online = notification as? ShellNotification.FriendOnline ?: return true
+        return when (online.network) {
+            FriendNetwork.Discord -> discordFriendOnlineEnabled
+            FriendNetwork.Steam -> steamFriendOnlineEnabled
+            FriendNetwork.Xora -> xoraFriendOnlineEnabled
+        }
     }
 
     private fun recordHistory(notification: ShellNotification) {

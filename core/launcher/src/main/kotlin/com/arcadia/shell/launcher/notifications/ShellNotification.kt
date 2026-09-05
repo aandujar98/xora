@@ -134,6 +134,12 @@ fun ShellNotification.dismissalKeys(): Set<String> = buildSet {
         is ShellNotification.XoraMessage -> {
             if (self.id.isNotBlank()) add(self.id.trim())
         }
+        is ShellNotification.FriendOnline -> {
+            val name = self.displayName.trim().lowercase()
+            if (name.isNotBlank()) {
+                add("friend-online:${self.network.name.lowercase()}:$name")
+            }
+        }
         else -> Unit
     }
 }

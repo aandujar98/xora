@@ -4,6 +4,7 @@ import com.arcadia.shell.datastore.DualScreenLayout
 import com.arcadia.shell.datastore.NdsWfcServer
 import com.arcadia.shell.datastore.dns
 import com.arcadia.shell.datastore.ThreeDsScreenLayout
+import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.toCitraFactor
 import com.arcadia.shell.datastore.toCitraValue
@@ -39,6 +40,7 @@ object XoraCoreOptions {
             "3ds" -> apply3ds(coreName, settings, expandActive, out)
         }
         applyResolution(platformId, coreName, settings, out)
+        applyAspect(platformId, coreName, settings, out)
         applyNes(platformId, coreName, out)
         applySnes(platformId, coreName, out)
         applyN64(platformId, coreName, out)
@@ -335,7 +337,9 @@ object XoraCoreOptions {
         romPath: String,
         out: MutableMap<String, String>,
     ) {
-        val layout = if (expandActive) DualScreenLayout.TopBottom else settings.ndsScreenLayout
+        // Expand splits whatever packed frame the core emits. Forcing Top/Bottom here
+        // is what left MelonDS DS stuck on stacked after the player picked Left/Right.
+        val layout = settings.ndsScreenLayout
         val gap = if (expandActive) 0 else settings.ndsScreenGap.coerceIn(0, 100)
         val melon = layout.toMelonDsValue()
         val melonDs = layout.toMelonDsDsValue()
@@ -372,10 +376,11 @@ object XoraCoreOptions {
     private fun apply3ds(
         coreName: String,
         settings: XoraEmulatorSettings,
+        @Suppress("UNUSED_PARAMETER")
         expandActive: Boolean,
         out: MutableMap<String, String>,
     ) {
-        val layout = if (expandActive) ThreeDsScreenLayout.TopBottom else settings.threeDsScreenLayout
+        val layout = settings.threeDsScreenLayout
         val citra = layout.toCitraValue()
         val panda = when (layout) {
             ThreeDsScreenLayout.SideBySide -> "side_by_side"
@@ -416,6 +421,59 @@ object XoraCoreOptions {
             out["azahar_resolution_factor"] = factor
         }
         // melonDS software renderer ignores most scale factors; leave layout-driven.
+    }
+
+    /**
+     * Some cores already letterbox inside a frontend-sized framebuffer. The stage then
+     * letterboxes that whole plate (it looks like the XMB/frontend ratio changed, not
+     * the game). Push the same ratio into the core so the pixels themselves change.
+     */
+    private fun applyAspect(
+        platformId: String,
+        coreName: String,
+        settings: XoraEmulatorSettings,
+        out: MutableMap<String, String>,
+    ) {
+        val mode = settings.aspectMode
+        val wide = mode == XoraAspectMode.Ratio16x9 ||
+            mode == XoraAspectMode.Ratio16x10 ||
+            mode == XoraAspectMode.Ratio21x9 ||
+            mode == XoraAspectMode.Stretch
+        val fourByThree = mode == XoraAspectMode.Ratio4x3 ||
+            mode == XoraAspectMode.Ratio8x7 ||
+            mode == XoraAspectMode.Ratio3x2
+        val n64 = when {
+            wide -> "16:9"
+            fourByThree -> "4:3"
+            else -> "adjust"
+        }
+        out["mupen64plus-aspect"] = n64
+        out["parallel-n64-aspectratio"] = n64
+        out["reicast_widescreen_hack"] = if (wide) "enabled" else "disabled"
+        out["flycast_widescreen_hack"] = if (wide) "enabled" else "disabled"
+        out["dolphin_widescreen_hack"] = if (wide) "enabled" else "disabled"
+        when {
+            platformId == "psp" || coreName.contains("ppsspp", ignoreCase = true) -> {
+                out["ppsspp_aspect"] = when {
+                    mode == XoraAspectMode.Stretch -> "stretched"
+                    fourByThree -> "4:3"
+                    else -> "16:9"
+                }
+            }
+            platformId == "ps1" || coreName.contains("pcsx", ignoreCase = true) ||
+                coreName.contains("swanstation", ignoreCase = true) ||
+                coreName.contains("duckstation", ignoreCase = true) -> {
+                val psx = when {
+                    wide -> "16:9"
+                    fourByThree -> "4:3"
+                    else -> "auto"
+                }
+                out["duckstation_Display.AspectRatio"] = psx
+                out["swanstation_Display.AspectRatio"] = psx
+                out["beetle_psx_aspect_ratio"] = psx
+                out["pcsx_rearmed_neon_enhancement_enable"] = "disabled"
+            }
+        }
     }
 
     /**

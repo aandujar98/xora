@@ -45,4 +45,27 @@ class ShellNotificationCopyTest {
             keys,
         )
     }
+
+    @Test
+    fun friendOnlineDismissalKeyIsStableAcrossBannerIds() {
+        val keys = ShellNotification.FriendOnline(
+            id = "xora-online:pal:999",
+            displayName = "Pal",
+            network = FriendNetwork.Xora,
+        ).dismissalKeys()
+        assertEquals(
+            setOf("xora-online:pal:999", "friend-online:xora:pal"),
+            keys,
+        )
+    }
+
+    @Test
+    fun xoraMessageDismissalKeepsInboxId() {
+        val keys = ShellNotification.XoraMessage(
+            id = "xora-message:42",
+            sender = "pal",
+            snippet = "hey",
+        ).dismissalKeys()
+        assertEquals(setOf("xora-message:42"), keys)
+    }
 }

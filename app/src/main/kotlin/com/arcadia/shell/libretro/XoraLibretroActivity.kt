@@ -374,10 +374,13 @@ class XoraLibretroActivity : ComponentActivity() {
      */
     private fun autoEnableExpandForDualScreen(settings: XoraEmulatorSettings): XoraEmulatorSettings {
         if (platformId !in DUAL_SCREEN_PLATFORMS) return settings
+        val hasSecondDisplay = DisplayTopologyMonitor(this).current().presentationDisplay != null
+        // Single-panel handhelds (and ArcOS cores) must keep the player's Left/Right layout.
+        // Only latch Expand on when a real second display can take the bottom LCD.
+        if (!hasSecondDisplay) return settings
         val latched = expandSessionOn
         if (latched == null) {
-            val enable = true
-            expandSessionOn = enable
+            expandSessionOn = true
             if (!settings.expandDualDisplay) {
                 lifecycleScope.launch { preferences.setXoraExpandDualDisplay(true) }
             }

@@ -111,6 +111,16 @@ class UiSoundController @Inject constructor(
                 }
         }
         scope.launch {
+            preferences.settings.collect { settings ->
+                notificationCenter.discordFriendOnlineEnabled =
+                    settings.discordFriendOnlineNotifications
+                notificationCenter.steamFriendOnlineEnabled =
+                    settings.steamFriendOnlineNotifications
+                notificationCenter.xoraFriendOnlineEnabled =
+                    settings.xoraFriendOnlineNotifications
+            }
+        }
+        scope.launch {
             preferences.settings
                 .map { it.notificationSoundEnabled }
                 .distinctUntilChanged()

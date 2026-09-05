@@ -260,8 +260,9 @@ fun RomEditorPane(
                             onArtPickerSlotChange(null)
                         }
                     }
-                    // Y on the picker is the escape hatch to your own file.
-                    NavAction.ToggleFavorite -> {
+                    // Y is SwapScreens on DualShock / Xbox pads; ToggleFavorite is the
+                    // leftover mapping. Both mean "use my own file" on this picker.
+                    NavAction.ToggleFavorite, NavAction.SwapScreens -> {
                         actions.onUploadArt(current.slot)
                         mode = EditorMode.Browse
                         onArtPickerSlotChange(null)

@@ -10,6 +10,7 @@ import com.arcadia.shell.launcher.conversations.NotificationConversation
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordFriendEntry
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
+import com.arcadia.shell.xoranetwork.XoraNetworkClient
 
 /**
  * Pages inside the LT social overlay.
@@ -236,7 +237,8 @@ data class SocialMenuUiState(
             CircleMemberUi(
                 pin = pin,
                 displayName = friend?.displayName ?: pin.id,
-                avatarUrl = friend?.resolvedAvatarUrl,
+                avatarUrl = friend?.resolvedAvatarUrl
+                    ?: XoraNetworkClient.avatarUrlFor(pin.id),
                 presence = xoraFriendPresence(friend),
                 activityLabel = xoraFriendActivity(friend),
                 hasUnread = unread,
