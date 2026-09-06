@@ -30,6 +30,25 @@ class XoraXmbRecentsArtTest {
     }
 
     @Test
+    fun vitaLaunchGameIconPrefersCoverOverBubbleIcon() {
+        val game = sampleGame(boxArtPath = "/box.png", heroImagePath = "/hero.png")
+        assertEquals("/box.png", vitaLaunchGameIconPath(game, "/bubble.png"))
+    }
+
+    @Test
+    fun vitaLaunchGameIconFallsBackToHeroThenBubble() {
+        assertEquals(
+            "/hero.png",
+            vitaLaunchGameIconPath(
+                sampleGame(boxArtPath = null, heroImagePath = "/hero.png"),
+                "/bubble.png",
+            ),
+        )
+        assertEquals("/bubble.png", vitaLaunchGameIconPath(null, "/bubble.png"))
+        assertNull(vitaLaunchGameIconPath(null, null))
+    }
+
+    @Test
     fun gameSelectWallpaperPrefersHeroOverCover() {
         val game = sampleGame(boxArtPath = "/box.png", heroImagePath = "/hero.png")
         assertEquals("/hero.png", xmbGameSelectWallpaperPath(game))

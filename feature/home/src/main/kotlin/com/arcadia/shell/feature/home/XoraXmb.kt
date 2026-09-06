@@ -825,6 +825,13 @@ fun xmbRecentsCoverPath(game: Game?): String? =
     game?.boxArtPath ?: game?.heroImagePath
 
 /**
+ * Vita launch Game Icon: cover/box first. The shortcut bubble icon is only a fallback so
+ * pins without box art still have a thumbnail.
+ */
+fun vitaLaunchGameIconPath(game: Game?, shortcutArtPath: String?): String? =
+    xmbRecentsCoverPath(game) ?: shortcutArtPath
+
+/**
  * Game Select full-bleed wallpaper: hero / fanart first. Cover art is only a fallback so
  * titles without a wallpaper still fill the plate. [customWallpaperPath] is a user-picked
  * background attached to the focused row.

@@ -3204,10 +3204,7 @@ class HomeViewModel @Inject constructor(
             ?: shortcut.target.takeIf {
                 shortcut.kind == HomeShortcutKind.Picture || shortcut.kind == HomeShortcutKind.Gif
             }
-        val icon = shortcut.artPath
-            ?: game?.shortcutIconPath
-            ?: game?.boxArtPath
-            ?: game?.heroImagePath
+        val icon = vitaLaunchGameIconPath(game, shortcut.artPath)
             ?: shortcut.target.takeIf { shortcut.kind == HomeShortcutKind.AndroidApp }
                 ?.let { "${InstalledAppSync.ICON_SCHEME}$it" }
         val alignment = game?.id?.let { id ->
