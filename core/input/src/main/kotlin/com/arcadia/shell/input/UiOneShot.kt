@@ -14,10 +14,15 @@ enum class UiOneShot {
     BootVita,
     /** Confirm a ROM from the XMB (`boot_3.wav`). */
     BootXmb,
-    /** LiveArea peel drag — mid / fast loops (`peel_*.wav`). Slow drag is silent. */
+    /**
+     * LiveArea peel drag, by how fast the dog-ear is moving. Each band drives a looping haptic
+     * whose pulse rate tracks the drag; [PeelSlow] is silent but still buzzes, since the paper
+     * only starts to rasp ([PeelMid] / [PeelFast], `peel_*.wav`) once it is moving.
+     */
+    PeelSlow,
     PeelMid,
     PeelFast,
-    /** Stop the looping peel sample when the finger lifts. */
+    /** Stop the peel loop and its haptic when the finger lifts. */
     PeelStop,
 }
 

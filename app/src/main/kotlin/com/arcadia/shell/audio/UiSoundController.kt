@@ -69,6 +69,8 @@ class UiSoundController @Inject constructor(
     /** Active looping peel stream so speed changes replace rather than stack. */
     private var peelStreamId: Int = 0
     private var peelSoundId: Int = 0
+    /** Waveform currently buzzing under the peel drag, or null when the finger is off. */
+    private var peelHaptic: PeelHaptic? = null
 
     private var volume: Float = DEFAULT_UI_SFX_VOLUME
     private var notificationSoundEnabled: Boolean = true
@@ -161,8 +163,19 @@ class UiSoundController @Inject constructor(
                         stopPeel()
                         play(bootXmbId)
                     }
-                    UiOneShot.PeelMid -> playPeel(peelMidId)
-                    UiOneShot.PeelFast -> playPeel(peelFastId)
+                    UiOneShot.PeelSlow -> {
+                        // No sample this slow — the buzz alone carries the drag.
+                        stopPeelSample()
+                        vibratePeel(PeelHaptic.Slow)
+                    }
+                    UiOneShot.PeelMid -> {
+                        playPeel(peelMidId)
+                        vibratePeel(PeelHaptic.Mid)
+                    }
+                    UiOneShot.PeelFast -> {
+                        playPeel(peelFastId)
+                        vibratePeel(PeelHaptic.Fast)
+                    }
                     UiOneShot.PeelStop -> stopPeel()
                 }
             }
@@ -188,11 +201,14 @@ class UiSoundController @Inject constructor(
 
     fun onBackground() {
         foreground = false
+        // A peel left mid-drag would otherwise keep buzzing in the player's hand.
+        stopPeel()
         runCatching { soundPool?.autoPause() }
     }
 
     /** Drop SoundPool samples under memory pressure; rebuilt on next foreground. */
     fun releaseForTrim() {
+        stopPeelHaptic()
         runCatching { soundPool?.release() }
         soundPool = null
         cursorId = 0
@@ -308,10 +324,46 @@ class UiSoundController @Inject constructor(
     }
 
     private fun stopPeel() {
+        stopPeelSample()
+        stopPeelHaptic()
+    }
+
+    private fun stopPeelSample() {
         val stream = peelStreamId
         peelStreamId = 0
         peelSoundId = 0
         if (stream != 0) runCatching { soundPool?.stop(stream) }
+    }
+
+    /**
+     * Buzz under the peel drag, restarted whenever the drag crosses into another speed band, so
+     * a slow pull ticks lazily and a fast one rasps. Independent of UI SFX volume, like the
+     * cursor tick.
+     */
+    private fun vibratePeel(band: PeelHaptic) {
+        val vibrator = vibrator ?: return
+        if (peelHaptic == band) return
+        peelHaptic = band
+        val amplitude = if (vibrator.hasAmplitudeControl()) {
+            band.amplitude
+        } else {
+            VibrationEffect.DEFAULT_AMPLITUDE
+        }
+        runCatching {
+            vibrator.vibrate(
+                VibrationEffect.createWaveform(
+                    band.timings,
+                    intArrayOf(0, amplitude),
+                    /* repeat from */ 0,
+                ),
+            )
+        }.onFailure { peelHaptic = null }
+    }
+
+    private fun stopPeelHaptic() {
+        if (peelHaptic == null) return
+        peelHaptic = null
+        runCatching { vibrator?.cancel() }
     }
 
     /** Short XMB-style tick on each launcher cursor step (independent of UI SFX volume). */
@@ -362,4 +414,14 @@ class UiSoundController @Inject constructor(
     private companion object {
         const val CURSOR_DEBOUNCE_MS = 30L
     }
+}
+
+/**
+ * Looping peel buzz, one per drag speed band. [timings] is an off/on pair repeated forever, so
+ * the pulse rate rises with the drag: a lazy tick at [Slow], a rasp at [Fast].
+ */
+private enum class PeelHaptic(val timings: LongArray, val amplitude: Int) {
+    Slow(longArrayOf(86L, 34L), 60),
+    Mid(longArrayOf(44L, 30L), 112),
+    Fast(longArrayOf(14L, 22L), 180),
 }

@@ -71,10 +71,32 @@ class VitaPeelGeometryTest {
     }
 
     @Test
-    fun `slow peel is silent and lift stops any loop`() {
-        assertEquals(UiOneShot.PeelStop, vitaPeelOneShot(VitaPeelDragSpeed.Slow))
+    fun `every drag band has its own cue and lift stops them all`() {
+        assertEquals(UiOneShot.PeelSlow, vitaPeelOneShot(VitaPeelDragSpeed.Slow))
         assertEquals(UiOneShot.PeelMid, vitaPeelOneShot(VitaPeelDragSpeed.Mid))
         assertEquals(UiOneShot.PeelFast, vitaPeelOneShot(VitaPeelDragSpeed.Fast))
         assertEquals(UiOneShot.PeelStop, vitaPeelOneShot(null))
+    }
+
+    @Test
+    fun `smoothed speed chases a steady pull instead of following each frame`() {
+        // A single fast frame off a standing start must not jump straight to the fast band.
+        val firstFrame = VitaPeelGeometry.smoothSpeed(0f, depthDeltaPx = 40f, dtMs = 16f)
+        assertTrue(firstFrame < 40f / 16f * 1000f)
+        assertEquals(VitaPeelDragSpeed.Mid, VitaPeelGeometry.speedBand(firstFrame))
+
+        // Held for a few frames, it settles onto the band the pull actually deserves.
+        var speed = 0f
+        repeat(12) { speed = VitaPeelGeometry.smoothSpeed(speed, 40f, 16f) }
+        assertEquals(VitaPeelDragSpeed.Fast, VitaPeelGeometry.speedBand(speed))
+
+        // Letting the pull go slack decays back down rather than sticking on fast.
+        repeat(12) { speed = VitaPeelGeometry.smoothSpeed(speed, 1f, 16f) }
+        assertEquals(VitaPeelDragSpeed.Slow, VitaPeelGeometry.speedBand(speed))
+    }
+
+    @Test
+    fun `a zero length frame leaves the smoothed speed alone`() {
+        assertEquals(700f, VitaPeelGeometry.smoothSpeed(700f, 40f, 0f), 0f)
     }
 }

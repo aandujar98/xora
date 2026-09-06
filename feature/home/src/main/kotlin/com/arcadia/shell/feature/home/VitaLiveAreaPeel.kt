@@ -82,10 +82,13 @@ private const val R2 = 0.70710678f
 /** How fast the player is dragging the dog-ear, used to pick a peel one-shot. */
 enum class VitaPeelDragSpeed { Slow, Mid, Fast }
 
-/** Slow drag is silent; mid/fast loop; lift stops any loop that was playing. */
+/**
+ * Slow drag buzzes without a sound; mid/fast loop the rasping samples as well. Lift stops both
+ * the loop and the haptic.
+ */
 internal fun vitaPeelOneShot(speed: VitaPeelDragSpeed?): UiOneShot =
     when (speed) {
-        VitaPeelDragSpeed.Slow -> UiOneShot.PeelStop
+        VitaPeelDragSpeed.Slow -> UiOneShot.PeelSlow
         VitaPeelDragSpeed.Mid -> UiOneShot.PeelMid
         VitaPeelDragSpeed.Fast -> UiOneShot.PeelFast
         null -> UiOneShot.PeelStop
@@ -120,16 +123,30 @@ internal object VitaPeelGeometry {
      */
     fun dragSpeed(depthDeltaPx: Float, dtMs: Float): VitaPeelDragSpeed {
         if (dtMs <= 0f) return VitaPeelDragSpeed.Mid
-        val pxPerSec = kotlin.math.abs(depthDeltaPx) / dtMs * 1000f
-        return when {
-            pxPerSec < SLOW_PX_PER_SEC -> VitaPeelDragSpeed.Slow
-            pxPerSec < FAST_PX_PER_SEC -> VitaPeelDragSpeed.Mid
-            else -> VitaPeelDragSpeed.Fast
-        }
+        return speedBand(kotlin.math.abs(depthDeltaPx) / dtMs * 1000f)
+    }
+
+    /** Band for an already-measured fold speed, in sheet px/sec. */
+    fun speedBand(pxPerSec: Float): VitaPeelDragSpeed = when {
+        pxPerSec < SLOW_PX_PER_SEC -> VitaPeelDragSpeed.Slow
+        pxPerSec < FAST_PX_PER_SEC -> VitaPeelDragSpeed.Mid
+        else -> VitaPeelDragSpeed.Fast
+    }
+
+    /**
+     * Rolling fold speed in px/sec. One frame's delta flaps across the band edges as a thumb
+     * jitters, and every crossing restarts the peel loop and its haptic — audibly, and in the
+     * player's hand. Smoothing keeps a steady pull on one band.
+     */
+    fun smoothSpeed(previousPxPerSec: Float, depthDeltaPx: Float, dtMs: Float): Float {
+        if (dtMs <= 0f) return previousPxPerSec
+        val sample = kotlin.math.abs(depthDeltaPx) / dtMs * 1000f
+        return previousPxPerSec + ((sample - previousPxPerSec) * SPEED_SMOOTHING)
     }
 
     private const val SLOW_PX_PER_SEC = 450f
     private const val FAST_PX_PER_SEC = 1_400f
+    private const val SPEED_SMOOTHING = 0.3f
 }
 
 /**
@@ -250,6 +267,7 @@ internal fun VitaLiveAreaPeel(
                         engaged = true
                         var lastDragAtMs = down.uptimeMillis
                         var lastBand: VitaPeelDragSpeed? = null
+                        var speedPxPerSec = 0f
                         var dragged = false
                         var totalDistance = 0f
                         while (true) {
@@ -268,7 +286,12 @@ internal fun VitaLiveAreaPeel(
                                 val dt = (now - lastDragAtMs).toFloat().coerceAtLeast(1f)
                                 lastDragAtMs = now
                                 val foldDelta = VitaPeelGeometry.depthDelta(delta.x, delta.y)
-                                val band = VitaPeelGeometry.dragSpeed(foldDelta, dt)
+                                speedPxPerSec = VitaPeelGeometry.smoothSpeed(
+                                    previousPxPerSec = speedPxPerSec,
+                                    depthDeltaPx = foldDelta,
+                                    dtMs = dt,
+                                )
+                                val band = VitaPeelGeometry.speedBand(speedPxPerSec)
                                 if (band != lastBand) {
                                     lastBand = band
                                     peelSpeed.value(band)
