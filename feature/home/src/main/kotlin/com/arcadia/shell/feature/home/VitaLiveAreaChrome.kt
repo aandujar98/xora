@@ -2,20 +2,14 @@ package com.arcadia.shell.feature.home
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import android.content.Context
 import androidx.compose.runtime.Composable
@@ -26,24 +20,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.XoraFonts
-import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.isCharging
 import com.arcadia.shell.feature.home.component.isWifiConnected
 import com.arcadia.shell.feature.home.component.readBatteryPercent
@@ -57,23 +47,7 @@ internal const val LIVEAREA_STATUS_H = 60f
 private const val STATUS_TEXT = 26f
 private const val STATUS_PAD_X = 22f
 
-/** Info panel under the box art. */
-internal const val PANEL_X = 97f
-/** Sits clear of the existing box-art plate rather than the reference's higher one. */
-internal const val PANEL_Y = 700f
-internal const val PANEL_W = 985f
-internal const val PANEL_H = 196f
-private const val PANEL_RADIUS = 38f
-private const val PANEL_PAD = 22f
-private const val PANEL_ICON = 152f
-private const val PANEL_TITLE_SIZE = 35f
-private const val PANEL_BADGE_H = 34f
-
 private val StatusFill = Color(0xFF404040)
-private val PanelFill = Color(0x59000000)
-private val PanelBorder = Color(0x66FFFFFF)
-private val PanelInk = Color(0xFFFFFFFF)
-private val PanelChipFill = Color(0x40FFFFFF)
 
 /** What the LiveArea status strip shows. */
 internal data class VitaLiveAreaStatus(
@@ -230,94 +204,6 @@ private fun LiveAreaBattery(percent: Int, charging: Boolean, modifier: Modifier 
                 bodyH - pad * 2,
             ),
             cornerRadius = CornerRadius(size.height * 0.06f, size.height * 0.06f),
-        )
-    }
-}
-
-/**
- * The LiveArea info panel: the game's own icon, name, and system badge.
- * Achievement chrome stays off this page.
- */
-@Composable
-internal fun VitaLiveAreaPanel(
-    title: String,
-    iconPath: String?,
-    systemLabel: String,
-    unit: Float,
-    modifier: Modifier = Modifier,
-) {
-    val density = LocalDensity.current
-    fun sp(design: Float) = with(density) { (design * unit).dp.toSp() }
-    val ink = TextStyle(
-        fontFamily = XoraFonts.XmbLabel,
-        fontWeight = FontWeight.Normal,
-        color = PanelInk,
-        platformStyle = PlatformTextStyle(includeFontPadding = false),
-        lineHeightStyle = LineHeightStyle(
-            alignment = LineHeightStyle.Alignment.Center,
-            trim = LineHeightStyle.Trim.Both,
-        ),
-    )
-    Box(
-        modifier = modifier
-            .requiredSize((PANEL_W * unit).dp, (PANEL_H * unit).dp)
-            .clip(RoundedCornerShape((PANEL_RADIUS * unit).dp))
-            .background(PanelFill)
-            .border(
-                width = (2f * unit).dp,
-                color = PanelBorder,
-                shape = RoundedCornerShape((PANEL_RADIUS * unit).dp),
-            )
-            .padding((PANEL_PAD * unit).dp),
-    ) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            ArtworkImage(
-                path = iconPath,
-                contentDescription = title,
-                fallbackText = title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .requiredSize((PANEL_ICON * unit).dp)
-                    .clip(RoundedCornerShape((12f * unit).dp)),
-            )
-            Spacer(Modifier.width((16f * unit).dp))
-            Column(modifier = Modifier.fillMaxHeight().weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = title,
-                        style = ink.copy(fontSize = sp(PANEL_TITLE_SIZE)),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    PanelChip(text = systemLabel, unit = unit, style = ink)
-                }
-                Spacer(Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PanelChip(text: String, unit: Float, style: TextStyle) {
-    val density = LocalDensity.current
-    Box(
-        modifier = Modifier
-            .height((PANEL_BADGE_H * unit).dp)
-            .clip(RoundedCornerShape(percent = 50))
-            .background(PanelChipFill)
-            .border(
-                width = (1.5f * unit).dp,
-                color = PanelBorder,
-                shape = RoundedCornerShape(percent = 50),
-            )
-            .padding(horizontal = (14f * unit).dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = text,
-            style = style.copy(fontSize = with(density) { (22f * unit).dp.toSp() }),
-            maxLines = 1,
         )
     }
 }

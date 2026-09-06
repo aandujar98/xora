@@ -104,7 +104,6 @@ import com.arcadia.shell.model.ShortcutSpan
 import com.arcadia.shell.model.swapped
 import com.arcadia.shell.retroachievements.RaConsoleIds
 import com.arcadia.shell.retroachievements.RaFollowedUser
-import com.arcadia.shell.retroachievements.RaGameLookup
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
 import com.arcadia.shell.retroachievements.RaProfile
 import com.arcadia.shell.retroachievements.RaRecentUnlock
@@ -3133,19 +3132,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun publishVitaShortcutLaunch(shortcut: HomeShortcut) {
-        val preview = resolveVitaShortcutLaunch(shortcut)
-        vitaShortcutLaunch.value = preview
-        hydrateVitaShortcutRa(preview)
-    }
-
-    /** Fill the LiveArea panel's trophy strip for this title once the hash/lookup lands. */
-    private suspend fun hydrateVitaShortcutRa(preview: VitaShortcutLaunchUi) {
-        val game = preview.game?.takeUnless { it.isAndroidApp } ?: return
-        val lookup = runCatching { retroAchievements.lookupSelectedGame(game) }.getOrNull()
-        val progress = (lookup as? RaGameLookup.Matched)?.progress ?: return
-        val current = vitaShortcutLaunch.value ?: return
-        if (current.shortcut.target != preview.shortcut.target) return
-        vitaShortcutLaunch.value = current.copy(raProgress = progress)
+        vitaShortcutLaunch.value = resolveVitaShortcutLaunch(shortcut)
     }
 
     /**
@@ -3232,7 +3219,6 @@ class HomeViewModel @Inject constructor(
             game = game,
             artAlignX = alignment.x,
             artAlignY = alignment.y,
-            systemLabel = game?.platform?.shortName.orEmpty(),
         )
     }
 

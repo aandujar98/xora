@@ -18,7 +18,6 @@ import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.PlatformSummary
 import com.arcadia.shell.model.ScanProgress
 import com.arcadia.shell.model.ShortcutSpan
-import com.arcadia.shell.retroachievements.RaGameProgress
 
 enum class TabKind { All, Favorites, Recent, Apps, Platform }
 
@@ -150,10 +149,6 @@ data class VitaShortcutLaunchUi(
     val game: Game? = null,
     val artAlignX: Float = 0f,
     val artAlignY: Float = 0f,
-    /** Short system code for the LiveArea panel's badge ("PSP", "SNES", …). */
-    val systemLabel: String = "",
-    /** This title's RA set, filled in after the page opens so the panel under the box art updates. */
-    val raProgress: RaGameProgress? = null,
 )
 
 /** Idle trailer overlay for the hero pane. */

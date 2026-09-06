@@ -87,7 +87,7 @@ fun HomeWallpaper(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // Releases/DIM — 10% over the wallpaper; Game Select passes Multiply.
+        // Releases/DIM — 8% over the wallpaper; Game Select passes Multiply.
         Image(
             painter = painterResource(R.drawable.wallpaper_dim),
             contentDescription = null,
@@ -95,7 +95,7 @@ fun HomeWallpaper(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    alpha = 0.10f
+                    alpha = 0.08f
                     blendMode = dimBlendMode
                 },
         )

@@ -29,6 +29,25 @@ class XoraXmbRecentsArtTest {
         assertNull(xmbRecentsCoverPath(null))
     }
 
+    @Test
+    fun gameSelectWallpaperPrefersHeroOverCover() {
+        val game = sampleGame(boxArtPath = "/box.png", heroImagePath = "/hero.png")
+        assertEquals("/hero.png", xmbGameSelectWallpaperPath(game))
+    }
+
+    @Test
+    fun gameSelectWallpaperFallsBackToCoverWhenHeroIsMissing() {
+        val game = sampleGame(boxArtPath = "/box.png", heroImagePath = null)
+        assertEquals("/box.png", xmbGameSelectWallpaperPath(game))
+        assertNull(xmbGameSelectWallpaperPath(null))
+    }
+
+    @Test
+    fun gameSelectWallpaperPrefersACustomBackground() {
+        val game = sampleGame(boxArtPath = "/box.png", heroImagePath = "/hero.png")
+        assertEquals("/custom.png", xmbGameSelectWallpaperPath(game, "/custom.png"))
+    }
+
     private fun sampleGame(boxArtPath: String?, heroImagePath: String?) = Game(
         id = "nds:zelda",
         title = "Zelda",

@@ -267,17 +267,6 @@ fun VitaShortcutLaunchPage(
                             .offset(x = titleX.dp, y = subtitleY.dp)
                             .width(ruleWidth.dp),
                     )
-
-                    VitaLiveAreaPanel(
-                        title = page.shortcut.title,
-                        iconPath = page.iconPath,
-                        systemLabel = page.systemLabel,
-                        unit = unit,
-                        modifier = Modifier.offset(
-                            x = (originX + PANEL_X * unit).dp,
-                            y = py(PANEL_Y),
-                        ),
-                    )
                 }
                 }
                 }

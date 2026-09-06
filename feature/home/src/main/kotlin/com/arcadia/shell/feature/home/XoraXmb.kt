@@ -823,3 +823,16 @@ fun buildXoraEmulatorItems(
 /** Games-column recents plate: cover/box first, wallpaper only when there is no cover. */
 fun xmbRecentsCoverPath(game: Game?): String? =
     game?.boxArtPath ?: game?.heroImagePath
+
+/**
+ * Game Select full-bleed wallpaper: hero / fanart first. Cover art is only a fallback so
+ * titles without a wallpaper still fill the plate. [customWallpaperPath] is a user-picked
+ * background attached to the focused row.
+ */
+fun xmbGameSelectWallpaperPath(
+    game: Game?,
+    customWallpaperPath: String? = null,
+): String? = customWallpaperPath?.takeIf { it.isNotBlank() }
+    ?: game?.heroImagePath
+    ?: game?.boxArtPath
+    ?: game?.logoImagePath
