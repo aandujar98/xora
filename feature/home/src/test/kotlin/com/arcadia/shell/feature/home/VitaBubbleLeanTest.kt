@@ -33,7 +33,7 @@ class VitaBubbleLeanTest {
     }
 
     @Test
-    fun `page turn wobble starts hard and is spent by the time the driver stops`() {
+    fun `page turn bounce starts hard and is spent by the time the driver stops`() {
         val opening = (0..8).map { vitaBubbleJiggleLean(index = 0, elapsedSeconds = it / 200f) }
         assertTrue(opening.any { abs(it) > 0.5f })
 
@@ -54,6 +54,14 @@ class VitaBubbleLeanTest {
     fun `bubbles later in a page start their wobble later`() {
         assertEquals(0f, vitaBubbleJiggleLean(index = 4, elapsedSeconds = 0.01f), 0f)
         assertTrue(abs(vitaBubbleJiggleLean(index = 0, elapsedSeconds = 0.01f)) > 0f)
+    }
+
+    @Test
+    fun liftAtReadsTheSameChannelSoAPageTurnHopsOnY() {
+        val jiggle = VitaBubbleJiggle(2)
+        jiggle.setLean(0, 0.4f)
+        assertEquals(0.4f, jiggle.liftAt(0), 0f)
+        assertEquals(jiggle.leanAt(0), jiggle.liftAt(0), 0f)
     }
 
     @Test

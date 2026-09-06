@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,67 +114,56 @@ fun SettingsScreen(
     var showMusicFolderPicker by remember { mutableStateOf(false) }
     var section by remember { mutableStateOf(SetupSection.Display) }
     val listState = rememberLazyListState()
-    var padOnTabs by remember { mutableStateOf(true) }
+    // Land on the first card so the cursor sits on an option, not the chrome.
+    var padOnTabs by remember { mutableStateOf(false) }
     var padCardIndex by remember { mutableIntStateOf(0) }
+    val onBackNow = rememberUpdatedState(onBack)
 
     // Switching tabs must land at the top, not halfway down the previous section.
     LaunchedEffect(section) {
         listState.scrollToItem(0)
         padCardIndex = 0
-        padOnTabs = true
+        padOnTabs = false
     }
 
     DisposableEffect(onPadCapture) {
         onPadCapture(true)
         onDispose { onPadCapture(false) }
     }
-    LaunchedEffect(padActions, section, padOnTabs, padCardIndex) {
+    LaunchedEffect(padActions) {
         val flow = padActions ?: return@LaunchedEffect
-        val cards = setupSectionCardKeys(section)
+        val sections = SetupSection.entries
         flow.collect { action ->
-            when (action) {
-                NavAction.Left -> {
-                    val entries = SetupSection.entries
-                    val idx = entries.indexOf(section)
-                    section = entries[(idx - 1 + entries.size) % entries.size]
-                }
-                NavAction.Right -> {
-                    val entries = SetupSection.entries
-                    val idx = entries.indexOf(section)
-                    section = entries[(idx + 1) % entries.size]
-                }
-                NavAction.Down -> {
-                    if (padOnTabs) {
-                        padOnTabs = false
-                        padCardIndex = 0
-                    } else if (cards.isNotEmpty()) {
-                        padCardIndex = (padCardIndex + 1).coerceAtMost(cards.lastIndex)
-                    }
-                }
-                NavAction.Up -> {
-                    if (!padOnTabs && padCardIndex > 0) {
-                        padCardIndex -= 1
-                    } else {
-                        padOnTabs = true
-                    }
-                }
-                NavAction.Confirm -> {
-                    if (padOnTabs && cards.isNotEmpty()) {
-                        padOnTabs = false
-                        padCardIndex = 0
-                    }
-                }
-                NavAction.Cancel, NavAction.Menu -> onBack()
-                else -> Unit
+            if (action == NavAction.Cancel || action == NavAction.Menu) {
+                onBackNow.value()
+                return@collect
             }
+            val cards = setupSectionCardKeys(section)
+            val next = settingsPadAfterAction(
+                state = SettingsPadNavState(
+                    sectionIndex = sections.indexOf(section).coerceAtLeast(0),
+                    onTabs = padOnTabs,
+                    cardIndex = padCardIndex,
+                ),
+                action = action,
+                sectionCount = sections.size,
+                cardCount = cards.size,
+            )
+            section = sections[next.sectionIndex]
+            padOnTabs = next.onTabs
+            padCardIndex = next.cardIndex
         }
     }
-    LaunchedEffect(section, padOnTabs, padCardIndex) {
-        if (padOnTabs) return@LaunchedEffect
-        val cards = setupSectionCardKeys(section)
-        val index = padCardIndex.coerceIn(0, (cards.size - 1).coerceAtLeast(0))
-        // header is item 0; status banner may insert item 1
-        listState.animateScrollToItem((index + 1).coerceAtLeast(0))
+    LaunchedEffect(section, padOnTabs, padCardIndex, state.xoraDownloadRunning, state.message, state.xoraDownloadError) {
+        val hasBanner = state.xoraDownloadRunning ||
+            state.message != null ||
+            state.xoraDownloadError != null
+        val index = settingsLazyItemIndex(
+            onTabs = padOnTabs,
+            cardIndex = padCardIndex,
+            hasStatusBanner = hasBanner,
+        )
+        listState.animateScrollToItem(index.coerceAtLeast(0))
     }
 
     BackHandler(onBack = onBack)
@@ -233,18 +223,6 @@ fun SettingsScreen(
     ArcadiaTheme(darkTheme = true) {
     Box(modifier = Modifier.fillMaxSize()) {
         backdrop()
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.42f),
-                            Color.Black.copy(alpha = 0.62f),
-                        ),
-                    ),
-                ),
-        )
     val focusedCardKey = if (padOnTabs) {
         null
     } else {
@@ -305,6 +283,11 @@ fun SettingsScreen(
                     }
                 }
                 LazyRow(
+                    modifier = if (padOnTabs) {
+                        Modifier.border(2.dp, Color.White.copy(alpha = 0.88f), ArcadiaGlass.ChipShape)
+                    } else {
+                        Modifier
+                    },
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(end = 8.dp),
                 ) {

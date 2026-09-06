@@ -68,7 +68,7 @@ private val RowFocusShape = RoundedCornerShape(14.dp)
 
 /**
  * Start-button app config: one floating glass list. Root is the category list;
- * Confirm drills in, Back returns to the list.
+ * Confirm drills in, Back closes the overlay rather than returning to Settings.
  *
  * Overlay (not Dialog) so Dual Mode [android.app.Presentation] panes can host it without a
  * nested window. Enter/exit uses scale+fade with a light spring overshoot.

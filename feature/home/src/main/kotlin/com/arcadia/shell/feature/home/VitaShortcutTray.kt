@@ -117,6 +117,9 @@ private const val BUBBLE_CAMERA_DISTANCE = 6f
  */
 private const val BUBBLE_SHEEN_TRAVEL = 0.03f
 
+/** How far a page-turn bounce hops, as a fraction of the bubble diameter. */
+private const val BUBBLE_JIGGLE_LIFT = 0.10f
+
 private val RingGradientTop = Color.White
 private val RingGradientBottom = Color(0xFFB5EFFF)
 private val SelectionHalo = Color(0xB3E4FAFF)
@@ -232,7 +235,7 @@ fun VitaShortcutTray(
                 count = slots.size,
                 dropPx = bubblePx * 0.42f,
             )
-            // Page turns shudder through the field. Keyed on the focused page, so moving the
+            // Page turns hop the field up and down. Keyed on the focused page, so moving the
             // cursor inside a page leaves the bubbles alone.
             val jiggle = rememberVitaBubbleJiggle(
                 count = slots.size,
@@ -275,7 +278,11 @@ fun VitaShortcutTray(
                                 glass = glass,
                                 offsetProvider = {
                                     val tiltShift = motion.offsetAt(slotIndex)
-                                    Offset(tiltShift.x, tiltShift.y + landing.offsetY(slotIndex))
+                                    val bounce = jiggle.liftAt(slotIndex) * bubblePx * BUBBLE_JIGGLE_LIFT
+                                    Offset(
+                                        tiltShift.x,
+                                        tiltShift.y + landing.offsetY(slotIndex) + bounce,
+                                    )
                                 },
                                 leanProvider = {
                                     val lean = motion.leanAt(slotIndex)
@@ -284,10 +291,7 @@ fun VitaShortcutTray(
                                     } else {
                                         0f
                                     }
-                                    Offset(
-                                        lean.x + idle + jiggle.leanAt(slotIndex),
-                                        lean.y,
-                                    )
+                                    Offset(lean.x + idle, lean.y)
                                 },
                                 interactive = departingIndex == null && !suppressIdleBubbles,
                                 onClick = {

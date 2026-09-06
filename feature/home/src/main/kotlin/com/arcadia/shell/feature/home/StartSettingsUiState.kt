@@ -154,6 +154,12 @@ data class StartSettingsUiState(
         get() = if (inCategory) startSettingsCategoryTitle(category) else "Settings"
 }
 
+/** Back always leaves Start settings — Display, Scrape, Themes, General, the list, all of them. */
+fun startSettingsDismissClosesOverlay(inCategory: Boolean): Boolean = when {
+    inCategory -> true
+    else -> true
+}
+
 fun startSettingsCategoryTitle(category: StartSettingsCategory): String = when (category) {
     StartSettingsCategory.Display -> "Display"
     StartSettingsCategory.Themes -> "Themes"

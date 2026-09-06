@@ -23,6 +23,12 @@ class StartSettingsUiStateTest {
     }
 
     @Test
+    fun backFromACategoryClosesTheOverlay() {
+        assertTrue(startSettingsDismissClosesOverlay(inCategory = true))
+        assertTrue(startSettingsDismissClosesOverlay(inCategory = false))
+    }
+
+    @Test
     fun titleIsSettingsOnTheRootList() {
         val root = StartSettingsUiState(open = true, inCategory = false)
         assertEquals("Settings", root.title)
