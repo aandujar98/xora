@@ -38,6 +38,13 @@ class SteamGridDbClient @Inject constructor(
         match.takeIf { it.hasArtwork }
     }
 
+    /** Square SteamGrid **icon** (not landscape grid / hero). Used for Vita shortcut bubbles. */
+    suspend fun firstIconUrl(title: String, apiKey: String): String? = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank() || title.isBlank()) return@withContext null
+        val gameId = searchGameId(title, apiKey) ?: return@withContext null
+        firstAssetUrl("icons", gameId, apiKey)
+    }
+
     private fun searchGameId(title: String, apiKey: String): Int? {
         val encoded = title.replace(" ", "%20")
         val response = get("$BASE_URL/search/autocomplete/$encoded", apiKey) ?: return null

@@ -75,12 +75,15 @@ fun RomOptionsSheet(
     onPickBackground: () -> Unit,
     onPickSoundBite: () -> Unit,
     onPickIdleVideo: () -> Unit,
+    onPickScreenshots: () -> Unit = {},
     onClearBoxArt: () -> Unit,
     onClearBackground: () -> Unit,
     onClearSoundBite: () -> Unit,
     onClearIdleVideo: () -> Unit,
+    onClearScreenshots: () -> Unit = {},
     onPreviewSoundBite: () -> Unit,
     idleVideoPath: String? = null,
+    screenshotCount: Int = 0,
     onImportSaves: () -> Unit,
     onDeleteSave: (GameSaveEntry) -> Unit,
     onSetGamePreference: (ScraperPreference) -> Unit,
@@ -222,6 +225,16 @@ fun RomOptionsSheet(
                 status = pathStatus(idleVideoPath),
                 onChange = onPickIdleVideo,
                 onClear = onClearIdleVideo.takeIf { !idleVideoPath.isNullOrBlank() },
+            )
+            MediaRow(
+                title = "Idle screenshots",
+                status = if (screenshotCount == 0) {
+                    "None — stills and GIFs cycle when Game Icon idle is Screenshots"
+                } else {
+                    "$screenshotCount file${if (screenshotCount == 1) "" else "s"}"
+                },
+                onChange = onPickScreenshots,
+                onClear = onClearScreenshots.takeIf { screenshotCount > 0 },
             )
 
             SectionLabel("Cover position")

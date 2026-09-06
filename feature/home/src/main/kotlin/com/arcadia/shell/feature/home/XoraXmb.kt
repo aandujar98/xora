@@ -361,7 +361,7 @@ fun buildXoraCategoryItems(
                 title = continueGame?.title ?: "Game 0",
                 subtitle = "Recently Played",
                 action = XoraXmbAction.LaunchContinueOrFavorite,
-                artPath = continueGame?.heroImagePath ?: continueGame?.boxArtPath,
+                artPath = xmbRecentsCoverPath(continueGame),
                 logoPath = continueGame?.logoImagePath,
                 playTimeMs = continueGame?.playTimeMs ?: 0L,
                 platformLabel = continueGame?.platform?.displayName,
@@ -373,7 +373,7 @@ fun buildXoraCategoryItems(
                 title = favoriteGame?.title ?: "Game 0",
                 subtitle = "Recently Played",
                 action = XoraXmbAction.LaunchContinueOrFavorite,
-                artPath = favoriteGame?.heroImagePath ?: favoriteGame?.boxArtPath,
+                artPath = xmbRecentsCoverPath(favoriteGame),
                 logoPath = favoriteGame?.logoImagePath,
                 playTimeMs = favoriteGame?.playTimeMs ?: 0L,
                 platformLabel = favoriteGame?.platform?.displayName,
@@ -793,3 +793,7 @@ fun buildXoraEmulatorItems(
         ),
     )
 }
+
+/** Games-column recents plate: cover/box first, wallpaper only when there is no cover. */
+fun xmbRecentsCoverPath(game: Game?): String? =
+    game?.boxArtPath ?: game?.heroImagePath

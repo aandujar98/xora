@@ -232,7 +232,7 @@ val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
 val VitaShortcutTrayEditHints: List<Pair<String, String>> = listOf(
     "L/R" to "Shortcut",
     "U/D" to "Page",
-    "A" to "Add / Remove",
+    "A" to "Icon / Add",
     "Select" to "Done",
     "Y" to "Close",
     "B" to "Done",

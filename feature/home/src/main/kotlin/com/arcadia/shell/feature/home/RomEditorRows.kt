@@ -34,6 +34,7 @@ internal fun rememberEditorRows(
     artAlignX: Float,
     artAlignY: Float,
     mediaEpoch: Int,
+    screenshotCount: Int = 0,
     onStartRename: () -> Unit,
     onOpenArtPicker: (ArtSlot) -> Unit,
     actions: RomEditorActions,
@@ -51,11 +52,12 @@ internal fun rememberEditorRows(
     artAlignX,
     artAlignY,
     mediaEpoch,
+    screenshotCount,
 ) {
     when (section) {
         RomEditorSection.Details -> detailRows(game, customTitle, hidden, onStartRename, actions)
         RomEditorSection.Artwork ->
-            artworkRows(game, artAlignX, artAlignY, onOpenArtPicker, actions)
+            artworkRows(game, artAlignX, artAlignY, screenshotCount, onOpenArtPicker, actions)
         RomEditorSection.Audio -> audioRows(game, actions)
         RomEditorSection.Video -> videoRows(trailer, trailerResolving, actions)
         RomEditorSection.Saves -> saveRows(saves, actions)
@@ -120,6 +122,7 @@ private fun artworkRows(
     game: Game,
     artAlignX: Float,
     artAlignY: Float,
+    screenshotCount: Int,
     onOpenArtPicker: (ArtSlot) -> Unit,
     actions: RomEditorActions,
 ): List<RomEditorRow> = buildList {
@@ -156,6 +159,16 @@ private fun artworkRows(
             onClear = { actions.onClearArt(ArtSlot.Logo) }.takeIf {
                 !game.logoImagePath.isNullOrBlank()
             },
+        ),
+    )
+    add(
+        RomEditorRow(
+            key = "shots",
+            label = "Idle screenshots",
+            value = if (screenshotCount == 0) "None" else "$screenshotCount file${if (screenshotCount == 1) "" else "s"}",
+            hint = "Stills and GIFs that cycle on Game Select when idle media is Screenshots.",
+            onActivate = actions.onPickScreenshots,
+            onClear = actions.onClearScreenshots.takeIf { screenshotCount > 0 },
         ),
     )
     add(

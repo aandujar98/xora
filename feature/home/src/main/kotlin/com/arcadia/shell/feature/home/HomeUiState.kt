@@ -152,10 +152,6 @@ data class VitaShortcutLaunchUi(
     val artAlignY: Float = 0f,
     /** Short system code for the LiveArea panel's badge ("PSP", "SNES", …). */
     val systemLabel: String = "",
-    /** Circular icons on the panel's "Recently played" row. */
-    val recentGames: List<Game> = emptyList(),
-    /** How many more recently played titles the row could not show. */
-    val recentOverflow: Int = 0,
     /** This title's RA set, filled in after the page opens so the panel under the box art updates. */
     val raProgress: RaGameProgress? = null,
 )
@@ -420,6 +416,8 @@ sealed interface HomeMediaPickerRequest {
     data class GameBackground(val gameId: String) : HomeMediaPickerRequest
     data class GameSoundBite(val gameId: String) : HomeMediaPickerRequest
     data class GameIdleVideo(val gameId: String) : HomeMediaPickerRequest
+    data class GameScreenshots(val gameId: String) : HomeMediaPickerRequest
+    data class ShortcutIcon(val shortcutId: String) : HomeMediaPickerRequest
     data class MusicCover(val mediaId: String) : HomeMediaPickerRequest
     data class MusicWallpaper(val mediaId: String) : HomeMediaPickerRequest
 

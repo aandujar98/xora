@@ -272,8 +272,6 @@ fun VitaShortcutLaunchPage(
                         title = page.shortcut.title,
                         iconPath = page.iconPath,
                         systemLabel = page.systemLabel,
-                        recentGames = page.recentGames,
-                        recentOverflow = page.recentOverflow,
                         unit = unit,
                         modifier = Modifier.offset(
                             x = (originX + PANEL_X * unit).dp,

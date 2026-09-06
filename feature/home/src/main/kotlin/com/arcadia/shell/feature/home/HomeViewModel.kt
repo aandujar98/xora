@@ -210,6 +210,8 @@ class HomeViewModel @Inject constructor(
     private val avatarStore: ProfileAvatarStore,
     private val themeMediaStore: HomeThemeMediaStore,
     private val gameCustomMediaStore: GameCustomMediaStore,
+    private val steamGridDbClient: com.arcadia.shell.scraper.SteamGridDbClient,
+    private val mediaCache: com.arcadia.shell.scraper.MediaCache,
     private val gameSaveCatalog: GameSaveCatalog,
     private val gameSoundBitePlayer: GameSoundBitePlayer,
     private val trailerResolver: TrailerResolver,
@@ -280,6 +282,8 @@ class HomeViewModel @Inject constructor(
     private val vitaShortcutDepartingIndex = MutableStateFlow<Int?>(null)
     /** A / plate tap asked for the start gate to peel itself; the page runs the animation. */
     private val vitaShortcutPeelRequested = MutableStateFlow(false)
+    /** Filled Vita bubble whose icon sheet is open (edit mode). */
+    private val vitaShortcutIconEditId = MutableStateFlow<String?>(null)
     /** Watches the launch that a peeled gate started, so the page knows when to stand down. */
     private var vitaLaunchHandoff: Job? = null
     private val themesOpen = MutableStateFlow(false)
@@ -1071,10 +1075,14 @@ class HomeViewModel @Inject constructor(
                 iconIdleMedia = base.startSettings.settings.gameIconIdleMedia,
                 screenshotPaths = run {
                     val focused = base.xoraXmb.focusGame ?: base.selectedGame
+                    val userShots = focused?.id
+                        ?.let { gameCustomMediaStore.listScreenshots(it) }
+                        .orEmpty()
                     val fromInsight = insight.screenshotPaths.takeIf {
                         insight.gameId != null && insight.gameId == focused?.id
                     }.orEmpty()
-                    fromInsight.ifEmpty { listOfNotNull(focused?.heroImagePath) }
+                    (userShots + fromInsight)
+                        .ifEmpty { listOfNotNull(focused?.heroImagePath) }
                 },
             ),
             insight = insight,
@@ -3087,6 +3095,7 @@ class HomeViewModel @Inject constructor(
         vitaShortcutTrayOpen.value = false
         vitaShortcutPinMode.value = false
         homeShortcutsEditMode.value = false
+        vitaShortcutIconEditId.value = null
         shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
         if (addShortcutOpen.value) dismissAddShortcutChooser()
     }
@@ -3213,11 +3222,6 @@ class HomeViewModel @Inject constructor(
         val alignment = game?.id?.let { id ->
             preferences.gameArtAlignments.first()[id]
         } ?: GameArtAlignment()
-        // "Recently played" on the LiveArea panel: the Vita lists other players there, but a
-        // launcher's own answer is the titles most recently run, this one excluded.
-        val played = libraryRepository.observeGames().first()
-            .filter { it.lastPlayedAt != null && it.id != game?.id }
-            .sortedByDescending { it.lastPlayedAt }
         return VitaShortcutLaunchUi(
             shortcut = shortcut,
             wallpaperPath = wallpaper,
@@ -3226,8 +3230,6 @@ class HomeViewModel @Inject constructor(
             artAlignX = alignment.x,
             artAlignY = alignment.y,
             systemLabel = game?.platform?.shortName.orEmpty(),
-            recentGames = played.take(VITA_PANEL_RECENT_SLOTS),
-            recentOverflow = (played.size - VITA_PANEL_RECENT_SLOTS).coerceAtLeast(0),
         )
     }
 
@@ -5211,7 +5213,7 @@ class HomeViewModel @Inject constructor(
         }
         val shortcut = shortcuts.getOrNull(i) ?: return
         if (hub.shortcutsEditMode) {
-            removeHomeShortcut(shortcut.id)
+            openVitaShortcutIconEditor(shortcut.id)
             return
         }
         if (hub.vitaShortcutTrayOpen) {
@@ -5457,6 +5459,7 @@ class HomeViewModel @Inject constructor(
     fun closeHomeShortcutsCustomize() {
         noteUserActivity()
         homeShortcutsEditMode.value = false
+        vitaShortcutIconEditId.value = null
         shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
     }
 
@@ -5847,7 +5850,90 @@ class HomeViewModel @Inject constructor(
             homeShortcuts.value = next
             preferences.setHomeShortcuts(next)
             homeShortcutIndex.update { it.coerceIn(0, (next.size).coerceAtLeast(0)) }
+            if (vitaShortcutIconEditId.value == id) vitaShortcutIconEditId.value = null
         }
+    }
+
+    val vitaShortcutIconEditIdFlow: StateFlow<String?> get() = vitaShortcutIconEditId
+
+    fun openVitaShortcutIconEditor(shortcutId: String) {
+        noteUserActivity()
+        vitaShortcutIconEditId.value = shortcutId
+    }
+
+    fun dismissVitaShortcutIconEditor() {
+        vitaShortcutIconEditId.value = null
+    }
+
+    fun pickShortcutIcon(shortcutId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.ShortcutIcon(shortcutId)) }
+        }
+    }
+
+    fun setShortcutIcon(shortcutId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = themeMediaStore.importShortcutArt(uri, shortcutId)
+                replaceShortcutArt(shortcutId, path)
+                emit(HomeEvent.ShowMessage("Shortcut icon updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import that icon."))
+            }
+        }
+    }
+
+    fun resetShortcutIcon(shortcutId: String) {
+        viewModelScope.launch {
+            val shortcut = homeShortcuts.value.firstOrNull { it.id == shortcutId } ?: return@launch
+            val restored = defaultShortcutArt(shortcut)
+            replaceShortcutArt(shortcutId, restored)
+            emit(HomeEvent.ShowMessage("Shortcut icon reset."))
+        }
+    }
+
+    fun scrapeShortcutSteamGridIcon(shortcutId: String) {
+        viewModelScope.launch {
+            val shortcut = homeShortcuts.value.firstOrNull { it.id == shortcutId } ?: return@launch
+            val key = preferences.credentials.first().steamGridDbKey
+            if (key.isBlank()) {
+                emit(HomeEvent.ShowError("Add a SteamGridDB API key in Settings → Media."))
+                return@launch
+            }
+            val url = steamGridDbClient.firstIconUrl(shortcut.title, key)
+            if (url.isNullOrBlank()) {
+                emit(HomeEvent.ShowError("No SteamGrid icon for ${shortcut.title}."))
+                return@launch
+            }
+            val cached = mediaCache.fetch(url)
+            if (cached.isNullOrBlank()) {
+                emit(HomeEvent.ShowError("Could not download that SteamGrid icon."))
+                return@launch
+            }
+            runCatching {
+                val path = themeMediaStore.importShortcutArt(Uri.fromFile(File(cached)), shortcutId)
+                replaceShortcutArt(shortcutId, path)
+                emit(HomeEvent.ShowMessage("SteamGrid icon applied."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not save that icon."))
+            }
+        }
+    }
+
+    private suspend fun replaceShortcutArt(shortcutId: String, artPath: String?) {
+        val next = homeShortcuts.value.map { shortcut ->
+            if (shortcut.id == shortcutId) shortcut.copy(artPath = artPath) else shortcut
+        }
+        homeShortcuts.value = next
+        preferences.setHomeShortcuts(next)
+    }
+
+    private suspend fun defaultShortcutArt(shortcut: HomeShortcut): String? = when (shortcut.kind) {
+        HomeShortcutKind.Game -> libraryRepository.observeGames().first()
+            .firstOrNull { it.id == shortcut.target }
+            ?.gridArt
+        HomeShortcutKind.AndroidApp -> InstalledAppSync.iconPathFor(shortcut.target)
+        HomeShortcutKind.Picture, HomeShortcutKind.Gif -> shortcut.target
     }
 
     private fun onAccountPanelNavAction(action: NavAction) {
@@ -8732,6 +8818,44 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun pickGameScreenshots(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameScreenshots(gameId)) }
+        }
+    }
+
+    fun addGameScreenshots(gameId: String, uris: List<Uri>) {
+        viewModelScope.launch {
+            var imported = 0
+            uris.forEach { uri ->
+                runCatching {
+                    gameCustomMediaStore.importScreenshot(gameId, uri)
+                    imported += 1
+                }
+            }
+            bumpCustomMedia()
+            emit(
+                if (imported > 0) {
+                    HomeEvent.ShowMessage(
+                        if (imported == 1) "Screenshot added." else "$imported screenshots added.",
+                    )
+                } else {
+                    HomeEvent.ShowError("Could not import those screenshots.")
+                },
+            )
+        }
+    }
+
+    fun clearGameScreenshots(gameId: String) {
+        viewModelScope.launch {
+            gameCustomMediaStore.clearScreenshots(gameId)
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Screenshots cleared."))
+        }
+    }
+
+    fun screenshotCount(gameId: String): Int = gameCustomMediaStore.listScreenshots(gameId).size
+
     fun pickMusicCover(mediaId: String) {
         viewModelScope.launch {
             runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.MusicCover(mediaId)) }
@@ -9299,9 +9423,6 @@ class HomeViewModel @Inject constructor(
          * a plain Activity instead (apps, pictures) never set it, and fall back to the gate.
          */
         private const val VITA_LAUNCH_HANDOFF_MS = 1_500L
-
-        /** Circular icons the LiveArea panel's "Recently played" row has room for. */
-        private const val VITA_PANEL_RECENT_SLOTS = 4
     }
 
     private fun refreshInstalledApps() {

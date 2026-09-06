@@ -221,7 +221,7 @@ fun buildStartSettingsRows(
             title = "Game Icon idle",
             subtitle = when (settings.gameIconIdleMedia) {
                 GameIconIdleMedia.Trailer -> "Trailers"
-                GameIconIdleMedia.Screenshot -> "Screenshots"
+                GameIconIdleMedia.Screenshot -> "Your screenshots & GIFs"
             },
             action = StartSettingsAction.CycleGameIconIdleMedia,
         ),

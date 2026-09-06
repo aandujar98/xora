@@ -3,7 +3,6 @@ package com.arcadia.shell.feature.home
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import android.content.Context
@@ -46,7 +44,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.feature.home.component.ArtworkImage
-import com.arcadia.shell.model.Game
 import com.arcadia.shell.feature.home.component.isCharging
 import com.arcadia.shell.feature.home.component.isWifiConnected
 import com.arcadia.shell.feature.home.component.readBatteryPercent
@@ -65,13 +62,12 @@ internal const val PANEL_X = 97f
 /** Sits clear of the existing box-art plate rather than the reference's higher one. */
 internal const val PANEL_Y = 700f
 internal const val PANEL_W = 985f
-internal const val PANEL_H = 308f
+internal const val PANEL_H = 196f
 private const val PANEL_RADIUS = 38f
 private const val PANEL_PAD = 22f
 private const val PANEL_ICON = 152f
 private const val PANEL_TITLE_SIZE = 35f
 private const val PANEL_BADGE_H = 34f
-private const val PANEL_ROW_TEXT = 27f
 
 private val StatusFill = Color(0xFF404040)
 private val PanelFill = Color(0x59000000)
@@ -239,16 +235,14 @@ private fun LiveAreaBattery(percent: Int, charging: Boolean, modifier: Modifier 
 }
 
 /**
- * The LiveArea info panel: the game's own icon and name, its system badge, and what has been
- * played lately. Achievement chrome stays off this page.
+ * The LiveArea info panel: the game's own icon, name, and system badge.
+ * Achievement chrome stays off this page.
  */
 @Composable
 internal fun VitaLiveAreaPanel(
     title: String,
     iconPath: String?,
     systemLabel: String,
-    recentGames: List<Game>,
-    recentOverflow: Int,
     unit: Float,
     modifier: Modifier = Modifier,
 ) {
@@ -299,12 +293,6 @@ internal fun VitaLiveAreaPanel(
                     PanelChip(text = systemLabel, unit = unit, style = ink)
                 }
                 Spacer(Modifier.weight(1f))
-                RecentlyPlayedRow(
-                    games = recentGames,
-                    overflow = recentOverflow,
-                    unit = unit,
-                    style = ink,
-                )
             }
         }
     }
@@ -330,73 +318,6 @@ private fun PanelChip(text: String, unit: Float, style: TextStyle) {
             text = text,
             style = style.copy(fontSize = with(density) { (22f * unit).dp.toSp() }),
             maxLines = 1,
-        )
-    }
-}
-
-/** "Recently played" — the Vita shows other players here; a launcher has the last games run. */
-@Composable
-private fun RecentlyPlayedRow(
-    games: List<Game>,
-    overflow: Int,
-    unit: Float,
-    style: TextStyle,
-) {
-    val density = LocalDensity.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        ClockGlyph(modifier = Modifier.size((34f * unit).dp))
-        Spacer(Modifier.width((10f * unit).dp))
-        Text(
-            text = "RECENTLY PLAYED:",
-            style = style.copy(
-                fontSize = with(density) { (PANEL_ROW_TEXT * unit).dp.toSp() },
-                color = PanelInk.copy(alpha = 0.85f),
-            ),
-            maxLines = 1,
-        )
-        Spacer(Modifier.width((14f * unit).dp))
-        Row(horizontalArrangement = Arrangement.spacedBy((8f * unit).dp)) {
-            games.forEach { game ->
-                ArtworkImage(
-                    path = game.gridArt,
-                    contentDescription = game.title,
-                    fallbackText = "",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .requiredSize((56f * unit).dp)
-                        .clip(CircleShape)
-                        .border(width = (2f * unit).dp, color = PanelBorder, shape = CircleShape),
-                )
-            }
-        }
-        if (overflow > 0) {
-            Spacer(Modifier.width((10f * unit).dp))
-            PanelChip(text = "+$overflow", unit = unit, style = style)
-        }
-    }
-}
-
-@Composable
-private fun ClockGlyph(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val r = size.minDimension / 2f
-        val c = Offset(size.width / 2f, size.height / 2f)
-        drawCircle(color = Color.White, radius = r, center = c)
-        drawCircle(color = Color(0xFF303030), radius = r * 0.84f, center = c)
-        val hand = Stroke(width = r * 0.12f, cap = StrokeCap.Round)
-        drawLine(
-            color = Color.White,
-            start = c,
-            end = Offset(c.x, c.y - r * 0.55f),
-            strokeWidth = hand.width,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = Color.White,
-            start = c,
-            end = Offset(c.x + r * 0.42f, c.y),
-            strokeWidth = hand.width,
-            cap = StrokeCap.Round,
         )
     }
 }

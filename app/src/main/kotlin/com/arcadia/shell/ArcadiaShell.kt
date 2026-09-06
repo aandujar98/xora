@@ -73,6 +73,7 @@ import com.arcadia.shell.feature.home.component.ShellSheetNav
 import com.arcadia.shell.model.TrailerRefs
 import com.arcadia.shell.scraper.ArtSlot
 import com.arcadia.shell.feature.home.ThemesSheet
+import com.arcadia.shell.feature.home.VitaShortcutIconSheet
 import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.feature.home.XoraXmbHeroDetail
 import com.arcadia.shell.feature.home.component.GuidePanel
@@ -133,6 +134,7 @@ fun ArcadiaShell(
     val overlayOpen = dialogOverlayOpen || sheetOverlayOpen
     val context = LocalContext.current
     var pendingGameMediaId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingShortcutIconId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingMusicMediaId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingPlatformBannerId by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -231,6 +233,22 @@ fun ArcadiaShell(
         pendingGameMediaId = null
         if (uri != null && gameId != null) homeViewModel.setGameIdleVideo(gameId, uri)
     }
+    val gameScreenshotPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 12),
+    ) { uris ->
+        val gameId = pendingGameMediaId
+        pendingGameMediaId = null
+        if (gameId != null && uris.isNotEmpty()) {
+            homeViewModel.addGameScreenshots(gameId, uris)
+        }
+    }
+    val shortcutIconPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        val shortcutId = pendingShortcutIconId
+        pendingShortcutIconId = null
+        if (uri != null && shortcutId != null) homeViewModel.setShortcutIcon(shortcutId, uri)
+    }
     val musicCoverPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -288,6 +306,18 @@ fun ArcadiaShell(
                     is HomeMediaPickerRequest.GameIdleVideo -> {
                         pendingGameMediaId = request.gameId
                         gameIdleVideoPicker.launch(arrayOf("video/*"))
+                    }
+                    is HomeMediaPickerRequest.GameScreenshots -> {
+                        pendingGameMediaId = request.gameId
+                        gameScreenshotPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    }
+                    is HomeMediaPickerRequest.ShortcutIcon -> {
+                        pendingShortcutIconId = request.shortcutId
+                        shortcutIconPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
                     }
                     is HomeMediaPickerRequest.MusicCover -> {
                         pendingMusicMediaId = request.mediaId
@@ -892,6 +922,7 @@ fun ArcadiaShell(
                 artAlignX = state.gameArtAlignments[gameId]?.x ?: 0f,
                 artAlignY = state.gameArtAlignments[gameId]?.y ?: 0f,
                 mediaEpoch = mediaEpoch,
+                screenshotCount = homeViewModel.screenshotCount(gameId),
                 artPicker = artPicker,
                 navActions = homeViewModel.sheetNavActionFlow,
                 actions = RomEditorActions(
@@ -915,6 +946,8 @@ fun ArcadiaShell(
                     onUploadTrailer = { homeViewModel.pickGameIdleVideo(gameId) },
                     onUseYouTubeTrailer = { homeViewModel.useYouTubeTrailer(gameId) },
                     onClearTrailer = { homeViewModel.clearGameTrailer(gameId) },
+                    onPickScreenshots = { homeViewModel.pickGameScreenshots(gameId) },
+                    onClearScreenshots = { homeViewModel.clearGameScreenshots(gameId) },
                     onImportSaves = { homeViewModel.importSavesForGame(gameId) },
                     onDeleteSave = { entry -> homeViewModel.deleteSaveForGame(entry) },
                     onSetGamePreference = { homeViewModel.setGameScraperPreference(gameId, it) },
@@ -957,6 +990,25 @@ fun ArcadiaShell(
             onClearCover = { homeViewModel.clearMusicCover(mediaId) },
             onClearWallpaper = { homeViewModel.clearMusicWallpaper(mediaId) },
         )
+    }
+
+    val vitaIconEditId by homeViewModel.vitaShortcutIconEditIdFlow.collectAsStateWithLifecycle()
+    vitaIconEditId?.let { shortcutId ->
+        val shortcut = state.homeHub.shortcuts.firstOrNull { it.id == shortcutId }
+        if (shortcut == null) {
+            homeViewModel.dismissVitaShortcutIconEditor()
+        } else {
+            SheetNavCapture(homeViewModel)
+            VitaShortcutIconSheet(
+                shortcut = shortcut,
+                navActions = homeViewModel.sheetNavActionFlow,
+                onDismiss = homeViewModel::dismissVitaShortcutIconEditor,
+                onPickIcon = { homeViewModel.pickShortcutIcon(shortcutId) },
+                onScrapeSteamGridIcon = { homeViewModel.scrapeShortcutSteamGridIcon(shortcutId) },
+                onResetIcon = { homeViewModel.resetShortcutIcon(shortcutId) },
+                onRemove = { homeViewModel.removeHomeShortcut(shortcutId) },
+            )
+        }
     }
 
     chooseEmulatorPlatformId?.let { platformId ->

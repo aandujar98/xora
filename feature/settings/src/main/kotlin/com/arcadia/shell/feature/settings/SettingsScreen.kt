@@ -430,7 +430,8 @@ fun SettingsScreen(
 
                 SettingsFieldLabel("Game Icon idle")
                 Text(
-                    text = "What fills the focused Game Icon. Trailers stay the default.",
+                    text = "What fills the focused Game Icon. Screenshots play your stills " +
+                        "and GIFs (add them in the ROM editor), fading every few seconds.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

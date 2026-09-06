@@ -117,6 +117,8 @@ data class RomEditorActions(
     val onUploadTrailer: () -> Unit,
     val onUseYouTubeTrailer: () -> Unit,
     val onClearTrailer: () -> Unit,
+    val onPickScreenshots: () -> Unit = {},
+    val onClearScreenshots: () -> Unit = {},
     val onImportSaves: () -> Unit,
     val onDeleteSave: (GameSaveEntry) -> Unit,
     val onSetGamePreference: (ScraperPreference) -> Unit,
@@ -162,6 +164,7 @@ fun RomEditorPane(
     artAlignX: Float,
     artAlignY: Float,
     mediaEpoch: Int = 0,
+    screenshotCount: Int = 0,
     artPicker: ArtPickerUiState,
     navActions: Flow<NavAction>,
     actions: RomEditorActions,
@@ -202,6 +205,7 @@ fun RomEditorPane(
         artAlignX = artAlignX,
         artAlignY = artAlignY,
         mediaEpoch = mediaEpoch,
+        screenshotCount = screenshotCount,
         onStartRename = {
             renameDraft = customTitle ?: game.title
             mode = EditorMode.Rename

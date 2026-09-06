@@ -46,6 +46,50 @@ class GameCustomMediaStore @Inject constructor(
 
     fun findIdleVideo(gameId: String): String? = findStem(stemFor(gameId, "idle"))
 
+    /**
+     * User-picked Game Select stills (PNG/JPG/WebP/GIF). Each import appends; GIFs keep
+     * animating for the idle hold, then the compositor fades to the next file.
+     */
+    suspend fun importScreenshot(gameId: String, uri: Uri): String = withContext(Dispatchers.IO) {
+        val dir = screenshotDir(gameId)
+        val nextIndex = (dir.listFiles()
+            ?.mapNotNull { it.nameWithoutExtension.toIntOrNull() }
+            ?.maxOrNull() ?: -1) + 1
+        val extension = guessExtension(uri, defaultExt = "jpg", imageOnly = true)
+        val fileName = "%03d.%s".format(nextIndex, extension)
+        val target = File(dir, fileName)
+        val temp = File(dir, "$fileName.part")
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            temp.outputStream().use { output -> input.copyTo(output) }
+        } ?: error("Could not read the selected file.")
+        if (temp.length() == 0L) {
+            temp.delete()
+            error("Selected file was empty.")
+        }
+        if (target.exists()) target.delete()
+        if (!temp.renameTo(target)) {
+            temp.copyTo(target, overwrite = true)
+            temp.delete()
+        }
+        target.absolutePath
+    }
+
+    fun listScreenshots(gameId: String): List<String> =
+        screenshotDir(gameId).listFiles()
+            ?.filter { it.isFile && it.extension.lowercase() in IMAGE_EXTS && it.length() > 0L }
+            ?.sortedBy { it.name }
+            ?.map { it.absolutePath }
+            .orEmpty()
+
+    fun clearScreenshots(gameId: String) {
+        val dir = screenshotDir(gameId)
+        runCatching { dir.listFiles()?.forEach { it.delete() } }
+        runCatching { dir.delete() }
+    }
+
+    private fun screenshotDir(gameId: String): File =
+        File(root, stemFor(gameId, "shots")).also { it.mkdirs() }
+
     private fun stemFor(gameId: String, kind: String): String {
         val safe = gameId.lowercase().replace(Regex("[^a-z0-9._-]"), "_").take(80)
         return "${kind}_$safe"
