@@ -26,7 +26,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** Beyond this much tilt (radians) the bubbles are already at full deflection. */
@@ -207,12 +210,25 @@ private class TiltListener(
 @Stable
 class VitaBubbleMotion(val count: Int) {
     private val offsets: List<MutableState<Offset>> = List(count) { mutableStateOf(Offset.Zero) }
+    private val leans: List<MutableState<Offset>> = List(count) { mutableStateOf(Offset.Zero) }
 
     fun offsetAt(index: Int): Offset =
         if (index in 0 until count) offsets[index].value else Offset.Zero
 
+    /**
+     * How far bubble [index] has swayed from its slot, as a fraction of its own amplitude, each
+     * component roughly `-1..1`. Kept separate from [offsetAt] because the bubble turns toward the
+     * direction it is travelling, and that rotation must not scale with the panel's pixel density.
+     */
+    fun leanAt(index: Int): Offset =
+        if (index in 0 until count) leans[index].value else Offset.Zero
+
     internal fun setOffset(index: Int, value: Offset) {
         offsets[index].value = value
+    }
+
+    internal fun setLean(index: Int, value: Offset) {
+        leans[index].value = value
     }
 }
 
@@ -232,7 +248,10 @@ fun rememberVitaBubbleMotion(
 
     LaunchedEffect(motion, tilt, maxShiftPx, enabled) {
         if (!enabled || count == 0 || maxShiftPx <= 0f) {
-            for (i in 0 until count) motion.setOffset(i, Offset.Zero)
+            for (i in 0 until count) {
+                motion.setOffset(i, Offset.Zero)
+                motion.setLean(i, Offset.Zero)
+            }
             return@LaunchedEffect
         }
         val posX = FloatArray(count)
@@ -279,6 +298,7 @@ fun rememberVitaBubbleMotion(
                         moving = true
                     }
                     motion.setOffset(i, Offset(posX[i], posY[i]))
+                    motion.setLean(i, Offset(posX[i] / amplitude, posY[i] / amplitude))
                 }
             }
 
@@ -367,4 +387,82 @@ private fun bubbleDetune(index: Int): Float {
 private fun bubbleAmplitude(index: Int): Float {
     val fraction = (index * 0.3819660f) % 1f
     return 0.78f + (fraction * 0.44f)
+}
+
+/** One full left-right rock of the idle lean. */
+const val VITA_BUBBLE_ROCK_CYCLE_MS = 5_200
+
+/** Lean the idle rock reaches, as a fraction of a full sway. */
+private const val BUBBLE_IDLE_ROCK_LEAN = 0.34f
+
+/**
+ * Slow left-right rock, added on top of the gyro lean so the bubbles still read as glass domes
+ * on a device that never moves — a TV box, or a tablet on a stand. Each bubble sits at its own
+ * point in the cycle, so the field breathes rather than marching in step.
+ *
+ * [cycleUnit] is `0..1` through [VITA_BUBBLE_ROCK_CYCLE_MS], from
+ * [com.arcadia.shell.designsystem.rememberThrottledAmbientUnit].
+ */
+fun vitaBubbleIdleLean(index: Int, cycleUnit: Float): Float {
+    val phase = (cycleUnit + (index * 0.6180339f)) % 1f
+    return sin(phase * 2f * PI.toFloat()) * BUBBLE_IDLE_ROCK_LEAN
+}
+
+/** How long a page-turn wobble takes to die out. */
+internal const val VITA_BUBBLE_JIGGLE_SECONDS = 0.66f
+private const val JIGGLE_HZ = 4.6f
+private const val JIGGLE_DECAY = 5.4f
+/** Lean the wobble opens with, as a fraction of a full sway. */
+private const val JIGGLE_LEAN = 0.9f
+/** Each bubble starts its wobble this much later than the one before it. */
+private const val JIGGLE_STAGGER_SECONDS = 0.018f
+
+/**
+ * Decaying left-right wobble per bubble, replayed from the start every time the page changes.
+ * Read through [leanAt] and added to the sway lean, so a page turn shudders through the field
+ * instead of sliding to a dead stop.
+ */
+@Stable
+class VitaBubbleJiggle(val count: Int) {
+    private val leans: List<MutableState<Float>> = List(count) { mutableStateOf(0f) }
+
+    fun leanAt(index: Int): Float =
+        if (index in 0 until count) leans[index].value else 0f
+
+    internal fun setLean(index: Int, value: Float) {
+        leans[index].value = value
+    }
+}
+
+@Composable
+fun rememberVitaBubbleJiggle(count: Int, page: Int, enabled: Boolean): VitaBubbleJiggle {
+    val jiggle = remember(count) { VitaBubbleJiggle(count) }
+
+    LaunchedEffect(jiggle, page, enabled) {
+        if (!enabled || count == 0) {
+            for (i in 0 until count) jiggle.setLean(i, 0f)
+            return@LaunchedEffect
+        }
+        val start = withFrameNanos { it }
+        while (true) {
+            val now = withFrameNanos { it }
+            val elapsed = (now - start) / 1_000_000_000f
+            // Settling to exactly zero matters: a bubble left a fraction of a degree off would
+            // hold that lean until the next page turn.
+            if (elapsed >= VITA_BUBBLE_JIGGLE_SECONDS) {
+                for (i in 0 until count) jiggle.setLean(i, 0f)
+                return@LaunchedEffect
+            }
+            for (i in 0 until count) jiggle.setLean(i, vitaBubbleJiggleLean(i, elapsed))
+        }
+    }
+    return jiggle
+}
+
+/** Lean bubble [index] carries [elapsedSeconds] into a page-turn wobble. */
+internal fun vitaBubbleJiggleLean(index: Int, elapsedSeconds: Float): Float {
+    val local = index % VITA_TRAY_PAGE_SIZE
+    val t = elapsedSeconds - (local * JIGGLE_STAGGER_SECONDS)
+    if (t <= 0f) return 0f
+    return sin(t * JIGGLE_HZ * 2f * PI.toFloat()) * JIGGLE_LEAN * exp(-JIGGLE_DECAY * t)
 }

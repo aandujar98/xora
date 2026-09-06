@@ -71,6 +71,7 @@ import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.rememberAmbientMotionActive
+import com.arcadia.shell.designsystem.rememberThrottledAmbientUnit
 import com.arcadia.shell.designsystem.xoraSwipeNavigate
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
@@ -97,6 +98,24 @@ private const val PAGE_DOT_CENTER_X = 72f
 
 /** How far a bubble may sway from its slot when the device is tilted. */
 private const val TILT_SHIFT_FRACTION = 0.115f
+
+/**
+ * Degrees a bubble turns at full lean. Small on purpose: the dome should catch the light from a
+ * new angle, not swing around like a coin.
+ */
+private const val BUBBLE_TILT_DEG = 13f
+
+/**
+ * Perspective for the lean, in the same density-scaled units as the depart flip below. Shorter
+ * than that flip's, because a lean this small only reads as 3D if the near edge really bulges.
+ */
+private const val BUBBLE_CAMERA_DISTANCE = 6f
+
+/**
+ * How far the glass sheen slides against the lean, as a fraction of the bubble. Kept under the
+ * 3% the sheen asset oversizes the bubble by, so its own edge never slides into view.
+ */
+private const val BUBBLE_SHEEN_TRAVEL = 0.03f
 
 private val RingGradientTop = Color.White
 private val RingGradientBottom = Color(0xFFB5EFFF)
@@ -213,6 +232,14 @@ fun VitaShortcutTray(
                 count = slots.size,
                 dropPx = bubblePx * 0.42f,
             )
+            // Page turns shudder through the field. Keyed on the focused page, so moving the
+            // cursor inside a page leaves the bubbles alone.
+            val jiggle = rememberVitaBubbleJiggle(
+                count = slots.size,
+                page = page,
+                enabled = sway,
+            )
+            val idleRock = rememberThrottledAmbientUnit(cycleMs = VITA_BUBBLE_ROCK_CYCLE_MS)
 
             val pageSlide = tween<IntOffset>(ArcadiaMotion.Medium)
             val pageFade = tween<Float>(ArcadiaMotion.Fast)
@@ -249,6 +276,18 @@ fun VitaShortcutTray(
                                 offsetProvider = {
                                     val tiltShift = motion.offsetAt(slotIndex)
                                     Offset(tiltShift.x, tiltShift.y + landing.offsetY(slotIndex))
+                                },
+                                leanProvider = {
+                                    val lean = motion.leanAt(slotIndex)
+                                    val idle = if (sway) {
+                                        vitaBubbleIdleLean(slotIndex, idleRock.floatValue)
+                                    } else {
+                                        0f
+                                    }
+                                    Offset(
+                                        lean.x + idle + jiggle.leanAt(slotIndex),
+                                        lean.y,
+                                    )
                                 },
                                 interactive = departingIndex == null && !suppressIdleBubbles,
                                 onClick = {
@@ -318,6 +357,8 @@ private fun VitaBubble(
     diameter: Dp,
     glass: ImageBitmap,
     offsetProvider: () -> Offset,
+    /** Sway, idle rock and page-turn wobble, combined; `x` turns the dome, `y` pitches it. */
+    leanProvider: () -> Offset,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     interactive: Boolean = true,
@@ -364,6 +405,15 @@ private fun VitaBubble(
                 translationY = shift.y + (diameter.toPx() * pulseLift)
                 scaleX = pulseScale
                 scaleY = pulseScale
+                // Perspective, so a lean reads as a dome turning rather than an ellipse.
+                cameraDistance = BUBBLE_CAMERA_DISTANCE * density
+                // Handed back to the depart flip, which owns the rotation once a bubble launches.
+                val settle = 1f - depart
+                val lean = leanProvider()
+                rotationY = (lean.x * BUBBLE_TILT_DEG * settle)
+                    .coerceIn(-BUBBLE_TILT_DEG, BUBBLE_TILT_DEG)
+                rotationX = (-lean.y * BUBBLE_TILT_DEG * settle)
+                    .coerceIn(-BUBBLE_TILT_DEG, BUBBLE_TILT_DEG)
                 clip = false
             }
             .then(
@@ -459,7 +509,15 @@ private fun VitaBubble(
                 .background(BubbleFill)
                 .drawWithContent {
                     drawContent()
+                    // The highlight slides against the lean, the way a fixed light source would
+                    // travel across real glass as it turns.
+                    val lean = leanProvider()
+                    val travel = size.minDimension * BUBBLE_SHEEN_TRAVEL
                     withTransform({
+                        translate(
+                            -lean.x.coerceIn(-1f, 1f) * travel,
+                            -lean.y.coerceIn(-1f, 1f) * travel,
+                        )
                         rotate(BUBBLE_GLASS_ROTATION)
                         val factor = (size.width * (BUBBLE_GLASS_DIAMETER / BUBBLE_DIAMETER)) /
                             glass.width
