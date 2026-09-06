@@ -6957,18 +6957,9 @@ class HomeViewModel @Inject constructor(
         gamepadDispatcher.startSettingsOpen = false
     }
 
-    /** Back from a category returns to the list; Back on the list closes. Themes closes outright. */
+    /** Back closes the overlay. A category page does not return to the Settings list. */
     fun dismissStartSettings() {
-        if (!startSettingsOpen.value) return
-        noteUserActivity()
-        if (startSettingsInCategory.value &&
-            startSettingsCategory.value != StartSettingsCategory.Themes
-        ) {
-            startSettingsInCategory.value = false
-            startSettingsRowIndex.value = 0
-        } else {
-            closeStartSettings()
-        }
+        closeStartSettings()
     }
 
     fun selectStartSettingsCategory(category: StartSettingsCategory) {
