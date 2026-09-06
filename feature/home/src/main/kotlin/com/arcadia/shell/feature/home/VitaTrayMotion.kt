@@ -418,9 +418,9 @@ private const val JIGGLE_LEAN = 0.9f
 private const val JIGGLE_STAGGER_SECONDS = 0.018f
 
 /**
- * Decaying left-right wobble per bubble, replayed from the start every time the page changes.
- * Read through [leanAt] and added to the sway lean, so a page turn shudders through the field
- * instead of sliding to a dead stop.
+ * Decaying up-down bounce per bubble, replayed from the start every time the page changes.
+ * Read through [liftAt] and added to the slot offset, so a page turn hops the field instead
+ * of sliding to a dead stop.
  */
 @Stable
 class VitaBubbleJiggle(val count: Int) {
@@ -428,6 +428,9 @@ class VitaBubbleJiggle(val count: Int) {
 
     fun leanAt(index: Int): Float =
         if (index in 0 until count) leans[index].value else 0f
+
+    /** Same waveform as [leanAt], kept as a named lift so callers bounce on Y. */
+    fun liftAt(index: Int): Float = leanAt(index)
 
     internal fun setLean(index: Int, value: Float) {
         leans[index].value = value
