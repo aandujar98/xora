@@ -3205,6 +3205,7 @@ class HomeViewModel @Inject constructor(
                 shortcut.kind == HomeShortcutKind.Picture || shortcut.kind == HomeShortcutKind.Gif
             }
         val icon = shortcut.artPath
+            ?: game?.shortcutIconPath
             ?: game?.boxArtPath
             ?: game?.heroImagePath
             ?: shortcut.target.takeIf { shortcut.kind == HomeShortcutKind.AndroidApp }
@@ -5733,7 +5734,7 @@ class HomeViewModel @Inject constructor(
                             kind = HomeShortcutKind.Game,
                             title = game.title,
                             target = game.id,
-                            artPath = game.gridArt,
+                            artPath = game.shortcutIcon,
                             span = span,
                         ),
                     )
@@ -8789,6 +8790,12 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun pickGameShortcutIcon(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameShortcutIcon(gameId)) }
+        }
+    }
+
     fun pickGameBackground(gameId: String) {
         viewModelScope.launch {
             runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameBackground(gameId)) }
@@ -8865,6 +8872,18 @@ class HomeViewModel @Inject constructor(
                 emit(HomeEvent.ShowMessage("Box art updated."))
             }.onFailure { error ->
                 emit(HomeEvent.ShowError(error.message ?: "Could not import box art."))
+            }
+        }
+    }
+
+    fun setGameShortcutIcon(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = gameCustomMediaStore.importShortcutIcon(gameId, uri)
+                libraryRepository.setShortcutIconPath(gameId, path)
+                emit(HomeEvent.ShowMessage("Shortcut icon updated."))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import shortcut icon."))
             }
         }
     }
@@ -8999,6 +9018,7 @@ class HomeViewModel @Inject constructor(
                 ArtSlot.BoxArt -> libraryRepository.setBoxArtPath(gameId, path)
                 ArtSlot.Hero -> libraryRepository.setHeroImagePath(gameId, path)
                 ArtSlot.Logo -> libraryRepository.setLogoImagePath(gameId, path)
+                ArtSlot.ShortcutIcon -> libraryRepository.setShortcutIconPath(gameId, path)
             }
             bumpCustomMedia()
             emit(HomeEvent.ShowMessage("${slot.label} updated from ${candidate.sourceLabel}."))
@@ -9008,6 +9028,7 @@ class HomeViewModel @Inject constructor(
     fun pickArtFromDevice(gameId: String, slot: ArtSlot) = when (slot) {
         ArtSlot.BoxArt, ArtSlot.Logo -> pickGameBoxArt(gameId)
         ArtSlot.Hero -> pickGameBackground(gameId)
+        ArtSlot.ShortcutIcon -> pickGameShortcutIcon(gameId)
     }
 
     fun clearArt(gameId: String, slot: ArtSlot) = when (slot) {
@@ -9017,6 +9038,14 @@ class HomeViewModel @Inject constructor(
             viewModelScope.launch {
                 libraryRepository.setLogoImagePath(gameId, null)
                 emit(HomeEvent.ShowMessage("Logo cleared."))
+            }
+            Unit
+        }
+        ArtSlot.ShortcutIcon -> {
+            viewModelScope.launch {
+                gameCustomMediaStore.clearShortcutIcon(gameId)
+                libraryRepository.setShortcutIconPath(gameId, null)
+                emit(HomeEvent.ShowMessage("Shortcut icon cleared."))
             }
             Unit
         }

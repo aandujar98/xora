@@ -114,6 +114,9 @@ class LibraryRepository @Inject constructor(
     suspend fun setLogoImagePath(gameId: String, path: String?) =
         gameDao.setLogoImagePath(gameId, path)
 
+    suspend fun setShortcutIconPath(gameId: String, path: String?) =
+        gameDao.setShortcutIconPath(gameId, path)
+
     suspend fun setSoundBitePath(gameId: String, path: String?) =
         gameDao.setSoundBitePath(gameId, path)
 

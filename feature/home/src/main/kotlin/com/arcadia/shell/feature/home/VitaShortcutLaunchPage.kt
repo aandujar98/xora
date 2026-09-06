@@ -7,6 +7,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -120,7 +122,18 @@ fun VitaShortcutLaunchPage(
             modifier = Modifier
                 .fillMaxSize()
                 .then(if (revealPlate) Modifier.background(Color.Black) else Modifier)
-                .pointerInput(Unit) {},
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { change ->
+                                if (!change.isConsumed) change.consume()
+                            }
+                            if (event.changes.none { it.pressed }) break
+                        }
+                    }
+                },
         ) {
             if (revealPlate && page != null) {
                 val unit = min(

@@ -37,6 +37,11 @@ data class Game(
     val logoImagePath: String? = null,
     val boxArtPath: String? = null,
     /**
+     * Square icon used when this title is pinned to Vita Shortcuts. Falls back to [gridArt]
+     * when the user has not set one yet.
+     */
+    val shortcutIconPath: String? = null,
+    /**
      * Imported hover clip (Select → ROM options). If unset, the shell also looks next to the ROM
      * for `Game name.mp3` / `.wav` — see [RomSoundBiteLocator].
      */
@@ -63,6 +68,9 @@ data class Game(
 
     /** Artwork to show in the grid, preferring box art and degrading to whatever exists. */
     val gridArt: String? get() = boxArtPath ?: heroImagePath ?: logoImagePath
+
+    /** Image copied onto a new Vita Shortcuts pin: dedicated icon first, then grid art. */
+    val shortcutIcon: String? get() = shortcutIconPath ?: gridArt
 
     val hasArtwork: Boolean
         get() = boxArtPath != null || heroImagePath != null || logoImagePath != null

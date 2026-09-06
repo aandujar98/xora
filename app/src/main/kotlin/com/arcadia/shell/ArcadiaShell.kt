@@ -212,6 +212,13 @@ fun ArcadiaShell(
         pendingGameMediaId = null
         if (uri != null && gameId != null) homeViewModel.setGameBoxArt(gameId, uri)
     }
+    val gameShortcutIconPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        val gameId = pendingGameMediaId
+        pendingGameMediaId = null
+        if (uri != null && gameId != null) homeViewModel.setGameShortcutIcon(gameId, uri)
+    }
     val gameBackgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -292,6 +299,12 @@ fun ArcadiaShell(
                     is HomeMediaPickerRequest.GameBoxArt -> {
                         pendingGameMediaId = request.gameId
                         gameBoxArtPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    }
+                    is HomeMediaPickerRequest.GameShortcutIcon -> {
+                        pendingGameMediaId = request.gameId
+                        gameShortcutIconPicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
                     }

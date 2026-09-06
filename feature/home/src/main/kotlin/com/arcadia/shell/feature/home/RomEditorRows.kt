@@ -118,7 +118,7 @@ private fun detailRows(
     )
 }
 
-private fun artworkRows(
+internal fun artworkRows(
     game: Game,
     artAlignX: Float,
     artAlignY: Float,
@@ -158,6 +158,18 @@ private fun artworkRows(
             onActivate = { onOpenArtPicker(ArtSlot.Logo) },
             onClear = { actions.onClearArt(ArtSlot.Logo) }.takeIf {
                 !game.logoImagePath.isNullOrBlank()
+            },
+        ),
+    )
+    add(
+        RomEditorRow(
+            key = "shortcuticon",
+            label = "Shortcut icon",
+            value = mediaStatus(game.shortcutIconPath),
+            hint = "Used when this title is pinned to Vita Shortcuts.",
+            onActivate = { onOpenArtPicker(ArtSlot.ShortcutIcon) },
+            onClear = { actions.onClearArt(ArtSlot.ShortcutIcon) }.takeIf {
+                !game.shortcutIconPath.isNullOrBlank()
             },
         ),
     )

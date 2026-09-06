@@ -23,6 +23,9 @@ class GameCustomMediaStore @Inject constructor(
     suspend fun importBoxArt(gameId: String, uri: Uri): String =
         importNamed(uri, stemFor(gameId, "box"), defaultExt = "jpg", imageOnly = true)
 
+    suspend fun importShortcutIcon(gameId: String, uri: Uri): String =
+        importNamed(uri, stemFor(gameId, "icon"), defaultExt = "png", imageOnly = true)
+
     suspend fun importBackground(gameId: String, uri: Uri): String =
         importNamed(uri, stemFor(gameId, "hero"), defaultExt = "jpg", imageOnly = false)
 
@@ -33,6 +36,8 @@ class GameCustomMediaStore @Inject constructor(
         importNamed(uri, stemFor(gameId, "idle"), defaultExt = "mp4", imageOnly = false)
 
     fun clearBoxArt(gameId: String) = clearStem(stemFor(gameId, "box"))
+
+    fun clearShortcutIcon(gameId: String) = clearStem(stemFor(gameId, "icon"))
 
     fun clearBackground(gameId: String) = clearStem(stemFor(gameId, "hero"))
 

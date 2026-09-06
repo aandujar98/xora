@@ -14,6 +14,7 @@ enum class ArtSlot {
     BoxArt,
     Hero,
     Logo,
+    ShortcutIcon,
     ;
 
     val label: String
@@ -21,6 +22,7 @@ enum class ArtSlot {
             BoxArt -> "Box art"
             Hero -> "Background"
             Logo -> "Logo"
+            ShortcutIcon -> "Shortcut icon"
         }
 }
 
@@ -120,6 +122,7 @@ class ArtCandidateFinder @Inject constructor(
                 match.boxArtUrl?.let { add(candidate(ArtSlot.BoxArt, it, match)) }
                 match.heroUrl?.let { add(candidate(ArtSlot.Hero, it, match)) }
                 match.logoUrl?.let { add(candidate(ArtSlot.Logo, it, match)) }
+                match.iconUrl?.let { add(candidate(ArtSlot.ShortcutIcon, it, match)) }
                 // Stills make perfectly good backgrounds and are often the only wide art a
                 // title-search source returns.
                 match.screenshotUrls.take(SCREENSHOT_LIMIT).forEach {

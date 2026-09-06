@@ -41,6 +41,8 @@ data class ScrapeMatch(
     val heroUrl: String? = null,
     val logoUrl: String? = null,
     val boxArtUrl: String? = null,
+    /** Square SteamGrid icon; used as the Vita Shortcuts pin image. */
+    val iconUrl: String? = null,
     /** Up to a few gameplay / capture stills for the XMB insight panel. */
     val screenshotUrls: List<String> = emptyList(),
     /** Encoded trailer ([com.arcadia.shell.model.TrailerRefs]) when the source provided one. */

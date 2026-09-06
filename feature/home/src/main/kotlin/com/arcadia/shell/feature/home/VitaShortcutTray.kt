@@ -180,6 +180,7 @@ fun VitaShortcutTray(
             modifier = Modifier
                 .fillMaxSize()
                 .xoraSwipeNavigate(
+                    enabled = departingIndex == null && !suppressIdleBubbles,
                     horizontal = false,
                     vertical = true,
                     onSwipe = { direction ->

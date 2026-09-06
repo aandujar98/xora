@@ -676,7 +676,9 @@ private fun ArtCandidateTile(
             cacheInMemory = true,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(ArcadiaArt.BoxArtAspect)
+                .aspectRatio(
+                    if (slot == ArtSlot.ShortcutIcon) 1f else ArcadiaArt.BoxArtAspect,
+                )
                 .clip(RoundedCornerShape(10.dp))
                 .border(
                     width = if (active) 3.dp else 1.dp,

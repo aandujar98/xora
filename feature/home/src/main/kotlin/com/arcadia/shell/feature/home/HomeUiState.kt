@@ -408,6 +408,7 @@ sealed interface HomeMediaPickerRequest {
     /** Banner art for a console card in the system picker. */
     data class PlatformBanner(val platformId: String) : HomeMediaPickerRequest
     data class GameBoxArt(val gameId: String) : HomeMediaPickerRequest
+    data class GameShortcutIcon(val gameId: String) : HomeMediaPickerRequest
     data class GameBackground(val gameId: String) : HomeMediaPickerRequest
     data class GameSoundBite(val gameId: String) : HomeMediaPickerRequest
     data class GameIdleVideo(val gameId: String) : HomeMediaPickerRequest

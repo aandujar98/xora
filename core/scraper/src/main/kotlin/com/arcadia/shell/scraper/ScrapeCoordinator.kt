@@ -122,6 +122,25 @@ class ScrapeCoordinator @Inject constructor(
             boxArtPath = boxArtPath,
         )
 
+        // Shortcut icons are a fourth slot. Fill once from this match or a SteamGrid lookup so
+        // pinning to Vita Shortcuts has a square default without overwriting a user pick.
+        if (game.shortcutIconPath == null) {
+            val iconPath = match.iconUrl?.let { mediaCache.fetch(it) }
+                ?: if (credentials.hasSteamGridDb) {
+                    runCatching {
+                        steamGridDb.firstIconUrl(
+                            match.title ?: game.title,
+                            credentials.steamGridDbKey,
+                        )?.let { mediaCache.fetch(it) }
+                    }.getOrNull()
+                } else {
+                    null
+                }
+            if (iconPath != null) {
+                libraryRepository.setShortcutIconPath(game.id, iconPath)
+            }
+        }
+
         // Trailer and manual are best-effort extras and must not undo a successful artwork match.
         val settings = preferences.settings.first()
 

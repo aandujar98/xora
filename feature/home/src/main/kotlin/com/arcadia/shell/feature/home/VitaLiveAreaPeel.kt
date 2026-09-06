@@ -5,8 +5,8 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.offset
@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.DpRect
@@ -231,74 +232,81 @@ internal fun VitaLiveAreaPeel(
         }
 
         // Only the corner takes the pull, so a stray swipe across the artwork cannot launch.
+        // One detector owns tap (auto peel) and drag (manual fold) so they cannot steal
+        // the pointer from each other.
         val grab = (PEEL_GRAB * unit).dp
+        val requestPeel = rememberUpdatedState(onRequestPeel)
         Box(
             modifier = Modifier
                 .offset(x = boundary.right - grab, y = boundary.top)
                 .size(grab)
-                .pointerInput(inert) {
-                    if (inert) return@pointerInput
-                    detectTapGestures { onRequestPeel() }
-                }
                 .pointerInput(inert, sweep) {
                     if (inert) return@pointerInput
                     val commit = VitaPeelGeometry.commitDepth(bounds.width, bounds.height)
-                    var lastDragAtMs = 0L
-                    var lastBand: VitaPeelDragSpeed? = null
-                    detectDragGestures(
-                        onDragStart = {
-                            engaged = true
-                            lastDragAtMs = 0L
-                            lastBand = null
-                        },
-                        onDrag = { change, drag ->
+                    val slop = viewConfiguration.touchSlop
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        engaged = true
+                        var lastDragAtMs = down.uptimeMillis
+                        var lastBand: VitaPeelDragSpeed? = null
+                        var dragged = false
+                        var totalDistance = 0f
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                                ?: event.changes.firstOrNull { it.pressed }
+                                ?: break
+                            val delta = change.positionChange()
+                            totalDistance += delta.getDistance()
+                            if (!dragged && totalDistance > slop) {
+                                dragged = true
+                            }
                             change.consume()
-                            val now = change.uptimeMillis
-                            val dt = if (lastDragAtMs == 0L) 16f else (now - lastDragAtMs).toFloat()
-                            lastDragAtMs = now
-                            val delta = VitaPeelGeometry.depthDelta(drag.x, drag.y)
-                            val band = VitaPeelGeometry.dragSpeed(delta, dt.coerceAtLeast(1f))
-                            if (band != lastBand) {
-                                lastBand = band
-                                peelSpeed.value(band)
-                            }
-                            scope.launch {
-                                depth.snapTo(depth.value + delta)
-                            }
-                        },
-                        onDragEnd = {
-                            peelSpeed.value(null)
-                            scope.launch {
-                                if (depth.value >= commit) {
-                                    spent = true
-                                    depth.animateTo(
-                                        targetValue = sweep,
-                                        animationSpec = tween(
-                                            durationMillis = if (reduceMotion) 0 else PeelSettleMs,
-                                            easing = FastOutSlowInEasing,
-                                        ),
-                                    )
-                                    peeled.value()
-                                } else {
-                                    depth.animateTo(
-                                        targetValue = restDepth,
-                                        animationSpec = spring(
-                                            dampingRatio = 0.62f,
-                                            stiffness = Spring.StiffnessMedium,
-                                        ),
-                                    )
-                                    engaged = false
+                            if (dragged) {
+                                val now = change.uptimeMillis
+                                val dt = (now - lastDragAtMs).toFloat().coerceAtLeast(1f)
+                                lastDragAtMs = now
+                                val foldDelta = VitaPeelGeometry.depthDelta(delta.x, delta.y)
+                                val band = VitaPeelGeometry.dragSpeed(foldDelta, dt)
+                                if (band != lastBand) {
+                                    lastBand = band
+                                    peelSpeed.value(band)
+                                }
+                                scope.launch {
+                                    depth.snapTo(depth.value + foldDelta)
                                 }
                             }
-                        },
-                        onDragCancel = {
-                            peelSpeed.value(null)
-                            scope.launch {
-                                depth.animateTo(restDepth, spring(dampingRatio = 0.62f))
+                            if (event.changes.none { it.pressed }) break
+                        }
+                        peelSpeed.value(null)
+                        if (!dragged) {
+                            requestPeel.value()
+                            return@awaitEachGesture
+                        }
+                        scope.launch {
+                            if (depth.value >= commit) {
+                                spent = true
+                                depth.animateTo(
+                                    targetValue = sweep,
+                                    animationSpec = tween(
+                                        durationMillis = if (reduceMotion) 0 else PeelSettleMs,
+                                        easing = FastOutSlowInEasing,
+                                    ),
+                                )
+                                peeled.value()
+                            } else {
+                                depth.animateTo(
+                                    targetValue = restDepth,
+                                    animationSpec = spring(
+                                        dampingRatio = 0.62f,
+                                        stiffness = Spring.StiffnessMedium,
+                                    ),
+                                )
                                 engaged = false
                             }
-                        },
-                    )
+                        }
+                    }
                 },
         )
     }

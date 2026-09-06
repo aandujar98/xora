@@ -395,7 +395,7 @@ private fun ShortcutTargetRow(
 ) {
     val glass = rememberGlassTokens(GlassTone.Surface)
     val artPath = when (kind) {
-        ShortcutPinTargetKind.LibraryGame -> game.gridArt
+        ShortcutPinTargetKind.LibraryGame -> game.shortcutIcon
         ShortcutPinTargetKind.AndroidApp -> InstalledAppSync.iconPathFor(game.fileName)
     }
     val subtitle = when (kind) {

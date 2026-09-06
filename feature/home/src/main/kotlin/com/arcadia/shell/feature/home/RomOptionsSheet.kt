@@ -72,11 +72,13 @@ fun RomOptionsSheet(
     onNudgeCover: (Float, Float) -> Unit = { _, _ -> },
     onResetCover: () -> Unit = {},
     onPickBoxArt: () -> Unit,
+    onPickShortcutIcon: () -> Unit = {},
     onPickBackground: () -> Unit,
     onPickSoundBite: () -> Unit,
     onPickIdleVideo: () -> Unit,
     onPickScreenshots: () -> Unit = {},
     onClearBoxArt: () -> Unit,
+    onClearShortcutIcon: () -> Unit = {},
     onClearBackground: () -> Unit,
     onClearSoundBite: () -> Unit,
     onClearIdleVideo: () -> Unit,
@@ -201,6 +203,12 @@ fun RomOptionsSheet(
                 status = pathStatus(game.heroImagePath),
                 onChange = onPickBackground,
                 onClear = onClearBackground.takeIf { !game.heroImagePath.isNullOrBlank() },
+            )
+            MediaRow(
+                title = "Shortcut icon",
+                status = pathStatus(game.shortcutIconPath),
+                onChange = onPickShortcutIcon,
+                onClear = onClearShortcutIcon.takeIf { !game.shortcutIconPath.isNullOrBlank() },
             )
             val hasSoundBite = RomSoundBiteLocator.resolve(game) != null ||
                 !game.soundBitePath.isNullOrBlank()

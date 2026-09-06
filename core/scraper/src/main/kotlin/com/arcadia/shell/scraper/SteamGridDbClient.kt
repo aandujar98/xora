@@ -13,9 +13,9 @@ import javax.inject.Singleton
  * Title-based artwork lookups against SteamGridDB.
  *
  * This is the strongest source for the shell's specific needs, because its library is organised
- * around exactly the three asset shapes the interface wants: a wide hero, a transparent logo, and a
- * landscape grid tile. Its weakness is that matching is by name, so it depends on the filename having
- * been cleaned well.
+ * around the asset shapes the interface wants: a wide hero, a transparent logo, a landscape
+ * grid tile, and a square icon for Vita Shortcuts. Its weakness is that matching is by name, so
+ * it depends on the filename having been cleaned well.
  */
 @Singleton
 class SteamGridDbClient @Inject constructor(
@@ -32,6 +32,7 @@ class SteamGridDbClient @Inject constructor(
             heroUrl = firstAssetUrl("heroes", gameId, apiKey),
             logoUrl = firstAssetUrl("logos", gameId, apiKey),
             boxArtUrl = firstLandscapeGridUrl(gameId, apiKey),
+            iconUrl = firstAssetUrl("icons", gameId, apiKey),
             source = ScrapeSource.SteamGridDb,
         )
 

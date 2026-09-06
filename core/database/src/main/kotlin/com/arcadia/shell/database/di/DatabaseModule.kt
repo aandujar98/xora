@@ -22,6 +22,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): ArcadiaDatabase =
         Room.databaseBuilder(context, ArcadiaDatabase::class.java, ArcadiaDatabase.NAME)
+            .addMigrations(ArcadiaDatabase.MIGRATION_3_4)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
