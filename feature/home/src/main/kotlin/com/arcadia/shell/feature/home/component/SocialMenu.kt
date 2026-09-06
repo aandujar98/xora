@@ -127,7 +127,6 @@ private val PlaytimeFillBrush = Brush.verticalGradient(listOf(PlaytimeFillTop, P
 
 private val CardStroke = 3.dp
 private val CardAssetShadowDp = 4.dp
-private val CardShadowInk = Color(0xFF000000)
 private val FriendBarNeighborDim = 0.75f
 private val FriendBarRestDim = 0.50f
 private val FriendBarGap = 2.dp
@@ -645,7 +644,6 @@ private fun SocialTabSearchBar(
                         fontWeight = FontWeight.Bold,
                         fontSize = searchSize,
                         brush = ChromeStrokeBrush,
-                        shadow = cardAssetShadow(),
                     ),
                     cursorBrush = SolidColor(FocusRing),
                     modifier = Modifier.weight(1f),
@@ -716,31 +714,46 @@ private fun ChromeCaptionText(
     fontSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
 ) {
-    Text(
-        text = text,
-        modifier = modifier,
-        style = TextStyle(
-            fontFamily = XoraFonts.XmbLabel,
-            fontWeight = FontWeight.Bold,
-            // XoraOutlinedText scaled internally; match it now that this draws its own Text.
-            fontSize = fontSize * xoraTextScale(),
-            brush = ChromeStrokeBrush,
-            shadow = cardAssetShadow(),
-        ),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+    val scaled = fontSize * xoraTextScale()
+    val shadow = cardAssetShadow()
+    val type = TextStyle(
+        fontFamily = XoraFonts.XmbLabel,
+        fontWeight = FontWeight.Bold,
+        fontSize = scaled,
     )
+    // Shadow on a brushed TextStyle paints over the glyphs. A solid-ink back layer keeps the
+    // drop behind the chrome fill, in black.
+    Box(modifier = modifier) {
+        Text(
+            text = text,
+            style = type.copy(
+                color = Color.Black,
+                shadow = shadow,
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = text,
+            style = type.copy(brush = ChromeStrokeBrush),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 @Composable
 private fun cardAssetShadow(): Shadow {
     val px = with(LocalDensity.current) { CardAssetShadowDp.toPx() }
-    return Shadow(
-        color = CardShadowInk.copy(alpha = 0.50f),
-        offset = Offset(px, px),
-        blurRadius = px,
-    )
+    return socialCardTextShadow(px)
 }
+
+/** Solid black drop behind social-card type — never a brushed / faded halo on the glyphs. */
+internal fun socialCardTextShadow(offsetPx: Float): Shadow = Shadow(
+    color = Color.Black,
+    offset = Offset(offsetPx, offsetPx),
+    blurRadius = offsetPx,
+)
 
 @Composable
 private fun FriendsOnlineHeader(online: Int, total: Int) {
