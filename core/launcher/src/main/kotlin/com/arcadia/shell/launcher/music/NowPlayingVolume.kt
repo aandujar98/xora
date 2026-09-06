@@ -28,7 +28,8 @@ object MusicPlaybackSession {
         state.track?.source == MusicSource.Device && state.hasTrack
 }
 
-/** Compact emulator HUD — shown whenever a track is loaded, including while paused. */
+/** Compact emulator HUD — only while the pause overlay is open and a track is loaded. */
 object EmulatorNowPlayingHudVisibility {
-    fun isVisible(state: NowPlayingState): Boolean = state.hasTrack
+    fun isVisible(overlayOpen: Boolean, state: NowPlayingState): Boolean =
+        overlayOpen && state.hasTrack
 }

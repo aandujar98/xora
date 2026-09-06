@@ -82,18 +82,22 @@ class MusicPlaybackSessionTest {
     }
 
     @Test
-    fun emulatorHudShowsWheneverATrackIsLoaded() {
+    fun emulatorHudShowsOnlyWhenOverlayIsOpenAndATrackIsLoaded() {
+        val loaded = NowPlayingState(track = device, isPlaying = false)
+        assertTrue(EmulatorNowPlayingHudVisibility.isVisible(overlayOpen = true, loaded))
+        assertFalse(EmulatorNowPlayingHudVisibility.isVisible(overlayOpen = false, loaded))
         assertTrue(
             EmulatorNowPlayingHudVisibility.isVisible(
-                NowPlayingState(track = device, isPlaying = false),
-            ),
-        )
-        assertTrue(
-            EmulatorNowPlayingHudVisibility.isVisible(
+                overlayOpen = true,
                 NowPlayingState(track = spotify, isPlaying = true),
             ),
         )
-        assertFalse(EmulatorNowPlayingHudVisibility.isVisible(NowPlayingState()))
+        assertFalse(
+            EmulatorNowPlayingHudVisibility.isVisible(
+                overlayOpen = true,
+                NowPlayingState(),
+            ),
+        )
     }
 
     @Test

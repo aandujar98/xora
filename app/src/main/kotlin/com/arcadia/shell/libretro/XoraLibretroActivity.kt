@@ -103,6 +103,7 @@ import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
 import com.arcadia.shell.feature.home.XoraInGameXmbController
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
+import com.arcadia.shell.launcher.music.EmulatorNowPlayingHudVisibility
 import com.arcadia.shell.launcher.music.NowPlayingController
 import com.arcadia.shell.launcher.music.NowPlayingVolume
 import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
@@ -202,6 +203,7 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var nowPlayingController: NowPlayingController
 
     @Volatile private var menuOpen = false
+    private var overlayOpenUi by mutableStateOf(false)
     /** True while the in-game menu is showing or the user left Pause on. */
     @Volatile private var paused = false
     /** Stays paused after the side menu closes until Resume is chosen. */
@@ -785,9 +787,12 @@ class XoraLibretroActivity : ComponentActivity() {
             val settings by preferences.settings.collectAsStateWithLifecycle(
                 initialValue = ShellSettings(),
             )
+            val xora by preferences.xoraEmulatorSettings.collectAsStateWithLifecycle(
+                initialValue = XoraEmulatorSettings(),
+            )
             val nowPlaying by nowPlayingController.state.collectAsStateWithLifecycle()
-            LaunchedEffect(nowPlaying.hasTrack) {
-                musicHudNeeded = nowPlaying.hasTrack
+            LaunchedEffect(overlayOpenUi, nowPlaying.hasTrack) {
+                musicHudNeeded = EmulatorNowPlayingHudVisibility.isVisible(overlayOpenUi, nowPlaying)
                 syncMusicHud()
             }
             ArcadiaTheme(
@@ -799,11 +804,36 @@ class XoraLibretroActivity : ComponentActivity() {
                     Box(modifier = Modifier.wrapContentSize(align = Alignment.BottomEnd)) {
                         EmulatorNowPlayingHud(
                             state = nowPlaying,
+                            gameVolume = xora.audioVolume,
                             onTogglePlayPause = nowPlayingController::togglePlayPause,
                             onSkipPrevious = { nowPlayingController.skipPrevious() },
                             onSkipNext = { nowPlayingController.skipNext() },
-                            onVolumeDown = { nowPlayingController.nudgeVolume(-NowPlayingVolume.STEP) },
-                            onVolumeUp = { nowPlayingController.nudgeVolume(NowPlayingVolume.STEP) },
+                            onMusicVolumeDown = {
+                                nowPlayingController.nudgeVolume(-NowPlayingVolume.STEP)
+                            },
+                            onMusicVolumeUp = {
+                                nowPlayingController.nudgeVolume(NowPlayingVolume.STEP)
+                            },
+                            onGameVolumeDown = {
+                                lifecycleScope.launch {
+                                    preferences.setXoraAudioVolume(
+                                        NowPlayingVolume.nudge(
+                                            xoraSettings.audioVolume,
+                                            -NowPlayingVolume.STEP,
+                                        ),
+                                    )
+                                }
+                            },
+                            onGameVolumeUp = {
+                                lifecycleScope.launch {
+                                    preferences.setXoraAudioVolume(
+                                        NowPlayingVolume.nudge(
+                                            xoraSettings.audioVolume,
+                                            NowPlayingVolume.STEP,
+                                        ),
+                                    )
+                                }
+                            },
                         )
                     }
                 }
@@ -1424,9 +1454,13 @@ class XoraLibretroActivity : ComponentActivity() {
         refreshSaveSlots()
         refreshAchievementList()
         menuOpen = true
+        overlayOpenUi = true
+        musicHudNeeded = nowPlayingController.state.value.hasTrack
         releasePointer()
         syncPaused()
         attachMenuOverlay()
+        syncMusicHud()
+        musicHudOverlay?.bringToFront()
         keepProfileChipOnTop()
         uiSounds.playConfirm()
     }
@@ -1474,6 +1508,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun closeMenu() {
         if (!menuOpen) return
         menuOpen = false
+        overlayOpenUi = false
         hideSoftKeyboard()
         syncPaused()
         dissolveWashLayers()
@@ -2643,9 +2678,10 @@ class XoraLibretroActivity : ComponentActivity() {
      */
     private fun syncMusicHud() {
         val host = musicHudOverlay ?: return
-        val want = if (musicHudNeeded) View.VISIBLE else View.GONE
+        val show = menuOpen && musicHudNeeded
+        val want = if (show) View.VISIBLE else View.GONE
         if (host.visibility != want) host.visibility = want
-        if (!musicHudNeeded) {
+        if (!show) {
             if (host.alpha != 0f) host.alpha = 0f
             if (host.layerType != View.LAYER_TYPE_NONE) {
                 host.setLayerType(View.LAYER_TYPE_NONE, null)
@@ -2709,7 +2745,9 @@ class XoraLibretroActivity : ComponentActivity() {
             overlay.alpha > 0.01f
         if (showing) return
         menuOpen = false
+        overlayOpenUi = false
         syncPaused()
+        syncMusicHud()
         pinGameplaySurfaceRepeatedly()
     }
 

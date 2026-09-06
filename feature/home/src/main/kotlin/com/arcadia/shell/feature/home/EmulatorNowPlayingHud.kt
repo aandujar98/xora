@@ -47,16 +47,19 @@ private val VolumeRail = Color.White.copy(alpha = 0.22f)
 @Composable
 fun EmulatorNowPlayingHud(
     state: NowPlayingState,
+    gameVolume: Float,
     onTogglePlayPause: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
-    onVolumeDown: () -> Unit,
-    onVolumeUp: () -> Unit,
+    onMusicVolumeDown: () -> Unit,
+    onMusicVolumeUp: () -> Unit,
+    onGameVolumeDown: () -> Unit,
+    onGameVolumeUp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (!state.hasTrack) return
     val track = state.track ?: return
-    val showVolume = track.source == MusicSource.Device
+    val showMusicVolume = track.source == MusicSource.Device
 
     Column(
         modifier = modifier
@@ -114,38 +117,66 @@ fun EmulatorNowPlayingHud(
                 onClick = onSkipNext,
             )
         }
-        if (showVolume) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                HudTextButton(label = "−", onClick = onVolumeDown)
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(6.dp)
-                        .clip(CircleShape)
-                        .background(VolumeRail),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(NowPlayingVolume.coerce(state.volume))
-                            .height(6.dp)
-                            .clip(CircleShape)
-                            .background(VolumeFill),
-                    )
-                }
-                HudTextButton(label = "+", onClick = onVolumeUp)
-                Text(
-                    text = NowPlayingVolume.percentLabel(state.volume),
-                    color = HudInk.copy(alpha = 0.8f),
-                    fontFamily = XoraFonts.Secondary,
-                    fontSize = 11.sp,
-                    modifier = Modifier.width(36.dp),
-                )
-            }
+        if (showMusicVolume) {
+            HudVolumeRow(
+                label = "Music",
+                volume = state.volume,
+                onVolumeDown = onMusicVolumeDown,
+                onVolumeUp = onMusicVolumeUp,
+            )
         }
+        HudVolumeRow(
+            label = "Game",
+            volume = gameVolume,
+            onVolumeDown = onGameVolumeDown,
+            onVolumeUp = onGameVolumeUp,
+        )
+    }
+}
+
+@Composable
+private fun HudVolumeRow(
+    label: String,
+    volume: Float,
+    onVolumeDown: () -> Unit,
+    onVolumeUp: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = HudInk.copy(alpha = 0.8f),
+            fontFamily = XoraFonts.Secondary,
+            fontSize = 11.sp,
+            modifier = Modifier.width(40.dp),
+        )
+        HudTextButton(label = "−", onClick = onVolumeDown)
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(6.dp)
+                .clip(CircleShape)
+                .background(VolumeRail),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(NowPlayingVolume.coerce(volume))
+                    .height(6.dp)
+                    .clip(CircleShape)
+                    .background(VolumeFill),
+            )
+        }
+        HudTextButton(label = "+", onClick = onVolumeUp)
+        Text(
+            text = NowPlayingVolume.percentLabel(volume),
+            color = HudInk.copy(alpha = 0.8f),
+            fontFamily = XoraFonts.Secondary,
+            fontSize = 11.sp,
+            modifier = Modifier.width(36.dp),
+        )
     }
 }
 
