@@ -93,6 +93,7 @@ import com.arcadia.shell.display.SecondDisplayAttachResult
 import com.arcadia.shell.display.SecondDisplayImageHost
 import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.EmulatorMenuAction
+import com.arcadia.shell.feature.home.EmulatorNowPlayingHud
 import com.arcadia.shell.feature.home.EmulatorSaveSlotUi
 import com.arcadia.shell.feature.home.GameCompanionController
 import com.arcadia.shell.feature.home.GameSoundBitePlayer
@@ -102,6 +103,8 @@ import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
 import com.arcadia.shell.feature.home.XoraInGameXmbController
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
+import com.arcadia.shell.launcher.music.NowPlayingController
+import com.arcadia.shell.launcher.music.NowPlayingVolume
 import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
 import com.arcadia.shell.feature.home.component.NetplaySeatOption
 import com.arcadia.shell.feature.home.component.NetplaySeatPickerDialog
@@ -196,6 +199,7 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var discordRichPresence: DiscordRichPresence
     @Inject lateinit var gameCompanionController: GameCompanionController
     @Inject lateinit var gameSoundBitePlayer: GameSoundBitePlayer
+    @Inject lateinit var nowPlayingController: NowPlayingController
 
     @Volatile private var menuOpen = false
     /** True while the in-game menu is showing or the user left Pause on. */
@@ -299,6 +303,9 @@ class XoraLibretroActivity : ComponentActivity() {
      */
     private var bannerOverlay: ComposeView? = null
     @Volatile private var bannerHostNeeded = false
+    /** Wrap-content Now Playing HUD. Same GONE-when-empty rule as [bannerOverlay]. */
+    private var musicHudOverlay: ComposeView? = null
+    @Volatile private var musicHudNeeded = false
     /** Long-press the profile disc: on-screen wash report. Removed on tap. */
     private var washReport: View? = null
     private val washFrameCallback = object : Choreographer.FrameCallback {
@@ -541,6 +548,26 @@ class XoraLibretroActivity : ComponentActivity() {
         banners.visibility = View.GONE
         root.addView(banners)
 
+        val density = resources.displayMetrics.density
+        val musicHud = ComposeView(this).apply {
+            setBackgroundColor(AndroidColor.TRANSPARENT)
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            isClickable = false
+            isFocusable = false
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END,
+            ).apply {
+                rightMargin = (20f * density).toInt()
+                bottomMargin = (20f * density).toInt()
+            }
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            visibility = View.GONE
+        }
+        musicHudOverlay = musicHud
+        root.addView(musicHud)
+
         val xmb = ComposeView(this).apply {
             // Opaque wrap-content side menu. A transparent Compose host is what washed the game.
             setBackgroundColor(AndroidColor.BLACK)
@@ -748,6 +775,35 @@ class XoraLibretroActivity : ComponentActivity() {
                                     syncDialogOverlay()
                                 }
                             },
+                        )
+                    }
+                }
+            }
+        }
+
+        musicHud.setContent {
+            val settings by preferences.settings.collectAsStateWithLifecycle(
+                initialValue = ShellSettings(),
+            )
+            val nowPlaying by nowPlayingController.state.collectAsStateWithLifecycle()
+            LaunchedEffect(nowPlaying.hasTrack) {
+                musicHudNeeded = nowPlaying.hasTrack
+                syncMusicHud()
+            }
+            ArcadiaTheme(
+                darkTheme = true,
+                shellThemeId = settings.shellThemeId,
+                uiTextScale = settings.uiTextScale,
+            ) {
+                CompositionLocalProvider(LocalArcadiaHaze provides null) {
+                    Box(modifier = Modifier.wrapContentSize(align = Alignment.BottomEnd)) {
+                        EmulatorNowPlayingHud(
+                            state = nowPlaying,
+                            onTogglePlayPause = nowPlayingController::togglePlayPause,
+                            onSkipPrevious = { nowPlayingController.skipPrevious() },
+                            onSkipNext = { nowPlayingController.skipNext() },
+                            onVolumeDown = { nowPlayingController.nudgeVolume(-NowPlayingVolume.STEP) },
+                            onVolumeUp = { nowPlayingController.nudgeVolume(NowPlayingVolume.STEP) },
                         )
                     }
                 }
@@ -2555,6 +2611,7 @@ class XoraLibretroActivity : ComponentActivity() {
             }
         }
         syncBannerHost()
+        syncMusicHud()
         clearParentWashLayers()
     }
 
@@ -2575,6 +2632,24 @@ class XoraLibretroActivity : ComponentActivity() {
                 host.setLayerType(View.LAYER_TYPE_NONE, null)
             }
             if (host.hasComposition) host.disposeComposition()
+        } else if (host.alpha != 1f) {
+            host.alpha = 1f
+        }
+    }
+
+    /**
+     * Bottom-right music HUD. Same compositor rule as [syncBannerHost]: stay GONE when idle so
+     * a live Compose layer cannot tint the framebuffer.
+     */
+    private fun syncMusicHud() {
+        val host = musicHudOverlay ?: return
+        val want = if (musicHudNeeded) View.VISIBLE else View.GONE
+        if (host.visibility != want) host.visibility = want
+        if (!musicHudNeeded) {
+            if (host.alpha != 0f) host.alpha = 0f
+            if (host.layerType != View.LAYER_TYPE_NONE) {
+                host.setLayerType(View.LAYER_TYPE_NONE, null)
+            }
         } else if (host.alpha != 1f) {
             host.alpha = 1f
         }
