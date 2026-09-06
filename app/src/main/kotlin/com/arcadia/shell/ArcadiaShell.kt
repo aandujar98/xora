@@ -15,7 +15,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,7 +36,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -687,14 +685,7 @@ fun ArcadiaShell(
                             onOpenHomeSettings = onOpenHomeSettings,
                         )
                     },
-                    backdrop = {
-                        Image(
-                            painter = painterResource(R.drawable.sora_settings_hero),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    },
+                    backdrop = {},
                 )
             }
 
@@ -1143,15 +1134,10 @@ private fun ThemesCustomizeOverlay(
     }
 }
 
-/** Full-bleed XOrA brand art for the secondary display while Settings owns the primary. */
+/** Secondary display stays clear while Advanced Settings owns the primary. */
 @Composable
 private fun SettingsCompanionPane(modifier: Modifier = Modifier) {
-    Image(
-        painter = painterResource(R.drawable.sora_settings_hero),
-        contentDescription = "XOrA",
-        contentScale = ContentScale.Crop,
-        modifier = modifier.fillMaxSize(),
-    )
+    Box(modifier = modifier.fillMaxSize())
 }
 
 private fun bringShellToFront(context: android.content.Context) {
