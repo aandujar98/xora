@@ -67,6 +67,22 @@ fun XoraOutlinedText(
         else -> Alignment.TopStart
     }
     Box(modifier = modifier, contentAlignment = alignment) {
+        // Shadow is its own back layer. Putting [TextStyle.shadow] on a brushed fill paints the
+        // drop over the glyphs — a light halo sitting on the letters instead of black ink behind.
+        if (shadow != null) {
+            Text(
+                text = text,
+                maxLines = maxLines,
+                overflow = overflow,
+                softWrap = softWrap,
+                textAlign = textAlign,
+                style = base.copy(
+                    color = shadow.color,
+                    drawStyle = Fill,
+                    shadow = shadow,
+                ),
+            )
+        }
         Text(
             text = text,
             maxLines = maxLines,
@@ -103,13 +119,11 @@ fun XoraOutlinedText(
                 base.copy(
                     brush = fillBrush,
                     drawStyle = Fill,
-                    shadow = shadow,
                 )
             } else {
                 base.copy(
                     color = fillColor,
                     drawStyle = Fill,
-                    shadow = shadow,
                 )
             },
         )
