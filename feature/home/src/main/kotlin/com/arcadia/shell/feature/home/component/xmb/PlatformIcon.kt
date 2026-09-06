@@ -89,6 +89,7 @@ fun drawableResForTab(tab: LibraryTab): Int = when (tab.kind) {
 
 @DrawableRes
 fun drawableResForPlatformId(platformId: String?): Int = when (platformId) {
+    "android" -> R.drawable.ic_tab_apps
     "nes" -> R.drawable.ic_platform_nes
     "snes" -> R.drawable.ic_platform_snes
     "n64" -> R.drawable.ic_platform_n64

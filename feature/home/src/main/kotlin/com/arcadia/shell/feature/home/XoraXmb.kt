@@ -8,6 +8,7 @@ import com.arcadia.shell.launcher.music.MusicSource
 import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.launcher.photos.DeviceMediaFolder
 import com.arcadia.shell.model.Game
+import com.arcadia.shell.model.GamePlatform
 import com.arcadia.shell.model.PlatformSummary
 
 /** Top-level XOrA XMB categories (horizontal strip). */
@@ -608,25 +609,49 @@ fun buildXoraDspItems(spotifyLinked: Boolean): List<XoraXmbItem> = listOf(
     ),
 )
 
+/**
+ * Catalog summaries omit the synthetic Android platform. Append it when any mirrored apps remain
+ * after hide-filters so Platforms can list them without teaching ROM scanning that Android is a
+ * console.
+ */
+fun withAndroidPlatformSummary(
+    summaries: List<PlatformSummary>,
+    games: List<Game>,
+): List<PlatformSummary> {
+    val withoutAndroid = summaries.filter { it.platform.id != GamePlatform.Android.id }
+    val androidCount = games.count { it.isAndroidApp }
+    return if (androidCount > 0) {
+        withoutAndroid + PlatformSummary(platform = GamePlatform.Android, gameCount = androidCount)
+    } else {
+        withoutAndroid
+    }
+}
+
 fun buildXoraSystemItems(
     summaries: List<PlatformSummary>,
     artByPlatformId: Map<String, String> = emptyMap(),
     readyPlatformIds: Set<String> = emptySet(),
 ): List<XoraXmbItem> =
     summaries
-        .filter { it.gameCount > 0 && it.platform.id != "android" }
+        .filter { it.gameCount > 0 }
         .sortedBy { it.platform.displayName.lowercase() }
         .map { summary ->
             val platformId = summary.platform.id
+            val isAndroid = platformId == GamePlatform.Android.id
+            val countLabel = if (isAndroid) {
+                "${summary.gameCount} app${if (summary.gameCount == 1) "" else "s"}"
+            } else {
+                "${summary.gameCount} game${if (summary.gameCount == 1) "" else "s"}"
+            }
             XoraXmbItem(
                 id = "sys_$platformId",
                 title = summary.platform.displayName,
-                subtitle = "${summary.gameCount} game${if (summary.gameCount == 1) "" else "s"}",
+                subtitle = countLabel,
                 action = XoraXmbAction.DrillSystem(platformId),
                 artPath = artByPlatformId[platformId],
                 gameCount = summary.gameCount,
-                ready = platformId in readyPlatformIds,
-                icon = XmbIcon.GamePad,
+                ready = isAndroid || platformId in readyPlatformIds,
+                icon = if (isAndroid) XmbIcon.Device else XmbIcon.GamePad,
             )
         }
 
@@ -641,6 +666,7 @@ fun buildXoraRomItems(
             subtitle = when {
                 game.id in hiddenIds -> "Hidden"
                 game.favorite -> "Favourite"
+                game.isAndroidApp -> "App"
                 else -> game.platform.shortName
             },
             action = XoraXmbAction.LaunchGame(game.id),

@@ -8,11 +8,12 @@ import org.junit.Test
 class OnboardingStepTest {
 
     @Test
-    fun `emulators follows the library step`() {
+    fun `android apps sits between library and emulators`() {
         val steps = OnboardingStep.entries
         assertEquals(OnboardingStep.Library, steps[2])
-        assertEquals(OnboardingStep.Emulators, steps[3])
-        assertEquals(OnboardingStep.Scrapers, steps[4])
+        assertEquals(OnboardingStep.AndroidApps, steps[3])
+        assertEquals(OnboardingStep.Emulators, steps[4])
+        assertEquals(OnboardingStep.Scrapers, steps[5])
     }
 
     @Test

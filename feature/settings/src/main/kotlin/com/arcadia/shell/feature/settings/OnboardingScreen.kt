@@ -253,6 +253,15 @@ fun OnboardingScreen(
                                     safPicker.launch(viewModel.openDocumentTreeIntent())
                                 },
                             )
+                            OnboardingStep.AndroidApps -> AndroidAppsStep(
+                                apps = state.androidApps,
+                                selectedPackages = state.selectedAndroidPackages,
+                                query = state.androidAppQuery,
+                                onQueryChange = viewModel::setAndroidAppQuery,
+                                onToggle = viewModel::toggleAndroidApp,
+                                onSelectAll = viewModel::selectAllAndroidApps,
+                                onClear = viewModel::clearAndroidApps,
+                            )
                             OnboardingStep.Emulators -> EmulatorsStep(
                                 scanRunning = state.scanRunning,
                                 scanCompleted = state.scanCompleted,
@@ -388,6 +397,7 @@ private fun stepLabel(step: OnboardingStep): String = when (step) {
     OnboardingStep.Welcome -> "Welcome"
     OnboardingStep.DisplayMode -> "Display"
     OnboardingStep.Library -> "Library"
+    OnboardingStep.AndroidApps -> "Android"
     OnboardingStep.Emulators -> "Emulators"
     OnboardingStep.Scrapers -> "Artwork"
     OnboardingStep.Social -> "Social"
@@ -398,7 +408,8 @@ private fun stepLabel(step: OnboardingStep): String = when (step) {
 
 /** Steps that only link external accounts, so they can be skipped without breaking setup. */
 private fun isOptional(step: OnboardingStep): Boolean =
-    step == OnboardingStep.Scrapers ||
+    step == OnboardingStep.AndroidApps ||
+        step == OnboardingStep.Scrapers ||
         step == OnboardingStep.Social ||
         step == OnboardingStep.RetroAchievements
 
@@ -505,6 +516,37 @@ private fun LibraryStep(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun AndroidAppsStep(
+    apps: List<com.arcadia.shell.launcher.InstalledApp>,
+    selectedPackages: Set<String>,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onToggle: (String, Boolean) -> Unit,
+    onSelectAll: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        StepTitle("Android apps")
+        Text(
+            text = "Pick which installed apps belong on the Android platform. " +
+                "Skip includes every launchable app. Continue saves the ones you tick — " +
+                "you can change this later in Setup → Storage.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        AndroidAppPicker(
+            apps = apps,
+            selectedPackages = selectedPackages,
+            query = query,
+            onQueryChange = onQueryChange,
+            onToggle = onToggle,
+            onSelectAll = onSelectAll,
+            onClear = onClear,
+        )
     }
 }
 

@@ -119,6 +119,14 @@ enum class AvatarSource {
     XoraNetwork,
 }
 
+/** Which installed Android packages are mirrored onto the Android platform. */
+enum class AndroidAppInclusionMode {
+    /** Every launchable app (except the shell itself). Default for existing installs. */
+    All,
+    /** Only packages in [ShellSettings.androidAppAllowlist]. */
+    Allowlist,
+}
+
 /** How XMB ROM rows show the game title next to box art. */
 enum class XmbTitleStyle {
     /** Prefer clear-logo / wheel art when available. */
@@ -168,10 +176,17 @@ data class ShellSettings(
      */
     val manualScrapeEnabled: Boolean = false,
     /**
-     * Mirror launchable Android apps into the library so they appear on the Apps tab and can
-     * be pinned. On by default; turning it off prunes the synced rows on the next sync.
+     * Mirror launchable Android apps into the library so they appear on the Android platform
+     * and the Apps tab. On by default; turning it off prunes the synced rows on the next sync.
      */
     val androidAppSyncEnabled: Boolean = true,
+    /**
+     * [AndroidAppInclusionMode.All] keeps every launchable package. [AndroidAppInclusionMode.Allowlist]
+     * keeps only [androidAppAllowlist] — used after onboarding (or Setup) picks a subset.
+     */
+    val androidAppInclusionMode: AndroidAppInclusionMode = AndroidAppInclusionMode.All,
+    /** Package names included when [androidAppInclusionMode] is [AndroidAppInclusionMode.Allowlist]. */
+    val androidAppAllowlist: Set<String> = emptySet(),
     val lastScanAt: Long = 0,
     /** Looping shell soundtrack volume in the range 0f–1f. Zero mutes. */
     val bgmVolume: Float = DEFAULT_BGM_VOLUME,
@@ -394,6 +409,10 @@ class ShellPreferences @Inject constructor(
                 ?: XmbTitleStyle.Text,
             manualScrapeEnabled = prefs[Keys.MANUAL_SCRAPE_ENABLED] ?: false,
             androidAppSyncEnabled = prefs[Keys.ANDROID_APP_SYNC_ENABLED] ?: true,
+            androidAppInclusionMode = prefs[Keys.ANDROID_APP_INCLUSION_MODE]
+                ?.let { name -> runCatching { AndroidAppInclusionMode.valueOf(name) }.getOrNull() }
+                ?: AndroidAppInclusionMode.All,
+            androidAppAllowlist = decodeStringIdSet(prefs[Keys.ANDROID_APP_ALLOWLIST].orEmpty()),
             lastScanAt = prefs[Keys.LAST_SCAN_AT] ?: 0,
             bgmVolume = prefs[Keys.BGM_VOLUME] ?: DEFAULT_BGM_VOLUME,
             uiSfxVolume = prefs[Keys.UI_SFX_VOLUME] ?: DEFAULT_UI_SFX_VOLUME,
@@ -712,6 +731,20 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setAndroidAppSyncEnabled(enabled: Boolean) = edit {
         it[Keys.ANDROID_APP_SYNC_ENABLED] = enabled
+    }
+
+    /**
+     * Stores how installed apps are mirrored. [AndroidAppInclusionMode.All] clears the allowlist
+     * so a later switch back to allowlist starts from an empty pick.
+     */
+    suspend fun setAndroidAppInclusion(
+        mode: AndroidAppInclusionMode,
+        allowlist: Set<String> = emptySet(),
+    ) = edit {
+        it[Keys.ANDROID_APP_INCLUSION_MODE] = mode.name
+        it[Keys.ANDROID_APP_ALLOWLIST] = encodeStringIdSet(
+            if (mode == AndroidAppInclusionMode.All) emptySet() else allowlist,
+        )
     }
 
     suspend fun setLastScanAt(timestamp: Long) = edit { it[Keys.LAST_SCAN_AT] = timestamp }
@@ -1290,6 +1323,8 @@ class ShellPreferences @Inject constructor(
         val XMB_TITLE_STYLE = stringPreferencesKey("xmb_title_style")
         val MANUAL_SCRAPE_ENABLED = booleanPreferencesKey("manual_scrape_enabled")
         val ANDROID_APP_SYNC_ENABLED = booleanPreferencesKey("android_app_sync_enabled")
+        val ANDROID_APP_INCLUSION_MODE = stringPreferencesKey("android_app_inclusion_mode")
+        val ANDROID_APP_ALLOWLIST = stringPreferencesKey("android_app_allowlist")
         val LAST_SCAN_AT = longPreferencesKey("last_scan_at")
         val BGM_VOLUME = floatPreferencesKey("bgm_volume")
         val UI_SFX_VOLUME = floatPreferencesKey("ui_sfx_volume")

@@ -16,8 +16,13 @@ import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.launcher.BuiltInPlayers
 import com.arcadia.shell.launcher.InstalledPlayerProbe
+import com.arcadia.shell.launcher.InstalledApp
+import com.arcadia.shell.launcher.InstalledAppCatalog
 import com.arcadia.shell.launcher.InstalledAppSync
 import com.arcadia.shell.launcher.PlayerSeeder
+import com.arcadia.shell.launcher.resolveAndroidAppInclusion
+import com.arcadia.shell.launcher.toggleAndroidAppInclusion
+import com.arcadia.shell.datastore.AndroidAppInclusionMode
 import com.arcadia.shell.launcher.RetroArchCoreCatalog
 import com.arcadia.shell.launcher.RetroArchPackages
 import com.arcadia.shell.launcher.conversations.ConversationRepository
@@ -70,12 +75,14 @@ class SettingsViewModel @Inject constructor(
     private val coreStore: CoreStore,
     private val xoraCatalog: XoraCoreCatalog,
     private val installedAppSync: InstalledAppSync,
+    private val installedAppCatalog: InstalledAppCatalog,
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
     private val transientMessage = MutableStateFlow<String?>(null)
     private val raBusy = MutableStateFlow(false)
     private val appSyncBusy = MutableStateFlow(false)
+    private val launchableAndroidApps = MutableStateFlow<List<InstalledApp>>(emptyList())
     private val raError = MutableStateFlow<String?>(null)
     private val raPendingWebApiUser = MutableStateFlow<String?>(null)
 
@@ -238,16 +245,22 @@ class SettingsViewModel @Inject constructor(
         val raPrefs: com.arcadia.shell.datastore.RetroAchievementsSettings,
     )
 
+    private val androidAppsFlow = combine(
+        appSyncBusy,
+        launchableAndroidApps,
+    ) { busy, apps -> busy to apps }
+
     val uiState: StateFlow<SettingsUiState> = combine(
         baseUiState,
         raUiFlow,
         xoraStatusFlow,
-        appSyncBusy,
-    ) { base, ra, xora, syncingApps ->
+        androidAppsFlow,
+    ) { base, ra, xora, android ->
         val (busy, error, pending) = ra
         val uniqueCores = xora.cores.distinctBy { it.core }
         base.copy(
-            isSyncingApps = syncingApps,
+            isSyncingApps = android.first,
+            launchableAndroidApps = android.second,
             raAuthBusy = busy,
             raAuthError = error,
             raPendingWebApiUsername = pending,
@@ -261,6 +274,10 @@ class SettingsViewModel @Inject constructor(
             xoraDownloadError = xora.download.error,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
+
+    init {
+        loadLaunchableAndroidApps()
+    }
 
     private fun platformChoice(
         summary: PlatformSummary,
@@ -284,6 +301,7 @@ class SettingsViewModel @Inject constructor(
     fun refresh() {
         conversationRepository.refreshListenerEnabled()
         refreshTrigger.value += 1
+        loadLaunchableAndroidApps()
     }
 
     fun addFilesystemRoot(path: String) {
@@ -329,10 +347,54 @@ class SettingsViewModel @Inject constructor(
             // Apply straight away: turning it off prunes the mirrored rows.
             runCatching { installedAppSync.refresh() }
             transientMessage.value = if (enabled) {
-                "Installed apps will appear on the Apps tab."
+                "Installed apps will appear on the Android platform."
             } else {
                 "Installed apps removed from the library."
             }
+        }
+    }
+
+    fun includeAllAndroidApps() {
+        viewModelScope.launch {
+            preferences.setAndroidAppInclusion(AndroidAppInclusionMode.All)
+            runCatching { installedAppSync.refresh() }
+            transientMessage.value = "Every launchable app is on the Android platform."
+        }
+    }
+
+    fun toggleAndroidAppIncluded(packageName: String, selected: Boolean) {
+        viewModelScope.launch {
+            val settings = preferences.settings.first()
+            val allPackages = launchableAndroidApps.value.map { it.packageName }.toSet()
+            val (mode, allowlist) = toggleAndroidAppInclusion(
+                mode = settings.androidAppInclusionMode,
+                allowlist = settings.androidAppAllowlist,
+                allPackages = allPackages,
+                packageName = packageName,
+                selected = selected,
+            )
+            preferences.setAndroidAppInclusion(mode, allowlist)
+            runCatching { installedAppSync.refresh() }
+        }
+    }
+
+    fun setAndroidAppAllowlist(packages: Set<String>) {
+        viewModelScope.launch {
+            val allPackages = launchableAndroidApps.value.map { it.packageName }.toSet()
+            val (mode, allowlist) = resolveAndroidAppInclusion(
+                allPackages,
+                packages,
+            )
+            preferences.setAndroidAppInclusion(mode, allowlist)
+            runCatching { installedAppSync.refresh() }
+        }
+    }
+
+    private fun loadLaunchableAndroidApps() {
+        viewModelScope.launch {
+            launchableAndroidApps.value = runCatching {
+                installedAppCatalog.listLaunchableApps()
+            }.getOrDefault(emptyList())
         }
     }
 

@@ -2081,7 +2081,7 @@ class HomeViewModel @Inject constructor(
         } else {
             allGames.filter { it.id !in hiddenIds }
         }
-        val visibleSummaries = if (showHidden || hiddenIds.isEmpty()) {
+        val catalogSummaries = if (showHidden || hiddenIds.isEmpty()) {
             summaries
         } else {
             val counts = libraryGames
@@ -2092,6 +2092,7 @@ class HomeViewModel @Inject constructor(
                 summary.copy(gameCount = counts[summary.platform.id] ?: 0)
             }
         }
+        val visibleSummaries = withAndroidPlatformSummary(catalogSummaries, libraryGames)
         val platformArtById = platformChrome.artByPlatformId
         val tabs = buildTabs(libraryGames, visibleSummaries)
         val tabIndex = chrome.selection.tabIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
@@ -2163,7 +2164,7 @@ class HomeViewModel @Inject constructor(
             XoraXmbDepth.Roms -> {
                 val platformId = theme.xora.drilledPlatformId
                 buildXoraRomItems(
-                    games = libraryGames.filter { !it.isAndroidApp && it.platformId == platformId },
+                    games = libraryGames.filter { it.platformId == platformId },
                     hiddenIds = if (showHidden) hiddenIds else emptySet(),
                 )
             }
@@ -2533,8 +2534,10 @@ class HomeViewModel @Inject constructor(
             )
         }
 
-        // Summaries already exclude android (it is not in PlatformCatalog.platforms).
-        summaries.forEach { summary ->
+        // Android stays on the Apps tab here; XMB Platforms lists it as its own system row.
+        summaries
+            .filter { it.platform.id != GamePlatform.Android.id }
+            .forEach { summary ->
             add(
                 LibraryTab(
                     id = "platform:${summary.platform.id}",
@@ -3486,7 +3489,7 @@ class HomeViewModel @Inject constructor(
                 xoraItemIndex.value = restored
                 viewModelScope.launch {
                     val games = libraryRepository.observeGames().first()
-                        .filter { !it.isAndroidApp && it.platformId == action.platformId }
+                        .filter { it.platformId == action.platformId }
                     games.getOrNull(restored)?.let { focusGameInLibrary(it) }
                         ?: games.firstOrNull()?.let { focusGameInLibrary(it) }
                 }

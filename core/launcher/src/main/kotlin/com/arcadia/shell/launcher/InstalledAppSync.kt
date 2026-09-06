@@ -25,12 +25,8 @@ class InstalledAppSync @Inject constructor(
     suspend fun refresh() {
         val startedAt = System.currentTimeMillis()
         val existing = gameDao.findByRootId(ROOT_ID).associateBy { it.id }
-        val apps = if (preferences.settings.first().androidAppSyncEnabled) {
-            catalog.listLaunchableApps()
-        } else {
-            // Syncing off: fall through to the prune below so the Apps tab clears out.
-            emptyList()
-        }
+        val settings = preferences.settings.first()
+        val apps = settings.includedAndroidApps(catalog.listLaunchableApps())
 
         val entities = apps.map { app ->
             val id = idFor(app.packageName)

@@ -7,6 +7,7 @@ import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.SteamWebApiCredentials
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.XoraEmulatorSettings
+import com.arcadia.shell.launcher.InstalledApp
 import com.arcadia.shell.launcher.InstalledPlayerProbe
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import com.arcadia.shell.model.LibraryRoot
@@ -59,6 +60,8 @@ data class SettingsUiState(
     val gameCount: Int = 0,
     /** Installed Android apps currently mirrored into the library. */
     val androidAppCount: Int = 0,
+    /** Launchable packages for the Android-platform picker (not yet filtered by allowlist). */
+    val launchableAndroidApps: List<InstalledApp> = emptyList(),
     val isSyncingApps: Boolean = false,
     val scanProgress: ScanProgress = ScanProgress(),
     val platformChoices: List<PlatformPlayerChoice> = emptyList(),

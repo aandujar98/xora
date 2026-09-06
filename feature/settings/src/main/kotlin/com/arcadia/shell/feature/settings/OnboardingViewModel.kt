@@ -6,14 +6,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arcadia.shell.database.repository.LibraryRepository
 import com.arcadia.shell.database.repository.PlayerRepository
+import com.arcadia.shell.datastore.AndroidAppInclusionMode
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.PlatformEmulatorChoice
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.SteamWebApiCredentials
+import com.arcadia.shell.launcher.InstalledApp
+import com.arcadia.shell.launcher.InstalledAppCatalog
+import com.arcadia.shell.launcher.InstalledAppSync
 import com.arcadia.shell.launcher.InstalledPlayerProbe
 import com.arcadia.shell.launcher.PlayerSeeder
+import com.arcadia.shell.launcher.resolveAndroidAppInclusion
 import com.arcadia.shell.launcher.RetroArchCoreCatalog
 import com.arcadia.shell.launcher.RetroArchPackages
 import com.arcadia.shell.launcher.conversations.ConversationRepository
@@ -37,6 +42,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -48,6 +54,7 @@ enum class OnboardingStep {
     Welcome,
     DisplayMode,
     Library,
+    AndroidApps,
     Emulators,
     Scrapers,
     Social,
@@ -73,6 +80,9 @@ data class OnboardingUiState(
     val scanCompleted: Boolean = false,
     val scanError: String? = null,
     val filesSeen: Int = 0,
+    val androidApps: List<InstalledApp> = emptyList(),
+    val selectedAndroidPackages: Set<String> = emptySet(),
+    val androidAppQuery: String = "",
     val platformChoices: List<PlatformPlayerChoice> = emptyList(),
     val notificationListenerEnabled: Boolean = false,
     val retroAchievements: RetroAchievementsCredentials = RetroAchievementsCredentials(),
@@ -100,6 +110,8 @@ class OnboardingViewModel @Inject constructor(
     private val playerRepository: PlayerRepository,
     private val probe: InstalledPlayerProbe,
     private val playerSeeder: PlayerSeeder,
+    private val installedAppCatalog: InstalledAppCatalog,
+    private val installedAppSync: InstalledAppSync,
     private val libraryHashScheduler: LibraryHashScheduler,
     private val conversationRepository: ConversationRepository,
     private val retroAchievements: RetroAchievementsRepository,
@@ -117,6 +129,9 @@ class OnboardingViewModel @Inject constructor(
     private val scanError = MutableStateFlow<String?>(null)
     private val filesSeen = MutableStateFlow(0)
     private val scanMutex = Mutex()
+    private val launchableAndroidApps = MutableStateFlow<List<InstalledApp>>(emptyList())
+    private val selectedAndroidPackages = MutableStateFlow<Set<String>>(emptySet())
+    private val androidAppQuery = MutableStateFlow("")
 
     private val externalAuthRequests = Channel<OnboardingExternalAuthRequest>(Channel.BUFFERED)
     val externalAuthRequestFlow: Flow<OnboardingExternalAuthRequest> =
@@ -226,11 +241,20 @@ class OnboardingViewModel @Inject constructor(
         val scan: ScanBundle,
     )
 
+    private val androidAppsFlow = combine(
+        launchableAndroidApps,
+        selectedAndroidPackages,
+        androidAppQuery,
+    ) { apps, selected, query ->
+        Triple(apps, selected, query)
+    }
+
     val uiState: StateFlow<OnboardingUiState> = combine(
         baseFlow,
         socialFlow,
         emulatorFlow,
-    ) { base, social, emulators ->
+        androidAppsFlow,
+    ) { base, social, emulators, android ->
         OnboardingUiState(
             step = base.step,
             settings = base.settings,
@@ -242,6 +266,9 @@ class OnboardingViewModel @Inject constructor(
             scanCompleted = emulators.scan.completed,
             scanError = emulators.scan.error,
             filesSeen = emulators.scan.filesSeen,
+            androidApps = android.first,
+            selectedAndroidPackages = android.second,
+            androidAppQuery = android.third,
             platformChoices = emulators.platformChoices,
             notificationListenerEnabled = conversationRepository.isNotificationListenerEnabled(),
             retroAchievements = social.retroAchievements,
@@ -254,21 +281,24 @@ class OnboardingViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OnboardingUiState())
 
+    private var seededAndroidSelection = false
+
+    init {
+        loadLaunchableAndroidApps()
+    }
+
     fun refresh() {
         conversationRepository.refreshListenerEnabled()
         refreshTrigger.value += 1
+        loadLaunchableAndroidApps()
     }
 
     fun next() {
         if (step.value == OnboardingStep.Emulators && scanRunning.value) return
-        val entries = OnboardingStep.entries
-        val index = entries.indexOf(step.value)
-        if (index < entries.lastIndex) {
-            step.value = entries[index + 1]
+        if (step.value == OnboardingStep.AndroidApps) {
+            persistAndroidAppSelection()
         }
-        if (step.value == OnboardingStep.Emulators) {
-            ensureLibraryScanned()
-        }
+        advanceStep()
     }
 
     fun back() {
@@ -280,12 +310,65 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun skipOptional() {
-        when (step.value) {
-            OnboardingStep.Scrapers,
-            OnboardingStep.Social,
-            OnboardingStep.RetroAchievements,
-            -> next()
-            else -> next()
+        // Skip leaves the current Android inclusion mode alone (default: every app).
+        advanceStep()
+    }
+
+    fun toggleAndroidApp(packageName: String, selected: Boolean) {
+        selectedAndroidPackages.value = if (selected) {
+            selectedAndroidPackages.value + packageName
+        } else {
+            selectedAndroidPackages.value - packageName
+        }
+    }
+
+    fun selectAllAndroidApps() {
+        selectedAndroidPackages.value = launchableAndroidApps.value.map { it.packageName }.toSet()
+    }
+
+    fun clearAndroidApps() {
+        selectedAndroidPackages.value = emptySet()
+    }
+
+    fun setAndroidAppQuery(query: String) {
+        androidAppQuery.value = query
+    }
+
+    private fun advanceStep() {
+        val entries = OnboardingStep.entries
+        val index = entries.indexOf(step.value)
+        if (index < entries.lastIndex) {
+            step.value = entries[index + 1]
+        }
+        if (step.value == OnboardingStep.Emulators) {
+            ensureLibraryScanned()
+        }
+    }
+
+    private fun persistAndroidAppSelection() {
+        val allPackages = launchableAndroidApps.value.map { it.packageName }.toSet()
+        val (mode, allowlist) = resolveAndroidAppInclusion(
+            allPackages,
+            selectedAndroidPackages.value,
+        )
+        viewModelScope.launch {
+            preferences.setAndroidAppInclusion(mode, allowlist)
+            runCatching { installedAppSync.refresh() }
+        }
+    }
+
+    private fun loadLaunchableAndroidApps() {
+        viewModelScope.launch {
+            val apps = runCatching { installedAppCatalog.listLaunchableApps() }
+                .getOrDefault(emptyList())
+            launchableAndroidApps.value = apps
+            if (!seededAndroidSelection) {
+                seededAndroidSelection = true
+                val settings = preferences.settings.first()
+                if (settings.androidAppInclusionMode == AndroidAppInclusionMode.Allowlist) {
+                    selectedAndroidPackages.value = settings.androidAppAllowlist
+                }
+            }
         }
     }
 

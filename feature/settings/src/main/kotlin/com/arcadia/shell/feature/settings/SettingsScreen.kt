@@ -65,7 +65,9 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.arcadia.shell.datastore.AndroidAppInclusionMode
 import com.arcadia.shell.datastore.ThemeMode
+import com.arcadia.shell.launcher.selectedAndroidPackages
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
@@ -1240,10 +1242,10 @@ fun SettingsScreen(
                 }
                 Text(
                     text = if (state.settings.androidAppSyncEnabled) {
-                        "${state.androidAppCount} apps on the Apps tab. " +
+                        "${state.androidAppCount} apps on the Android platform. " +
                             "Syncs automatically when the shell regains focus."
                     } else {
-                        "Installed apps stay out of the library and the Apps tab."
+                        "Installed apps stay out of the library and the Android platform."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1253,6 +1255,34 @@ fun SettingsScreen(
                     enabled = state.settings.androidAppSyncEnabled && !state.isSyncingApps,
                 ) {
                     Text(text = if (state.isSyncingApps) "Syncing…" else "Sync apps now")
+                }
+                if (state.settings.androidAppSyncEnabled) {
+                    var androidAppQuery by remember { mutableStateOf("") }
+                    val selectedPackages = selectedAndroidPackages(
+                        mode = state.settings.androidAppInclusionMode,
+                        allowlist = state.settings.androidAppAllowlist,
+                        allPackages = state.launchableAndroidApps.map { it.packageName }.toSet(),
+                    )
+                    Text(
+                        text = if (state.settings.androidAppInclusionMode ==
+                            AndroidAppInclusionMode.All
+                        ) {
+                            "Every launchable app is included. Uncheck any to switch to a custom list."
+                        } else {
+                            "Only the ticked apps appear on the Android platform."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    AndroidAppPicker(
+                        apps = state.launchableAndroidApps,
+                        selectedPackages = selectedPackages,
+                        query = androidAppQuery,
+                        onQueryChange = { androidAppQuery = it },
+                        onToggle = viewModel::toggleAndroidAppIncluded,
+                        onSelectAll = viewModel::includeAllAndroidApps,
+                        onClear = { viewModel.setAndroidAppAllowlist(emptySet()) },
+                    )
                 }
             }
         }
@@ -1273,7 +1303,7 @@ fun SettingsScreen(
                 ) {
                     Text(
                         text = "Replay the first-run welcome flow for display mode, library " +
-                            "folders, and audio tips.",
+                            "folders, Android apps, and audio tips.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
