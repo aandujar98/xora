@@ -1,5 +1,6 @@
 package com.arcadia.shell.designsystem
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,6 +55,16 @@ class DeviceVisualBudgetTest {
             isLowRamDevice = false,
         )
         assertTrue(budget.suggestsLiteVisuals)
+    }
+
+    @Test
+    fun usableRamLabelFormatsGigabytes() {
+        val budget = DeviceVisualBudget(
+            totalRamBytes = 5_600_000_000L,
+            memoryClassMb = 256,
+            isLowRamDevice = false,
+        )
+        assertEquals("5.2 GB RAM", budget.usableRamLabel)
     }
 
     @Test

@@ -77,6 +77,7 @@ import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.display.OverlayPermission
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
+import com.arcadia.shell.designsystem.readDeviceVisualBudget
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ArcadiaTheme
@@ -384,10 +385,11 @@ fun SettingsScreen(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
                 SettingsFieldLabel("Performance")
+                val deviceBudget = remember(context) { readDeviceVisualBudget(context) }
                 Text(
-                    text = "Budget phones (Galaxy A15 and similar) skip glass blur, " +
-                        "looping wallpaper video, and idle trailers so the XMB stays smooth. " +
-                        "Auto does this when RAM is under 6 GB.",
+                    text = "Default is Auto: this phone's RAM and memory class pick Smooth " +
+                        "or Full quality. Smooth skips glass blur, looping wallpaper, and " +
+                        "idle trailers on budget devices.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -401,7 +403,11 @@ fun SettingsScreen(
                     }
                 }
                 Text(
-                    text = visualPerformanceModeSubtitle(state.settings.visualPerformanceMode),
+                    text = visualPerformanceModeSubtitle(
+                        mode = state.settings.visualPerformanceMode,
+                        deviceSuggestsLite = deviceBudget.suggestsLiteVisuals,
+                        deviceRamLabel = deviceBudget.usableRamLabel,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -94,9 +94,31 @@ fun visualPerformanceModeLabel(mode: VisualPerformanceMode): String = when (mode
     VisualPerformanceMode.Smooth -> "Smooth"
 }
 
-fun visualPerformanceModeSubtitle(mode: VisualPerformanceMode): String = when (mode) {
-    VisualPerformanceMode.Auto -> "Fewer effects on budget phones"
-    VisualPerformanceMode.Quality -> "Glass, motion & video wallpaper"
+fun visualPerformanceModeSubtitle(mode: VisualPerformanceMode): String =
+    visualPerformanceModeSubtitle(
+        mode = mode,
+        deviceSuggestsLite = null,
+        deviceRamLabel = null,
+    )
+
+/**
+ * Auto copy includes the path this device's RAM / memory class selected.
+ * [deviceSuggestsLite] / [deviceRamLabel] come from [com.arcadia.shell.designsystem.DeviceVisualBudget].
+ */
+fun visualPerformanceModeSubtitle(
+    mode: VisualPerformanceMode,
+    deviceSuggestsLite: Boolean?,
+    deviceRamLabel: String?,
+): String = when (mode) {
+    VisualPerformanceMode.Auto -> {
+        val ram = deviceRamLabel?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+        when (deviceSuggestsLite) {
+            true -> "Auto on this device · Smooth$ram"
+            false -> "Auto on this device · Full quality$ram"
+            null -> "Auto · uses this device's RAM"
+        }
+    }
+    VisualPerformanceMode.Quality -> "Full glass, motion & video wallpaper"
     VisualPerformanceMode.Smooth -> "No blur, idle video, or looping motion"
 }
 

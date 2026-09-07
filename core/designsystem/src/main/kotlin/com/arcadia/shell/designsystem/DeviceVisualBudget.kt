@@ -25,6 +25,14 @@ data class DeviceVisualBudget(
             if (totalRamBytes in 1 until LITE_RAM_BYTES) return true
             return false
         }
+
+    /** e.g. `5.2 GB RAM` from [ActivityManager.MemoryInfo.totalMem]. */
+    val usableRamLabel: String
+        get() {
+            if (totalRamBytes <= 0L) return "RAM unknown"
+            val gb = totalRamBytes / (1024.0 * 1024.0 * 1024.0)
+            return String.format("%.1f GB RAM", gb)
+        }
 }
 
 /** 6 GiB — 4/6 GB phones report less; 8 GB handhelds typically report ~6.8–7.5 GiB usable. */

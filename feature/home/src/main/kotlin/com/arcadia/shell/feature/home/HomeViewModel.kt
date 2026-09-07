@@ -51,6 +51,7 @@ import com.arcadia.shell.datastore.next
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.isReduceMotionPreferred
+import com.arcadia.shell.designsystem.readDeviceVisualBudget
 import com.arcadia.shell.feature.home.component.steamPersonaToPresence
 import com.arcadia.shell.feature.home.rss.RssFeedClient
 import com.arcadia.shell.input.GamepadDispatcher
@@ -266,6 +267,8 @@ class HomeViewModel @Inject constructor(
     private val xoraReturnRomIndex = mutableMapOf<String, Int>()
     /** Last hovered item in each top-level XMB category tab. */
     private val xoraCategoryHover = XoraCategoryHoverStore()
+    private val deviceVisualBudget = readDeviceVisualBudget(appContext)
+
     /** Drill-in parents so Cancel returns to the folder the user actually left. */
     private val xoraReturnStack = ArrayDeque<XoraXmbDepth>()
     private val homeShortcutIndex = MutableStateFlow(0)
@@ -2122,6 +2125,8 @@ class HomeViewModel @Inject constructor(
                 hasCustomBgm = !theme.customBgmPath.isNullOrBlank(),
                 detectedResolutionLabel = detectedResolutionLabel(),
                 raSettings = raSettings,
+                deviceSuggestsLite = deviceVisualBudget.suggestsLiteVisuals,
+                deviceRamLabel = deviceVisualBudget.usableRamLabel,
             )
         } else {
             buildStartSettingsCategoryRows()

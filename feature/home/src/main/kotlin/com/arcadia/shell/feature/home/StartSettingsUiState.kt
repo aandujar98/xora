@@ -8,7 +8,6 @@ import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UiFitMode
 import com.arcadia.shell.datastore.uiTextScaleLabel
-import com.arcadia.shell.datastore.visualPerformanceModeLabel
 import com.arcadia.shell.datastore.visualPerformanceModeSubtitle
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.ShellThemeId
@@ -204,6 +203,8 @@ fun buildStartSettingsRows(
     customWallpaperLabel: String = "Custom media",
     detectedResolutionLabel: String = "Unknown",
     raSettings: RetroAchievementsSettings = RetroAchievementsSettings(),
+    deviceSuggestsLite: Boolean? = null,
+    deviceRamLabel: String? = null,
 ): List<StartSettingsRow> = when (category) {
     StartSettingsCategory.Display -> listOf(
         StartSettingsRow.Action(
@@ -237,8 +238,11 @@ fun buildStartSettingsRows(
         StartSettingsRow.Action(
             id = "visual_performance",
             title = "Performance",
-            subtitle = visualPerformanceModeLabel(settings.visualPerformanceMode) +
-                " · " + visualPerformanceModeSubtitle(settings.visualPerformanceMode),
+            subtitle = visualPerformanceModeSubtitle(
+                mode = settings.visualPerformanceMode,
+                deviceSuggestsLite = deviceSuggestsLite,
+                deviceRamLabel = deviceRamLabel,
+            ),
             action = StartSettingsAction.CycleVisualPerformance,
         ),
         StartSettingsRow.Action(
