@@ -91,6 +91,7 @@ fun HeroPane(
     trailer: HeroTrailerState = HeroTrailerState(),
     isLaunching: Boolean = false,
     vitaLaunchOpen: Boolean = false,
+    startSettingsOpen: Boolean = false,
     rssItem: RssFeedItem? = null,
     showHomeWallpaper: Boolean = false,
     homeWallpaperPath: String? = null,
@@ -130,8 +131,12 @@ fun HeroPane(
 ) {
     val cinematic = rememberLaunchCinematic(isLaunching)
     val chromeProgress = cinematic.chrome
-    val accountExpanded = accountPanelExpanded && !isLaunching && !vitaLaunchOpen
-    val systemExpanded = systemPanelExpanded && !isLaunching && !vitaLaunchOpen
+    val hidePills = shouldHideHomePillChrome(
+        startSettingsOpen = startSettingsOpen,
+        launchPageOpen = vitaLaunchOpen,
+    )
+    val accountExpanded = accountPanelExpanded && !isLaunching && !hidePills
+    val systemExpanded = systemPanelExpanded && !isLaunching && !hidePills
     val achievementsExpanded = achievementsPanelExpanded && !isLaunching && !vitaLaunchOpen
     val artworkScale = launchBackdropScale(cinematic.zoom)
     var profileEditing by remember { mutableStateOf(false) }
@@ -242,7 +247,7 @@ fun HeroPane(
             profileAvatarModel = profileAvatarModel,
             accountRows = accountPanelRows,
             selectedRowIndex = accountPanelSelectedIndex,
-            hideCollapsedChrome = vitaLaunchOpen || activeNotificationPresent,
+            hideCollapsedChrome = hidePills || activeNotificationPresent,
             onToggle = onToggleAccountPanel,
             onSelectTab = onSelectSocialTab,
             onSelectRow = onSelectAccountRow,
@@ -264,7 +269,7 @@ fun HeroPane(
             systemProfile = systemProfile,
             expanded = systemExpanded,
             selectedRowIndex = systemPanelSelectedIndex,
-            hideCollapsedChrome = vitaLaunchOpen,
+            hideCollapsedChrome = hidePills,
             onToggle = onToggleSystemPanel,
             onSelectRow = onSelectSystemRow,
             onActivateRow = onActivateSystemRow,

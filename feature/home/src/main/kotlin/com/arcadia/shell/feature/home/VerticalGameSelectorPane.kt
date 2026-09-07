@@ -124,8 +124,9 @@ fun VerticalGameSelectorPane(
 ) {
     val cinematic = rememberLaunchCinematic(state.isLaunching)
     val launchProgress = cinematic.chrome
-    val accountExpanded = state.accountPanelExpanded && !state.isLaunching
-    val systemExpanded = state.systemPanelExpanded && !state.isLaunching
+    val hidePills = shouldHideHomePillChrome(startSettingsOpen = state.startSettingsOpen)
+    val accountExpanded = state.accountPanelExpanded && !state.isLaunching && !hidePills
+    val systemExpanded = state.systemPanelExpanded && !state.isLaunching && !hidePills
     val achievementsExpanded = state.achievementsPanelExpanded && !state.isLaunching
     val artworkScale = launchBackdropScale(cinematic.zoom)
     var profileEditing by remember { mutableStateOf(false) }
@@ -280,7 +281,7 @@ fun VerticalGameSelectorPane(
                 profileAvatarModel = state.profileAvatarModel,
                 accountRows = state.accountPanelRows,
                 selectedRowIndex = state.accountPanelSelectedIndex,
-                hideCollapsedChrome = state.activeNotificationPresent,
+                hideCollapsedChrome = hidePills || state.activeNotificationPresent,
                 onToggle = onToggleAccountPanel,
                 onSelectTab = onSelectSocialTab,
                 onSelectRow = onSelectAccountRow,
@@ -302,6 +303,7 @@ fun VerticalGameSelectorPane(
                 systemProfile = state.systemProfile,
                 expanded = systemExpanded,
                 selectedRowIndex = state.systemPanelSelectedIndex,
+                hideCollapsedChrome = hidePills,
                 onToggle = onToggleSystemPanel,
                 onSelectRow = onSelectSystemRow,
                 onActivateRow = onActivateSystemRow,

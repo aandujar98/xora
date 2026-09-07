@@ -68,12 +68,16 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arcadia.shell.datastore.AndroidAppInclusionMode
 import com.arcadia.shell.datastore.ThemeMode
+import com.arcadia.shell.datastore.VisualPerformanceMode
+import com.arcadia.shell.datastore.visualPerformanceModeLabel
+import com.arcadia.shell.datastore.visualPerformanceModeSubtitle
 import com.arcadia.shell.launcher.selectedAndroidPackages
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.display.OverlayPermission
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
+import com.arcadia.shell.designsystem.readDeviceVisualBudget
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ArcadiaTheme
@@ -223,12 +227,11 @@ fun SettingsScreen(
     ArcadiaTheme(darkTheme = true) {
     Box(modifier = Modifier.fillMaxSize()) {
         backdrop()
-        // Home stays mounted under Setup for wallpaper. Without a plate the XMB
-        // (and leftover tab cards from animateItem) draw through the glass.
+        // Opaque plate so leftover Home chrome cannot show through Setup.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xF2141418)),
+                .background(Color(0xFF141418)),
         )
     val focusedCardKey = if (padOnTabs) {
         null
@@ -378,6 +381,36 @@ fun SettingsScreen(
                         )
                     }
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("Performance")
+                val deviceBudget = remember(context) { readDeviceVisualBudget(context) }
+                Text(
+                    text = "Default is Auto: this phone's RAM and memory class pick Smooth " +
+                        "or Full quality. Smooth skips glass blur, looping wallpaper, and " +
+                        "idle trailers on budget devices.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    VisualPerformanceMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = state.settings.visualPerformanceMode == mode,
+                            onClick = { viewModel.setVisualPerformanceMode(mode) },
+                            label = { Text(text = visualPerformanceModeLabel(mode)) },
+                        )
+                    }
+                }
+                Text(
+                    text = visualPerformanceModeSubtitle(
+                        mode = state.settings.visualPerformanceMode,
+                        deviceSuggestsLite = deviceBudget.suggestsLiteVisuals,
+                        deviceRamLabel = deviceBudget.usableRamLabel,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 

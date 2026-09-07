@@ -11,6 +11,7 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.gif.AnimatedImageDecoder
 import coil3.memory.MemoryCache
+import com.arcadia.shell.designsystem.readDeviceVisualBudget
 import com.arcadia.shell.audio.BackgroundMusicController
 import com.arcadia.shell.audio.OnboardingMusicController
 import com.arcadia.shell.companion.CompanionOverlayService
@@ -133,21 +134,29 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: Context): ImageLoader =
         ImageLoader.Builder(context)
             .components {
-                add(AnimatedImageDecoder.Factory())
+                val lite = readDeviceVisualBudget(context).suggestsLiteVisuals
+                if (!lite) {
+                    add(AnimatedImageDecoder.Factory())
+                }
                 val cookies = runCatching { xoraNetworkAuthCookies }.getOrNull()
                 if (cookies != null) {
                     add(XoraNetworkAvatarInterceptor(cookies))
                 }
             }
             .memoryCache {
+                val lite = readDeviceVisualBudget(context).suggestsLiteVisuals
                 MemoryCache.Builder()
-                    .maxSizePercent(context, MEMORY_CACHE_PERCENT)
+                    .maxSizePercent(
+                        context,
+                        if (lite) LITE_MEMORY_CACHE_PERCENT else MEMORY_CACHE_PERCENT,
+                    )
                     .build()
             }
             .diskCache {
+                val lite = readDeviceVisualBudget(context).suggestsLiteVisuals
                 DiskCache.Builder()
                     .directory(context.cacheDir.resolve(COIL_DISK_DIR).toOkioPath())
-                    .maxSizeBytes(COIL_DISK_MAX_BYTES)
+                    .maxSizeBytes(if (lite) LITE_COIL_DISK_MAX_BYTES else COIL_DISK_MAX_BYTES)
                     .build()
             }
             .build()
@@ -170,7 +179,9 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
 
     private companion object {
         const val MEMORY_CACHE_PERCENT = 0.12
+        const val LITE_MEMORY_CACHE_PERCENT = 0.07
         const val COIL_DISK_MAX_BYTES = 48L * 1024L * 1024L
+        const val LITE_COIL_DISK_MAX_BYTES = 24L * 1024L * 1024L
         const val COIL_DISK_DIR = "coil_image_cache"
     }
 }

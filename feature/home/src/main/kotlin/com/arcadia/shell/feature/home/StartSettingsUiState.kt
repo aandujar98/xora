@@ -8,6 +8,7 @@ import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UiFitMode
 import com.arcadia.shell.datastore.uiTextScaleLabel
+import com.arcadia.shell.datastore.visualPerformanceModeSubtitle
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.ShellThemeId
 
@@ -69,6 +70,7 @@ sealed interface StartSettingsAction {
     data object CycleTrailerDisplay : StartSettingsAction
     data object CycleGameIconIdleMedia : StartSettingsAction
     data object CycleThemeMode : StartSettingsAction
+    data object CycleVisualPerformance : StartSettingsAction
     data object CycleFeedColumns : StartSettingsAction
     data object CycleUiTextScale : StartSettingsAction
     data object ToggleUiFitMode : StartSettingsAction
@@ -201,6 +203,8 @@ fun buildStartSettingsRows(
     customWallpaperLabel: String = "Custom media",
     detectedResolutionLabel: String = "Unknown",
     raSettings: RetroAchievementsSettings = RetroAchievementsSettings(),
+    deviceSuggestsLite: Boolean? = null,
+    deviceRamLabel: String? = null,
 ): List<StartSettingsRow> = when (category) {
     StartSettingsCategory.Display -> listOf(
         StartSettingsRow.Action(
@@ -230,6 +234,16 @@ fun buildStartSettingsRows(
                 GameIconIdleMedia.Screenshot -> "Your screenshots & GIFs"
             },
             action = StartSettingsAction.CycleGameIconIdleMedia,
+        ),
+        StartSettingsRow.Action(
+            id = "visual_performance",
+            title = "Performance",
+            subtitle = visualPerformanceModeSubtitle(
+                mode = settings.visualPerformanceMode,
+                deviceSuggestsLite = deviceSuggestsLite,
+                deviceRamLabel = deviceRamLabel,
+            ),
+            action = StartSettingsAction.CycleVisualPerformance,
         ),
         StartSettingsRow.Action(
             id = "theme",

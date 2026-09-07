@@ -75,12 +75,23 @@ fun ArcadiaTheme(
      * 1f leaves system density untouched. Typical Auto range is ~0.7–1.35.
      */
     uiLayoutScale: Float = 1f,
+    /**
+     * User visual-performance override. `null` = Auto (lite on budget RAM),
+     * `true` = Smooth, `false` = Full quality. Battery saver still forces lite.
+     */
+    liteVisualsOverride: Boolean? = null,
     content: @Composable () -> Unit,
 ) {
     val shellTheme = remember(shellThemeId) { ShellThemeCatalog.resolve(shellThemeId) }
     val glass = if (darkTheme) darkGlassTokens() else lightGlassTokens()
     val hazeState = rememberHazeState()
     val savePower = rememberPowerSaveMode()
+    val deviceLite = rememberDeviceSuggestsLiteVisuals()
+    val liteVisuals = resolveLiteVisuals(
+        override = liteVisualsOverride,
+        deviceSuggestsLite = deviceLite,
+        powerSave = savePower,
+    )
     val colorScheme = remember(darkTheme, shellTheme.id) {
         if (darkTheme) {
             shellTheme.toDarkColorScheme()
@@ -99,7 +110,8 @@ fun ArcadiaTheme(
     }
     CompositionLocalProvider(
         LocalArcadiaGlass provides glass,
-        LocalArcadiaHaze provides if (savePower) null else hazeState,
+        LocalArcadiaHaze provides if (liteVisuals) null else hazeState,
+        LocalLiteVisuals provides liteVisuals,
         LocalShellTheme provides shellTheme,
         LocalXoraTextScale provides uiTextScale.coerceIn(0.75f, 1.3f),
         LocalDensity provides fittedDensity,

@@ -425,7 +425,11 @@ fun ArcadiaShell(
                     message = event.message,
                     duration = SnackbarDuration.Long,
                 )
-                HomeEvent.OpenSettings -> route = ShellRoute.Settings
+                HomeEvent.OpenSettings -> {
+                    homeViewModel.collapseHeroPanels()
+                    route = ShellRoute.Settings
+                    homeViewModel.closeStartSettings()
+                }
                 HomeEvent.LinkDiscordAccount -> {
                     val activity = context as? Activity
                     if (activity != null) {
@@ -584,7 +588,11 @@ fun ArcadiaShell(
                         homeViewModel.openSelectedRssItem()
                     },
                     onRetryRss = homeViewModel::refreshRssFeed,
-                    onOpenSettings = { route = ShellRoute.Settings },
+                    onOpenSettings = {
+                        homeViewModel.collapseHeroPanels()
+                        route = ShellRoute.Settings
+                        homeViewModel.closeStartSettings()
+                    },
                     onToggleAccountPanel = homeViewModel::toggleAccountPanel,
                     onToggleSystemPanel = homeViewModel::toggleSystemPanel,
                     onOpenNotifications = homeViewModel::openNotificationHistory,
@@ -675,7 +683,9 @@ fun ArcadiaShell(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 SettingsScreen(
-                    onBack = { route = ShellRoute.Home },
+                    onBack = {
+                        route = ShellRoute.Home
+                    },
                     onGoToOnboarding = onRestartOnboarding,
                     padActions = homeViewModel.sheetNavActionFlow,
                     onPadCapture = homeViewModel::setBottomSheetNavOpen,
@@ -781,6 +791,7 @@ fun ArcadiaShell(
                 shellThemeId = shellState.shellThemeId,
                 uiTextScale = shellState.uiTextScale,
                 uiLayoutScale = shellState.secondaryUiLayoutScale,
+                liteVisualsOverride = shellState.liteVisualsOverride,
             ) {
                 when (route) {
                     ShellRoute.Settings -> SettingsCompanionPane(
@@ -1198,7 +1209,7 @@ private fun PaneForRole(
                         onLoginRetroAchievementsWithApiKey =
                             homeViewModel::loginRetroAchievementsWithApiKey,
                         onSignOutRetroAchievements = homeViewModel::signOutRetroAchievements,
-                        showPillChrome = true,
+                        showPillChrome = !state.hideHomePillChrome,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -1220,6 +1231,7 @@ private fun PaneForRole(
                         trailer = state.trailer,
                         isLaunching = state.isLaunching,
                         vitaLaunchOpen = state.homeHub.vitaLaunchPageOpen,
+                        startSettingsOpen = state.startSettingsOpen,
                         rssItem = state.rss.selectedItem.takeIf {
                             state.homePage == HomePage.RssFeed
                         },

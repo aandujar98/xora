@@ -10,6 +10,7 @@ import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.PlatformEmulatorChoice
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ThemeMode
+import com.arcadia.shell.datastore.VisualPerformanceMode
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
@@ -678,6 +679,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { preferences.setThemeMode(mode) }
+    }
+
+    fun setVisualPerformanceMode(mode: VisualPerformanceMode) {
+        viewModelScope.launch { preferences.setVisualPerformanceMode(mode) }
     }
 
     fun setXmbTitleStyle(style: XmbTitleStyle) {

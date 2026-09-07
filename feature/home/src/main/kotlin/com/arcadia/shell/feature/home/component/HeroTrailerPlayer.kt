@@ -49,6 +49,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.LocalLiteVisuals
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.feature.home.HeroTrailerState
 import com.arcadia.shell.model.TrailerRef
@@ -72,6 +73,7 @@ fun HeroTrailerLayer(
     state: HeroTrailerState,
     modifier: Modifier = Modifier,
 ) {
+    if (LocalLiteVisuals.current) return
     val parsed = remember(state.trailerUrl) { TrailerRefs.parse(state.trailerUrl) }
     var ready by remember(state.trailerUrl) { mutableStateOf(false) }
     val show = state.active && parsed != null

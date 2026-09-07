@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
                 shellThemeId = shellState.shellThemeId,
                 uiTextScale = shellState.uiTextScale,
                 uiLayoutScale = shellState.primaryUiLayoutScale,
+                liteVisualsOverride = shellState.liteVisualsOverride,
             ) {
                 ArcadiaShell(
                     shellState = shellState,

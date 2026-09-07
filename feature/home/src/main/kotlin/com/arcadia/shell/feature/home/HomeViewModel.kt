@@ -39,6 +39,7 @@ import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.ThemeMode
+import com.arcadia.shell.datastore.VisualPerformanceMode
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UI_TEXT_SCALE_PRESETS
@@ -50,6 +51,7 @@ import com.arcadia.shell.datastore.next
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.isReduceMotionPreferred
+import com.arcadia.shell.designsystem.readDeviceVisualBudget
 import com.arcadia.shell.feature.home.component.steamPersonaToPresence
 import com.arcadia.shell.feature.home.rss.RssFeedClient
 import com.arcadia.shell.input.GamepadDispatcher
@@ -265,6 +267,8 @@ class HomeViewModel @Inject constructor(
     private val xoraReturnRomIndex = mutableMapOf<String, Int>()
     /** Last hovered item in each top-level XMB category tab. */
     private val xoraCategoryHover = XoraCategoryHoverStore()
+    private val deviceVisualBudget = readDeviceVisualBudget(appContext)
+
     /** Drill-in parents so Cancel returns to the folder the user actually left. */
     private val xoraReturnStack = ArrayDeque<XoraXmbDepth>()
     private val homeShortcutIndex = MutableStateFlow(0)
@@ -2121,6 +2125,8 @@ class HomeViewModel @Inject constructor(
                 hasCustomBgm = !theme.customBgmPath.isNullOrBlank(),
                 detectedResolutionLabel = detectedResolutionLabel(),
                 raSettings = raSettings,
+                deviceSuggestsLite = deviceVisualBudget.suggestsLiteVisuals,
+                deviceRamLabel = deviceVisualBudget.usableRamLabel,
             )
         } else {
             buildStartSettingsCategoryRows()
@@ -3398,8 +3404,10 @@ class HomeViewModel @Inject constructor(
             }
             is XoraXmbAction.ToggleXoraEmulatorSetting ->
                 toggleXoraEmulatorSetting(action.setting)
-            XoraXmbAction.OpenFullXoraEmulatorSetup ->
+            XoraXmbAction.OpenFullXoraEmulatorSetup -> {
+                collapseHeroPanels()
                 emit(HomeEvent.OpenSettings)
+            }
             // In-emulator XMB actions — only handled inside XoraLibretroActivity.
             XoraXmbAction.ResumeGame,
             XoraXmbAction.QuitGame,
@@ -7051,6 +7059,12 @@ class HomeViewModel @Inject constructor(
                 val next = values[(current.ordinal + 1) % values.size]
                 preferences.setThemeMode(next)
             }
+            StartSettingsAction.CycleVisualPerformance -> viewModelScope.launch {
+                val values = VisualPerformanceMode.entries
+                val current = preferences.settings.first().visualPerformanceMode
+                val next = values[(current.ordinal + 1) % values.size]
+                preferences.setVisualPerformanceMode(next)
+            }
             StartSettingsAction.CycleFeedColumns -> viewModelScope.launch {
                 val options = listOf(2, 3, 4, 5, 6)
                 val current = preferences.settings.first().gridColumns.coerceIn(2, 6)
@@ -7148,7 +7162,7 @@ class HomeViewModel @Inject constructor(
             StartSettingsAction.OpenSocialSetup,
             StartSettingsAction.OpenAllSettings,
             -> {
-                closeStartSettings()
+                collapseHeroPanels()
                 emit(HomeEvent.OpenSettings)
             }
             StartSettingsAction.ToggleRaEnabled -> viewModelScope.launch {

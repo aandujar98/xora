@@ -46,11 +46,16 @@ class StartSettingsUiStateTest {
             isScraping = false,
             isScanning = false,
             hasCustomBgm = false,
+            deviceSuggestsLite = true,
+            deviceRamLabel = "5.2 GB RAM",
         )
         val ids = rows.map { it.id }
         assertFalse(ids.contains("switch_mode"))
         assertFalse(ids.contains("second_screen"))
         assertTrue(ids.contains("trailer_display"))
+        assertTrue(ids.contains("visual_performance"))
+        val performance = rows.first { it.id == "visual_performance" }
+        assertEquals("Auto on this device · Smooth · 5.2 GB RAM", performance.subtitle)
     }
 
     @Test

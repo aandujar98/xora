@@ -1000,8 +1000,14 @@ private fun XoraXmbPillChrome(
     )
     val slidePx = with(LocalDensity.current) { 72.dp.toPx() } * introSlide
     val introAlpha = (1f - introSlide).coerceIn(0f, 1f)
-    val accountExpanded = state.accountPanelExpanded && !launching && !launchPageOpen
-    val systemExpanded = state.systemPanelExpanded && !launching && !launchPageOpen
+    val hidePills = shouldHideHomePillChrome(
+        startSettingsOpen = state.startSettingsOpen,
+        launchPageOpen = launchPageOpen,
+        photosOverlayOpen = state.photos.chromeOverlayOpen,
+        raLibraryOpen = state.xoraXmb.depth == XoraXmbDepth.RaLibrary,
+    )
+    val accountExpanded = state.accountPanelExpanded && !launching && !launchPageOpen && !hidePills
+    val systemExpanded = state.systemPanelExpanded && !launching && !launchPageOpen && !hidePills
     val achievementsExpanded = state.achievementsPanelExpanded && !launching && !launchPageOpen
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -1028,10 +1034,7 @@ private fun XoraXmbPillChrome(
             profileAvatarModel = state.profileAvatarModel,
             accountRows = state.accountPanelRows,
             selectedRowIndex = state.accountPanelSelectedIndex,
-            hideCollapsedChrome = launchPageOpen ||
-                state.activeNotificationPresent ||
-                state.photos.chromeOverlayOpen ||
-                state.xoraXmb.depth == XoraXmbDepth.RaLibrary,
+            hideCollapsedChrome = hidePills || state.activeNotificationPresent,
             onToggle = onToggleAccountPanel,
             onSelectTab = onSelectSocialTab,
             onSelectRow = onSelectAccountRow,
@@ -1058,9 +1061,7 @@ private fun XoraXmbPillChrome(
             systemProfile = state.systemProfile,
             expanded = systemExpanded,
             selectedRowIndex = state.systemPanelSelectedIndex,
-            hideCollapsedChrome = launchPageOpen ||
-                state.photos.chromeOverlayOpen ||
-                state.xoraXmb.depth == XoraXmbDepth.RaLibrary,
+            hideCollapsedChrome = hidePills,
             onToggle = onToggleSystemPanel,
             onSelectRow = onSelectSystemRow,
             onActivateRow = onActivateSystemRow,

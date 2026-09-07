@@ -339,6 +339,10 @@ data class HomeUiState(
 
     val startSettingsOpen: Boolean get() = startSettings.open
 
+    /** LT social capsule + RT profile bubble stay hidden over Start / Advanced Settings. */
+    val hideHomePillChrome: Boolean
+        get() = shouldHideHomePillChrome(startSettingsOpen = startSettingsOpen)
+
     val systemUpdateOpen: Boolean get() = systemUpdate.open
 
     /**
