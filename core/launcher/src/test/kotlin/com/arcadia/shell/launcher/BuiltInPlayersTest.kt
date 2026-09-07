@@ -85,7 +85,8 @@ class BuiltInPlayersTest {
     @Test
     fun `PS2 and Dreamcast players use grantable URI templates with clear-task`() {
         val nether = BuiltInPlayers.all.first { it.uniqueId == "nethersx2.ps2" }
-        assertEquals("xyz.aethersx2.android", nether.packageName)
+        assertEquals(Ps2Packages.PACKAGE_DEFAULT, nether.packageName)
+        assertTrue(Ps2Packages.isPs2Player(nether))
         assertTrue(nether.amStartArguments.contains("bootPath {file.uri}"))
         assertTrue(nether.amStartArguments.contains("--activity-clear-task"))
 
