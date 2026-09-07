@@ -1133,6 +1133,22 @@ class ShellPreferences @Inject constructor(
         }
     }
 
+    /**
+     * Once per [EMULATOR_DETECTION_EPOCH], clears Choose Emulator picks so this upgrade
+     * rebuilds them from the emulators actually installed on the device.
+     *
+     * @return true when this call performed the reset.
+     */
+    suspend fun consumeEmulatorDetectionReset(): Boolean {
+        val seen = dataStore.data.first()[Keys.EMULATOR_DETECTION_EPOCH] ?: 0
+        if (seen >= EMULATOR_DETECTION_EPOCH) return false
+        edit { prefs ->
+            prefs[Keys.EMULATOR_DETECTION_EPOCH] = EMULATOR_DETECTION_EPOCH
+            prefs.remove(Keys.PLATFORM_EMULATOR_CHOICES)
+        }
+        return true
+    }
+
     suspend fun setOnboardingComplete(done: Boolean) = edit {
         it[Keys.ONBOARDING_COMPLETE] = done
     }
@@ -1490,6 +1506,7 @@ class ShellPreferences @Inject constructor(
         val RA_RICH_PRESENCE = booleanPreferencesKey("ra_rich_presence")
         /** JSON object: platformId → { playerId, packageName?, coreName? }. */
         val PLATFORM_EMULATOR_CHOICES = stringPreferencesKey("platform_emulator_choices")
+        val EMULATOR_DETECTION_EPOCH = intPreferencesKey("emulator_detection_epoch")
         val HOME_SHORTCUTS = stringPreferencesKey("home_shortcuts")
         val HOME_SHORTCUT_GRID_COLUMNS = intPreferencesKey("home_shortcut_grid_columns")
         val HOME_SHORTCUT_GRID_ROWS = intPreferencesKey("home_shortcut_grid_rows")
@@ -1508,6 +1525,12 @@ data class HomeShortcutGridLayout(
 /** Default landscape density — coarser than the old packed 8-col board so tiles read larger. */
 const val DEFAULT_HOME_SHORTCUT_GRID_COLUMNS = 6
 const val DEFAULT_HOME_SHORTCUT_GRID_ROWS = 3
+
+/**
+ * Bump to wipe stored built-in players and Choose Emulator picks once after an upgrade
+ * that changes how external emulators are detected.
+ */
+const val EMULATOR_DETECTION_EPOCH = 1
 const val MIN_HOME_SHORTCUT_GRID_COLUMNS = 4
 const val MAX_HOME_SHORTCUT_GRID_COLUMNS = 10
 const val MIN_HOME_SHORTCUT_GRID_ROWS = 2

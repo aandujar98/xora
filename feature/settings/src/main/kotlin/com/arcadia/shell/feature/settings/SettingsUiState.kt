@@ -8,6 +8,7 @@ import com.arcadia.shell.datastore.SteamWebApiCredentials
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.launcher.InstalledApp
+import com.arcadia.shell.launcher.DetectedExternalPlayers
 import com.arcadia.shell.launcher.InstalledPlayerProbe
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import com.arcadia.shell.model.LibraryRoot
@@ -32,9 +33,14 @@ internal fun buildPlatformPlayerChoice(
     preferredPlayerId: String?,
     probe: InstalledPlayerProbe,
 ): PlatformPlayerChoice {
-    val candidates = players.filter { summary.platform.id in it.platformIds }
+    val candidates = DetectedExternalPlayers.visibleForPlatform(
+        platformId = summary.platform.id,
+        players = players,
+        isInstalled = probe::isInstalled,
+    )
     val effective = candidates.firstOrNull { it.uniqueId == preferredPlayerId }
         ?: probe.installedPlayers(candidates).firstOrNull()
+        ?: candidates.firstOrNull()
     return PlatformPlayerChoice(
         summary = summary,
         candidates = candidates,

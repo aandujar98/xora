@@ -643,7 +643,8 @@ private fun OnboardingPlatformEmulatorCard(
         )
         Text(
             text = when {
-                choice.candidates.isEmpty() -> "No launch profile ships for this system yet."
+                choice.candidates.isEmpty() ->
+                    "No emulator for this system is installed yet. XOrA will add one when you install it."
                 choice.effectivePlayer == null -> "Nothing installed that can open these games."
                 choice.isInstalled -> "Opens with ${choice.effectivePlayer.name}"
                 else -> "${choice.effectivePlayer.name} is selected but not installed."

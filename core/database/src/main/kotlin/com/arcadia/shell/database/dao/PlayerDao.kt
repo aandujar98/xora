@@ -2,6 +2,7 @@ package com.arcadia.shell.database.dao
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import com.arcadia.shell.database.entity.PlatformSettingsEntity
 import com.arcadia.shell.database.entity.PlayerEntity
@@ -24,6 +25,19 @@ interface PlayerDao {
 
     @Query("DELETE FROM players WHERE uniqueId = :id AND builtIn = 0")
     suspend fun deleteCustom(id: String)
+
+    @Query("DELETE FROM players WHERE builtIn = 1")
+    suspend fun deleteAllBuiltIns()
+
+    /**
+     * Drops every bundled recipe and writes [players] in its place. Custom (`builtIn = 0`)
+     * rows are left alone.
+     */
+    @Transaction
+    suspend fun replaceBuiltIns(players: List<PlayerEntity>) {
+        deleteAllBuiltIns()
+        if (players.isNotEmpty()) upsertAll(players)
+    }
 
     @Query("SELECT COUNT(*) FROM players")
     suspend fun count(): Int

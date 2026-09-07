@@ -1352,19 +1352,20 @@ fun SettingsScreen(
 
         item(key = "emulators_scan") {
             SettingsCard(
-                title = "Detect installed emulators",
+                title = "Installed emulators",
                 iconRes = DsR.drawable.xmb_figma_game,
                 focused = focusedCardKey == "emulators_scan",
                 modifier = Modifier,
             ) {
                 Text(
-                    text = "Rescan for apps like Cemu, Eden, Dolphin, and RetroArch cores. " +
-                        "Use this after installing a new emulator.",
+                    text = "XOrA watches this device and adds emulators as you install them " +
+                        "(Cemu, Eden, Dolphin, RetroArch, Pizza Boy, and the rest of the " +
+                        "bundled recipes). Uninstalling an app removes it from Choose Emulator.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Button(onClick = viewModel::scanEmulators) {
-                    Text(text = "Scan for emulators")
+                    Text(text = "Refresh now")
                 }
             }
         }
@@ -2035,7 +2036,8 @@ private fun PlatformPlayerCard(
     ) {
         if (choice.candidates.isEmpty()) {
             Text(
-                text = "No launch profile ships for this system yet.",
+                text = "No emulator for this system is installed yet. " +
+                    "Install one and XOrA will pick it up automatically.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )

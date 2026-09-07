@@ -606,8 +606,8 @@ fun buildStartSettingsRows(
         ),
         StartSettingsRow.Action(
             id = "scan_emulators",
-            title = "Scan for emulators",
-            subtitle = "Detect Cemu, Eden, Dolphin, RetroArch cores…",
+            title = "Emulators",
+            subtitle = "Auto-detects apps you install · tap to refresh",
             action = StartSettingsAction.ScanEmulators,
         ),
         StartSettingsRow.Action(

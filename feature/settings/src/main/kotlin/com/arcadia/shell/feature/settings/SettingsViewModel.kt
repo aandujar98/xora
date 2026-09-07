@@ -470,8 +470,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Re-syncs bundled launch recipes and reports how many emulators / RetroArch cores are present.
-     * Sideloaded apps like Cemu then appear in Choose Emulator without restarting SORA.
+     * Rebuilds bundled launch recipes from the apps installed on this device and reports
+     * how many standalone emulators / RetroArch cores are present.
      */
     fun scanEmulators() {
         viewModelScope.launch {

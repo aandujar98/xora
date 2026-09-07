@@ -43,6 +43,14 @@ class PlayerRepository @Inject constructor(
         playerDao.upsertAll(builtIn.map(Player::toEntity))
     }
 
+    /**
+     * Replaces every bundled recipe with [builtIn]. Used after a live install scan so uninstalled
+     * standalone emulators disappear from Choose Emulator / Settings. Custom players stay.
+     */
+    suspend fun replaceBuiltIns(builtIn: List<Player>) {
+        playerDao.replaceBuiltIns(builtIn.map(Player::toEntity))
+    }
+
     suspend fun settingsFor(platformId: String): PlatformSettingsEntity? =
         platformSettingsDao.findById(platformId)
 
