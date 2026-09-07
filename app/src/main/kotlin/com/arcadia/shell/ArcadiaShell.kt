@@ -561,14 +561,15 @@ fun ArcadiaShell(
         }
         CompositionLocalProvider(LocalShellSheetNav provides sheetNav) {
         Box(modifier = contentModifier.then(swipeModifier)) {
-            // Keep Home mounted under Setup so the dim settings plate can show wallpaper through.
+            // Dual-display keeps Home mounted. On a single display, unmount Home while
+            // Setup is open so XMB chrome cannot draw through the settings plate.
             if (shellState.useDualLayout) {
                 PaneForRole(
                     role = shellState.primaryDisplayRole,
                     state = state,
                     homeViewModel = homeViewModel,
                 )
-            } else {
+            } else if (route != ShellRoute.Settings) {
                 HomeScreen(
                     state = state,
                     onSelectTab = homeViewModel::selectTab,

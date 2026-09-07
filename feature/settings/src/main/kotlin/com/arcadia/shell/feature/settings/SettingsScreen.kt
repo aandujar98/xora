@@ -223,6 +223,13 @@ fun SettingsScreen(
     ArcadiaTheme(darkTheme = true) {
     Box(modifier = Modifier.fillMaxSize()) {
         backdrop()
+        // Home stays mounted under Setup for wallpaper. Without a plate the XMB
+        // (and leftover tab cards from animateItem) draw through the glass.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xF2141418)),
+        )
     val focusedCardKey = if (padOnTabs) {
         null
     } else {
@@ -239,7 +246,7 @@ fun SettingsScreen(
     ) {
         item(key = "header") {
             Column(
-                modifier = Modifier.fillMaxWidth().animateItem(),
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(
@@ -309,7 +316,6 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .animateItem()
                         .liquidGlass(
                             shape = ArcadiaGlass.PanelShape,
                             tone = GlassTone.Surface,
@@ -352,7 +358,7 @@ fun SettingsScreen(
                 title = "Appearance",
                 iconRes = DsR.drawable.xmb_figma_device,
                 focused = focusedCardKey == "appearance",
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 SettingsFieldLabel("Theme")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -447,7 +453,7 @@ fun SettingsScreen(
                 title = "Library / Layout",
                 iconRes = DsR.drawable.xmb_figma_folder,
                 focused = focusedCardKey == "library_layout",
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 SettingsFieldLabel("Library columns: ${state.settings.gridColumns}")
                 Text(
@@ -498,7 +504,7 @@ fun SettingsScreen(
                 title = "Audio",
                 iconRes = DsR.drawable.xmb_figma_music,
                 focused = focusedCardKey == "audio",
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 SettingsFieldLabel("Background music")
                 Text(
@@ -600,7 +606,7 @@ fun SettingsScreen(
                 title = "Trailers",
                 iconRes = DsR.drawable.xmb_figma_video,
                 focused = focusedCardKey == "trailers",
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 Text(
                     text = "Playnite-style trailers: resolve a YouTube or Steam URL for the " +
@@ -668,7 +674,7 @@ fun SettingsScreen(
             SettingsCard(
                 title = "Scrapers / Metadata",
                 iconRes = DsR.drawable.xmb_figma_photo,
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 Text(
                     text = "XOrA looks up artwork from whichever sources you configure. " +
@@ -754,7 +760,7 @@ fun SettingsScreen(
             SettingsCard(
                 title = "RetroAchievements",
                 iconRes = DsR.drawable.xmb_figma_trophy,
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 Text(
                     text = "Shared by the XOrA launcher (XMB · press X) and XOrA Emulator. " +
@@ -896,7 +902,7 @@ fun SettingsScreen(
             SettingsCard(
                 title = "Social",
                 iconRes = DsR.drawable.xmb_figma_network,
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 Text(
                     text = "LT opens the social menu. Sign in with Steam for SteamID64; a Steam " +
@@ -1129,7 +1135,7 @@ fun SettingsScreen(
             SettingsCard(
                 title = "Storage / Library",
                 iconRes = DsR.drawable.xmb_figma_folder,
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 SettingsFieldLabel("Storage access")
                 Text(
@@ -1276,7 +1282,7 @@ fun SettingsScreen(
         // 9. System / Launcher — HOME role (host) + emulators / players
         item(key = "system") {
             Column(
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 systemSection()
@@ -1307,7 +1313,7 @@ fun SettingsScreen(
                     "an installed app or RetroArch core for the current system.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             )
         }
 
@@ -1316,7 +1322,7 @@ fun SettingsScreen(
                 title = "Detect installed emulators",
                 iconRes = DsR.drawable.xmb_figma_game,
                 focused = focusedCardKey == "emulators_scan",
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 Text(
                     text = "Rescan for apps like Cemu, Eden, Dolphin, and RetroArch cores. " +
@@ -1335,7 +1341,7 @@ fun SettingsScreen(
                 title = "XOrA Emulator (Libretro)",
                 iconRes = DsR.drawable.xmb_figma_game,
                 focused = focusedCardKey == "xora_emulator_cores",
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 Text(
                     text = "Built-in Libretro host. Downloads cores from the Libretro buildbot " +
@@ -1503,7 +1509,7 @@ fun SettingsScreen(
                 title = "XOrA · System bezels",
                 iconRes = DsR.drawable.xmb_figma_photo,
                 focused = focusedCardKey == "xora_bezels",
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             ) {
                 Text(
                     text = "NSO bezels use the overlay pack layout: `cfg/nso-gba.cfg` points at " +
@@ -1542,7 +1548,7 @@ fun SettingsScreen(
                     text = "Scan a library first and the systems you own will appear here.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.animateItem(),
+                    modifier = Modifier,
                 )
             }
         }
@@ -1553,7 +1559,7 @@ fun SettingsScreen(
                 onSelect = { playerId ->
                     viewModel.selectPlayer(choice.summary.platform.id, playerId)
                 },
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             )
         }
         }
