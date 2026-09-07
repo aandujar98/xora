@@ -62,6 +62,8 @@ import com.arcadia.shell.launcher.GameLauncher
 import com.arcadia.shell.launcher.InstalledAppSync
 import com.arcadia.shell.launcher.LaunchResult
 import com.arcadia.shell.launcher.PlatformEmulatorDetector
+import com.arcadia.shell.launcher.DetectedExternalPlayers
+import com.arcadia.shell.launcher.InstalledPlayerProbe
 import com.arcadia.shell.launcher.PlayerSeeder
 import com.arcadia.shell.launcher.PlaySessionTracker
 import com.arcadia.shell.launcher.RetroArchCoreCatalog
@@ -242,6 +244,7 @@ class HomeViewModel @Inject constructor(
     private val shellSystemNotifier: ShellSystemNotifier,
     private val platformEmulatorDetector: PlatformEmulatorDetector,
     private val playerSeeder: PlayerSeeder,
+    private val installedPlayerProbe: InstalledPlayerProbe,
     private val gameCompanionController: GameCompanionController,
     private val xoraNetwork: XoraNetworkRepository,
     val gamepadDispatcher: GamepadDispatcher,
@@ -9264,9 +9267,13 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { libraryRepository.setPlayerOverride(gameId, playerId) }
     }
 
-    /** Launch profiles that claim a platform, for the per-game override picker. */
+    /** Launch profiles that claim a platform and are installed (plus XOrA cores). */
     suspend fun playersFor(platformId: String): List<Player> =
-        playerRepository.getPlayers().filter { platformId in it.platformIds }
+        DetectedExternalPlayers.visibleForPlatform(
+            platformId = platformId,
+            players = playerRepository.getPlayers(),
+            isInstalled = installedPlayerProbe::isInstalled,
+        )
 
     suspend fun detectEmulatorsForPlatform(platformId: String): List<DetectedEmulator> =
         platformEmulatorDetector.detectForPlatform(platformId)

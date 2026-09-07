@@ -17,6 +17,7 @@ import com.arcadia.shell.audio.OnboardingMusicController
 import com.arcadia.shell.companion.CompanionOverlayService
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.feature.home.GameCompanionController
+import com.arcadia.shell.launcher.EmulatorInstallMonitor
 import com.arcadia.shell.launcher.PlayerSeeder
 import com.arcadia.shell.launcher.music.MusicPlaybackSession
 import com.arcadia.shell.launcher.music.NowPlayingController
@@ -47,6 +48,7 @@ import javax.inject.Inject
 class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
 
     @Inject lateinit var playerSeeder: PlayerSeeder
+    @Inject lateinit var emulatorInstallMonitor: EmulatorInstallMonitor
     @Inject lateinit var preferences: ShellPreferences
     @Inject lateinit var discordRichPresence: DiscordRichPresence
     @Inject lateinit var backgroundMusic: BackgroundMusicController
@@ -67,6 +69,7 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         // Seeding touches the database, so it must not run on the main thread during startup.
         applicationScope.launch { playerSeeder.seedIfNeeded() }
+        emulatorInstallMonitor.start()
         libraryAutoScanner.start()
         libraryScanner.progress
             .distinctUntilChanged { old, new ->
@@ -113,6 +116,7 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
                     // Republish after Custom Tab / Discord OAuth / brief backgrounding.
                     discordRichPresence.onAppForeground()
                     libraryAutoScanner.onAppForeground()
+                    emulatorInstallMonitor.onAppForeground()
                 }
 
                 override fun onStop(owner: LifecycleOwner) {

@@ -1352,19 +1352,53 @@ fun SettingsScreen(
 
         item(key = "emulators_scan") {
             SettingsCard(
-                title = "Detect installed emulators",
+                title = if (state.detectedEmulatorApps.isEmpty()) {
+                    "Detected emulators"
+                } else {
+                    "Detected emulators (${state.detectedEmulatorApps.size})"
+                },
                 iconRes = DsR.drawable.xmb_figma_game,
                 focused = focusedCardKey == "emulators_scan",
                 modifier = Modifier,
             ) {
                 Text(
-                    text = "Rescan for apps like Cemu, Eden, Dolphin, and RetroArch cores. " +
-                        "Use this after installing a new emulator.",
+                    text = "XOrA watches this device. Installing an emulator adds it here; " +
+                        "uninstalling it removes it.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (state.detectedEmulatorApps.isEmpty()) {
+                    Text(
+                        text = "None installed yet.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        state.detectedEmulatorApps.forEachIndexed { index, app ->
+                            if (index > 0) {
+                                HorizontalDivider()
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = app.displayName,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White,
+                                )
+                                if (app.platformLabels.isNotEmpty()) {
+                                    Text(
+                                        text = app.platformLabels.joinToString(" · "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 Button(onClick = viewModel::scanEmulators) {
-                    Text(text = "Scan for emulators")
+                    Text(text = "Refresh now")
                 }
             }
         }
@@ -1578,7 +1612,8 @@ fun SettingsScreen(
         if (state.platformChoices.isEmpty()) {
             item(key = "emulators_empty") {
                 Text(
-                    text = "Scan a library first and the systems you own will appear here.",
+                    text = "Per-system players appear after a library scan, or as soon as " +
+                        "XOrA detects a standalone emulator.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier,
@@ -1617,7 +1652,7 @@ private enum class SetupSection(
     Accounts("Accounts", "RetroAchievements, Steam, and Discord", DsR.drawable.xmb_figma_network),
     Storage("Storage", "Library folders, scanning, and app sync", DsR.drawable.xmb_figma_folder),
     System("System", "Home screen role and onboarding", DsR.drawable.xmb_figma_settings),
-    Emulators("Emulators", "XOrA Emulator and per-system players", DsR.drawable.xmb_figma_game),
+    Emulators("Emulators", "Detected apps and per-system players", DsR.drawable.xmb_figma_game),
 }
 
 private fun setupSectionCardKeys(section: SetupSection): List<String> = when (section) {
@@ -2035,7 +2070,8 @@ private fun PlatformPlayerCard(
     ) {
         if (choice.candidates.isEmpty()) {
             Text(
-                text = "No launch profile ships for this system yet.",
+                text = "No emulator for this system is installed yet. " +
+                    "Install one and XOrA will pick it up automatically.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )

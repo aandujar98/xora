@@ -16,6 +16,8 @@ import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.launcher.BuiltInPlayers
+import com.arcadia.shell.launcher.DetectedEmulatorApp
+import com.arcadia.shell.launcher.DetectedExternalPlayers
 import com.arcadia.shell.launcher.InstalledPlayerProbe
 import com.arcadia.shell.launcher.InstalledApp
 import com.arcadia.shell.launcher.InstalledAppCatalog
@@ -95,20 +97,40 @@ class SettingsViewModel @Inject constructor(
         preferences.platformEmulatorChoices,
     ) { players, platformSettings, summaries, settings, emulatorChoices ->
         val selectedByPlatform = platformSettings.associate { it.platformId to it.selectedPlayerId }
-        summaries.map { summary ->
-            val platformId = summary.platform.id
-            val preferredId = emulatorChoices[platformId]?.playerId
-                ?: selectedByPlatform[platformId]
-                ?: BuiltInPlayers.RETROARCH_N64_PLAYER_ID.takeIf {
-                    platformId == "n64" && settings.n64UseMupen64PlusNext
-                }
-            platformChoice(
-                summary = summary,
+        val extraIds = DetectedExternalPlayers.extraPlatformIds(players)
+        val allSummaries = buildList {
+            addAll(summaries)
+            extraIds.forEach { platformId ->
+                if (summaries.any { it.platform.id == platformId }) return@forEach
+                val platform = PlatformCatalog.byId(platformId) ?: return@forEach
+                add(PlatformSummary(platform = platform, gameCount = 0))
+            }
+        }.sortedBy { it.platform.displayName }
+        PlayersBundle(
+            platformChoices = allSummaries.map { summary ->
+                val platformId = summary.platform.id
+                val preferredId = emulatorChoices[platformId]?.playerId
+                    ?: selectedByPlatform[platformId]
+                    ?: BuiltInPlayers.RETROARCH_N64_PLAYER_ID.takeIf {
+                        platformId == "n64" && settings.n64UseMupen64PlusNext
+                    }
+                platformChoice(
+                    summary = summary,
+                    players = players,
+                    preferredPlayerId = preferredId,
+                )
+            },
+            detectedApps = DetectedExternalPlayers.appsFromPlayers(
                 players = players,
-                preferredPlayerId = preferredId,
-            )
-        }
+                appLabel = { probe.appLabel(it) },
+            ),
+        )
     }
+
+    private data class PlayersBundle(
+        val platformChoices: List<PlatformPlayerChoice>,
+        val detectedApps: List<DetectedEmulatorApp>,
+    )
 
     private val storageFlow = combine(
         rootManager.observeRoots(),
@@ -186,7 +208,7 @@ class SettingsViewModel @Inject constructor(
         configFlow,
         scanner.progress,
         libraryRepository.observeGames(),
-    ) { storage, choices, config, progress, games ->
+    ) { storage, players, config, progress, games ->
         SettingsUiState(
             hasStorageAccess = storage.hasAccess,
             roots = storage.roots,
@@ -194,7 +216,8 @@ class SettingsViewModel @Inject constructor(
             gameCount = games.count { !it.isAndroidApp },
             androidAppCount = games.count { it.isAndroidApp },
             scanProgress = progress,
-            platformChoices = choices,
+            platformChoices = players.platformChoices,
+            detectedEmulatorApps = players.detectedApps,
             settings = config.settings,
             credentials = config.credentials,
             retroAchievements = config.retroAchievements,
@@ -470,8 +493,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Re-syncs bundled launch recipes and reports how many emulators / RetroArch cores are present.
-     * Sideloaded apps like Cemu then appear in Choose Emulator without restarting SORA.
+     * Rebuilds bundled launch recipes from the apps installed on this device and reports
+     * how many standalone emulators / RetroArch cores are present.
      */
     fun scanEmulators() {
         viewModelScope.launch {

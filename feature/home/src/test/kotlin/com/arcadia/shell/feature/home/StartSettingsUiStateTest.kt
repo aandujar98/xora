@@ -71,5 +71,8 @@ class StartSettingsUiStateTest {
         assertFalse(ids.contains("xmb_title_style"))
         assertTrue(ids.contains("edit_home"))
         assertTrue(ids.contains("all_settings"))
+        val emulators = rows.first { it.id == "scan_emulators" }
+        assertEquals("Emulators", emulators.title)
+        assertTrue(emulators.subtitle.orEmpty().contains("Auto-detects", ignoreCase = true))
     }
 }
