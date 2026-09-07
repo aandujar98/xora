@@ -96,6 +96,22 @@ class SettingsPadNavTest {
     }
 
     @Test
+    fun downOnTheLastControlStaysPutSoTheHostCanScrollThePage() {
+        val last = SettingsPadNavState(0, SettingsPadZone.Controls, 4)
+        val still = settingsPadAfterAction(last, NavAction.Down, sectionCount = 7, controlCount = 5)
+        assertEquals(last, still)
+        assertEquals(true, settingsPadShouldScrollPage(last, still, NavAction.Down))
+        assertEquals(
+            false,
+            settingsPadShouldScrollPage(
+                last,
+                settingsPadAfterAction(last, NavAction.Up, sectionCount = 7, controlCount = 5),
+                NavAction.Up,
+            ),
+        )
+    }
+
+    @Test
     fun confirmOnTabsDropsIntoTheFirstControlAndConfirmOnAControlStays() {
         val into = settingsPadAfterAction(
             SettingsPadNavState(0, SettingsPadZone.Tabs, 0),

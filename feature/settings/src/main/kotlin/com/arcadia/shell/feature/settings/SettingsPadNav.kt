@@ -109,3 +109,13 @@ internal fun settingsPadCoerce(
     if (controlCount <= 0) return state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
     return state.copy(controlIndex = state.controlIndex.coerceIn(0, controlCount - 1))
 }
+
+/** True when Up/Down cannot move the cursor, so Setup should scroll the page instead. */
+internal fun settingsPadShouldScrollPage(
+    before: SettingsPadNavState,
+    after: SettingsPadNavState,
+    action: NavAction,
+): Boolean {
+    if (action != NavAction.Up && action != NavAction.Down) return false
+    return after == before
+}

@@ -57,6 +57,7 @@ fun SettingsPadTarget(
     onAdjust: ((Int) -> Unit)? = null,
     shape: Shape = ArcadiaGlass.ChipShape,
     listed: Boolean = true,
+    showFocusBorder: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val focusId = LocalSettingsPadFocusId.current
@@ -85,7 +86,7 @@ fun SettingsPadTarget(
         modifier = modifier
             .bringIntoViewRequester(requester)
             .then(
-                if (focused) {
+                if (focused && showFocusBorder) {
                     Modifier.border(2.dp, Color.White.copy(alpha = 0.88f), shape)
                 } else {
                     Modifier

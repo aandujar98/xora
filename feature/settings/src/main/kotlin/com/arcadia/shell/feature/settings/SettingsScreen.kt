@@ -11,6 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.activity.compose.BackHandler
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -121,6 +123,7 @@ fun SettingsScreen(
     var showMusicFolderPicker by remember { mutableStateOf(false) }
     var section by remember { mutableStateOf(SetupSection.Display) }
     val scrollState = rememberScrollState()
+    val density = LocalDensity.current
     val padRegistry = remember { SettingsPadRegistry() }
     var pad by remember {
         mutableStateOf(
@@ -148,9 +151,10 @@ fun SettingsScreen(
         onPadCapture(true)
         onDispose { onPadCapture(false) }
     }
-    LaunchedEffect(padActions, padRegistry) {
+    LaunchedEffect(padActions, padRegistry, density) {
         val flow = padActions ?: return@LaunchedEffect
         val sections = SetupSection.entries
+        val scrollStep = with(density) { 96.dp.toPx() }
         flow.collect { action ->
             val controlIds = padRegistry.ids()
             val current = settingsPadCoerce(padNow.value, controlIds.size)
@@ -193,6 +197,11 @@ fun SettingsScreen(
                 sections.size,
                 controlIds.size,
             )
+            if (settingsPadShouldScrollPage(current, next, action)) {
+                val pageDelta = if (action == NavAction.Down) scrollStep else -scrollStep
+                scrollState.animateScrollBy(pageDelta)
+                return@collect
+            }
             pad = next
             val nextSection = sections[next.sectionIndex]
             if (nextSection != sectionNow.value) {
@@ -346,6 +355,7 @@ fun SettingsScreen(
                         )
                     },
                     listed = false,
+                    showFocusBorder = false,
                 ) {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -355,6 +365,7 @@ fun SettingsScreen(
                         SetupSectionTab(
                             section = entry,
                             selected = entry == section,
+                            focused = padFocusId == SettingsPadIds.Tabs && entry == section,
                             onClick = { section = entry },
                         )
                     }
@@ -1065,18 +1076,25 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(
-                    onClick = {
+                SettingsPadTarget(
+                    id = "social_notif_access",
+                    onActivate = {
                         permissionLauncher.launch(viewModel.notificationListenerSettingsIntent())
                     },
                 ) {
-                    Text(
-                        text = if (state.notificationListenerEnabled) {
-                            "Notification access settings"
-                        } else {
-                            "Notification access for conversations"
+                    OutlinedButton(
+                        onClick = {
+                            permissionLauncher.launch(viewModel.notificationListenerSettingsIntent())
                         },
-                    )
+                    ) {
+                        Text(
+                            text = if (state.notificationListenerEnabled) {
+                                "Notification access settings"
+                            } else {
+                                "Notification access for conversations"
+                            },
+                        )
+                    }
                 }
 
                 SettingsFieldLabel("Sign in with Steam")
@@ -1085,8 +1103,9 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(
-                    onClick = {
+                SettingsPadTarget(
+                    id = "social_steam_signin",
+                    onActivate = {
                         val customTabs = androidx.browser.customtabs.CustomTabsIntent.Builder()
                             .setShowTitle(true)
                             .build()
@@ -1098,13 +1117,27 @@ fun SettingsScreen(
                         }
                     },
                 ) {
-                    Text(
-                        text = if (state.steamWebApi.steamId64.isNotBlank()) {
-                            "Re-link Steam (ID ${state.steamWebApi.steamId64})"
-                        } else {
-                            "Sign in with Steam"
+                    Button(
+                        onClick = {
+                            val customTabs = androidx.browser.customtabs.CustomTabsIntent.Builder()
+                                .setShowTitle(true)
+                                .build()
+                            runCatching {
+                                customTabs.launchUrl(
+                                    context,
+                                    android.net.Uri.parse(viewModel.steamOpenIdAuthorizationUrl()),
+                                )
+                            }
                         },
-                    )
+                    ) {
+                        Text(
+                            text = if (state.steamWebApi.steamId64.isNotBlank()) {
+                                "Re-link Steam (ID ${state.steamWebApi.steamId64})"
+                            } else {
+                                "Sign in with Steam"
+                            },
+                        )
+                    }
                 }
 
                 SecretField(
@@ -1116,23 +1149,35 @@ fun SettingsScreen(
                 var steamIdDraft by remember(state.steamWebApi.steamId64) {
                     mutableStateOf(state.steamWebApi.steamId64)
                 }
-                OutlinedTextField(
-                    value = steamIdDraft,
-                    onValueChange = { steamIdDraft = it },
-                    label = { Text(text = "SteamID64 (from Sign in with Steam)") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused && steamIdDraft != state.steamWebApi.steamId64) {
-                                viewModel.setSteamId64(steamIdDraft)
-                            }
-                        },
-                )
+                val steamIdRequester = remember { FocusRequester() }
+                SettingsPadTarget(
+                    id = "social_steam_id",
+                    onActivate = { steamIdRequester.requestFocus() },
+                ) {
+                    OutlinedTextField(
+                        value = steamIdDraft,
+                        onValueChange = { steamIdDraft = it },
+                        label = { Text(text = "SteamID64 (from Sign in with Steam)") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(steamIdRequester)
+                            .onFocusChanged { focus ->
+                                if (!focus.isFocused && steamIdDraft != state.steamWebApi.steamId64) {
+                                    viewModel.setSteamId64(steamIdDraft)
+                                }
+                            },
+                    )
+                }
 
                 if (state.steamWebApi.apiKey.isNotBlank() || state.steamWebApi.steamId64.isNotBlank()) {
-                    OutlinedButton(onClick = viewModel::clearSteamWebApiCredentials) {
-                        Text(text = "Clear Steam credentials")
+                    SettingsPadTarget(
+                        id = "social_steam_clear",
+                        onActivate = viewModel::clearSteamWebApiCredentials,
+                    ) {
+                        OutlinedButton(onClick = viewModel::clearSteamWebApiCredentials) {
+                            Text(text = "Clear Steam credentials")
+                        }
                     }
                 }
 
@@ -1140,58 +1185,77 @@ fun SettingsScreen(
                 var discordDraft by remember(state.discordSocial.openUrl) {
                     mutableStateOf(state.discordSocial.openUrl)
                 }
-                OutlinedTextField(
-                    value = discordDraft,
-                    onValueChange = { discordDraft = it },
-                    label = { Text(text = "Discord invite / profile URL") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused && discordDraft != state.discordSocial.openUrl) {
-                                viewModel.setDiscordOpenUrl(discordDraft)
-                            }
-                        },
-                )
+                val discordInviteRequester = remember { FocusRequester() }
+                SettingsPadTarget(
+                    id = "social_discord_invite",
+                    onActivate = { discordInviteRequester.requestFocus() },
+                ) {
+                    OutlinedTextField(
+                        value = discordDraft,
+                        onValueChange = { discordDraft = it },
+                        label = { Text(text = "Discord invite / profile URL") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(discordInviteRequester)
+                            .onFocusChanged { focus ->
+                                if (!focus.isFocused && discordDraft != state.discordSocial.openUrl) {
+                                    viewModel.setDiscordOpenUrl(discordDraft)
+                                }
+                            },
+                    )
+                }
 
                 if (state.discordSocial.hasLink) {
-                    OutlinedButton(onClick = viewModel::clearDiscordOpenUrl) {
-                        Text(text = "Clear Discord link")
+                    SettingsPadTarget(
+                        id = "social_discord_clear",
+                        onActivate = viewModel::clearDiscordOpenUrl,
+                    ) {
+                        OutlinedButton(onClick = viewModel::clearDiscordOpenUrl) {
+                            Text(text = "Clear Discord link")
+                        }
                     }
                 }
 
                 var discordAppIdDraft by remember(state.discordSocial.applicationId) {
                     mutableStateOf(state.discordSocial.applicationId)
                 }
-                OutlinedTextField(
-                    value = discordAppIdDraft,
-                    onValueChange = { discordAppIdDraft = it },
-                    label = { Text(text = "Discord Application ID (Rich Presence)") },
-                    singleLine = true,
-                    supportingText = {
-                        Text(
-                            text = buildString {
-                                append("Status: ${state.discordPresence.connectionLabel}")
-                                append(" · ")
-                                append(state.discordPresence.statusLine)
-                                append(" · ")
-                                append(
-                                    "Default is XOrA's Application ID; override or Clear to disable. " +
-                                        "Public Application ID only — never put a client secret here.",
-                                )
-                            },
-                        )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused &&
-                                discordAppIdDraft != state.discordSocial.applicationId
-                            ) {
-                                viewModel.setDiscordApplicationId(discordAppIdDraft)
-                            }
+                val discordAppIdRequester = remember { FocusRequester() }
+                SettingsPadTarget(
+                    id = "social_discord_app_id",
+                    onActivate = { discordAppIdRequester.requestFocus() },
+                ) {
+                    OutlinedTextField(
+                        value = discordAppIdDraft,
+                        onValueChange = { discordAppIdDraft = it },
+                        label = { Text(text = "Discord Application ID (Rich Presence)") },
+                        singleLine = true,
+                        supportingText = {
+                            Text(
+                                text = buildString {
+                                    append("Status: ${state.discordPresence.connectionLabel}")
+                                    append(" · ")
+                                    append(state.discordPresence.statusLine)
+                                    append(" · ")
+                                    append(
+                                        "Default is XOrA's Application ID; override or Clear to disable. " +
+                                            "Public Application ID only — never put a client secret here.",
+                                    )
+                                },
+                            )
                         },
-                )
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(discordAppIdRequester)
+                            .onFocusChanged { focus ->
+                                if (!focus.isFocused &&
+                                    discordAppIdDraft != state.discordSocial.applicationId
+                                ) {
+                                    viewModel.setDiscordApplicationId(discordAppIdDraft)
+                                }
+                            },
+                    )
+                }
 
                 Text(
                     text = state.discordPresence.detailLine,
@@ -1218,14 +1282,23 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
-                        OutlinedButton(
-                            onClick = {
+                        SettingsPadTarget(
+                            id = "social_discord_portal",
+                            onActivate = {
                                 runCatching {
                                     context.startActivity(viewModel.openDiscordDeveloperPortalIntent())
                                 }
                             },
                         ) {
-                            Text(text = "Open Discord Developer Portal")
+                            OutlinedButton(
+                                onClick = {
+                                    runCatching {
+                                        context.startActivity(viewModel.openDiscordDeveloperPortalIntent())
+                                    }
+                                },
+                            ) {
+                                Text(text = "Open Discord Developer Portal")
+                            }
                         }
                     }
                     DiscordPresenceCapability.NeedsAccountLink,
@@ -1259,8 +1332,13 @@ fun SettingsScreen(
                 }
 
                 if (state.discordSocial.hasApplicationId) {
-                    OutlinedButton(onClick = viewModel::clearDiscordApplicationId) {
-                        Text(text = "Clear Application ID")
+                    SettingsPadTarget(
+                        id = "social_discord_app_id_clear",
+                        onActivate = viewModel::clearDiscordApplicationId,
+                    ) {
+                        OutlinedButton(onClick = viewModel::clearDiscordApplicationId) {
+                            Text(text = "Clear Application ID")
+                        }
                     }
                 }
             }
@@ -1575,15 +1653,20 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (!state.hasStorageAccess) {
-                    Button(onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) }) {
-                        Text(text = "Allow access to system files")
-                    }
-                } else {
-                    OutlinedButton(
-                        onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) },
-                    ) {
-                        Text(text = "System files access settings")
+                SettingsPadTarget(
+                    id = "emulators_filesystem",
+                    onActivate = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) },
+                ) {
+                    if (!state.hasStorageAccess) {
+                        Button(onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) }) {
+                            Text(text = "Allow access to system files")
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) },
+                        ) {
+                            Text(text = "System files access settings")
+                        }
                     }
                 }
 
@@ -1690,6 +1773,7 @@ fun SettingsScreen(
                     pendingWebApiUsername = state.raPendingWebApiUsername,
                     onPasswordSignIn = viewModel::loginRetroAchievements,
                     onApiKeySignIn = viewModel::setRetroAchievementsCredentials,
+                    padPrefix = "xora_emu_ra",
                 )
                 if (state.retroAchievements.isConfigured) {
                     Text(
@@ -1698,7 +1782,7 @@ fun SettingsScreen(
                         color = Color.White,
                     )
                     SettingsPadTarget(
-                        id = "ra_sign_out",
+                        id = "xora_emu_ra_sign_out",
                         onActivate = viewModel::clearRetroAchievementsCredentials,
                     ) {
                         OutlinedButton(onClick = viewModel::clearRetroAchievementsCredentials) {
@@ -1832,11 +1916,19 @@ private fun SetupSectionTab(
     section: SetupSection,
     selected: Boolean,
     onClick: () -> Unit,
+    focused: Boolean = false,
 ) {
     val theme = LocalShellTheme.current.colors
     val shape = ArcadiaGlass.ChipShape
     Row(
         modifier = Modifier
+            .then(
+                if (focused) {
+                    Modifier.border(2.dp, Color.White.copy(alpha = 0.88f), shape)
+                } else {
+                    Modifier
+                },
+            )
             .clip(shape)
             .background(
                 if (selected) {
@@ -1970,13 +2062,24 @@ private fun CompanionScreenPermissionRow(
                 },
             )
             if (!granted) {
-                OutlinedButton(
-                    enabled = enabled,
-                    onClick = {
-                        runCatching { context.startActivity(OverlayPermission.settingsIntent(context)) }
+                SettingsPadTarget(
+                    id = "companion_overlay_allow",
+                    onActivate = {
+                        if (enabled) {
+                            runCatching {
+                                context.startActivity(OverlayPermission.settingsIntent(context))
+                            }
+                        }
                     },
                 ) {
-                    Text(text = "Allow")
+                    OutlinedButton(
+                        enabled = enabled,
+                        onClick = {
+                            runCatching { context.startActivity(OverlayPermission.settingsIntent(context)) }
+                        },
+                    ) {
+                        Text(text = "Allow")
+                    }
                 }
             }
         }
