@@ -8,6 +8,7 @@ import com.arcadia.shell.datastore.SteamWebApiCredentials
 import com.arcadia.shell.datastore.RetroAchievementsSettings
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.launcher.InstalledApp
+import com.arcadia.shell.launcher.DetectedEmulatorApp
 import com.arcadia.shell.launcher.DetectedExternalPlayers
 import com.arcadia.shell.launcher.InstalledPlayerProbe
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
@@ -71,6 +72,8 @@ data class SettingsUiState(
     val isSyncingApps: Boolean = false,
     val scanProgress: ScanProgress = ScanProgress(),
     val platformChoices: List<PlatformPlayerChoice> = emptyList(),
+    /** External emulator apps currently installed; disappears when the user uninstalls them. */
+    val detectedEmulatorApps: List<DetectedEmulatorApp> = emptyList(),
     val settings: ShellSettings = ShellSettings(),
     val xoraEmulator: XoraEmulatorSettings = XoraEmulatorSettings(),
     val raSettings: RetroAchievementsSettings = RetroAchievementsSettings(),

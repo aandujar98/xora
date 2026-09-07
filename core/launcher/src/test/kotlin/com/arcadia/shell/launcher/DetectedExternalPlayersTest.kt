@@ -84,6 +84,37 @@ class DetectedExternalPlayersTest {
 
         assertEquals(listOf("skyline.switch"), visible.map { it.uniqueId })
     }
+
+    @Test
+    fun `settings list groups Dolphin recipes and omits XOrA`() {
+        val dolphinWii = standalone("dolphin.wii", "Dolphin (Wii)", "org.dolphinemu.dolphinemu", "wii")
+        val apps = DetectedExternalPlayers.appsFromPlayers(
+            listOf(dolphin, dolphinWii, skyline, retroArch, xora),
+        )
+
+        assertEquals(listOf("Dolphin", "RetroArch", "Skyline"), apps.map { it.displayName })
+        assertEquals("org.dolphinemu.dolphinemu", apps.first { it.displayName == "Dolphin" }.packageName)
+        assertEquals(
+            listOf("GC", "Wii"),
+            apps.first { it.displayName == "Dolphin" }.platformLabels,
+        )
+    }
+
+    @Test
+    fun `uninstalling an app drops it from the settings list`() {
+        val installed = DetectedExternalPlayers.appsFromPlayers(listOf(dolphin, skyline))
+        assertEquals(setOf("Dolphin", "Skyline"), installed.map { it.displayName }.toSet())
+
+        val afterRemoval = DetectedExternalPlayers.appsFromPlayers(listOf(dolphin))
+        assertEquals(listOf("Dolphin"), afterRemoval.map { it.displayName })
+        assertFalse(afterRemoval.any { it.packageName == "skyline.emu" })
+    }
+
+    @Test
+    fun `standalone apps add their platforms even with no library games`() {
+        assertEquals(setOf("gamecube", "switch"), DetectedExternalPlayers.extraPlatformIds(listOf(dolphin, skyline, retroArch, xora)))
+        assertEquals(emptySet<String>(), DetectedExternalPlayers.extraPlatformIds(listOf(retroArch, xora)))
+    }
 }
 
 class EmulatorInstallEventsTest {
