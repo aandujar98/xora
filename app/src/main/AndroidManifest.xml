@@ -92,6 +92,24 @@
         <package android:name="dev.eden.eden_emulator" />
         <package android:name="dev.legacy.eden_emulator" />
         <package android:name="dev.eden.eden_emulator.nightly" />
+        <package android:name="skyline.emu" />
+        <package android:name="emu.skyline" />
+        <package android:name="org.stratoemu.strato" />
+        <package android:name="org.sudachi.sudachi_emu.ea" />
+        <package android:name="org.sudachi.sudachi_emu" />
+        <package android:name="org.gamerytb.lemonade.canary" />
+        <package android:name="it.dbtecno.pizzaboy" />
+        <package android:name="it.dbtecno.pizzaboypro" />
+        <package android:name="it.dbtecno.pizzaboygba" />
+        <package android:name="it.dbtecno.pizzaboygbapro" />
+        <package android:name="com.fastemulator.gba" />
+        <package android:name="com.fastemulator.gbafree" />
+        <package android:name="com.fastemulator.gbc" />
+        <package android:name="com.fastemulator.gbcfree" />
+        <package android:name="com.explusalpha.Snes9xPlus" />
+        <package android:name="com.johnemulators.johngba" />
+        <package android:name="com.johnemulators.johngbalite" />
+        <package android:name="com.johnemulators.johngbac" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:mimeType="*/*" />

@@ -67,19 +67,67 @@ class BuiltInPlayersTest {
     }
 
     @Test
-    fun `Switch players cover Eden mainline, legacy, and nightly packages`() {
+    fun `Switch players cover Eden, Skyline, Strato, and Sudachi packages`() {
         val switchPlayers = BuiltInPlayers.all.filter { "switch" in it.platformIds }
         val packages = switchPlayers.mapNotNull { it.packageName }.toSet()
 
         assertTrue(packages.contains("dev.eden.eden_emulator"))
         assertTrue(packages.contains("dev.legacy.eden_emulator"))
         assertTrue(packages.contains("dev.eden.eden_emulator.nightly"))
+        assertTrue(packages.contains("skyline.emu"))
+        assertTrue(packages.contains("emu.skyline"))
+        assertTrue(packages.contains("org.stratoemu.strato"))
+        assertTrue(packages.contains("org.sudachi.sudachi_emu.ea"))
+        assertTrue(packages.contains("org.sudachi.sudachi_emu"))
 
         val mainline = BuiltInPlayers.all.first { it.uniqueId == "eden.switch" }
         assertEquals("Eden", mainline.name)
         assertTrue(mainline.amStartArguments.contains("{file.uri}"))
         assertTrue(mainline.amStartArguments.contains("org.yuzu.yuzu_emu.activities.EmulationActivity"))
         assertTrue(mainline.killPackageProcesses)
+
+        val skyline = BuiltInPlayers.all.first { it.uniqueId == "skyline.switch" }
+        assertTrue(skyline.amStartArguments.contains("emu.skyline.EmulationActivity"))
+        assertTrue(skyline.amStartArguments.contains("{file.uri}"))
+
+        val sudachi = BuiltInPlayers.all.first { it.uniqueId == "sudachi.switch" }
+        assertTrue(sudachi.amStartArguments.contains("android.nfc.action.TECH_DISCOVERED"))
+        assertTrue(sudachi.killPackageProcesses)
+    }
+
+    @Test
+    fun `handheld standalone players cover Lemonade Pizza Boy My Boy Snes9x EX+ and John GBA`() {
+        val lemonade = BuiltInPlayers.all.first { it.uniqueId == "lemonade.3ds" }
+        assertEquals("org.gamerytb.lemonade.canary", lemonade.packageName)
+        assertTrue(lemonade.amStartArguments.contains("org.citra.citra_emu.activities.EmulationActivity"))
+        assertTrue(lemonade.killPackageProcesses)
+
+        val pizza = BuiltInPlayers.all.first { it.uniqueId == "pizzaboy.gb" }
+        assertEquals(setOf("gb", "gbc"), pizza.platformIds)
+        assertTrue(pizza.amStartArguments.contains("rom_uri {file.path}"))
+
+        val pizzaGba = BuiltInPlayers.all.first { it.uniqueId == "pizzaboy.gba" }
+        assertEquals("it.dbtecno.pizzaboygba", pizzaGba.packageName)
+
+        val myBoy = BuiltInPlayers.all.first { it.uniqueId == "myboy.gba" }
+        assertEquals("com.fastemulator.gba", myBoy.packageName)
+        assertTrue(myBoy.amStartArguments.contains("EmulatorActivity"))
+
+        val snes9x = BuiltInPlayers.all.first { it.uniqueId == "snes9xex.snes" }
+        assertEquals("com.explusalpha.Snes9xPlus", snes9x.packageName)
+        assertTrue(snes9x.amStartArguments.contains("-t application/zip"))
+
+        val john = BuiltInPlayers.all.first { it.uniqueId == "johngba.gba" }
+        assertEquals("com.johnemulators.johngba", john.packageName)
+        assertTrue(john.amStartArguments.contains("com.johnemulators.activity.GameActivity"))
+
+        val packages = BuiltInPlayers.all.mapNotNull { it.packageName }.toSet()
+        assertTrue(packages.contains("it.dbtecno.pizzaboypro"))
+        assertTrue(packages.contains("it.dbtecno.pizzaboygbapro"))
+        assertTrue(packages.contains("com.fastemulator.gbafree"))
+        assertTrue(packages.contains("com.fastemulator.gbc"))
+        assertTrue(packages.contains("com.johnemulators.johngbalite"))
+        assertTrue(packages.contains("com.johnemulators.johngbac"))
     }
 
     @Test

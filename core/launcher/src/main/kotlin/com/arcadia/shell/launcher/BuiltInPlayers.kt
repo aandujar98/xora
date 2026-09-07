@@ -273,6 +273,167 @@ object BuiltInPlayers {
                 "-a android.intent.action.VIEW " +
                 "-e ROM {file.path}",
         ),
+        // Skyline / Strato / Sudachi / Lemonade / Pizza Boy / My Boy! / Snes9x EX+ / John GBA
+        // are Daijisho-proven standalone recipes that were missing from the seed list.
+        // Pizza Castle is not a real emulator. Lemuroid has no file-URI frontend launch
+        // (only an internal lemuroid://play-game/id/{dbId} shortcut). RetroArch Plus on
+        // Play Store is already com.retroarch.aarch64.
+        player(
+            id = "skyline.switch",
+            name = "Skyline",
+            platformIds = setOf("switch"),
+            template = "-n skyline.emu/emu.skyline.EmulationActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.uri}",
+        ),
+        player(
+            id = "skyline.switch.legacy",
+            name = "Skyline (legacy package)",
+            platformIds = setOf("switch"),
+            template = "-n emu.skyline/emu.skyline.EmulationActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.uri}",
+        ),
+        player(
+            id = "strato.switch",
+            name = "Strato",
+            platformIds = setOf("switch"),
+            template = "-n org.stratoemu.strato/org.stratoemu.strato.EmulationActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.uri}",
+        ),
+        // Yuzu-lineage early-access applicationId used by current Sudachi builds.
+        player(
+            id = "sudachi.switch",
+            name = "Sudachi",
+            platformIds = setOf("switch"),
+            template = "-n org.sudachi.sudachi_emu.ea/" +
+                "org.sudachi.sudachi_emu.activities.EmulationActivity " +
+                "-a android.nfc.action.TECH_DISCOVERED " +
+                "-d {file.uri}",
+            killPackageProcesses = true,
+        ),
+        player(
+            id = "sudachi.switch.mainline",
+            name = "Sudachi (mainline)",
+            platformIds = setOf("switch"),
+            template = "-n org.sudachi.sudachi_emu/" +
+                "org.sudachi.sudachi_emu.activities.EmulationActivity " +
+                "-a android.nfc.action.TECH_DISCOVERED " +
+                "-d {file.uri}",
+            killPackageProcesses = true,
+        ),
+        player(
+            id = "lemonade.3ds",
+            name = "Lemonade Alpha",
+            platformIds = setOf("3ds"),
+            template = "-n org.gamerytb.lemonade.canary/" +
+                "org.citra.citra_emu.activities.EmulationActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.uri} " +
+                "--activity-clear-task --activity-clear-top",
+            killPackageProcesses = true,
+        ),
+        player(
+            id = "pizzaboy.gb",
+            name = "Pizza Boy",
+            platformIds = setOf("gb", "gbc"),
+            template = "-n it.dbtecno.pizzaboy/it.dbtecno.pizzaboy.MainActivity " +
+                "-e rom_uri {file.path} " +
+                "--activity-clear-task --activity-clear-top",
+        ),
+        player(
+            id = "pizzaboy.pro.gb",
+            name = "Pizza Boy Pro",
+            platformIds = setOf("gb", "gbc"),
+            template = "-n it.dbtecno.pizzaboypro/it.dbtecno.pizzaboypro.MainActivity " +
+                "-e rom_uri {file.path} " +
+                "--activity-clear-task --activity-clear-top",
+        ),
+        player(
+            id = "pizzaboy.gba",
+            name = "Pizza Boy GBA",
+            platformIds = setOf("gba"),
+            template = "-n it.dbtecno.pizzaboygba/it.dbtecno.pizzaboygba.MainActivity " +
+                "-e rom_uri {file.path} " +
+                "--activity-clear-task --activity-clear-top",
+        ),
+        player(
+            id = "pizzaboy.gba.pro",
+            name = "Pizza Boy GBA Pro",
+            platformIds = setOf("gba"),
+            template = "-n it.dbtecno.pizzaboygbapro/it.dbtecno.pizzaboygbapro.MainActivity " +
+                "-e rom_uri {file.path} " +
+                "--activity-clear-task --activity-clear-top",
+        ),
+        player(
+            id = "myboy.gba",
+            name = "My Boy!",
+            platformIds = setOf("gba"),
+            template = "-n com.fastemulator.gba/.EmulatorActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.uri}",
+        ),
+        player(
+            id = "myboy.gba.free",
+            name = "My Boy! Free",
+            platformIds = setOf("gba"),
+            template = "-n com.fastemulator.gbafree/com.fastemulator.gba.EmulatorActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.path}",
+        ),
+        player(
+            id = "myoldboy.gb",
+            name = "My OldBoy!",
+            platformIds = setOf("gb", "gbc"),
+            template = "-n com.fastemulator.gbc/.EmulatorActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.uri}",
+        ),
+        player(
+            id = "myoldboy.gb.free",
+            name = "My OldBoy! Free",
+            platformIds = setOf("gb", "gbc"),
+            template = "-n com.fastemulator.gbcfree/.EmulatorActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.path}",
+        ),
+        // -t application/zip is required for Android 13+ exported-activity matching.
+        player(
+            id = "snes9xex.snes",
+            name = "Snes9x EX+",
+            platformIds = setOf("snes"),
+            template = "-n com.explusalpha.Snes9xPlus/com.imagine.BaseActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.uri} " +
+                "-t application/zip",
+        ),
+        // Paid / Lite / GBAC share com.johnemulators.activity.GameActivity (APK dump).
+        player(
+            id = "johngba.gba",
+            name = "John GBA",
+            platformIds = setOf("gba"),
+            template = "-n com.johnemulators.johngba/com.johnemulators.activity.GameActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.uri}",
+        ),
+        player(
+            id = "johngba.gba.lite",
+            name = "John GBA Lite",
+            platformIds = setOf("gba"),
+            template = "-n com.johnemulators.johngbalite/" +
+                "com.johnemulators.activity.GameActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.uri}",
+        ),
+        player(
+            id = "johngbac.gba",
+            name = "John GBAC",
+            platformIds = setOf("gba", "gb", "gbc"),
+            template = "-n com.johnemulators.johngbac/com.johnemulators.activity.GameActivity " +
+                "-a android.intent.action.VIEW " +
+                "-d {file.uri}",
+        ),
     )
 
     /**
