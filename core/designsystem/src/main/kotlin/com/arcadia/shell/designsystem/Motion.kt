@@ -150,7 +150,8 @@ fun rememberAmbientMotionActive(): Boolean =
     rememberShellResumed() &&
         rememberProcessForeground() &&
         !rememberReduceMotion() &&
-        !rememberPowerSaveMode()
+        !rememberPowerSaveMode() &&
+        !rememberLiteVisuals()
 
 /**
  * Slow clock for wallpaper loops. Read [FloatState.floatValue] only inside `drawBehind` / `Canvas`

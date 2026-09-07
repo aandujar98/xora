@@ -51,6 +51,7 @@ class StartSettingsUiStateTest {
         assertFalse(ids.contains("switch_mode"))
         assertFalse(ids.contains("second_screen"))
         assertTrue(ids.contains("trailer_display"))
+        assertTrue(ids.contains("visual_performance"))
     }
 
     @Test

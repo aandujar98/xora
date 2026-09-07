@@ -68,6 +68,38 @@ enum class ThemeMode {
     Dark,
 }
 
+/**
+ * How hard the Home shell should work on glass, wallpaper motion, and idle video.
+ *
+ * [Auto] drops those effects on budget RAM (Galaxy A15-class).
+ * [Quality] keeps the full look unless battery saver is on.
+ * [Smooth] always uses the lite path.
+ */
+enum class VisualPerformanceMode {
+    Auto,
+    Quality,
+    Smooth,
+}
+
+/** `null` = Auto, `true` = Smooth, `false` = Quality. */
+fun VisualPerformanceMode.liteVisualsOverride(): Boolean? = when (this) {
+    VisualPerformanceMode.Auto -> null
+    VisualPerformanceMode.Quality -> false
+    VisualPerformanceMode.Smooth -> true
+}
+
+fun visualPerformanceModeLabel(mode: VisualPerformanceMode): String = when (mode) {
+    VisualPerformanceMode.Auto -> "Auto"
+    VisualPerformanceMode.Quality -> "Full quality"
+    VisualPerformanceMode.Smooth -> "Smooth"
+}
+
+fun visualPerformanceModeSubtitle(mode: VisualPerformanceMode): String = when (mode) {
+    VisualPerformanceMode.Auto -> "Fewer effects on budget phones"
+    VisualPerformanceMode.Quality -> "Glass, motion & video wallpaper"
+    VisualPerformanceMode.Smooth -> "No blur, idle video, or looping motion"
+}
+
 /** How an idle game trailer is shown on the hero artwork pane. */
 enum class TrailerDisplayMode {
     /** Trailer replaces the focused Game Icon cover art. */
@@ -262,6 +294,11 @@ data class ShellSettings(
      * subtitle) so they can be unhidden. Off by default.
      */
     val showHiddenGames: Boolean = false,
+    /**
+     * Glass / wallpaper / idle-video budget. [VisualPerformanceMode.Auto] goes lite on
+     * 4–6 GB phones so XMB stays responsive.
+     */
+    val visualPerformanceMode: VisualPerformanceMode = VisualPerformanceMode.Auto,
 )
 
 /**
@@ -447,6 +484,9 @@ class ShellPreferences @Inject constructor(
             xoraFriendOnlineNotifications = prefs[Keys.XORA_FRIEND_ONLINE_NOTIFICATIONS] ?: true,
             n64UseMupen64PlusNext = prefs[Keys.N64_USE_MUPEN64PLUS_NEXT] ?: false,
             showHiddenGames = prefs[Keys.SHOW_HIDDEN_GAMES] ?: false,
+            visualPerformanceMode = prefs[Keys.VISUAL_PERFORMANCE_MODE]
+                ?.let { name -> runCatching { VisualPerformanceMode.valueOf(name) }.getOrNull() }
+                ?: VisualPerformanceMode.Auto,
         )
     }
 
@@ -688,6 +728,10 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setShowHiddenGames(enabled: Boolean) = edit {
         it[Keys.SHOW_HIDDEN_GAMES] = enabled
+    }
+
+    suspend fun setVisualPerformanceMode(mode: VisualPerformanceMode) = edit {
+        it[Keys.VISUAL_PERFORMANCE_MODE] = mode.name
     }
 
     suspend fun setSecondaryDisplayRole(role: ScreenRole) = edit { it[Keys.SECONDARY_ROLE] = role.name }
@@ -1367,6 +1411,7 @@ class ShellPreferences @Inject constructor(
         val GAME_ART_ALIGNMENTS = stringPreferencesKey("game_art_alignments")
         val GAME_TITLE_OVERRIDES = stringPreferencesKey("game_title_overrides")
         val SHOW_HIDDEN_GAMES = booleanPreferencesKey("show_hidden_games")
+        val VISUAL_PERFORMANCE_MODE = stringPreferencesKey("visual_performance_mode")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
         val WALLPAPER_ALIGN_X = floatPreferencesKey("wallpaper_align_x")
         val WALLPAPER_ALIGN_Y = floatPreferencesKey("wallpaper_align_y")

@@ -8,6 +8,8 @@ import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.UiFitMode
+import com.arcadia.shell.datastore.VisualPerformanceMode
+import com.arcadia.shell.datastore.liteVisualsOverride
 import com.arcadia.shell.display.DisplayTopologyMonitor
 import com.arcadia.shell.display.computeUiLayoutScale
 import com.arcadia.shell.display.formatDisplayResolution
@@ -43,6 +45,7 @@ data class ShellUiState(
     val onboardingComplete: Boolean = false,
     /** Session flag from Settings → Go to Onboarding (also clears the prefs flag). */
     val forceOnboarding: Boolean = false,
+    val visualPerformanceMode: VisualPerformanceMode = VisualPerformanceMode.Auto,
 ) {
     /** True when two public displays are present (hardware), regardless of [displayMode]. */
     val isDualScreen: Boolean get() = topology.isDualScreen
@@ -71,6 +74,10 @@ data class ShellUiState(
     /** Full-screen onboarding instead of the Home hub. */
     val showOnboarding: Boolean
         get() = prefsReady && (!onboardingComplete || forceOnboarding)
+
+    /** Passed into [com.arcadia.shell.designsystem.ArcadiaTheme] to pick the lite visual path. */
+    val liteVisualsOverride: Boolean?
+        get() = visualPerformanceMode.liteVisualsOverride()
 
     /** The pane the built-in display shows, which is always the opposite of the secondary one. */
     val primaryDisplayRole: ScreenRole get() = secondaryDisplayRole.swapped()
@@ -121,6 +128,7 @@ class ShellViewModel @Inject constructor(
             prefsReady = true,
             onboardingComplete = onboardingDone,
             forceOnboarding = force,
+            visualPerformanceMode = settings.visualPerformanceMode,
         )
     }.stateIn(
         scope = viewModelScope,

@@ -27,6 +27,7 @@ import coil3.request.crossfade
 import coil3.request.maxBitmapSize
 import coil3.size.Size
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.LocalLiteVisuals
 import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.ShellThemeBackdrop
 import com.arcadia.shell.designsystem.XoraLoopingVideo
@@ -66,12 +67,20 @@ fun HomeWallpaper(
         )
     }
     val fade = arcadiaTween<Float>(ArcadiaMotion.ThemeCrossfade)
+    val lite = LocalLiteVisuals.current
 
     // Offscreen so DIM samples the wallpaper, not whatever sits behind this box.
+    // Lite skips the extra offscreen target — a full-screen layer is expensive on Mali-G68.
     Box(
         modifier = modifier
             .fillMaxSize()
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
+            .then(
+                if (lite) {
+                    Modifier
+                } else {
+                    Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                },
+            ),
     ) {
         AnimatedContent(
             targetState = layer,
@@ -87,18 +96,20 @@ fun HomeWallpaper(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // Releases/DIM — 8% over the wallpaper; Game Select passes Multiply.
-        Image(
-            painter = painterResource(R.drawable.wallpaper_dim),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    alpha = 0.08f
-                    blendMode = dimBlendMode
-                },
-        )
+        if (!lite) {
+            // Releases/DIM — 8% over the wallpaper; Game Select passes Multiply.
+            Image(
+                painter = painterResource(R.drawable.wallpaper_dim),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = 0.08f
+                        blendMode = dimBlendMode
+                    },
+            )
+        }
     }
 }
 
@@ -120,10 +131,11 @@ private fun WallpaperLayerContent(
         verticalBias = alignY.coerceIn(-1f, 1f),
     )
     val panMedia = kotlin.math.abs(alignX) > 0.001f || kotlin.math.abs(alignY) > 0.001f
+    val lite = LocalLiteVisuals.current
 
     Box(modifier = modifier.fillMaxSize().clipToBounds()) {
         when {
-            customFile != null && customFile.isVideoWallpaper() -> {
+            !lite && customFile != null && customFile.isVideoWallpaper() -> {
                 LoopingWallpaperVideo(
                     uri = "file://${customFile.absolutePath}",
                     alignment = alignment,
@@ -132,7 +144,7 @@ private fun WallpaperLayerContent(
                 )
             }
             customFile != null -> {
-                val edge = WALLPAPER_DECODE_EDGE
+                val edge = if (lite) LITE_WALLPAPER_DECODE_EDGE else WALLPAPER_DECODE_EDGE
                 val request = remember(customFile.absolutePath) {
                     ImageRequest.Builder(platformContext)
                         .data(customFile)
@@ -150,7 +162,8 @@ private fun WallpaperLayerContent(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            !layer.assetPath.isNullOrBlank() &&
+            !lite &&
+                !layer.assetPath.isNullOrBlank() &&
                 layer.assetPath.isVideoWallpaperPath() &&
                 assetExists(androidContext, layer.assetPath) -> {
                 LoopingWallpaperVideo(
@@ -162,7 +175,7 @@ private fun WallpaperLayerContent(
                 )
             }
             !layer.assetPath.isNullOrBlank() && assetExists(androidContext, layer.assetPath) -> {
-                val edge = WALLPAPER_DECODE_EDGE
+                val edge = if (lite) LITE_WALLPAPER_DECODE_EDGE else WALLPAPER_DECODE_EDGE
                 val request = remember(layer.assetPath) {
                     ImageRequest.Builder(platformContext)
                         .data("file:///android_asset/${layer.assetPath}")
@@ -248,4 +261,5 @@ internal fun assetExists(context: android.content.Context, path: String): Boolea
 
 /** Cap wallpaper decode for handheld RAM; crop still fills the viewport. */
 private const val WALLPAPER_DECODE_EDGE = 1280
+private const val LITE_WALLPAPER_DECODE_EDGE = 960
 private val VIDEO_WALLPAPER_EXTS = setOf("mp4", "webm", "mkv", "mov")

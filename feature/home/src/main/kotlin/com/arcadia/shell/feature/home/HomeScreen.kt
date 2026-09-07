@@ -424,6 +424,7 @@ fun HomeScreen(
                             trailer = state.trailer,
                             isLaunching = state.isLaunching,
                             vitaLaunchOpen = state.homeHub.vitaLaunchPageOpen,
+                            startSettingsOpen = state.startSettingsOpen,
                             rssItem = state.rss.selectedItem.takeIf {
                                 state.homePage == HomePage.RssFeed
                             },
@@ -725,7 +726,8 @@ fun HomePageContent(
                         onToggleShuffle = onToggleShuffle,
                         onToggleRepeat = onToggleRepeat,
                         // Dual: LT/RT live on the Hero role; Single: chrome sits on the XMB itself.
-                        showPillChrome = state.displayMode == DisplayMode.Single,
+                        showPillChrome = state.displayMode == DisplayMode.Single &&
+                            !state.hideHomePillChrome,
                         modifier = Modifier.fillMaxSize(),
                         overlayContent = {
                             val launch = state.homeHub.vitaShortcutLaunch

@@ -79,6 +79,7 @@ import com.arcadia.shell.datastore.XoraAspectMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.datastore.label
+import com.arcadia.shell.datastore.liteVisualsOverride
 import com.arcadia.shell.datastore.next
 import com.arcadia.shell.datastore.nextNdsScreenGap
 import com.arcadia.shell.datastore.nextPublic
@@ -767,6 +768,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 darkTheme = true,
                 shellThemeId = settings.shellThemeId,
                 uiTextScale = settings.uiTextScale,
+                liteVisualsOverride = settings.visualPerformanceMode.liteVisualsOverride(),
             ) {
                 CompositionLocalProvider(LocalArcadiaHaze provides null) {
                     Box(modifier = Modifier.wrapContentSize(align = Alignment.BottomEnd)) {
@@ -849,6 +851,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 darkTheme = true,
                 shellThemeId = settings.shellThemeId,
                 uiTextScale = settings.uiTextScale,
+                liteVisualsOverride = settings.visualPerformanceMode.liteVisualsOverride(),
             ) {
                 CompositionLocalProvider(LocalArcadiaHaze provides null) {
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -883,6 +886,7 @@ class XoraLibretroActivity : ComponentActivity() {
                 darkTheme = true,
                 shellThemeId = settings.shellThemeId,
                 uiTextScale = settings.uiTextScale,
+                liteVisualsOverride = settings.visualPerformanceMode.liteVisualsOverride(),
             ) {
                 CompositionLocalProvider(
                     LocalArcadiaHaze provides null,
