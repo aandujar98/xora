@@ -377,13 +377,12 @@ fun ArcadiaShell(
         homeViewModel.setDisplayContext(shellState.gridDisplayId, shellState.otherDisplayId)
     }
 
-    // Gamepad navigation belongs to the library only. Setup, onboarding, and the options dialog
-    // are ordinary forms. Bottom sheets keep the dispatcher on so Select/U/D/B reach SheetNavCapture.
+    // Gamepad stays on for Home, Setup, and onboarding. Setup/onboarding claim capture so the
+    // library underneath does not move. Dialogs still disable the dispatcher.
     LaunchedEffect(route, dialogOverlayOpen, shellState.showOnboarding) {
         homeViewModel.gamepadDispatcher.isEnabled =
-            (route == ShellRoute.Home || route == ShellRoute.Settings) &&
-                !dialogOverlayOpen &&
-                !shellState.showOnboarding
+            (route == ShellRoute.Home || route == ShellRoute.Settings || shellState.showOnboarding) &&
+                !dialogOverlayOpen
     }
 
     // Idle trailers are Home-only; Settings, options, Guide, Start config, welcome-back, boot, and launch overlay must return to artwork.
@@ -528,6 +527,8 @@ fun ArcadiaShell(
                 route = ShellRoute.Home
             },
             viewModel = onboardingViewModel,
+            padActions = homeViewModel.sheetNavActionFlow,
+            onPadCapture = homeViewModel::setBottomSheetNavOpen,
             modifier = modifier,
         )
         return

@@ -31,6 +31,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -39,6 +40,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -225,6 +227,13 @@ fun SettingsScreen(
         modifier = modifier.fillMaxSize(),
     ) {
     ArcadiaTheme(darkTheme = true) {
+    val setupScheme = MaterialTheme.colorScheme.copy(
+        onSurface = Color.White,
+        onSurfaceVariant = Color.White,
+        onBackground = Color.White,
+    )
+    MaterialTheme(colorScheme = setupScheme) {
+    CompositionLocalProvider(LocalContentColor provides Color.White) {
     Box(modifier = Modifier.fillMaxSize()) {
         backdrop()
         // Opaque plate so leftover Home chrome cannot show through Setup.
@@ -280,7 +289,7 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontFamily = XoraFonts.Secondary,
                                 ),
-                                color = Color.White.copy(alpha = 0.58f),
+                                color = Color.White,
                             )
                         }
                     }
@@ -894,7 +903,7 @@ fun SettingsScreen(
                     Text(
                         text = "Signed in as ${state.retroAchievements.username}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color.White,
                     )
                     OutlinedButton(onClick = viewModel::clearRetroAchievementsCredentials) {
                         Text(text = "Sign out")
@@ -1465,8 +1474,7 @@ fun SettingsScreen(
                     fontWeight = FontWeight.Medium,
                     color = when {
                         state.xoraDownloadError != null -> MaterialTheme.colorScheme.error
-                        state.xoraDownloadRunning -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.onSurface
+                        else -> Color.White
                     },
                 )
                 if (state.xoraDownloadRunning) {
@@ -1546,7 +1554,7 @@ fun SettingsScreen(
                     Text(
                         text = "Signed in as ${state.retroAchievements.username}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color.White,
                     )
                     OutlinedButton(onClick = viewModel::clearRetroAchievementsCredentials) {
                         Text(text = "Sign out")
@@ -1635,6 +1643,8 @@ fun SettingsScreen(
     }
     }
     }
+    }
+    }
 }
 
 /**
@@ -1714,7 +1724,7 @@ private fun SetupSectionTab(
                 fontFamily = XoraFonts.XmbLabel,
             ),
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            color = Color.White.copy(alpha = if (selected) 1f else 0.68f),
+            color = Color.White,
         )
     }
 }
