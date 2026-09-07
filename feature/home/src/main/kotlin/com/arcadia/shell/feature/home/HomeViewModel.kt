@@ -7187,6 +7187,8 @@ class HomeViewModel @Inject constructor(
                 preferences.setNotificationsEnabled(enabling)
                 if (enabling) {
                     shellSystemNotifier.requestPostNotificationsPermission()
+                } else {
+                    shellNotifications.hideActiveBanners()
                 }
             }
             StartSettingsAction.ToggleNotificationSound -> viewModelScope.launch {

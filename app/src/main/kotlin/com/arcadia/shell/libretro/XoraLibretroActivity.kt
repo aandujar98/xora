@@ -109,7 +109,6 @@ import com.arcadia.shell.launcher.music.NowPlayingVolume
 import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
 import com.arcadia.shell.feature.home.component.NetplaySeatOption
 import com.arcadia.shell.feature.home.component.NetplaySeatPickerDialog
-import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
@@ -742,46 +741,15 @@ class XoraLibretroActivity : ComponentActivity() {
             loadProfileAvatar()
         }
 
-        banners.setContent {
-            val settings by preferences.settings.collectAsStateWithLifecycle(
-                initialValue = ShellSettings(),
-            )
-            // An always-VISIBLE Compose host over a live framebuffer is a wash waiting to happen,
-            // and this one has nothing to draw the vast majority of a session. Show it only while
-            // a banner is up or the dual-screen pane is mounted.
-            val activeBanner by shellNotifications.active.collectAsStateWithLifecycle()
-            LaunchedEffect(activeBanner) {
-                bannerHostNeeded = activeBanner != null
-                syncBannerHost()
-            }
-            val raPrefs by preferences.retroAchievementsSettings.collectAsStateWithLifecycle(
-                initialValue = RetroAchievementsSettings(),
-            )
-            LaunchedEffect(raPrefs) { raSettings = raPrefs }
-
-            // Always dark + Haze killed for the whole emulator session. liquidGlass frost over
-            // anything near the framebuffer was the wash left after pause submenus / Resume.
-            ArcadiaTheme(
-                darkTheme = true,
-                shellThemeId = settings.shellThemeId,
-                uiTextScale = settings.uiTextScale,
-            ) {
-                CompositionLocalProvider(LocalArcadiaHaze provides null) {
-                    Box(modifier = Modifier.wrapContentSize(align = Alignment.TopStart)) {
-                        NotificationBannerHost(
-                            center = shellNotifications,
-                            onActivate = { notification ->
-                                if (notification is ShellNotification.XoraNetplayInvite) {
-                                    pendingInvitePrompt = promptFromNotification(notification)
-                                    invitePromptOpen = true
-                                    syncDialogOverlay()
-                                }
-                            },
-                        )
-                    }
-                }
-            }
+        // Do not compose NotificationBannerHost over the framebuffer. liquidGlass on a
+        // transparent ComposeView is the milky wash; disposeComposition() every vsync
+        // (when banners are off) also relayouts the stage and zooms the game in and out.
+        // Invites still arrive through the dialog overlay / system notifications.
+        lifecycleScope.launch {
+            preferences.retroAchievementsSettings.collect { raSettings = it }
         }
+        bannerHostNeeded = false
+        syncBannerHost()
 
         musicHud.setContent {
             val settings by preferences.settings.collectAsStateWithLifecycle(
@@ -2659,17 +2627,14 @@ class XoraLibretroActivity : ComponentActivity() {
      */
     private fun syncBannerHost() {
         val host = bannerOverlay ?: return
-        val want = if (bannerHostNeeded) View.VISIBLE else View.GONE
-        if (host.visibility != want) host.visibility = want
-        if (!bannerHostNeeded) {
-            if (host.alpha != 0f) host.alpha = 0f
-            if (host.layerType != View.LAYER_TYPE_NONE) {
-                host.setLayerType(View.LAYER_TYPE_NONE, null)
-            }
-            if (host.hasComposition) host.disposeComposition()
-        } else if (host.alpha != 1f) {
-            host.alpha = 1f
+        // Banners are not composed over the framebuffer. Keep this host GONE and
+        // composition-free so the vsync wash pin cannot dispose/recreate it.
+        if (host.visibility != View.GONE) host.visibility = View.GONE
+        if (host.alpha != 0f) host.alpha = 0f
+        if (host.layerType != View.LAYER_TYPE_NONE) {
+            host.setLayerType(View.LAYER_TYPE_NONE, null)
         }
+        if (host.hasComposition) host.disposeComposition()
     }
 
     /**

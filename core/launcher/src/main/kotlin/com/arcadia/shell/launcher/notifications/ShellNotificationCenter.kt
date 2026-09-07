@@ -79,6 +79,7 @@ class ShellNotificationCenter @Inject constructor(
         set(value) {
             field = value
             systemNotifier.notificationsEnabled = value
+            if (!value) hideActiveBanners()
         }
 
     /** @deprecated Prefer [notificationsEnabled]; kept for call-site compatibility. */
@@ -141,6 +142,20 @@ class ShellNotificationCenter @Inject constructor(
         holdJob?.cancel()
         holdJob = null
         clearIfCurrent(current.id)
+    }
+
+    /**
+     * Drops the on-screen banner and anything waiting in the inbound queue.
+     * History is left alone — this is the master-toggle off path, not Clear.
+     */
+    fun hideActiveBanners() {
+        queueGeneration++
+        while (inbound.tryReceive().isSuccess) {
+            // drain
+        }
+        holdJob?.cancel()
+        holdJob = null
+        _active.value = null
     }
 
     /** Mark every history item read (clears the profile red-dot badge). */
