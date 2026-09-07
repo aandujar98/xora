@@ -38,11 +38,13 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +76,8 @@ import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.designsystem.xoraSwipeNavigate
+import com.arcadia.shell.input.NavAction
+import kotlinx.coroutines.flow.Flow
 import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
@@ -84,8 +88,9 @@ private val TrackInk = Color.White.copy(alpha = 0.16f)
 private val MutedInk = Color.White.copy(alpha = 0.62f)
 
 /**
- * First-run (and Settings-restarted) onboarding. Landscape / controller-friendly: A advances,
- * B goes back, D-pad moves Compose focus among chips and buttons.
+ * First-run (and Settings-restarted) onboarding. Landscape / controller-friendly: A / Right / RB
+ * advance, B / Left / LB go back, Y skips an optional step. D-pad and analog stick use the same
+ * path as Home so handheld hat switches work.
  *
  * Steam Custom Tabs and Discord account linking are requested via [OnboardingViewModel] and
  * handled by ArcadiaShell (Activity-rooted), matching dual-screen / MainActivity auth hoisting.
@@ -96,6 +101,8 @@ fun OnboardingScreen(
     onFinished: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: OnboardingViewModel = hiltViewModel(),
+    padActions: Flow<NavAction>? = null,
+    onPadCapture: (Boolean) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showFolderPicker by remember { mutableStateOf(false) }
@@ -112,6 +119,45 @@ fun OnboardingScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { viewModel.refresh() }
+
+    val onFinishedNow = rememberUpdatedState(onFinished)
+    val stateNow = rememberUpdatedState(state)
+    val pickerOpenNow = rememberUpdatedState(showFolderPicker)
+    DisposableEffect(onPadCapture) {
+        onPadCapture(true)
+        onDispose { onPadCapture(false) }
+    }
+    LaunchedEffect(padActions) {
+        val flow = padActions ?: return@LaunchedEffect
+        var lastDirectionalMs: Long? = null
+        flow.collect { action ->
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (!shouldAcceptOnboardingPadRepeat(action, now, lastDirectionalMs)) {
+                return@collect
+            }
+            if (action == NavAction.Left || action == NavAction.Right) {
+                lastDirectionalMs = now
+            }
+            val current = stateNow.value
+            when (
+                onboardingPadCommand(
+                    action = action,
+                    canGoBack = current.canGoBack,
+                    canAdvance = current.canAdvance,
+                    optional = isOptional(current.step),
+                    pickerOpen = pickerOpenNow.value,
+                )
+            ) {
+                OnboardingPadCommand.Next -> {
+                    if (current.isLast) viewModel.finish(onFinishedNow.value) else viewModel.next()
+                }
+                OnboardingPadCommand.Back -> viewModel.back()
+                OnboardingPadCommand.Skip -> viewModel.skipOptional()
+                OnboardingPadCommand.DismissPicker -> showFolderPicker = false
+                OnboardingPadCommand.None -> Unit
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.refresh()
@@ -960,13 +1006,9 @@ private fun OnboardingActions(
 private fun OnboardingHints(state: OnboardingUiState) {
     val optional = isOptional(state.step)
     val hints = buildList {
-        add("A" to if (state.isLast) "Finish" else if (optional) "Continue" else "Next")
-        if (state.canGoBack) add("B" to "Back")
-        add("D-pad" to "Focus")
-        add("Swipe" to "Steps")
-        if (optional) {
-            add("Skip" to "Optional")
-        }
+        add("A / → / RB" to if (state.isLast) "Finish" else if (optional) "Continue" else "Next")
+        if (state.canGoBack) add("B / ← / LB" to "Back")
+        if (optional) add("Y" to "Skip")
     }
     Row(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
