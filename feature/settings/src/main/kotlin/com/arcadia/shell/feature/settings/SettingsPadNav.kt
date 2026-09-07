@@ -2,50 +2,87 @@ package com.arcadia.shell.feature.settings
 
 import com.arcadia.shell.input.NavAction
 
+object SettingsPadIds {
+    const val Done = "chrome_done"
+    const val Tabs = "chrome_tabs"
+    const val SystemOfferHome = "system_offer_home"
+    const val SystemOpenHomeSettings = "system_open_home_settings"
+}
+
+internal enum class SettingsPadZone {
+    Done,
+    Tabs,
+    Controls,
+}
+
 /**
- * Gamepad focus inside Advanced Settings. Starts on a card so the cursor lands on an option,
- * not the chrome. Shoulders (and Left/Right) change tabs.
+ * Gamepad focus inside Advanced Settings. Shoulders change tabs. Up/Down (and Left/Right when
+ * the control is not a slider) walk every button, switch, chip, and field. Done sits above the
+ * tab strip so chrome stays reachable without eating the first Down.
  */
 internal data class SettingsPadNavState(
     val sectionIndex: Int,
-    val onTabs: Boolean,
-    val cardIndex: Int,
+    val zone: SettingsPadZone,
+    val controlIndex: Int,
 )
 
 internal fun settingsPadAfterAction(
     state: SettingsPadNavState,
     action: NavAction,
     sectionCount: Int,
-    cardCount: Int,
+    controlCount: Int,
 ): SettingsPadNavState {
     val sections = sectionCount.coerceAtLeast(1)
-    val cards = cardCount.coerceAtLeast(0)
+    val controls = controlCount.coerceAtLeast(0)
+    fun atControl(index: Int): SettingsPadNavState {
+        if (controls <= 0) {
+            return state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
+        }
+        return state.copy(
+            zone = SettingsPadZone.Controls,
+            controlIndex = index.coerceIn(0, controls - 1),
+        )
+    }
+    fun changeSection(delta: Int) = SettingsPadNavState(
+        sectionIndex = (state.sectionIndex + delta + sections) % sections,
+        zone = SettingsPadZone.Controls,
+        controlIndex = 0,
+    )
     return when (action) {
-        NavAction.PreviousPlatform,
-        NavAction.Left,
-        -> state.copy(
-            sectionIndex = (state.sectionIndex - 1 + sections) % sections,
-            onTabs = false,
-            cardIndex = 0,
-        )
-        NavAction.NextPlatform,
-        NavAction.Right,
-        -> state.copy(
-            sectionIndex = (state.sectionIndex + 1) % sections,
-            onTabs = false,
-            cardIndex = 0,
-        )
-        NavAction.Down -> when {
-            state.onTabs -> state.copy(onTabs = false, cardIndex = 0)
-            cards <= 0 -> state
-            else -> state.copy(cardIndex = (state.cardIndex + 1).coerceAtMost(cards - 1))
+        NavAction.PreviousPlatform -> changeSection(-1)
+        NavAction.NextPlatform -> changeSection(1)
+        NavAction.Left -> when (state.zone) {
+            SettingsPadZone.Done,
+            SettingsPadZone.Tabs,
+            -> changeSection(-1)
+            SettingsPadZone.Controls -> if (state.controlIndex > 0) {
+                atControl(state.controlIndex - 1)
+            } else {
+                state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
+            }
         }
-        NavAction.Up -> when {
-            !state.onTabs && state.cardIndex > 0 -> state.copy(cardIndex = state.cardIndex - 1)
-            else -> state.copy(onTabs = true, cardIndex = 0)
+        NavAction.Right -> when (state.zone) {
+            SettingsPadZone.Done,
+            SettingsPadZone.Tabs,
+            -> changeSection(1)
+            SettingsPadZone.Controls -> atControl(state.controlIndex + 1)
         }
-        NavAction.Confirm -> if (state.onTabs && cards > 0) {
-            state.copy(onTabs = false, cardIndex = 0)
+        NavAction.Down -> when (state.zone) {
+            SettingsPadZone.Done -> state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
+            SettingsPadZone.Tabs -> atControl(0)
+            SettingsPadZone.Controls -> atControl(state.controlIndex + 1)
+        }
+        NavAction.Up -> when (state.zone) {
+            SettingsPadZone.Done -> state
+            SettingsPadZone.Tabs -> state.copy(zone = SettingsPadZone.Done, controlIndex = 0)
+            SettingsPadZone.Controls -> if (state.controlIndex > 0) {
+                atControl(state.controlIndex - 1)
+            } else {
+                state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
+            }
+        }
+        NavAction.Confirm -> if (state.zone == SettingsPadZone.Tabs && controls > 0) {
+            atControl(0)
         } else {
             state
         }
@@ -53,13 +90,22 @@ internal fun settingsPadAfterAction(
     }
 }
 
-/** LazyColumn index the pad should scroll to. Item 0 is the header; a status banner may follow. */
-internal fun settingsLazyItemIndex(
-    onTabs: Boolean,
-    cardIndex: Int,
-    hasStatusBanner: Boolean,
-): Int {
-    if (onTabs) return 0
-    val banner = if (hasStatusBanner) 1 else 0
-    return 1 + banner + cardIndex.coerceAtLeast(0)
+internal fun settingsPadFocusId(
+    state: SettingsPadNavState,
+    controlIds: List<String>,
+): String? = when (state.zone) {
+    SettingsPadZone.Done -> SettingsPadIds.Done
+    SettingsPadZone.Tabs -> SettingsPadIds.Tabs
+    SettingsPadZone.Controls -> controlIds.getOrNull(
+        state.controlIndex.coerceIn(0, (controlIds.size - 1).coerceAtLeast(0)),
+    )
+}
+
+internal fun settingsPadCoerce(
+    state: SettingsPadNavState,
+    controlCount: Int,
+): SettingsPadNavState {
+    if (state.zone != SettingsPadZone.Controls) return state
+    if (controlCount <= 0) return state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
+    return state.copy(controlIndex = state.controlIndex.coerceIn(0, controlCount - 1))
 }
