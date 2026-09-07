@@ -30,9 +30,10 @@ android {
         // 0.3.7 = 332; 0.3.8 = 333; 0.3.9 = 334; 0.3.10 = 335; 0.3.11 = 336;
         // 0.3.12 = 337; 0.3.13 = 338; 0.3.14 = 339; 0.3.15 = 340; 0.3.16 = 341;
         // 0.3.17 = 342; 0.3.18 = 343; 0.3.19 = 344; 0.3.20 = 345; 0.3.21 = 346;
-        // 0.3.22 = 347; 0.3.23 = 348; 0.3.24 = 349).
-        versionCode = 352
-        versionName = "0.3.27"
+        // 0.3.22 = 347; 0.3.23 = 348; 0.3.24 = 349; 0.3.25 = 350; 0.3.26 = 351;
+        // 0.3.27 = 352; 0.3.28 = 353; 0.3.29 = 354).
+        versionCode = 355
+        versionName = "0.3.30"
         // Deep-link scheme for Discord Social SDK AuthenticationActivity.
         manifestPlaceholders["discordApplicationId"] = "1531690290526683176"
     }
@@ -128,6 +129,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.process)
+    implementation(libs.androidx.media)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

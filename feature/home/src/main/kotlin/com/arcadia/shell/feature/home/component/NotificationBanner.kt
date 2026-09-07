@@ -81,7 +81,7 @@ fun BoxScope.NotificationBannerHost(
     val reduceMotion = rememberReduceMotion()
 
     AnimatedVisibility(
-        visible = active != null && !ltExpanded,
+        visible = center.notificationsEnabled && active != null && !ltExpanded,
         modifier = modifier
             .align(Alignment.TopStart)
             .padding(top = BannerTop, start = BannerStart, end = 20.dp),

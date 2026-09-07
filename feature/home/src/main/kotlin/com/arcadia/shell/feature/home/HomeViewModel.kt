@@ -1121,6 +1121,14 @@ class HomeViewModel @Inject constructor(
                 applyXoraNetworkIdentity(forceAvatar = false)
             }
         }
+        nowPlayingController.onRemotePlayPause = { wasPlaying ->
+            mirrorSpotifyPlayPause(wasPlaying)
+        }
+        nowPlayingController.onTrackAdvanced = { track ->
+            if (track.source == MusicSource.Spotify) {
+                playSpotifyTrack(track, alreadyQueued = true)
+            }
+        }
         // Music column used to stay empty after process death until the user re-picked the folder.
         loadMusicAlbumsForColumn()
         preferences.settings
@@ -4848,13 +4856,14 @@ class HomeViewModel @Inject constructor(
     }
 
     fun toggleNowPlaying() {
-        val current = nowPlayingController.state.value
-        val track = current.track ?: return
-        // Device: MediaPlayer pause/resume. Spotify: flip UI then mirror to Web API.
         nowPlayingController.togglePlayPause()
+    }
+
+    private fun mirrorSpotifyPlayPause(wasPlaying: Boolean) {
+        val track = nowPlayingController.state.value.track ?: return
         if (track.source != MusicSource.Spotify) return
         viewModelScope.launch {
-            if (current.isPlaying) {
+            if (wasPlaying) {
                 spotifyWebApi.pause()
             } else {
                 when (val result = spotifyWebApi.play(track.contentUri, track.contextUri)) {
@@ -4889,17 +4898,11 @@ class HomeViewModel @Inject constructor(
     }
 
     fun skipNextTrack() {
-        val track = nowPlayingController.skipNext() ?: return
-        if (track.source == MusicSource.Spotify) {
-            playSpotifyTrack(track, alreadyQueued = true)
-        }
+        nowPlayingController.skipNext()
     }
 
     fun skipPreviousTrack() {
-        val track = nowPlayingController.skipPrevious() ?: return
-        if (track.source == MusicSource.Spotify) {
-            playSpotifyTrack(track, alreadyQueued = true)
-        }
+        nowPlayingController.skipPrevious()
     }
 
     private fun linkDspAccount(provider: DspProvider) {
@@ -7184,6 +7187,8 @@ class HomeViewModel @Inject constructor(
                 preferences.setNotificationsEnabled(enabling)
                 if (enabling) {
                     shellSystemNotifier.requestPostNotificationsPermission()
+                } else {
+                    shellNotifications.hideActiveBanners()
                 }
             }
             StartSettingsAction.ToggleNotificationSound -> viewModelScope.launch {
@@ -9309,7 +9314,7 @@ class HomeViewModel @Inject constructor(
         backgroundedAtElapsed = SystemClock.elapsedRealtime()
         pausedWhileScreenOff = !screenInteractive
         gameCompanionController.onShellBackgrounded()
-        // No foreground media service: local music left playing through sleep only burns battery.
+        // Device Now Playing keeps going via the media foreground service (emulator + Home).
         nowPlayingController.onShellBackgrounded()
     }
 

@@ -17,6 +17,9 @@ import com.arcadia.shell.companion.CompanionOverlayService
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.feature.home.GameCompanionController
 import com.arcadia.shell.launcher.PlayerSeeder
+import com.arcadia.shell.launcher.music.MusicPlaybackSession
+import com.arcadia.shell.launcher.music.NowPlayingController
+import com.arcadia.shell.music.MusicPlaybackService
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.AppForegroundTracker
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
@@ -33,6 +36,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import okio.Path.Companion.toOkioPath
@@ -54,6 +58,7 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var libraryScanner: LibraryScanner
     @Inject lateinit var libraryHashScheduler: LibraryHashScheduler
     @Inject lateinit var scraperScheduler: ScraperScheduler
+    @Inject lateinit var nowPlayingController: NowPlayingController
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -93,6 +98,12 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
         ) { session, displayId -> session != null && displayId != null }
             .distinctUntilChanged()
             .onEach { active -> CompanionOverlayService.setActive(this, active) }
+            .launchIn(applicationScope)
+
+        nowPlayingController.state
+            .map { MusicPlaybackSession.shouldHoldService(it) }
+            .distinctUntilChanged()
+            .onEach { active -> MusicPlaybackService.setSessionActive(this, active) }
             .launchIn(applicationScope)
 
         ProcessLifecycleOwner.get().lifecycle.addObserver(

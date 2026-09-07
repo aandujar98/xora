@@ -93,6 +93,7 @@ import com.arcadia.shell.display.SecondDisplayAttachResult
 import com.arcadia.shell.display.SecondDisplayImageHost
 import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.EmulatorMenuAction
+import com.arcadia.shell.feature.home.EmulatorNowPlayingHud
 import com.arcadia.shell.feature.home.EmulatorSaveSlotUi
 import com.arcadia.shell.feature.home.GameCompanionController
 import com.arcadia.shell.feature.home.GameSoundBitePlayer
@@ -102,10 +103,12 @@ import com.arcadia.shell.feature.home.XoraEmulatorSideMenu
 import com.arcadia.shell.feature.home.XoraInGameXmbController
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
+import com.arcadia.shell.launcher.music.EmulatorNowPlayingHudVisibility
+import com.arcadia.shell.launcher.music.NowPlayingController
+import com.arcadia.shell.launcher.music.NowPlayingVolume
 import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
 import com.arcadia.shell.feature.home.component.NetplaySeatOption
 import com.arcadia.shell.feature.home.component.NetplaySeatPickerDialog
-import com.arcadia.shell.feature.home.component.NotificationBannerHost
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellNotificationHistoryItem
@@ -196,8 +199,10 @@ class XoraLibretroActivity : ComponentActivity() {
     @Inject lateinit var discordRichPresence: DiscordRichPresence
     @Inject lateinit var gameCompanionController: GameCompanionController
     @Inject lateinit var gameSoundBitePlayer: GameSoundBitePlayer
+    @Inject lateinit var nowPlayingController: NowPlayingController
 
     @Volatile private var menuOpen = false
+    private var overlayOpenUi by mutableStateOf(false)
     /** True while the in-game menu is showing or the user left Pause on. */
     @Volatile private var paused = false
     /** Stays paused after the side menu closes until Resume is chosen. */
@@ -299,6 +304,9 @@ class XoraLibretroActivity : ComponentActivity() {
      */
     private var bannerOverlay: ComposeView? = null
     @Volatile private var bannerHostNeeded = false
+    /** Wrap-content Now Playing HUD. Same GONE-when-empty rule as [bannerOverlay]. */
+    private var musicHudOverlay: ComposeView? = null
+    @Volatile private var musicHudNeeded = false
     /** Long-press the profile disc: on-screen wash report. Removed on tap. */
     private var washReport: View? = null
     private val washFrameCallback = object : Choreographer.FrameCallback {
@@ -541,6 +549,26 @@ class XoraLibretroActivity : ComponentActivity() {
         banners.visibility = View.GONE
         root.addView(banners)
 
+        val density = resources.displayMetrics.density
+        val musicHud = ComposeView(this).apply {
+            setBackgroundColor(AndroidColor.TRANSPARENT)
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            isClickable = false
+            isFocusable = false
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END,
+            ).apply {
+                rightMargin = (20f * density).toInt()
+                bottomMargin = (20f * density).toInt()
+            }
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            visibility = View.GONE
+        }
+        musicHudOverlay = musicHud
+        root.addView(musicHud)
+
         val xmb = ComposeView(this).apply {
             // Opaque wrap-content side menu. A transparent Compose host is what washed the game.
             setBackgroundColor(AndroidColor.BLACK)
@@ -713,39 +741,65 @@ class XoraLibretroActivity : ComponentActivity() {
             loadProfileAvatar()
         }
 
-        banners.setContent {
+        // Do not compose NotificationBannerHost over the framebuffer. liquidGlass on a
+        // transparent ComposeView is the milky wash; disposeComposition() every vsync
+        // (when banners are off) also relayouts the stage and zooms the game in and out.
+        // Invites still arrive through the dialog overlay / system notifications.
+        lifecycleScope.launch {
+            preferences.retroAchievementsSettings.collect { raSettings = it }
+        }
+        bannerHostNeeded = false
+        syncBannerHost()
+
+        musicHud.setContent {
             val settings by preferences.settings.collectAsStateWithLifecycle(
                 initialValue = ShellSettings(),
             )
-            // An always-VISIBLE Compose host over a live framebuffer is a wash waiting to happen,
-            // and this one has nothing to draw the vast majority of a session. Show it only while
-            // a banner is up or the dual-screen pane is mounted.
-            val activeBanner by shellNotifications.active.collectAsStateWithLifecycle()
-            LaunchedEffect(activeBanner) {
-                bannerHostNeeded = activeBanner != null
-                syncBannerHost()
-            }
-            val raPrefs by preferences.retroAchievementsSettings.collectAsStateWithLifecycle(
-                initialValue = RetroAchievementsSettings(),
+            val xora by preferences.xoraEmulatorSettings.collectAsStateWithLifecycle(
+                initialValue = XoraEmulatorSettings(),
             )
-            LaunchedEffect(raPrefs) { raSettings = raPrefs }
-
-            // Always dark + Haze killed for the whole emulator session. liquidGlass frost over
-            // anything near the framebuffer was the wash left after pause submenus / Resume.
+            val nowPlaying by nowPlayingController.state.collectAsStateWithLifecycle()
+            LaunchedEffect(overlayOpenUi, nowPlaying.hasTrack) {
+                musicHudNeeded = EmulatorNowPlayingHudVisibility.isVisible(overlayOpenUi, nowPlaying)
+                syncMusicHud()
+            }
             ArcadiaTheme(
                 darkTheme = true,
                 shellThemeId = settings.shellThemeId,
                 uiTextScale = settings.uiTextScale,
             ) {
                 CompositionLocalProvider(LocalArcadiaHaze provides null) {
-                    Box(modifier = Modifier.wrapContentSize(align = Alignment.TopStart)) {
-                        NotificationBannerHost(
-                            center = shellNotifications,
-                            onActivate = { notification ->
-                                if (notification is ShellNotification.XoraNetplayInvite) {
-                                    pendingInvitePrompt = promptFromNotification(notification)
-                                    invitePromptOpen = true
-                                    syncDialogOverlay()
+                    Box(modifier = Modifier.wrapContentSize(align = Alignment.BottomEnd)) {
+                        EmulatorNowPlayingHud(
+                            state = nowPlaying,
+                            gameVolume = xora.audioVolume,
+                            onTogglePlayPause = nowPlayingController::togglePlayPause,
+                            onSkipPrevious = { nowPlayingController.skipPrevious() },
+                            onSkipNext = { nowPlayingController.skipNext() },
+                            onMusicVolumeDown = {
+                                nowPlayingController.nudgeVolume(-NowPlayingVolume.STEP)
+                            },
+                            onMusicVolumeUp = {
+                                nowPlayingController.nudgeVolume(NowPlayingVolume.STEP)
+                            },
+                            onGameVolumeDown = {
+                                lifecycleScope.launch {
+                                    preferences.setXoraAudioVolume(
+                                        NowPlayingVolume.nudge(
+                                            xoraSettings.audioVolume,
+                                            -NowPlayingVolume.STEP,
+                                        ),
+                                    )
+                                }
+                            },
+                            onGameVolumeUp = {
+                                lifecycleScope.launch {
+                                    preferences.setXoraAudioVolume(
+                                        NowPlayingVolume.nudge(
+                                            xoraSettings.audioVolume,
+                                            NowPlayingVolume.STEP,
+                                        ),
+                                    )
                                 }
                             },
                         )
@@ -1368,9 +1422,13 @@ class XoraLibretroActivity : ComponentActivity() {
         refreshSaveSlots()
         refreshAchievementList()
         menuOpen = true
+        overlayOpenUi = true
+        musicHudNeeded = nowPlayingController.state.value.hasTrack
         releasePointer()
         syncPaused()
         attachMenuOverlay()
+        syncMusicHud()
+        musicHudOverlay?.bringToFront()
         keepProfileChipOnTop()
         uiSounds.playConfirm()
     }
@@ -1418,6 +1476,7 @@ class XoraLibretroActivity : ComponentActivity() {
     private fun closeMenu() {
         if (!menuOpen) return
         menuOpen = false
+        overlayOpenUi = false
         hideSoftKeyboard()
         syncPaused()
         dissolveWashLayers()
@@ -2555,6 +2614,7 @@ class XoraLibretroActivity : ComponentActivity() {
             }
         }
         syncBannerHost()
+        syncMusicHud()
         clearParentWashLayers()
     }
 
@@ -2567,14 +2627,30 @@ class XoraLibretroActivity : ComponentActivity() {
      */
     private fun syncBannerHost() {
         val host = bannerOverlay ?: return
-        val want = if (bannerHostNeeded) View.VISIBLE else View.GONE
+        // Banners are not composed over the framebuffer. Keep this host GONE and
+        // composition-free so the vsync wash pin cannot dispose/recreate it.
+        if (host.visibility != View.GONE) host.visibility = View.GONE
+        if (host.alpha != 0f) host.alpha = 0f
+        if (host.layerType != View.LAYER_TYPE_NONE) {
+            host.setLayerType(View.LAYER_TYPE_NONE, null)
+        }
+        if (host.hasComposition) host.disposeComposition()
+    }
+
+    /**
+     * Bottom-right music HUD. Same compositor rule as [syncBannerHost]: stay GONE when idle so
+     * a live Compose layer cannot tint the framebuffer.
+     */
+    private fun syncMusicHud() {
+        val host = musicHudOverlay ?: return
+        val show = menuOpen && musicHudNeeded
+        val want = if (show) View.VISIBLE else View.GONE
         if (host.visibility != want) host.visibility = want
-        if (!bannerHostNeeded) {
+        if (!show) {
             if (host.alpha != 0f) host.alpha = 0f
             if (host.layerType != View.LAYER_TYPE_NONE) {
                 host.setLayerType(View.LAYER_TYPE_NONE, null)
             }
-            if (host.hasComposition) host.disposeComposition()
         } else if (host.alpha != 1f) {
             host.alpha = 1f
         }
@@ -2634,7 +2710,9 @@ class XoraLibretroActivity : ComponentActivity() {
             overlay.alpha > 0.01f
         if (showing) return
         menuOpen = false
+        overlayOpenUi = false
         syncPaused()
+        syncMusicHud()
         pinGameplaySurfaceRepeatedly()
     }
 

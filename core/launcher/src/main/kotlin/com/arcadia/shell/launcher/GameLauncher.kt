@@ -53,7 +53,7 @@ class GameLauncher @Inject constructor(
 
         game.playerIdOverride?.let { override ->
             playerRepository.findById(override)?.let { player ->
-                return bindRetroArchPackage(player) ?: player
+                return bindKnownPackage(player) ?: player
             }
         }
 
@@ -70,9 +70,9 @@ class GameLauncher @Inject constructor(
             .filter { game.platformId in it.platformIds && it.accepts(game.fileName) }
 
         val installed = probe.installedPlayers(candidates).firstOrNull()
-        if (installed != null) return bindRetroArchPackage(installed) ?: installed
+        if (installed != null) return bindKnownPackage(installed) ?: installed
 
-        return candidates.firstOrNull()?.let { bindRetroArchPackage(it) ?: it }
+        return candidates.firstOrNull()?.let { bindKnownPackage(it) ?: it }
     }
 
     private suspend fun resolveXoraPlayerIfReady(game: Game): Player? {
@@ -120,7 +120,7 @@ class GameLauncher @Inject constructor(
         val player = playerRepository.findById(playerId)
             ?: BuiltInPlayers.all.firstOrNull { it.uniqueId == playerId }
             ?: return null
-        return bindRetroArchPackage(player) ?: player
+        return bindKnownPackage(player) ?: player
     }
 
     suspend fun launch(game: Game, targetDisplayId: Int? = null): LaunchResult {
@@ -139,35 +139,38 @@ class GameLauncher @Inject constructor(
                 "The launch template has no -n component, so there is no app to start.",
             )
 
-        if (!probe.isInstalled(packageName)) {
-            val reason = if (RetroArchPackages.isRetroArchPlayer(player)) {
+        val bound = bindKnownPackage(player) ?: player
+        val launchPlayer = bound
+        val launchPackage = launchPlayer.packageName ?: packageName
+        if (!probe.isInstalled(launchPlayer)) {
+            val reason = if (RetroArchPackages.isRetroArchPlayer(launchPlayer)) {
                 RetroArchPackages.missingInstallMessage(
-                    RetroArchPackages.coreNameFromPlayer(player),
+                    RetroArchPackages.coreNameFromPlayer(launchPlayer),
                 )
             } else {
                 null
             }
             return if (reason != null) {
-                LaunchResult.Failed(player, reason)
+                LaunchResult.Failed(launchPlayer, reason)
             } else {
-                LaunchResult.PlayerNotInstalled(player, packageName)
+                LaunchResult.PlayerNotInstalled(launchPlayer, launchPackage)
             }
         }
 
         val intent = try {
-            buildIntent(player, game)
+            buildIntent(launchPlayer, game)
         } catch (missing: MissingPlaceholderException) {
-            return LaunchResult.UnsupportedSource(player, missing.message)
+            return LaunchResult.UnsupportedSource(launchPlayer, missing.message)
         } catch (throwable: Throwable) {
             return LaunchResult.InvalidTemplate(
-                player,
+                launchPlayer,
                 throwable.message ?: "Could not build a launch intent.",
             )
         }
 
-        if (player.killPackageProcesses) {
+        if (launchPlayer.killPackageProcesses) {
             // Only affects background processes; a foreground emulator survives this by design.
-            runCatching { activityManager.killBackgroundProcesses(packageName) }
+            runCatching { activityManager.killBackgroundProcesses(launchPackage) }
         }
 
         val (options, fallbackReason) = displayOptions(intent, targetDisplayId)
@@ -176,13 +179,13 @@ class GameLauncher @Inject constructor(
             context.startActivity(intent, options)
             sessionTracker.onLaunched(game.id)
             LaunchResult.Launched(
-                player = player,
+                player = launchPlayer,
                 displayId = if (options != null) targetDisplayId else null,
                 displayFallbackReason = fallbackReason,
             )
         } catch (throwable: Throwable) {
             LaunchResult.Failed(
-                player,
+                launchPlayer,
                 throwable.message ?: throwable::class.simpleName ?: "Launch failed.",
             )
         }
@@ -276,10 +279,22 @@ class GameLauncher @Inject constructor(
      * For RetroArch recipes, retarget `-n` / core / config paths to an installed package.
      * Returns null when the recipe is RetroArch but no known package is present.
      */
+    private fun bindKnownPackage(player: Player): Player? {
+        if (RetroArchPackages.isRetroArchPlayer(player)) return bindRetroArchPackage(player)
+        if (Ps2Packages.isPs2Player(player)) return bindPs2Package(player)
+        return player
+    }
+
     private fun bindRetroArchPackage(player: Player): Player? {
         if (!RetroArchPackages.isRetroArchPlayer(player)) return player
         val installed = RetroArchPackages.findInstalledPackage(probe) ?: return null
         return RetroArchPackages.withPackage(player, installed)
+    }
+
+    private fun bindPs2Package(player: Player): Player? {
+        if (!Ps2Packages.isPs2Player(player)) return player
+        val installed = Ps2Packages.findInstalledPackage(probe) ?: return null
+        return Ps2Packages.withPackage(player, installed)
     }
 
     private suspend fun launchAndroidApp(game: Game, targetDisplayId: Int?): LaunchResult {

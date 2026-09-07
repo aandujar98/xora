@@ -56,6 +56,7 @@
     <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!--
       Emulator support is user-editable data, so the set of packages this app needs to see is not
@@ -77,6 +78,8 @@
         <package android:name="org.citra.emu" />
         <package android:name="com.flycast.emulator" />
         <package android:name="xyz.aethersx2.android" />
+        <package android:name="xyz.aethersx2.cturnip" />
+        <package android:name="xyz.aethersx2.tturnip" />
         <package android:name="com.retroarch.aarch64" />
         <package android:name="com.retroarch" />
         <package android:name="org.mupen64plusae.v3.fzurita" />
@@ -215,6 +218,15 @@
           foreground. No existing foreground-service type describes "keep a window on another
           display", so specialUse it is.
         -->
+        <service
+            android:name=".music.MusicPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".companion.CompanionOverlayService"
             android:exported="false"

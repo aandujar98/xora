@@ -31,6 +31,9 @@ class InstalledPlayerProbe @Inject constructor(
         if (RetroArchPackages.isRetroArchPlayer(player)) {
             return RetroArchPackages.findInstalledPackage(this) != null
         }
+        if (Ps2Packages.isPs2Player(player)) {
+            return Ps2Packages.findInstalledPackage(this) != null
+        }
         return isInstalled(player.packageName)
     }
 
@@ -40,9 +43,24 @@ class InstalledPlayerProbe @Inject constructor(
             if (RetroArchPackages.isRetroArchPlayer(player)) {
                 return@filter RetroArchPackages.findInstalledPackage(this) != null
             }
+            if (Ps2Packages.isPs2Player(player)) {
+                return@filter Ps2Packages.findInstalledPackage(this) != null
+            }
             val packageName = player.packageName ?: return@filter false
             cache.getOrPut(packageName) { isInstalled(packageName) }
         }
+    }
+
+    /** Best-effort scan when QUERY_ALL_PACKAGES is honoured (sideload / custom builds). */
+    fun findInstalledPackagePrefixed(prefix: String): String? {
+        if (prefix.isBlank()) return null
+        return runCatching {
+            @Suppress("DEPRECATION")
+            packageManager.getInstalledPackages(0)
+                .asSequence()
+                .map { it.packageName }
+                .firstOrNull { it.startsWith(prefix) }
+        }.getOrNull()
     }
 
     fun appLabel(packageName: String): String? = runCatching {

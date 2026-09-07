@@ -20,6 +20,9 @@
 # Notification listener is bound by the system via the manifest component name.
 -keep class com.arcadia.shell.conversations.ShellNotificationListenerService { *; }
 
+# Media session host — started from Application when device Now Playing has a track.
+-keep class com.arcadia.shell.music.MusicPlaybackService { *; }
+
 # Libretro JNI entry points (including netplay port-2 pad).
 -keep class com.arcadia.shell.libretro.LibretroNative { *; }
 

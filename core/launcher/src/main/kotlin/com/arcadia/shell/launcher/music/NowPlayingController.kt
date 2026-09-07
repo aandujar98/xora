@@ -30,6 +30,8 @@ data class NowPlayingState(
     val positionMs: Long = 0,
     val shuffle: Boolean = false,
     val repeat: Boolean = false,
+    /** 0..1 mix for on-device playback. Spotify ignores this. */
+    val volume: Float = NowPlayingVolume.DEFAULT,
 ) {
     val hasTrack: Boolean get() = track != null
 
@@ -72,14 +74,23 @@ class NowPlayingController @Inject constructor(
     /** Fired after a queue skip so Home can mirror Spotify Web API play when needed. */
     var onTrackAdvanced: ((MusicTrack) -> Unit)? = null
 
+    /**
+     * Spotify play/pause lives in Home's Web API client. Device tracks flip locally in
+     * [togglePlayPause]; this fires afterward so the remote player stays in sync.
+     */
+    var onRemotePlayPause: ((wasPlaying: Boolean) -> Unit)? = null
+
     /** True while the boot clip owns the speakers; device Now Playing is paused until it ends. */
     private var bootIntroActive: Boolean = false
     private var bootIntroPausedDevice: Boolean = false
+    private var ducked: Boolean = false
 
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
             AudioManager.AUDIOFOCUS_GAIN -> {
                 focusGranted = true
+                ducked = false
+                applyPlayerVolume()
                 val track = stateFlow.value.track
                 if (track?.source == MusicSource.Device && stateFlow.value.isPlaying) {
                     runCatching { player?.start() }
@@ -97,7 +108,8 @@ class NowPlayingController @Inject constructor(
                 }
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                runCatching { player?.setVolume(0.35f, 0.35f) }
+                ducked = true
+                applyPlayerVolume()
             }
         }
     }
@@ -133,6 +145,7 @@ class NowPlayingController @Inject constructor(
                     positionMs = 0,
                     shuffle = stateFlow.value.shuffle,
                     repeat = stateFlow.value.repeat,
+                    volume = stateFlow.value.volume,
                 )
             }
         }
@@ -149,14 +162,26 @@ class NowPlayingController @Inject constructor(
     fun togglePlayPause() {
         val current = stateFlow.value
         val track = current.track ?: return
+        val wasPlaying = current.isPlaying
         when (track.source) {
             MusicSource.Device -> {
-                if (current.isPlaying) pauseDevice() else resumeDevice()
+                if (wasPlaying) pauseDevice() else resumeDevice()
             }
             MusicSource.Spotify -> {
                 stateFlow.update { it.copy(isPlaying = !it.isPlaying) }
+                onRemotePlayPause?.invoke(wasPlaying)
             }
         }
+    }
+
+    fun setVolume(volume: Float) {
+        val next = NowPlayingVolume.coerce(volume)
+        stateFlow.update { it.copy(volume = next) }
+        applyPlayerVolume()
+    }
+
+    fun nudgeVolume(delta: Float) {
+        setVolume(NowPlayingVolume.nudge(stateFlow.value.volume, delta))
     }
 
     fun toggleShuffle() {
@@ -243,6 +268,7 @@ class NowPlayingController @Inject constructor(
                 positionMs = 0,
                 shuffle = stateFlow.value.shuffle,
                 repeat = stateFlow.value.repeat,
+                volume = stateFlow.value.volume,
             )
             return
         }
@@ -254,6 +280,7 @@ class NowPlayingController @Inject constructor(
                 return
             }
             runCatching {
+                applyPlayerVolume()
                 player?.seekTo(0)
                 player?.start()
             }
@@ -278,6 +305,7 @@ class NowPlayingController @Inject constructor(
             positionMs = 0,
             shuffle = stateFlow.value.shuffle,
             repeat = stateFlow.value.repeat,
+            volume = stateFlow.value.volume,
         )
         releasePlayer()
         val created = runCatching {
@@ -288,9 +316,12 @@ class NowPlayingController @Inject constructor(
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .build(),
                 )
+                val gain = NowPlayingVolume.outputGain(stateFlow.value.volume, ducked)
+                setVolume(gain, gain)
                 setDataSource(context, Uri.parse(uri))
                 setOnPreparedListener { media ->
                     loadedUri = uri
+                    applyPlayerVolume()
                     runCatching { media.start() }
                     stateFlow.update { it.copy(isPlaying = true, positionMs = 0) }
                     startPositionTicker()
@@ -348,15 +379,12 @@ class NowPlayingController @Inject constructor(
     }
 
     /**
-     * Called when the shell UI leaves the foreground (screen off / sleep / another app in front).
-     * There is no foreground media service, so a MediaPlayer left running behind a dark screen
-     * only drains the battery — pause and keep the position so Resume picks up where it left off.
-     * Spotify is untouched: that stream belongs to the Spotify app's own service.
+     * The shell UI left the foreground (emulator session, Home, another app). Device Now Playing
+     * keeps running — [MusicPlaybackSession] holds a media foreground service so playback survives
+     * outside the XMB and on the lock screen. Spotify is untouched.
      */
     fun onShellBackgrounded() {
-        val current = stateFlow.value
-        if (current.track?.source != MusicSource.Device || !current.isPlaying) return
-        pauseDevice()
+        // Keep device playback. Pausing here used to stop music the moment XOrA Emulator opened.
     }
 
     private fun pauseDevice() {
@@ -373,7 +401,7 @@ class NowPlayingController @Inject constructor(
             return
         }
         if (!requestAudioFocus()) return
-        runCatching { player?.setVolume(1f, 1f) }
+        applyPlayerVolume()
         runCatching { player?.start() }
         stateFlow.update { it.copy(isPlaying = true) }
         startPositionTicker()
@@ -390,8 +418,14 @@ class NowPlayingController @Inject constructor(
                 positionMs = 0,
                 shuffle = stateFlow.value.shuffle,
                 repeat = stateFlow.value.repeat,
+                volume = stateFlow.value.volume,
             )
         }
+    }
+
+    private fun applyPlayerVolume() {
+        val gain = NowPlayingVolume.outputGain(stateFlow.value.volume, ducked)
+        runCatching { player?.setVolume(gain, gain) }
     }
 
     private fun currentPositionMs(): Long =
