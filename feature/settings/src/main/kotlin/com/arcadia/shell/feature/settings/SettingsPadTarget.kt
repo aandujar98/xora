@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
@@ -26,24 +27,52 @@ internal data class SettingsPadBinding(
 internal class SettingsPadRegistry {
     private val order = mutableStateListOf<String>()
     private val bindings = mutableMapOf<String, SettingsPadBinding>()
+    private val rowKeys = mutableMapOf<String, String>()
 
-    fun register(id: String, binding: SettingsPadBinding) {
+    fun register(id: String, binding: SettingsPadBinding, rowKey: String) {
         if (id !in order) order.add(id)
         bindings[id] = binding
+        rowKeys[id] = rowKey
     }
 
     fun unregister(id: String) {
         order.remove(id)
         bindings.remove(id)
+        rowKeys.remove(id)
     }
 
     fun ids(): List<String> = order.toList()
 
     fun binding(id: String): SettingsPadBinding? = bindings[id]
+
+    fun layout(): SettingsPadLayout {
+        val rows = mutableListOf<MutableList<String>>()
+        var lastKey: String? = null
+        for (id in order) {
+            val key = rowKeys[id] ?: id
+            if (rows.isEmpty() || key != lastKey) {
+                rows += mutableListOf(id)
+                lastKey = key
+            } else {
+                rows.last() += id
+            }
+        }
+        return SettingsPadLayout(rows)
+    }
 }
 
 internal val LocalSettingsPadFocusId = staticCompositionLocalOf<String?> { null }
 internal val LocalSettingsPadRegistry = staticCompositionLocalOf<SettingsPadRegistry?> { null }
+internal val LocalSettingsPadRowKey = staticCompositionLocalOf<String?> { null }
+
+/** Sibling chips/buttons share one pad row so Left/Right stay on the row and Up/Down leave it. */
+@Composable
+fun SettingsPadRow(
+    key: String,
+    content: @Composable () -> Unit,
+) {
+    CompositionLocalProvider(LocalSettingsPadRowKey provides key, content = content)
+}
 
 /**
  * One gamepad stop. Registers in composition order so Up/Down can walk every control, including
@@ -62,10 +91,11 @@ fun SettingsPadTarget(
 ) {
     val focusId = LocalSettingsPadFocusId.current
     val registry = LocalSettingsPadRegistry.current
+    val rowKey = LocalSettingsPadRowKey.current ?: id
     val activateNow = rememberUpdatedState(onActivate)
     val adjustNow = rememberUpdatedState(onAdjust)
     val requester = remember { BringIntoViewRequester() }
-    DisposableEffect(id, registry, listed) {
+    DisposableEffect(id, registry, listed, rowKey) {
         if (registry == null || !listed) return@DisposableEffect onDispose { }
         registry.register(
             id,
@@ -73,6 +103,7 @@ fun SettingsPadTarget(
                 activate = { activateNow.value() },
                 adjust = { adjustNow.value },
             ),
+            rowKey = rowKey,
         )
         onDispose { registry.unregister(id) }
     }

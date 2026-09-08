@@ -281,7 +281,7 @@ fun SocialMenuPanel(
                 social.isDiscordDmOpen -> "A send · B back · type to message"
                 social.isReplying -> "A send · B cancel reply · type on keyboard"
                 social.managingCircle -> "A pin/unpin · Select done · B/LT close · L/R tabs"
-                else -> "Select pin friends · B/LT close · LB/RB tabs · U/D · A chat"
+                else -> "Pins L/R · friends U/D · LB/RB tabs · B/LT close · A chat"
             },
             style = MaterialTheme.typography.labelSmall,
             color = glass.contentMuted.copy(alpha = 0.7f),

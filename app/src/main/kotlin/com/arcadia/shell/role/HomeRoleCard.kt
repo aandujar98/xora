@@ -25,6 +25,7 @@ import com.arcadia.shell.designsystem.LiquidGlassSurface
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.R as DsR
 import com.arcadia.shell.feature.settings.SettingsPadIds
+import com.arcadia.shell.feature.settings.SettingsPadRow
 import com.arcadia.shell.feature.settings.SettingsPadTarget
 
 /**
@@ -88,6 +89,7 @@ fun HomeRoleCard(
                 color = Color.White.copy(alpha = 0.72f),
             )
 
+            SettingsPadRow("system_home") {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -111,6 +113,7 @@ fun HomeRoleCard(
                         }
                     }
                 }
+            }
             }
         }
     }

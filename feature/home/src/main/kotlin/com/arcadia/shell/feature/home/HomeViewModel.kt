@@ -5940,18 +5940,27 @@ class HomeViewModel @Inject constructor(
     private fun onAccountPanelNavAction(action: NavAction) {
         // Social menu owns the gamepad while open — absorb L/R and LB/RB (tabs); no page hops.
         when (action) {
-            NavAction.Left, NavAction.PreviousPlatform -> {
-                if (notificationsOpen.value) return
-                clearConversationReply()
-                cycleSocialMenuTab(-1)
+            NavAction.Left,
+            NavAction.Right,
+            NavAction.PreviousPlatform,
+            NavAction.NextPlatform,
+            NavAction.Up,
+            NavAction.Down,
+            -> {
+                val rows = uiState.value.accountPanelRows
+                val result = accountPanelAfterAction(
+                    index = accountPanelSelectedIndex.value,
+                    action = action,
+                    rowCount = rows.size,
+                    notificationsOpen = notificationsOpen.value,
+                )
+                if (result.tabDelta != 0) {
+                    clearConversationReply()
+                    cycleSocialMenuTab(result.tabDelta)
+                } else if (result.index != accountPanelSelectedIndex.value) {
+                    accountPanelSelectedIndex.value = result.index
+                }
             }
-            NavAction.Right, NavAction.NextPlatform -> {
-                if (notificationsOpen.value) return
-                clearConversationReply()
-                cycleSocialMenuTab(1)
-            }
-            NavAction.Up -> moveAccountPanelSelection(-1)
-            NavAction.Down -> moveAccountPanelSelection(1)
             NavAction.Confirm -> activateAccountPanelSelection()
             NavAction.Cancel -> {
                 when {
