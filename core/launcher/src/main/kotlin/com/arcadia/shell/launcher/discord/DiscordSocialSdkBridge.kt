@@ -465,7 +465,7 @@ internal class DiscordSocialSdkBridge {
             "com.discord.android",
         )
 
-        /** Payload lines: `userId\\tdisplayName\\tgroup[\\tavatarUrl]` */
+        /** Payload lines: `userId\\tdisplayName\\tgroup[\\tavatarUrl[\\tcurrentGame]]` */
         fun parseFriendsPayload(payload: String): List<DiscordFriendEntry> {
             if (payload.isBlank()) return emptyList()
             return payload.lineSequence()
@@ -483,6 +483,7 @@ internal class DiscordSocialSdkBridge {
                         displayName = parts[1].ifBlank { userId },
                         group = parts[2],
                         avatarUrl = avatarFromSdk ?: discordAvatarUrl(userId, avatarHash = null),
+                        currentGame = parts.getOrNull(4)?.trim()?.takeIf { it.isNotBlank() },
                     )
                 }
                 .toList()

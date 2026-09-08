@@ -489,11 +489,29 @@ std::string DiscordBridge::BuildFriendsPayloadUnlocked() {
                     }
                 }
                 if (name.empty()) name = std::to_string(rel.Id());
-                // Escape tabs/newlines in display names / URLs.
+                std::string gameName;
+                if (user) {
+                    try {
+                        auto activity = user->GameActivity();
+                        if (activity) {
+                            gameName = activity->Name();
+                            if (gameName.empty()) {
+                                auto details = activity->Details();
+                                if (details) gameName = *details;
+                            }
+                        }
+                    } catch (...) {
+                        gameName.clear();
+                    }
+                }
+                // Escape tabs/newlines in display names / URLs / game titles.
                 for (char& c : name) {
                     if (c == '\t' || c == '\n' || c == '\r') c = ' ';
                 }
                 for (char& c : avatarUrl) {
+                    if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+                }
+                for (char& c : gameName) {
                     if (c == '\t' || c == '\n' || c == '\r') c = ' ';
                 }
                 out += std::to_string(rel.Id());
@@ -503,6 +521,8 @@ std::string DiscordBridge::BuildFriendsPayloadUnlocked() {
                 out += label;
                 out += '\t';
                 out += avatarUrl;
+                out += '\t';
+                out += gameName;
                 out += '\n';
             }
         } catch (const std::exception& e) {

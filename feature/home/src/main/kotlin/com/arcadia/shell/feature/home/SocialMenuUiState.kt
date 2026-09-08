@@ -275,11 +275,15 @@ fun discordFriendPresence(friend: DiscordFriendEntry?): SocialPresence = when (f
     else -> SocialPresence.Offline
 }
 
-fun discordFriendActivity(friend: DiscordFriendEntry?): String? = when (friend?.group) {
-    "online_game" -> "In XOrA"
-    "online_elsewhere" -> "Online"
-    null -> null
-    else -> "Offline"
+fun discordFriendActivity(friend: DiscordFriendEntry?): String? {
+    val game = friend?.currentGame?.trim()?.takeIf { it.isNotBlank() }
+    if (game != null) return game
+    return when (friend?.group) {
+        "online_game" -> "In a game"
+        "online_elsewhere" -> "Online"
+        null -> null
+        else -> "Offline"
+    }
 }
 
 /**

@@ -181,6 +181,7 @@ class ShellSystemNotifier @Inject constructor(
         is ShellNotification.XoraMessage,
         -> NotificationCompat.CATEGORY_MESSAGE
         is ShellNotification.FriendOnline,
+        is ShellNotification.FriendPlaying,
         is ShellNotification.XoraFriendRequest,
         is ShellNotification.XoraNetplayInvite,
         is ShellNotification.XoraSessionJoined,
@@ -202,6 +203,8 @@ class ShellSystemNotifier @Inject constructor(
         val stable = when (notification) {
             is ShellNotification.FriendOnline ->
                 notification.id.substringBeforeLast(':').ifBlank { notification.id }
+            is ShellNotification.FriendPlaying ->
+                "friend-playing:${notification.network.name}:${notification.displayName}"
             is ShellNotification.GameDownloading ->
                 "download:${notification.title}"
             else -> notification.id

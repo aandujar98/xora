@@ -305,6 +305,8 @@ data class ShellSettings(
     val discordFriendOnlineNotifications: Boolean = true,
     val steamFriendOnlineNotifications: Boolean = true,
     val xoraFriendOnlineNotifications: Boolean = true,
+    /** Banner when a Steam, Discord, or XOrA Network friend starts a game. */
+    val friendPlayingNotifications: Boolean = true,
     /**
      * Legacy: when true and no Choose Emulator entry for N64, launch via RetroArch
      * Mupen64Plus-Next. Superseded by per-platform Choose Emulator; kept so existing
@@ -504,6 +506,7 @@ class ShellPreferences @Inject constructor(
             discordFriendOnlineNotifications = prefs[Keys.DISCORD_FRIEND_ONLINE_NOTIFICATIONS] ?: true,
             steamFriendOnlineNotifications = prefs[Keys.STEAM_FRIEND_ONLINE_NOTIFICATIONS] ?: true,
             xoraFriendOnlineNotifications = prefs[Keys.XORA_FRIEND_ONLINE_NOTIFICATIONS] ?: true,
+            friendPlayingNotifications = prefs[Keys.FRIEND_PLAYING_NOTIFICATIONS] ?: true,
             n64UseMupen64PlusNext = prefs[Keys.N64_USE_MUPEN64PLUS_NEXT] ?: false,
             showHiddenGames = prefs[Keys.SHOW_HIDDEN_GAMES] ?: false,
             visualPerformanceMode = prefs[Keys.VISUAL_PERFORMANCE_MODE]
@@ -914,6 +917,10 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setXoraFriendOnlineNotifications(enabled: Boolean) = edit {
         it[Keys.XORA_FRIEND_ONLINE_NOTIFICATIONS] = enabled
+    }
+
+    suspend fun setFriendPlayingNotifications(enabled: Boolean) = edit {
+        it[Keys.FRIEND_PLAYING_NOTIFICATIONS] = enabled
     }
 
     suspend fun setN64UseMupen64PlusNext(enabled: Boolean) = edit {
@@ -1481,6 +1488,8 @@ class ShellPreferences @Inject constructor(
             booleanPreferencesKey("steam_friend_online_notifications")
         val XORA_FRIEND_ONLINE_NOTIFICATIONS =
             booleanPreferencesKey("xora_friend_online_notifications")
+        val FRIEND_PLAYING_NOTIFICATIONS =
+            booleanPreferencesKey("friend_playing_notifications")
         val N64_USE_MUPEN64PLUS_NEXT = booleanPreferencesKey("n64_use_mupen64plus_next")
         val XORA_NDS_LAYOUT = stringPreferencesKey("xora_nds_screen_layout")
         val XORA_NDS_GAP = intPreferencesKey("xora_nds_screen_gap")

@@ -89,10 +89,12 @@ import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.AppForegroundTracker
 import com.arcadia.shell.libretro.XoraCoreCatalog
 import com.arcadia.shell.launcher.notifications.FriendNetwork
+import com.arcadia.shell.launcher.notifications.FriendPlayingTracker
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
 import com.arcadia.shell.launcher.notifications.netplaySessionDismissalKey
+import com.arcadia.shell.launcher.notifications.playingGameTitleFromStatus
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.GamePlatform
 import com.arcadia.shell.model.RomSoundBiteLocator
@@ -391,9 +393,11 @@ class HomeViewModel @Inject constructor(
     /** First Steam friends pull only seeds online ids (avoids a banner storm on open). */
     private var steamOnlineSeeded = false
     private val knownOnlineSteamIds = linkedSetOf<String>()
+    private val steamPlayingTracker = FriendPlayingTracker()
     /** First XOrA Network snapshot after sign-in only seeds — no replaying the backlog as toasts. */
     private var xoraSocialSeeded = false
     private val knownOnlineXoraUsernames = linkedSetOf<String>()
+    private val xoraPlayingTracker = FriendPlayingTracker()
     private val knownXoraInviteUsernames = linkedSetOf<String>()
     private val knownXoraNotificationIds = linkedSetOf<String>()
     private val knownNetplayInviteKeys = linkedSetOf<String>()
@@ -1620,6 +1624,7 @@ class HomeViewModel @Inject constructor(
             knownOnlineSteamIds.clear()
             knownOnlineSteamIds.addAll(onlineIds)
             steamOnlineSeeded = true
+            steamPlayingTracker.consume(friends.map { it.steamId to it.currentGame })
             return
         }
         for (friend in onlineNow) {
@@ -1636,6 +1641,25 @@ class HomeViewModel @Inject constructor(
             )
         }
         knownOnlineSteamIds.retainAll(onlineIds)
+        emitSteamFriendPlayingBanners(friends)
+    }
+
+    private fun emitSteamFriendPlayingBanners(friends: List<SteamFriendEntry>) {
+        val started = steamPlayingTracker.consume(friends.map { it.steamId to it.currentGame })
+        if (started.isEmpty()) return
+        val byId = friends.associateBy { it.steamId }
+        for ((steamId, game) in started) {
+            val friend = byId[steamId] ?: continue
+            shellNotifications.emit(
+                ShellNotification.FriendPlaying(
+                    id = "steam-playing:$steamId:${SystemClock.elapsedRealtime()}",
+                    displayName = friend.displayName.ifBlank { "Steam friend" },
+                    gameTitle = game,
+                    network = FriendNetwork.Steam,
+                    avatarUrl = friend.avatarUrl,
+                ),
+            )
+        }
     }
 
     /**
@@ -1649,6 +1673,7 @@ class HomeViewModel @Inject constructor(
             knownXoraInviteUsernames.clear()
             knownXoraNotificationIds.clear()
             knownNetplayInviteKeys.clear()
+            xoraPlayingTracker.reset()
             return
         }
         if (XoraNetworkBannerGate.shouldWaitForInbox(network)) {
@@ -1667,6 +1692,11 @@ class HomeViewModel @Inject constructor(
             knownXoraInviteUsernames.addAll(inviteNames)
             knownXoraNotificationIds.addAll(notificationIds)
             knownNetplayInviteKeys.addAll(netplayInviteKeys)
+            xoraPlayingTracker.consume(
+                network.acceptedFriends.map { friend ->
+                    friend.username.lowercase() to playingGameTitleFromStatus(friend.status)
+                },
+            )
             xoraSocialSeeded = true
             return
         }
@@ -1685,6 +1715,7 @@ class HomeViewModel @Inject constructor(
             )
         }
         knownOnlineXoraUsernames.retainAll(onlineNames)
+        emitXoraFriendPlayingBanners(network.acceptedFriends)
 
         // Friend requests can surface twice (friends list edge + inbox item) — announce once.
         val announcedRequests = mutableSetOf<String>()
@@ -1785,6 +1816,30 @@ class HomeViewModel @Inject constructor(
             emitShellBanner(banner)
         }
         knownNetplayInviteKeys.retainAll(netplayInviteKeys)
+    }
+
+    private fun emitXoraFriendPlayingBanners(
+        friends: List<com.arcadia.shell.xoranetwork.XoraFriend>,
+    ) {
+        val started = xoraPlayingTracker.consume(
+            friends.map { friend ->
+                friend.username.lowercase() to playingGameTitleFromStatus(friend.status)
+            },
+        )
+        if (started.isEmpty()) return
+        val byKey = friends.associateBy { it.username.lowercase() }
+        for ((key, game) in started) {
+            val friend = byKey[key] ?: continue
+            emitShellBanner(
+                ShellNotification.FriendPlaying(
+                    id = "xora-playing:$key:${SystemClock.elapsedRealtime()}",
+                    displayName = friend.displayName.ifBlank { friend.username },
+                    gameTitle = game,
+                    network = FriendNetwork.Xora,
+                    avatarUrl = friend.resolvedAvatarUrl,
+                ),
+            )
+        }
     }
 
     private fun emitShellBanner(notification: ShellNotification) {
@@ -3074,7 +3129,7 @@ class HomeViewModel @Inject constructor(
                 if (openMusicCustomizeIfFocused(xmb)) return
                 if (xmb.depth == XoraXmbDepth.Systems) {
                     (xmb.selectedItem?.action as? XoraXmbAction.DrillSystem)?.let {
-                        requestPlatformBanner(it.platformId)
+                        emit(HomeEvent.OpenPlatformEditor(it.platformId))
                     }
                     return
                 }
@@ -5388,7 +5443,7 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** Select on a system card: choose your own banner for that console. */
+    /** Select on a system card: same full-screen editor as a ROM. */
     fun requestPlatformBanner(platformId: String) {
         noteUserActivity()
         if (platformId.isBlank()) return
@@ -5402,9 +5457,42 @@ class HomeViewModel @Inject constructor(
     fun setPlatformBanner(platformId: String, uri: Uri) {
         viewModelScope.launch {
             runCatching { platformArtStore.import(platformId, uri) }
-                .onSuccess { emit(HomeEvent.ShowMessage("Console art updated.")) }
+                .onSuccess {
+                    bumpCustomMedia()
+                    emit(HomeEvent.ShowMessage("Console art updated."))
+                }
                 .onFailure { error ->
                     emit(HomeEvent.ShowError(error.message ?: "Could not import that image."))
+                }
+        }
+    }
+
+    fun clearPlatformBanner(platformId: String) {
+        noteUserActivity()
+        if (platformId.isBlank()) return
+        platformArtStore.clear(platformId)
+        bumpCustomMedia()
+        emit(HomeEvent.ShowMessage("Console art reset."))
+    }
+
+    fun platformArtPath(platformId: String): String? =
+        platformArtStore.bannerByPlatformId.value[platformId]
+            ?: platformArtRepository.artByPlatformId.value[platformId]
+
+    fun hasCustomPlatformBanner(platformId: String): Boolean =
+        platformArtStore.bannerByPlatformId.value.containsKey(platformId)
+
+    fun refreshPlatformArt(platformId: String) {
+        noteUserActivity()
+        if (platformId.isBlank()) return
+        viewModelScope.launch {
+            runCatching { platformArtRepository.ensureArt(listOf(platformId)) }
+                .onSuccess {
+                    bumpCustomMedia()
+                    emit(HomeEvent.ShowMessage("Console art refreshed."))
+                }
+                .onFailure { error ->
+                    emit(HomeEvent.ShowError(error.message ?: "Could not refresh console art."))
                 }
         }
     }
@@ -7256,6 +7344,11 @@ class HomeViewModel @Inject constructor(
             StartSettingsAction.ToggleXoraFriendOnline -> viewModelScope.launch {
                 preferences.setXoraFriendOnlineNotifications(
                     !preferences.settings.first().xoraFriendOnlineNotifications,
+                )
+            }
+            StartSettingsAction.ToggleFriendPlaying -> viewModelScope.launch {
+                preferences.setFriendPlayingNotifications(
+                    !preferences.settings.first().friendPlayingNotifications,
                 )
             }
             StartSettingsAction.TestNotification -> {

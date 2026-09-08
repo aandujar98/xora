@@ -47,6 +47,33 @@ class ShellNotificationCopyTest {
     }
 
     @Test
+    fun friendPlayingHeadlineNamesTheUserAndGame() {
+        val copy = ShellNotification.FriendPlaying(
+            id = "steam-playing:1",
+            displayName = "pal",
+            gameTitle = "Celeste",
+            network = FriendNetwork.Steam,
+        ).toCopy()
+        assertEquals("Friends", copy.category)
+        assertEquals("pal is now playing Celeste", copy.body)
+        assertEquals("Steam", copy.subtitle)
+    }
+
+    @Test
+    fun friendPlayingDismissalKeyIsStableForTheSameGame() {
+        val keys = ShellNotification.FriendPlaying(
+            id = "xora-playing:pal:999",
+            displayName = "Pal",
+            gameTitle = "Kirby",
+            network = FriendNetwork.Xora,
+        ).dismissalKeys()
+        assertEquals(
+            setOf("xora-playing:pal:999", "friend-playing:xora:pal:kirby"),
+            keys,
+        )
+    }
+
+    @Test
     fun friendOnlineDismissalKeyIsStableAcrossBannerIds() {
         val keys = ShellNotification.FriendOnline(
             id = "xora-online:pal:999",

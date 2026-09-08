@@ -46,6 +46,7 @@ import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.SkyBackground
 import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.inverted
 import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.designsystem.xoraSwipeNavigate
 import com.arcadia.shell.input.NavAction
@@ -64,6 +65,8 @@ import com.arcadia.shell.feature.home.HomeUiState
 import com.arcadia.shell.feature.home.HomeViewModel
 import com.arcadia.shell.feature.home.MusicCustomizeSheet
 import com.arcadia.shell.feature.home.ArtPickerUiState
+import com.arcadia.shell.feature.home.PlatformEditorActions
+import com.arcadia.shell.feature.home.PlatformEditorPane
 import com.arcadia.shell.feature.home.RomEditorActions
 import com.arcadia.shell.feature.home.RomEditorPane
 import com.arcadia.shell.feature.home.component.LocalShellSheetNav
@@ -120,6 +123,7 @@ fun ArcadiaShell(
     var pendingBootAfterOnboarding by remember { mutableStateOf(false) }
     var optionsGameId by rememberSaveable { mutableStateOf<String?>(null) }
     var scrapeMenuGameId by rememberSaveable { mutableStateOf<String?>(null) }
+    var platformEditorId by rememberSaveable { mutableStateOf<String?>(null) }
     var musicCustomizeId by rememberSaveable { mutableStateOf<String?>(null) }
     var musicCustomizeTitle by rememberSaveable { mutableStateOf("") }
     var chooseEmulatorPlatformId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -128,6 +132,7 @@ fun ArcadiaShell(
     // Game options dialog blocks the dispatcher; bottom sheets keep it on so SheetNavCapture works.
     val dialogOverlayOpen = optionsGameId != null
     val sheetOverlayOpen = scrapeMenuGameId != null ||
+        platformEditorId != null ||
         chooseEmulatorPlatformId != null ||
         musicCustomizeId != null
     val overlayOpen = dialogOverlayOpen || sheetOverlayOpen
@@ -450,6 +455,7 @@ fun ArcadiaShell(
                 }.onFailure { homeViewModel.onPhotoDeleteResult(confirmed = false) }
                 is HomeEvent.OpenGameOptions -> optionsGameId = event.gameId
                 is HomeEvent.OpenScrapeMenu -> scrapeMenuGameId = event.gameId
+                is HomeEvent.OpenPlatformEditor -> platformEditorId = event.platformId
                 is HomeEvent.OpenMusicCustomize -> {
                     musicCustomizeId = event.mediaId
                     musicCustomizeTitle = event.title
@@ -551,7 +557,7 @@ fun ArcadiaShell(
         val swipeModifier = if (swipeEnabled) {
             Modifier.xoraSwipeNavigate(
                 onSwipe = { direction ->
-                    homeViewModel.onTouchNav(direction.toNavAction())
+                    homeViewModel.onTouchNav(direction.inverted().toNavAction())
                 },
                 onTwoFingerSwipe = { direction ->
                     homeViewModel.onTwoFingerSwipe(direction)
@@ -818,7 +824,7 @@ fun ArcadiaShell(
                                     !state.tutorial.open &&
                                     !state.isLaunching,
                                 onSwipe = { direction ->
-                                    homeViewModel.onTouchNav(direction.toNavAction())
+                                    homeViewModel.onTouchNav(direction.inverted().toNavAction())
                                 },
                                 onTwoFingerSwipe = { direction ->
                                     homeViewModel.onTwoFingerSwipe(direction)
@@ -990,6 +996,63 @@ fun ArcadiaShell(
                     onRescrapePlatform = { homeViewModel.rescrapePlatform(game.platformId) },
                 ),
                 onArtPickerSlotChange = { pickerSlot = it; if (it == null) artPicker = ArtPickerUiState() },
+            )
+        }
+    }
+
+    platformEditorId?.let { platformId ->
+        val platform = PlatformCatalog.byId(platformId)
+        if (platform == null) {
+            platformEditorId = null
+        } else {
+            val platformPref by produceState(ScraperPreference.Auto, platformId) {
+                value = homeViewModel.scraperPreferenceForPlatform(platformId)
+            }
+            val emulatorLabel by produceState<String?>(null, platformId) {
+                value = homeViewModel.platformEmulatorLabel(platformId)
+            }
+            val mediaEpoch by homeViewModel.customMediaEpochFlow.collectAsStateWithLifecycle()
+            val bannerPath by produceState(
+                homeViewModel.platformArtPath(platformId),
+                platformId,
+                mediaEpoch,
+            ) {
+                value = homeViewModel.platformArtPath(platformId)
+            }
+            val hasCustomBanner by produceState(
+                homeViewModel.hasCustomPlatformBanner(platformId),
+                platformId,
+                mediaEpoch,
+            ) {
+                value = homeViewModel.hasCustomPlatformBanner(platformId)
+            }
+            val gameCount = state.platformSummaries
+                .firstOrNull { it.platform.id == platformId }
+                ?.gameCount
+                ?: state.games.count { it.platformId == platformId }
+            SheetNavCapture(homeViewModel)
+            PlatformEditorPane(
+                platform = platform,
+                gameCount = gameCount,
+                bannerPath = bannerPath,
+                hasCustomBanner = hasCustomBanner,
+                platformPreference = platformPref,
+                currentEmulatorLabel = emulatorLabel,
+                navActions = homeViewModel.sheetNavActionFlow,
+                actions = PlatformEditorActions(
+                    onDismiss = { platformEditorId = null },
+                    onUploadBanner = { homeViewModel.requestPlatformBanner(platformId) },
+                    onClearBanner = { homeViewModel.clearPlatformBanner(platformId) },
+                    onRefreshArt = { homeViewModel.refreshPlatformArt(platformId) },
+                    onSetPlatformPreference = {
+                        homeViewModel.setPlatformScraperPreference(platformId, it)
+                    },
+                    onChooseEmulator = {
+                        platformEditorId = null
+                        chooseEmulatorPlatformId = platformId
+                    },
+                    onRescrapePlatform = { homeViewModel.rescrapePlatform(platformId) },
+                ),
             )
         }
     }
@@ -1401,6 +1464,7 @@ private fun PaneForRole(
     }
 }
 
+/** Finger flicks map to pad steps after [XoraSwipeDirection.inverted] so the XMB follows the drag. */
 private fun XoraSwipeDirection.toNavAction(): NavAction = when (this) {
     XoraSwipeDirection.Left -> NavAction.Left
     XoraSwipeDirection.Right -> NavAction.Right

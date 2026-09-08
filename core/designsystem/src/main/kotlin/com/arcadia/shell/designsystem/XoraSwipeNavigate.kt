@@ -17,6 +17,17 @@ import kotlin.math.max
 enum class XoraSwipeDirection { Left, Right, Up, Down }
 
 /**
+ * Opposite flick. The XMB is dragged like a physical row: swipe left pulls the next column
+ * in from the right, swipe up reveals the item below.
+ */
+fun XoraSwipeDirection.inverted(): XoraSwipeDirection = when (this) {
+    XoraSwipeDirection.Left -> XoraSwipeDirection.Right
+    XoraSwipeDirection.Right -> XoraSwipeDirection.Left
+    XoraSwipeDirection.Up -> XoraSwipeDirection.Down
+    XoraSwipeDirection.Down -> XoraSwipeDirection.Up
+}
+
+/**
  * One-step flick navigation for controller-first menus. Nested scrollers (LazyColumn, etc.)
  * still win: a one-finger gesture only fires when no child consumed the drag, and clicks still
  * work under the touch slop.
