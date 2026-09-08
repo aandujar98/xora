@@ -46,7 +46,7 @@ fun XoraLoopingVideo(
     pan: Boolean = false,
 ) {
     if (LocalLiteVisuals.current) {
-        Box(modifier = modifier.background(Color.Black))
+        LiteStaticWallpaper(modifier = modifier)
         return
     }
     val context = LocalContext.current
@@ -164,14 +164,14 @@ fun DefaultThemeBackdrop(
     val lite = LocalLiteVisuals.current
     val hasVideo = remember { xoraAssetExists(context, DEFAULT_WALLPAPER_ASSET) }
     Box(modifier = modifier.fillMaxSize()) {
-        if (hasVideo && !lite) {
-            XoraLoopingVideo(
+        when {
+            hasVideo && !lite -> XoraLoopingVideo(
                 uri = "asset:///$DEFAULT_WALLPAPER_ASSET",
                 speed = DEFAULT_WALLPAPER_SPEED,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else {
-            XoraFlowBackdrop(Modifier.fillMaxSize())
+            lite -> LiteStaticWallpaper(Modifier.fillMaxSize())
+            else -> XoraFlowBackdrop(Modifier.fillMaxSize())
         }
         if (scrim > 0f) {
             Box(
