@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.SoundPool
 import android.os.Build
 import android.os.SystemClock
+import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -246,8 +247,11 @@ class UiSoundController @Inject constructor(
     /** Cancel / back one-shot (`nav_back.wav`). */
     fun playCancel() = play(ngId)
 
-    /** Cursor / focus-move one-shot (`selection.wav`). */
-    fun playCursor() = play(cursorId)
+    /** Cursor / focus-move one-shot (`selection.wav`) plus the same tick as D-pad steps. */
+    fun playCursor() {
+        vibrateCursor()
+        play(cursorId)
+    }
 
     private fun playFor(action: NavAction) {
         if (bootIntroActive) return
@@ -352,7 +356,7 @@ class UiSoundController @Inject constructor(
             VibrationEffect.DEFAULT_AMPLITUDE
         }
         runCatching {
-            vibrator.vibrate(
+            vibrator.vibrateHaptic(
                 VibrationEffect.createWaveform(
                     band.timings,
                     intArrayOf(0, amplitude),
@@ -368,12 +372,21 @@ class UiSoundController @Inject constructor(
         runCatching { vibrator?.cancel() }
     }
 
-    /** Short XMB-style tick on each launcher cursor step (independent of UI SFX volume). */
+    /**
+     * Short XMB-style tick on each launcher cursor step (independent of UI SFX volume).
+     *
+     * Android 13+ drops unattributed vibrations, and a lot of handhelds no-op
+     * [VibrationEffect.EFFECT_TICK], so this always sends a classified pulse and falls
+     * back to a one-shot if the predefined tick is rejected.
+     */
     private fun vibrateCursor() {
         val vibrator = vibrator ?: return
-        runCatching {
-            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
-        }
+        val pulse = cursorPulse(vibrator.hasAmplitudeControl())
+        val tick = runCatching {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        }.getOrNull()
+        runCatching { vibrator.vibrateHaptic(tick ?: pulse) }
+            .recoverCatching { vibrator.vibrateHaptic(pulse) }
     }
 
     private fun ensurePool() {
@@ -417,6 +430,41 @@ class UiSoundController @Inject constructor(
         const val CURSOR_DEBOUNCE_MS = 30L
     }
 }
+
+/** One-shot used when [VibrationEffect.EFFECT_TICK] is missing or silent. */
+internal fun cursorPulse(hasAmplitudeControl: Boolean): VibrationEffect =
+    VibrationEffect.createOneShot(
+        CURSOR_PULSE_MS,
+        if (hasAmplitudeControl) CURSOR_PULSE_AMPLITUDE else VibrationEffect.DEFAULT_AMPLITUDE,
+    )
+
+/**
+ * Classifies menu ticks as hardware / touch feedback so Android 13+ does not drop them.
+ * API 29 (minSdk) still uses the unattributed [Vibrator.vibrate] overload.
+ */
+internal fun Vibrator.vibrateHaptic(effect: VibrationEffect) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        vibrate(
+            effect,
+            VibrationAttributes.Builder()
+                .setUsage(VibrationAttributes.USAGE_HARDWARE_FEEDBACK)
+                .build(),
+        )
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        vibrate(
+            effect,
+            VibrationAttributes.Builder()
+                .setUsage(VibrationAttributes.USAGE_TOUCH)
+                .build(),
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        vibrate(effect)
+    }
+}
+
+private const val CURSOR_PULSE_MS = 16L
+private const val CURSOR_PULSE_AMPLITUDE = 88
 
 /**
  * Looping peel buzz, one per drag speed band. [timings] is an off/on pair repeated forever, so
