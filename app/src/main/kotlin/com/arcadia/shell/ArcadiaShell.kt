@@ -58,6 +58,7 @@ import com.arcadia.shell.feature.home.HeroPane
 import com.arcadia.shell.feature.home.HomeEvent
 import com.arcadia.shell.feature.home.HomeExternalAuthRequest
 import com.arcadia.shell.feature.home.HomeMediaPickerRequest
+import com.arcadia.shell.feature.home.PhotoImportSource
 import com.arcadia.shell.feature.home.HomePage
 import com.arcadia.shell.feature.home.HomePageContent
 import com.arcadia.shell.feature.home.HomeScreen
@@ -176,6 +177,11 @@ fun ArcadiaShell(
     ) { uri ->
         if (uri != null) homeViewModel.setLocalAvatar(uri)
     }
+    val profileAvatarFilesPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) homeViewModel.setLocalAvatar(uri)
+    }
     val platformBannerPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -287,9 +293,13 @@ fun ArcadiaShell(
                         arrayOf("image/*", "video/*"),
                     )
                     HomeMediaPickerRequest.Bgm -> bgmPicker.launch("audio/*")
-                    HomeMediaPickerRequest.ProfileAvatar -> profileAvatarPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
+                    is HomeMediaPickerRequest.ProfileAvatar -> when (request.source) {
+                        PhotoImportSource.PhotosApp -> profileAvatarPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                        PhotoImportSource.FilesApp ->
+                            profileAvatarFilesPicker.launch(arrayOf("image/*"))
+                    }
                     HomeMediaPickerRequest.DiscordAttachment ->
                         discordAttachmentPicker.launch("image/*")
                     is HomeMediaPickerRequest.PlatformBanner -> {

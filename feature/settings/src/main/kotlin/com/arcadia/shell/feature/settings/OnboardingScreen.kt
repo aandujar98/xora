@@ -18,10 +18,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -34,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -122,17 +126,12 @@ fun OnboardingScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showFolderPicker by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-    val profilePadRegistry = remember { SettingsPadRegistry() }
-    var profilePad by remember {
+    val padRegistry = remember { SettingsPadRegistry() }
+    var pad by remember {
         mutableStateOf(SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0))
     }
-    val profilePadNow = rememberUpdatedState(profilePad)
-    val scraperListPadRegistry = remember { SettingsPadRegistry() }
-    val scraperSheetPadRegistry = remember { SettingsPadRegistry() }
-    var scraperPad by remember {
-        mutableStateOf(SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0))
-    }
-    val scraperPadNow = rememberUpdatedState(scraperPad)
+    val padNow = rememberUpdatedState(pad)
+    val density = LocalDensity.current
     var scraperSheet by remember { mutableStateOf<OnboardingScraperService?>(null) }
     val scraperSheetNow = rememberUpdatedState(scraperSheet)
     val scrollState = rememberScrollState()
@@ -155,6 +154,11 @@ fun OnboardingScreen(
     ) { uri ->
         uri?.let(viewModel::setLocalAvatar)
     }
+    val photoFilesPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri?.let(viewModel::setLocalAvatar)
+    }
 
     val onFinishedNow = rememberUpdatedState(onFinished)
     val stateNow = rememberUpdatedState(state)
@@ -163,102 +167,82 @@ fun OnboardingScreen(
         onPadCapture(true)
         onDispose { onPadCapture(false) }
     }
-    LaunchedEffect(padActions) {
+    LaunchedEffect(padActions, padRegistry, density) {
         val flow = padActions ?: return@LaunchedEffect
-        var lastDirectionalMs: Long? = null
+        var lastShoulderMs: Long? = null
+        val scrollStep = with(density) { 96.dp.toPx() }
         flow.collect { action ->
             val now = android.os.SystemClock.elapsedRealtime()
-            if (!shouldAcceptOnboardingPadRepeat(action, now, lastDirectionalMs)) {
+            if (!shouldAcceptOnboardingPadRepeat(action, now, lastShoulderMs)) {
                 return@collect
             }
-            if (action == NavAction.Left || action == NavAction.Right) {
-                lastDirectionalMs = now
+            if (action == NavAction.NextPlatform || action == NavAction.PreviousPlatform) {
+                lastShoulderMs = now
             }
-            val current = stateNow.value
+            val currentState = stateNow.value
             val scraperOpen = scraperSheetNow.value != null
-            val intraForm = current.step == OnboardingStep.Profile ||
-                current.step == OnboardingStep.Scrapers
-            if (!intraForm &&
-                !scraperOpen &&
-                !pickerOpenNow.value &&
-                (action == NavAction.Up || action == NavAction.Down)
-            ) {
-                val scroll = scrollStateNow.value
-                if (scroll.maxValue > 0) {
-                    val delta = if (action == NavAction.Down) 180 else -180
-                    scroll.animateScrollTo(
-                        (scroll.value + delta).coerceIn(0, scroll.maxValue),
-                    )
+            if (pickerOpenNow.value) {
+                if (action == NavAction.Cancel) showFolderPicker = false
+                return@collect
+            }
+            val layout = onboardingControlsLayout(padRegistry.layout())
+            val chromeIds = onboardingChromeIds(
+                canGoBack = currentState.canGoBack,
+                optional = isOptional(currentState.step),
+            )
+            val current = onboardingPadCoerce(padNow.value, layout, chromeIds)
+            val focusId = onboardingPadFocusId(current, layout, chromeIds)
+            val binding = focusId?.let(padRegistry::binding)
+            val directional = action == NavAction.Left ||
+                action == NavAction.Right ||
+                action == NavAction.Up ||
+                action == NavAction.Down
+            if (directional) {
+                val delta = when (action) {
+                    NavAction.Left -> -1
+                    NavAction.Right -> 1
+                    else -> null
+                }
+                if (delta != null) {
+                    val adjust = binding?.adjust?.invoke()
+                    if (adjust != null) {
+                        adjust(delta)
+                        return@collect
+                    }
+                }
+                val next = onboardingPadAfterAction(current, action, layout, chromeIds)
+                if (settingsPadShouldScrollPage(current, next, action)) {
+                    val pageDelta = if (action == NavAction.Down) scrollStep else -scrollStep
+                    scrollStateNow.value.animateScrollBy(pageDelta)
                     return@collect
                 }
-            }
-            if (intraForm &&
-                (action == NavAction.Left || action == NavAction.Right ||
-                    action == NavAction.Up || action == NavAction.Down)
-            ) {
-                val registry = when {
-                    current.step == OnboardingStep.Scrapers && scraperOpen ->
-                        scraperSheetPadRegistry
-                    current.step == OnboardingStep.Scrapers -> scraperListPadRegistry
-                    else -> profilePadRegistry
-                }
-                val padNow = if (current.step == OnboardingStep.Scrapers) {
-                    scraperPadNow.value
-                } else {
-                    profilePadNow.value
-                }
-                val layout = registry.layout()
-                val next = settingsPadAfterAction(
-                    settingsPadCoerce(padNow, layout),
-                    action,
-                    sectionCount = 1,
-                    layout = layout,
-                )
-                if (current.step == OnboardingStep.Scrapers) scraperPad = next else profilePad = next
+                pad = next
                 return@collect
             }
             when (
                 onboardingPadCommand(
                     action = action,
-                    canGoBack = current.canGoBack,
-                    canAdvance = current.canAdvance,
-                    optional = isOptional(current.step),
-                    pickerOpen = pickerOpenNow.value || scraperOpen,
-                    intraForm = intraForm,
+                    canGoBack = currentState.canGoBack,
+                    canAdvance = currentState.canAdvance,
+                    optional = isOptional(currentState.step),
+                    pickerOpen = scraperOpen,
+                    intraForm = true,
                 )
             ) {
                 OnboardingPadCommand.Next -> {
-                    if (current.isLast) viewModel.finish(onFinishedNow.value) else viewModel.next()
+                    if (currentState.isLast) {
+                        viewModel.finish(onFinishedNow.value)
+                    } else {
+                        viewModel.next()
+                    }
                 }
                 OnboardingPadCommand.Back -> viewModel.back()
                 OnboardingPadCommand.Skip -> viewModel.skipOptional()
                 OnboardingPadCommand.DismissPicker -> {
-                    if (scraperOpen) {
-                        scraperSheet = null
-                        scraperPad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
-                    } else {
-                        showFolderPicker = false
-                    }
+                    scraperSheet = null
+                    pad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
                 }
-                OnboardingPadCommand.Activate -> {
-                    val registry = when {
-                        current.step == OnboardingStep.Scrapers && scraperOpen ->
-                            scraperSheetPadRegistry
-                        current.step == OnboardingStep.Scrapers -> scraperListPadRegistry
-                        else -> profilePadRegistry
-                    }
-                    val padNow = if (current.step == OnboardingStep.Scrapers) {
-                        scraperPadNow.value
-                    } else {
-                        profilePadNow.value
-                    }
-                    val layout = registry.layout()
-                    val focusId = settingsPadFocusId(
-                        settingsPadCoerce(padNow, layout),
-                        layout,
-                    )
-                    focusId?.let(registry::binding)?.activate?.invoke()
-                }
+                OnboardingPadCommand.Activate -> binding?.activate?.invoke()
                 OnboardingPadCommand.None -> Unit
             }
         }
@@ -271,10 +255,15 @@ fun OnboardingScreen(
 
     LaunchedEffect(state.step) {
         scrollState.scrollTo(0)
+        pad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
         if (state.step != OnboardingStep.Scrapers) {
             scraperSheet = null
-            scraperPad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
         }
+    }
+
+    LaunchedEffect(scraperSheet) {
+        scrollState.scrollTo(0)
+        pad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
     }
 
     LaunchedEffect(state.message) {
@@ -324,27 +313,17 @@ fun OnboardingScreen(
                 .focusable()
                 .onPreviewKeyEvent { event ->
                     if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
-                    val intraForm = state.step == OnboardingStep.Profile ||
-                        state.step == OnboardingStep.Scrapers
                     when (event.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_BUTTON_A,
                         KeyEvent.KEYCODE_DPAD_CENTER,
                         KeyEvent.KEYCODE_ENTER,
-                        -> {
-                            if (intraForm) return@onPreviewKeyEvent false
-                            if (state.isLast) {
-                                viewModel.finish(onFinished)
-                            } else if (state.canAdvance) {
-                                viewModel.next()
-                            }
-                            true
-                        }
+                        -> false
                         KeyEvent.KEYCODE_BUTTON_B,
                         KeyEvent.KEYCODE_BACK,
                         -> {
                             if (scraperSheet != null) {
                                 scraperSheet = null
-                                scraperPad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
+                                pad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
                                 true
                             } else if (state.canGoBack) {
                                 viewModel.back()
@@ -359,24 +338,32 @@ fun OnboardingScreen(
                 .padding(horizontal = 40.dp, vertical = 24.dp),
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val viewportHeight = maxHeight
-                Row(modifier = Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(scrollState)
-                            .heightIn(min = viewportHeight)
-                            .padding(end = 14.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .widthIn(max = 720.dp)
-                                .fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
+            val viewportHeight = maxHeight
+            val chromeIds = onboardingChromeIds(
+                canGoBack = state.canGoBack,
+                optional = isOptional(state.step),
+            )
+            val padLayout = onboardingControlsLayout(padRegistry.layout())
+            val coercedPad = onboardingPadCoerce(pad, padLayout, chromeIds)
+            val padFocusId = onboardingPadFocusId(coercedPad, padLayout, chromeIds)
+            CompositionLocalProvider(
+                LocalSettingsPadRegistry provides padRegistry,
+                LocalSettingsPadFocusId provides padFocusId,
+            ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = 720.dp)
+                        .fillMaxWidth()
+                        .heightIn(max = viewportHeight)
+                        .weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                 OnboardingStepRail(
                     step = state.step,
                     stepIndex = state.stepIndex,
@@ -386,12 +373,24 @@ fun OnboardingScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .wrapContentHeight(align = Alignment.Top)
+                        .clip(ArcadiaGlass.PanelShape)
                         .xoraModalGlass(ArcadiaGlass.PanelShape),
                 ) {
                     val fadeInSpec = arcadiaTween<Float>(ArcadiaMotion.Medium)
                     val fadeOutSpec = arcadiaTween<Float>(ArcadiaMotion.Fast)
                     val slideInSpec = arcadiaTween<IntOffset>(ArcadiaMotion.Medium)
                     val slideOutSpec = arcadiaTween<IntOffset>(ArcadiaMotion.Fast)
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(max = viewportHeight)
+                            .verticalScroll(scrollState)
+                            .padding(start = 28.dp, end = 12.dp, top = 20.dp, bottom = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
                     AnimatedContent(
                         targetState = state.step,
                         transitionSpec = {
@@ -409,32 +408,8 @@ fun OnboardingScreen(
                             enter togetherWith exit
                         },
                         label = "onboardingStep",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 28.dp, vertical = 24.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) { step ->
-                        val padRegistry = when (step) {
-                            OnboardingStep.Profile -> profilePadRegistry
-                            OnboardingStep.Scrapers ->
-                                if (scraperSheet != null) scraperSheetPadRegistry
-                                else scraperListPadRegistry
-                            else -> null
-                        }
-                        val padState = when (step) {
-                            OnboardingStep.Profile -> profilePad
-                            OnboardingStep.Scrapers -> scraperPad
-                            else -> null
-                        }
-                        val padLayout = padRegistry?.layout()
-                        CompositionLocalProvider(
-                            LocalSettingsPadRegistry provides padRegistry,
-                            LocalSettingsPadFocusId provides padLayout?.let { layout ->
-                                settingsPadFocusId(
-                                    settingsPadCoerce(padState!!, layout),
-                                    layout,
-                                )
-                            },
-                        ) {
                         when (step) {
                             OnboardingStep.Welcome -> WelcomeStep(brandIcon = brandIcon)
                             OnboardingStep.Profile -> ProfileStep(
@@ -442,12 +417,15 @@ fun OnboardingScreen(
                                 avatarPath = state.avatarPath,
                                 onNameChange = viewModel::setProfileName,
                                 onSelectPreset = viewModel::selectAvatarPreset,
-                                onPickPhoto = {
+                                onPickFromPhotos = {
                                     photoPicker.launch(
                                         PickVisualMediaRequest(
                                             ActivityResultContracts.PickVisualMedia.ImageOnly,
                                         ),
                                     )
+                                },
+                                onPickFromFiles = {
+                                    photoFilesPicker.launch(arrayOf("image/*"))
                                 },
                                 onClearPhoto = viewModel::clearLocalAvatar,
                             )
@@ -489,24 +467,8 @@ fun OnboardingScreen(
                             OnboardingStep.Scrapers -> ScrapersStep(
                                 credentials = state.credentials,
                                 open = scraperSheet,
-                                onOpen = { service ->
-                                    scraperSheet = service
-                                    scraperPad = SettingsPadNavState(
-                                        0,
-                                        SettingsPadZone.Controls,
-                                        0,
-                                        0,
-                                    )
-                                },
-                                onClose = {
-                                    scraperSheet = null
-                                    scraperPad = SettingsPadNavState(
-                                        0,
-                                        SettingsPadZone.Controls,
-                                        0,
-                                        0,
-                                    )
-                                },
+                                onOpen = { service -> scraperSheet = service },
+                                onClose = { scraperSheet = null },
                                 onSteamGridDbKey = viewModel::setSteamGridDbKey,
                                 onIgdb = viewModel::setIgdbCredentials,
                                 onScreenScraper = viewModel::setScreenScraperCredentials,
@@ -541,7 +503,17 @@ fun OnboardingScreen(
                             )
                             OnboardingStep.Done -> DoneStep()
                         }
-                        }
+                    }
+                    }
+                    if (scrollState.maxValue > 0) {
+                        OnboardingScrollIndicator(
+                            scrollState = scrollState,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(vertical = 18.dp)
+                                .padding(end = 10.dp),
+                        )
+                    }
                     }
                 }
 
@@ -559,15 +531,9 @@ fun OnboardingScreen(
                 )
 
                 OnboardingHints(state = state, scraperSheet = scraperSheet)
-                        }
-                    }
-                    OnboardingScrollIndicator(
-                        scrollState = scrollState,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(vertical = 8.dp),
-                    )
                 }
+            }
+            }
             }
         }
     }
@@ -736,7 +702,8 @@ private fun ProfileStep(
     avatarPath: String?,
     onNameChange: (String) -> Unit,
     onSelectPreset: (String) -> Unit,
-    onPickPhoto: () -> Unit,
+    onPickFromPhotos: () -> Unit,
+    onPickFromFiles: () -> Unit,
     onClearPhoto: () -> Unit,
 ) {
     var name by remember(profile.displayName) { mutableStateOf(profile.displayName) }
@@ -755,7 +722,7 @@ private fun ProfileStep(
     ) {
         StepTitle("Your profile")
         Text(
-            text = "This name and picture show on the Home social card. You can change them later.",
+            text = "This name and picture show on the Home social card. Upload from Photos or Files.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -787,10 +754,16 @@ private fun ProfileStep(
         SettingsPadRow("profile_photo") {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SettingsPadTarget(
-                    id = "profile_upload",
-                    onActivate = onPickPhoto,
+                    id = "profile_upload_photos",
+                    onActivate = onPickFromPhotos,
                 ) {
-                    Button(onClick = onPickPhoto) { Text("Upload photo") }
+                    Button(onClick = onPickFromPhotos) { Text("Photos") }
+                }
+                SettingsPadTarget(
+                    id = "profile_upload_files",
+                    onActivate = onPickFromFiles,
+                ) {
+                    OutlinedButton(onClick = onPickFromFiles) { Text("Files") }
                 }
                 if (usingPhoto) {
                     SettingsPadTarget(
@@ -863,11 +836,16 @@ private fun DisplayModeStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FilterChip(
-                selected = true,
-                onClick = { onSelect(DisplayMode.Single) },
-                label = { Text("Single screen") },
-            )
+            SettingsPadTarget(
+                id = "display_single",
+                onActivate = { onSelect(DisplayMode.Single) },
+            ) {
+                FilterChip(
+                    selected = true,
+                    onClick = { onSelect(DisplayMode.Single) },
+                    label = { Text("Single screen") },
+                )
+            }
         }
     }
 }
@@ -891,14 +869,25 @@ private fun LibraryStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (!hasStorageAccess) {
-            Button(onClick = onGrantAccess) { Text("Grant all-files access") }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onAddFolder, enabled = hasStorageAccess) {
-                Text("Add folder")
+            SettingsPadTarget(id = "library_grant", onActivate = onGrantAccess) {
+                Button(onClick = onGrantAccess) { Text("Grant all-files access") }
             }
-            OutlinedButton(onClick = onAddSaf) {
-                Text("Document picker")
+        }
+        SettingsPadRow("library_folders") {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SettingsPadTarget(
+                    id = "library_add_folder",
+                    onActivate = { if (hasStorageAccess) onAddFolder() },
+                ) {
+                    Button(onClick = onAddFolder, enabled = hasStorageAccess) {
+                        Text("Add folder")
+                    }
+                }
+                SettingsPadTarget(id = "library_saf", onActivate = onAddSaf) {
+                    OutlinedButton(onClick = onAddSaf) {
+                        Text("Document picker")
+                    }
+                }
             }
         }
         if (roots.isEmpty()) {
@@ -952,6 +941,7 @@ private fun AndroidAppsStep(
             onToggle = onToggle,
             onSelectAll = onSelectAll,
             onClear = onClear,
+            listMaxHeight = null,
         )
     }
 }
@@ -972,10 +962,7 @@ private fun EmulatorsStep(
         onEnsureScan()
     }
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 360.dp)
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         StepTitle("Emulators")
@@ -998,7 +985,9 @@ private fun EmulatorsStep(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
-                Button(onClick = onRetry) { Text("Try again") }
+                SettingsPadTarget(id = "emu_retry_error", onActivate = onRetry) {
+                    Button(onClick = onRetry) { Text("Try again") }
+                }
             }
             choices.isEmpty() -> {
                 Text(
@@ -1015,7 +1004,9 @@ private fun EmulatorsStep(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Button(onClick = onRetry) { Text("Try again") }
+                SettingsPadTarget(id = "emu_retry_empty", onActivate = onRetry) {
+                    Button(onClick = onRetry) { Text("Try again") }
+                }
             }
             else -> {
                 Text(
@@ -1023,13 +1014,15 @@ private fun EmulatorsStep(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                choices.forEach { choice ->
-                    OnboardingPlatformEmulatorCard(
-                        choice = choice,
-                        onSelect = { playerId ->
-                            onSelectPlayer(choice.summary.platform.id, playerId)
-                        },
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    choices.forEach { choice ->
+                        OnboardingPlatformEmulatorCard(
+                            choice = choice,
+                            onSelect = { playerId ->
+                                onSelectPlayer(choice.summary.platform.id, playerId)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -1041,37 +1034,79 @@ private fun OnboardingPlatformEmulatorCard(
     choice: PlatformPlayerChoice,
     onSelect: (String?) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val status = when {
+        choice.candidates.isEmpty() ->
+            "No emulator installed yet — XOrA will add one when you install it."
+        choice.effectivePlayer == null -> "Nothing installed that can open these games."
+        choice.isInstalled -> "Opens with ${choice.effectivePlayer.name}"
+        else -> "${choice.effectivePlayer.name} is selected but not installed."
+    }
+    val statusOk = choice.isInstalled || choice.effectivePlayer == null
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ArcadiaGlass.CardShape)
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), ArcadiaGlass.CardShape)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = choice.summary.platform.displayName,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "${choice.summary.gameCount} games",
+                style = MaterialTheme.typography.labelMedium,
+                color = MutedInk,
+            )
+        }
         Text(
-            text = "${choice.summary.platform.displayName} (${choice.summary.gameCount})",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = when {
-                choice.candidates.isEmpty() ->
-                    "No emulator for this system is installed yet. XOrA will add one when you install it."
-                choice.effectivePlayer == null -> "Nothing installed that can open these games."
-                choice.isInstalled -> "Opens with ${choice.effectivePlayer.name}"
-                else -> "${choice.effectivePlayer.name} is selected but not installed."
-            },
+            text = status,
             style = MaterialTheme.typography.bodySmall,
-            color = if (choice.isInstalled || choice.effectivePlayer == null) {
+            color = if (statusOk) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
                 MaterialTheme.colorScheme.error
             },
         )
-        choice.candidates.forEach { player ->
-            FilterChip(
-                selected = choice.selectedPlayerId == player.uniqueId,
-                onClick = {
-                    onSelect(
-                        if (choice.selectedPlayerId == player.uniqueId) null else player.uniqueId,
-                    )
-                },
-                label = { Text(text = player.name) },
-            )
+        if (choice.candidates.isNotEmpty()) {
+            SettingsPadRow("emu_${choice.summary.platform.id}") {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    choice.candidates.forEach { player ->
+                        val select = {
+                            onSelect(
+                                if (choice.selectedPlayerId == player.uniqueId) {
+                                    null
+                                } else {
+                                    player.uniqueId
+                                },
+                            )
+                        }
+                        SettingsPadTarget(
+                            id = "emu_${choice.summary.platform.id}_${player.uniqueId}",
+                            onActivate = select,
+                        ) {
+                            FilterChip(
+                                selected = choice.selectedPlayerId == player.uniqueId,
+                                onClick = select,
+                                label = { Text(text = player.name) },
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1088,10 +1123,7 @@ private fun ScrapersStep(
     onScreenScraperDev: (String, String) -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 360.dp)
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (open == null) {
@@ -1255,6 +1287,7 @@ private fun ScraperServiceSheet(
     )
     when (service) {
         OnboardingScraperService.SteamGridDb -> OnboardingSecretField(
+            id = "scraper_sgdb_key",
             label = "SteamGridDB API key",
             value = steamKey,
             onCommit = { steamKey = it },
@@ -1262,12 +1295,14 @@ private fun ScraperServiceSheet(
         )
         OnboardingScraperService.Igdb -> {
             OnboardingSecretField(
+                id = "scraper_igdb_id",
                 label = "IGDB client id",
                 value = igdbId,
                 onCommit = { igdbId = it },
                 live = true,
             )
             OnboardingSecretField(
+                id = "scraper_igdb_secret",
                 label = "IGDB client secret",
                 value = igdbSecret,
                 onCommit = { igdbSecret = it },
@@ -1276,24 +1311,28 @@ private fun ScraperServiceSheet(
         }
         OnboardingScraperService.ScreenScraper -> {
             OnboardingSecretField(
+                id = "scraper_ss_user",
                 label = "ScreenScraper user",
                 value = ssUser,
                 onCommit = { ssUser = it },
                 live = true,
             )
             OnboardingSecretField(
+                id = "scraper_ss_pass",
                 label = "ScreenScraper password",
                 value = ssPass,
                 onCommit = { ssPass = it },
                 live = true,
             )
             OnboardingSecretField(
+                id = "scraper_ss_dev_id",
                 label = "Developer id",
                 value = ssDevId,
                 onCommit = { ssDevId = it },
                 live = true,
             )
             OnboardingSecretField(
+                id = "scraper_ss_dev_pass",
                 label = "Developer password",
                 value = ssDevPass,
                 onCommit = { ssDevPass = it },
@@ -1324,10 +1363,7 @@ private fun SocialStep(
     onOpenNotificationAccess: () -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(320.dp)
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         StepTitle("Social")
@@ -1338,14 +1374,16 @@ private fun SocialStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        Button(onClick = onSignInSteam) {
-            Text(
-                text = if (steam.steamId64.isNotBlank()) {
-                    "Re-link Steam (ID ${steam.steamId64})"
-                } else {
-                    "Sign in with Steam"
-                },
-            )
+        SettingsPadTarget(id = "social_steam", onActivate = onSignInSteam) {
+            Button(onClick = onSignInSteam) {
+                Text(
+                    text = if (steam.steamId64.isNotBlank()) {
+                        "Re-link Steam (ID ${steam.steamId64})"
+                    } else {
+                        "Sign in with Steam"
+                    },
+                )
+            }
         }
         if (steam.steamId64.isNotBlank()) {
             Text(
@@ -1356,6 +1394,7 @@ private fun SocialStep(
         }
 
         OnboardingSecretField(
+            id = "social_steam_key",
             label = "Steam Web API key",
             value = steam.apiKey,
             onCommit = onSteamApiKey,
@@ -1381,13 +1420,19 @@ private fun SocialStep(
             discordPresence.capability == DiscordPresenceCapability.Connected ||
             (discordPresence.capability == DiscordPresenceCapability.NotConfigured &&
                 discordPresence.applicationId.isNotBlank())
+        val discordEnabled = canLinkDiscord && !discordPresence.connecting &&
+            discordPresence.capability != DiscordPresenceCapability.SdkMissing
 
-        OutlinedButton(
-            onClick = onLinkDiscord,
-            enabled = canLinkDiscord && !discordPresence.connecting &&
-                discordPresence.capability != DiscordPresenceCapability.SdkMissing,
+        SettingsPadTarget(
+            id = "social_discord",
+            onActivate = { if (discordEnabled) onLinkDiscord() },
         ) {
-            Text(discordLabel)
+            OutlinedButton(
+                onClick = onLinkDiscord,
+                enabled = discordEnabled,
+            ) {
+                Text(discordLabel)
+            }
         }
         if (discordPresence.capability == DiscordPresenceCapability.Connected) {
             Text(
@@ -1404,8 +1449,10 @@ private fun SocialStep(
         }
 
         if (!notificationListenerEnabled) {
-            OutlinedButton(onClick = onOpenNotificationAccess) {
-                Text("Open notification access")
+            SettingsPadTarget(id = "social_notifications", onActivate = onOpenNotificationAccess) {
+                OutlinedButton(onClick = onOpenNotificationAccess) {
+                    Text("Open notification access")
+                }
             }
         } else {
             Text(
@@ -1427,9 +1474,7 @@ private fun RetroAchievementsStep(
     onApiKeySignIn: (username: String, apiKey: String) -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         StepTitle("Sign in to RetroAchievements")
@@ -1461,30 +1506,36 @@ private fun RetroAchievementsStep(
 
 @Composable
 private fun OnboardingSecretField(
+    id: String,
     label: String,
     value: String,
     onCommit: (String) -> Unit,
     live: Boolean = false,
 ) {
     var draft by remember(value) { mutableStateOf(value) }
-    OutlinedTextField(
-        value = if (live) value else draft,
-        onValueChange = { next ->
-            if (live) onCommit(next) else draft = next
-        },
-        label = { Text(text = label) },
-        singleLine = true,
-        visualTransformation = if ((if (live) value else draft).isBlank()) {
-            VisualTransformation.None
-        } else {
-            PasswordVisualTransformation()
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { focus ->
-                if (!live && !focus.isFocused && draft != value) onCommit(draft)
+    val requester = remember { FocusRequester() }
+    val shown = if (live) value else draft
+    SettingsPadTarget(id = id, onActivate = { requester.requestFocus() }) {
+        OutlinedTextField(
+            value = shown,
+            onValueChange = { next ->
+                if (live) onCommit(next) else draft = next
             },
-    )
+            label = { Text(text = label) },
+            singleLine = true,
+            visualTransformation = if (shown.isBlank()) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(requester)
+                .onFocusChanged { focus ->
+                    if (!live && !focus.isFocused && draft != value) onCommit(draft)
+                },
+        )
+    }
 }
 
 @Composable
@@ -1509,24 +1560,44 @@ private fun AudioStep(
             text = "Background music: ${(draftBgm * 100f).roundToInt()}%",
             style = MaterialTheme.typography.bodyMedium,
         )
-        Slider(
-            value = draftBgm,
-            onValueChange = { draftBgm = it },
-            onValueChangeFinished = { onBgmChange(draftBgm) },
-            valueRange = 0f..1f,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        SettingsPadTarget(
+            id = "audio_bgm",
+            onActivate = { },
+            onAdjust = { delta ->
+                val next = (draftBgm + delta * 0.05f).coerceIn(0f, 1f)
+                draftBgm = next
+                onBgmChange(next)
+            },
+        ) {
+            Slider(
+                value = draftBgm,
+                onValueChange = { draftBgm = it },
+                onValueChangeFinished = { onBgmChange(draftBgm) },
+                valueRange = 0f..1f,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Text(
             text = "UI sounds: ${(draftSfx * 100f).roundToInt()}%",
             style = MaterialTheme.typography.bodyMedium,
         )
-        Slider(
-            value = draftSfx,
-            onValueChange = { draftSfx = it },
-            onValueChangeFinished = { onSfxChange(draftSfx) },
-            valueRange = 0f..1f,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        SettingsPadTarget(
+            id = "audio_sfx",
+            onActivate = { },
+            onAdjust = { delta ->
+                val next = (draftSfx + delta * 0.05f).coerceIn(0f, 1f)
+                draftSfx = next
+                onSfxChange(next)
+            },
+        ) {
+            Slider(
+                value = draftSfx,
+                onValueChange = { draftSfx = it },
+                onValueChangeFinished = { onSfxChange(draftSfx) },
+                valueRange = 0f..1f,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
@@ -1562,33 +1633,46 @@ private fun OnboardingActions(
 ) {
     val optional = isOptional(state.step)
 
+    SettingsPadRow("onboarding_chrome") {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TextButton(
-            onClick = onBack,
-            enabled = state.canGoBack,
-        ) {
-            Text("Back")
+        if (state.canGoBack) {
+            SettingsPadTarget(
+                id = OnboardingPadIds.Back,
+                onActivate = onBack,
+            ) {
+                TextButton(onClick = onBack) { Text("Back") }
+            }
+        } else {
+            TextButton(onClick = onBack, enabled = false) { Text("Back") }
         }
         Spacer(modifier = Modifier.weight(1f))
         if (optional) {
-            TextButton(onClick = onSkip) { Text("Skip") }
+            SettingsPadTarget(id = OnboardingPadIds.Skip, onActivate = onSkip) {
+                TextButton(onClick = onSkip) { Text("Skip") }
+            }
         }
-        Button(
-            onClick = onNext,
-            enabled = state.canAdvance,
+        SettingsPadTarget(
+            id = OnboardingPadIds.Next,
+            onActivate = { if (state.canAdvance) onNext() },
         ) {
-            Text(
-                when {
-                    state.isLast -> "Finish"
-                    optional -> "Continue"
-                    else -> "Next"
-                },
-            )
+            Button(
+                onClick = onNext,
+                enabled = state.canAdvance,
+            ) {
+                Text(
+                    when {
+                        state.isLast -> "Finish"
+                        optional -> "Continue"
+                        else -> "Next"
+                    },
+                )
+            }
         }
+    }
     }
 }
 
@@ -1599,22 +1683,16 @@ private fun OnboardingHints(
 ) {
     val optional = isOptional(state.step)
     val hints = buildList {
-        if (state.step == OnboardingStep.Profile) {
-            add("A" to "Use photo / colour / name")
-            add("U/D/L/R" to "Move")
-            add("RB" to "Next")
-            if (state.canGoBack) add("B / LB" to "Back")
-        } else if (state.step == OnboardingStep.Scrapers) {
-            add("A" to if (scraperSheet != null) "Save / use field" else "Open service")
-            add("U/D" to "Move")
-            add("RB" to "Continue")
+        add("A" to "Use")
+        add("U" to "Next")
+        add("D/L/R" to "Move")
+        add("RB" to if (state.isLast) "Finish" else if (optional) "Continue" else "Next")
+        if (state.canGoBack) {
             add("B / LB" to if (scraperSheet != null) "Close" else "Back")
-            add("Y" to "Skip")
-        } else {
-            add("A / → / RB" to if (state.isLast) "Finish" else if (optional) "Continue" else "Next")
-            if (state.canGoBack) add("B / ← / LB" to "Back")
-            if (optional) add("Y" to "Skip")
+        } else if (scraperSheet != null) {
+            add("B" to "Close")
         }
+        if (optional) add("Y" to "Skip")
     }
     Row(
         horizontalArrangement = Arrangement.spacedBy(16.dp),

@@ -60,6 +60,7 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.xoraModalGlass
+import com.arcadia.shell.feature.home.PhotoImportSource
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.xoranetwork.XoraPresenceMode
@@ -108,7 +109,7 @@ private data class AvatarSourceOption(
  *
  * Overlay (not AlertDialog) so it can open on a secondary [android.app.Presentation] without a
  * nested window. Photo picks are requested via [onRequestPhoto]; Activity Result launchers live
- * only in the Activity-rooted shell.
+ * only in the Activity-rooted shell. Photo opens a Photos / Files chooser first.
  *
  * Header and footer are pinned and only the middle scrolls, so Save stays reachable on short
  * landscape / TV layouts instead of hiding below a long column of buttons.
@@ -122,7 +123,7 @@ fun ProfileEditSheet(
     onDismiss: () -> Unit,
     onSave: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
-    onRequestPhoto: () -> Unit,
+    onRequestPhoto: (PhotoImportSource) -> Unit,
     onUseRaAvatar: () -> Unit,
     onUseDiscordAvatar: () -> Unit,
     onUseXoraAvatar: () -> Unit = {},
@@ -132,37 +133,62 @@ fun ProfileEditSheet(
 ) {
     var name by remember(profile.displayName) { mutableStateOf(profile.displayName) }
     var presetId by remember(profile.avatarPresetId) { mutableStateOf(profile.avatarPresetId) }
+    var photoChooserOpen by remember { mutableStateOf(false) }
+    var photoChooserIndex by remember { mutableIntStateOf(0) }
+
+    fun closePhotoChooser() {
+        photoChooserOpen = false
+    }
+
+    fun openPhotoChooser() {
+        photoChooserOpen = true
+        photoChooserIndex = 0
+    }
+
+    fun pickPhoto(source: PhotoImportSource) {
+        closePhotoChooser()
+        onRequestPhoto(source)
+    }
 
     val sources = listOf(
-        AvatarSourceOption(AvatarSource.Default, "Colour", null, true, onClearAvatar),
+        AvatarSourceOption(AvatarSource.Default, "Colour", null, true) {
+            closePhotoChooser()
+            onClearAvatar()
+        },
         AvatarSourceOption(
             AvatarSource.Local,
             "Photo",
             R.drawable.xmb_figma_photo,
             true,
-            onRequestPhoto,
+            onPick = ::openPhotoChooser,
         ),
         AvatarSourceOption(
             AvatarSource.XoraNetwork,
             "XOrA",
             R.drawable.ic_brand_xora,
             xoraSignedIn,
-            onUseXoraAvatar,
-        ),
+        ) {
+            closePhotoChooser()
+            onUseXoraAvatar()
+        },
         AvatarSourceOption(
             AvatarSource.RetroAchievements,
             "RA",
             R.drawable.xmb_figma_trophy,
             raConfigured,
-            onUseRaAvatar,
-        ),
+        ) {
+            closePhotoChooser()
+            onUseRaAvatar()
+        },
         AvatarSourceOption(
             AvatarSource.Discord,
             "Discord",
             R.drawable.ic_brand_discord,
             discordLinked,
-            onUseDiscordAvatar,
-        ),
+        ) {
+            closePhotoChooser()
+            onUseDiscordAvatar()
+        },
     )
 
     val presenceShown = xoraSignedIn
@@ -187,7 +213,9 @@ fun ProfileEditSheet(
         if (!transition.targetState && !transition.currentState) onDismiss()
     }
     val requestDismiss = { transition.targetState = false }
-    BackHandler(onBack = requestDismiss)
+    BackHandler(onBack = {
+        if (photoChooserOpen) closePhotoChooser() else requestDismiss()
+    })
 
     fun cellCount(target: ProfileRow): Int = when (target) {
         ProfileRow.Source -> sources.size
@@ -226,13 +254,23 @@ fun ProfileEditSheet(
         sheetNav?.setCapturing(true)
         onDispose { sheetNav?.setCapturing(false) }
     }
-    LaunchedEffect(sheetNav, rows, editingName) {
+    LaunchedEffect(sheetNav, rows, editingName, photoChooserOpen) {
         val flow = sheetNav?.actions ?: return@LaunchedEffect
         flow.collect { action ->
             if (editingName) {
                 // The keyboard owns everything else while a name is being typed.
                 when (action) {
                     NavAction.Confirm, NavAction.Cancel -> editingName = false
+                    else -> Unit
+                }
+                return@collect
+            }
+            if (photoChooserOpen) {
+                when (action) {
+                    NavAction.Left, NavAction.Right ->
+                        photoChooserIndex = photoImportChooserIndex(action, photoChooserIndex)
+                    NavAction.Confirm -> pickPhoto(photoImportChooserSource(photoChooserIndex))
+                    NavAction.Cancel -> closePhotoChooser()
                     else -> Unit
                 }
                 return@collect
@@ -329,6 +367,13 @@ fun ProfileEditSheet(
                             text = hint,
                             fontSize = 12.sp,
                             fillColor = MutedInk,
+                        )
+                    }
+                    if (photoChooserOpen) {
+                        PhotoImportChooser(
+                            focusedIndex = photoChooserIndex,
+                            onPhotos = { pickPhoto(PhotoImportSource.PhotosApp) },
+                            onFiles = { pickPhoto(PhotoImportSource.FilesApp) },
                         )
                     }
                 }
@@ -465,6 +510,67 @@ private fun SheetHeader(
                 maxLines = 1,
             )
         }
+    }
+}
+
+@Composable
+private fun PhotoImportChooser(
+    focusedIndex: Int,
+    onPhotos: () -> Unit,
+    onFiles: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        XoraSecondaryText(
+            text = "Upload from",
+            fontSize = 12.sp,
+            fillColor = MutedInk,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            PhotoImportChoice(
+                label = "Photos",
+                focused = focusedIndex == 0,
+                onClick = onPhotos,
+                modifier = Modifier.weight(1f),
+            )
+            PhotoImportChoice(
+                label = "Files",
+                focused = focusedIndex == 1,
+                onClick = onFiles,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PhotoImportChoice(
+    label: String,
+    focused: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(ChipShape)
+            .background(if (focused) FocusFill else RestFill)
+            .border(
+                width = if (focused) 3.dp else 1.5.dp,
+                color = if (focused) FocusEdge else RestEdge,
+                shape = ChipShape,
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        XoraSecondaryText(
+            text = label,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.launcher.InstalledApp
 
@@ -36,6 +37,8 @@ fun AndroidAppPicker(
     onSelectAll: () -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Null lets the host window scroll the full list (onboarding). */
+    listMaxHeight: Dp? = 280.dp,
 ) {
     val needle = query.trim()
     val visible = if (needle.isEmpty()) {
@@ -102,10 +105,14 @@ fun AndroidAppPicker(
             )
         } else {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 280.dp)
-                    .verticalScroll(rememberScrollState()),
+                modifier = if (listMaxHeight != null) {
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = listMaxHeight)
+                        .verticalScroll(rememberScrollState())
+                } else {
+                    Modifier.fillMaxWidth()
+                },
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 visible.forEach { app ->

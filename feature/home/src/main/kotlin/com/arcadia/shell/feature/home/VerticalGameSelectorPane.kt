@@ -107,7 +107,7 @@ fun VerticalGameSelectorPane(
     onClearCustomStatus: () -> Unit = {},
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
-    onRequestLocalAvatar: () -> Unit,
+    onRequestLocalAvatar: (PhotoImportSource) -> Unit,
     onUseRaAvatar: () -> Unit,
     onUseDiscordAvatar: () -> Unit,
     onUseXoraAvatar: () -> Unit,
