@@ -7,8 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.arcadia.shell.database.repository.LibraryRepository
 import com.arcadia.shell.database.repository.PlayerRepository
 import com.arcadia.shell.datastore.AndroidAppInclusionMode
+import com.arcadia.shell.datastore.AvatarSource
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.datastore.PlatformEmulatorChoice
+import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
@@ -52,6 +55,7 @@ import javax.inject.Inject
 
 enum class OnboardingStep {
     Welcome,
+    Profile,
     DisplayMode,
     Library,
     AndroidApps,
@@ -91,6 +95,8 @@ data class OnboardingUiState(
     val raPendingWebApiUsername: String? = null,
     val steamWebApi: SteamWebApiCredentials = SteamWebApiCredentials(),
     val discordPresence: DiscordPresenceUiState = DiscordPresenceUiState(),
+    val profile: LocalProfile = LocalProfile(),
+    val avatarPath: String? = null,
     val message: String? = null,
 ) {
     val stepIndex: Int get() = OnboardingStep.entries.indexOf(step)
@@ -103,6 +109,7 @@ data class OnboardingUiState(
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
     private val preferences: ShellPreferences,
+    private val avatarStore: ProfileAvatarStore,
     private val storageAccess: StorageAccess,
     private val rootManager: LibraryRootManager,
     private val libraryRepository: LibraryRepository,
@@ -177,13 +184,17 @@ class OnboardingViewModel @Inject constructor(
         val raPendingWebApiUser: String?,
     )
 
+    private val identityFlow = combine(message, preferences.profile) { msg, profile ->
+        msg to profile
+    }
+
     private val baseFlow = combine(
         step,
         preferences.settings,
         storageFlow,
         libraryRepository.observeGames(),
-        message,
-    ) { currentStep, settings, storage, games, msg ->
+        identityFlow,
+    ) { currentStep, settings, storage, games, identity ->
         BaseBundle(
             step = currentStep,
             settings = settings,
@@ -191,7 +202,8 @@ class OnboardingViewModel @Inject constructor(
             roots = storage.second,
             suggestedVolumes = storage.third,
             gameCount = games.size,
-            message = msg,
+            message = identity.first,
+            profile = identity.second,
         )
     }
 
@@ -203,6 +215,7 @@ class OnboardingViewModel @Inject constructor(
         val suggestedVolumes: List<StorageVolumeRoot>,
         val gameCount: Int,
         val message: String?,
+        val profile: LocalProfile,
     )
 
     private val scanFlow = combine(scanRunning, scanCompleted, scanError, filesSeen) {
@@ -277,6 +290,10 @@ class OnboardingViewModel @Inject constructor(
             raPendingWebApiUsername = social.raPendingWebApiUser,
             steamWebApi = social.steamWebApi,
             discordPresence = social.discordPresence,
+            profile = base.profile,
+            avatarPath = avatarStore.resolveFile(base.profile.localAvatarFileName)
+                ?.absolutePath
+                ?.takeIf { base.profile.avatarSource == AvatarSource.Local },
             message = base.message,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OnboardingUiState())
@@ -374,6 +391,40 @@ class OnboardingViewModel @Inject constructor(
 
     fun setDisplayMode(mode: DisplayMode) {
         viewModelScope.launch { preferences.setDisplayMode(mode) }
+    }
+
+    fun setProfileName(name: String) {
+        viewModelScope.launch {
+            val preset = preferences.profile.first().avatarPresetId
+            preferences.setProfile(name, preset)
+        }
+    }
+
+    fun selectAvatarPreset(presetId: String) {
+        viewModelScope.launch {
+            val name = preferences.profile.first().displayName
+            preferences.setProfile(name, presetId)
+            preferences.setProfileAvatar(AvatarSource.Default, presetId = presetId)
+        }
+    }
+
+    fun setLocalAvatar(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val fileName = avatarStore.importFromUri(uri)
+                preferences.setProfileAvatar(AvatarSource.Local, localFileName = fileName)
+            }.onFailure {
+                message.value = "Could not use that photo."
+            }
+        }
+    }
+
+    fun clearLocalAvatar() {
+        viewModelScope.launch {
+            avatarStore.clear()
+            val preset = preferences.profile.first().avatarPresetId
+            preferences.setProfileAvatar(AvatarSource.Default, presetId = preset)
+        }
     }
 
     fun setBgmVolume(volume: Float) {

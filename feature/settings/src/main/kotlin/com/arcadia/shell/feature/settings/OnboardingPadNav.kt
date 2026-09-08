@@ -9,6 +9,7 @@ internal enum class OnboardingPadCommand {
     Back,
     Skip,
     DismissPicker,
+    Activate,
 }
 
 /**
@@ -40,10 +41,25 @@ internal fun onboardingPadCommand(
     canAdvance: Boolean,
     optional: Boolean,
     pickerOpen: Boolean,
+    intraForm: Boolean = false,
 ): OnboardingPadCommand {
     if (pickerOpen) {
         return if (action == NavAction.Cancel) OnboardingPadCommand.DismissPicker
         else OnboardingPadCommand.None
+    }
+    if (intraForm) {
+        return when (action) {
+            NavAction.Confirm -> OnboardingPadCommand.Activate
+            NavAction.NextPlatform ->
+                if (canAdvance) OnboardingPadCommand.Next else OnboardingPadCommand.None
+            NavAction.Cancel,
+            NavAction.PreviousPlatform,
+            -> if (canGoBack) OnboardingPadCommand.Back else OnboardingPadCommand.None
+            NavAction.SwapScreens,
+            NavAction.Options,
+            -> if (optional) OnboardingPadCommand.Skip else OnboardingPadCommand.None
+            else -> OnboardingPadCommand.None
+        }
     }
     return when (action) {
         NavAction.Confirm,
