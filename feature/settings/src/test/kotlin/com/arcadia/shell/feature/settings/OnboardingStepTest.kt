@@ -1,5 +1,8 @@
 package com.arcadia.shell.feature.settings
 
+import com.arcadia.shell.datastore.VisualPerformanceChoices
+import com.arcadia.shell.datastore.VisualPerformanceMode
+import com.arcadia.shell.datastore.visualPerformanceModeLabel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -13,10 +16,29 @@ class OnboardingStepTest {
         assertEquals(OnboardingStep.Welcome, steps[0])
         assertEquals(OnboardingStep.Profile, steps[1])
         assertEquals(OnboardingStep.DisplayMode, steps[2])
-        assertEquals(OnboardingStep.Library, steps[3])
-        assertEquals(OnboardingStep.AndroidApps, steps[4])
-        assertEquals(OnboardingStep.Emulators, steps[5])
-        assertEquals(OnboardingStep.Scrapers, steps[6])
+        assertEquals(OnboardingStep.Performance, steps[3])
+        assertEquals(OnboardingStep.Library, steps[4])
+        assertEquals(OnboardingStep.AndroidApps, steps[5])
+        assertEquals(OnboardingStep.Emulators, steps[6])
+        assertEquals(OnboardingStep.Scrapers, steps[7])
+    }
+
+    @Test
+    fun performanceStepOffersAutoPerformanceAndQuality() {
+        assertEquals(
+            listOf(
+                VisualPerformanceMode.Auto,
+                VisualPerformanceMode.Smooth,
+                VisualPerformanceMode.Quality,
+            ),
+            VisualPerformanceChoices,
+        )
+        assertEquals("Auto", visualPerformanceModeLabel(VisualPerformanceMode.Auto))
+        assertEquals("Performance", visualPerformanceModeLabel(VisualPerformanceMode.Smooth))
+        assertEquals("Quality", visualPerformanceModeLabel(VisualPerformanceMode.Quality))
+        assertEquals("perf_auto", onboardingPerformancePadId(VisualPerformanceMode.Auto))
+        assertEquals("perf_smooth", onboardingPerformancePadId(VisualPerformanceMode.Smooth))
+        assertEquals("perf_quality", onboardingPerformancePadId(VisualPerformanceMode.Quality))
     }
 
     @Test
