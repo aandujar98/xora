@@ -77,6 +77,15 @@ fun homeTutorialPadCommand(action: NavAction): HomeTutorialCommand? = when (acti
 }
 
 /**
+ * After boot, offer the coach marks whenever onboarding is done and the tutorial flag is
+ * still clear. Finish always clears that flag, including a Settings redo.
+ */
+fun shouldOfferHomeTutorial(
+    onboardingComplete: Boolean,
+    homeTutorialComplete: Boolean,
+): Boolean = onboardingComplete && !homeTutorialComplete
+
+/**
  * Spotlight in the Home pane’s coordinate space (same box as the LT / RT pills and
  * the contain-fit 1920×1080 XMB canvas).
  */

@@ -9442,7 +9442,7 @@ class HomeViewModel @Inject constructor(
         if (tutorialOpen.value) return
         val onboardingDone = preferences.onboardingComplete.first()
         val tutorialDone = preferences.homeTutorialComplete.first()
-        if (!onboardingDone || tutorialDone) return
+        if (!shouldOfferHomeTutorial(onboardingDone, tutorialDone)) return
         collapseHeroPanels()
         tutorialStep.value = HomeTutorialStep.Profile
         tutorialOpen.value = true

@@ -618,8 +618,8 @@ class OnboardingViewModel @Inject constructor(
     }
 
     /**
-     * Marks onboarding finished in prefs. Caller should clear any session force flag and return
-     * to the Home hub.
+     * Marks onboarding finished in prefs and clears the Home tutorial flag so the coach marks
+     * run after the boot clip. Caller should clear any session force flag and return to Home.
      */
     fun finish(onFinished: () -> Unit) {
         viewModelScope.launch {

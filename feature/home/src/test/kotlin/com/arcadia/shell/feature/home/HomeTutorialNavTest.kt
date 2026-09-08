@@ -77,4 +77,17 @@ class HomeTutorialNavTest {
         assertTrue(hole.top + hole.height > 420.5f + 200f)
         assertTrue(hole.left + hole.width < 1920f / 2f + 80f)
     }
+
+    @Test
+    fun finishingOnboardingReopensTheTutorialEvenIfItWasAlreadyDone() {
+        assertTrue(
+            shouldOfferHomeTutorial(onboardingComplete = true, homeTutorialComplete = false),
+        )
+        assertFalse(
+            shouldOfferHomeTutorial(onboardingComplete = true, homeTutorialComplete = true),
+        )
+        assertFalse(
+            shouldOfferHomeTutorial(onboardingComplete = false, homeTutorialComplete = false),
+        )
+    }
 }

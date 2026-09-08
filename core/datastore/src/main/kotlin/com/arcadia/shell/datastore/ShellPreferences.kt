@@ -665,8 +665,9 @@ class ShellPreferences @Inject constructor(
     }
 
     /**
-     * Whether the first-run Home coach marks have been finished or skipped. Independent of
-     * [onboardingComplete] so Settings can replay the wizard without replaying the tutorial.
+     * Whether the Home coach marks have been finished or skipped since the last onboarding
+     * Finish. [setOnboardingComplete] clears this so every completed wizard run replays them
+     * after the boot clip.
      */
     val homeTutorialComplete: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[Keys.HOME_TUTORIAL_COMPLETE] ?: false
@@ -1159,6 +1160,9 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setOnboardingComplete(done: Boolean) = edit {
         it[Keys.ONBOARDING_COMPLETE] = done
+        // Finish and Settings redo both drop this so the Home tutorial runs after every
+        // completed onboarding + boot clip, not only the first install.
+        it[Keys.HOME_TUTORIAL_COMPLETE] = false
     }
 
     suspend fun setHomeTutorialComplete(done: Boolean) = edit {
