@@ -28,9 +28,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -67,8 +69,44 @@ private val BannerShape = ArcadiaGlass.PillShape
 private val CardEdge = Color.White.copy(alpha = 0.25f)
 
 /**
- * Top-left toast host, parked under the LT Social pill. Observes [ShellNotificationCenter.active].
- * Host only on the primary Activity composition in dual-display mode.
+ * Activity-scoped handle so every pane that owns the LT capsule can host the toast
+ * in that same Box — above wallpaper / TextureView, on the display the pill lives on.
+ */
+class ShellNotificationBannerHandle(
+    val center: ShellNotificationCenter,
+    val onActivate: (ShellNotification) -> Unit,
+)
+
+val LocalShellNotificationBanner = staticCompositionLocalOf<ShellNotificationBannerHandle?> { null }
+
+/** Master toggle on, an active toast, and LT not already expanded over the slot. */
+fun shouldShowNotificationBanner(
+    notificationsEnabled: Boolean,
+    hasActive: Boolean,
+    ltExpanded: Boolean,
+): Boolean = notificationsEnabled && hasActive && !ltExpanded
+
+/**
+ * Banner in the LT capsule slot. No-ops when [LocalShellNotificationBanner] is unset
+ * (emulator overlay, previews).
+ */
+@Composable
+fun BoxScope.HomeSlotNotificationBanner(
+    ltExpanded: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val handle = LocalShellNotificationBanner.current ?: return
+    NotificationBannerHost(
+        center = handle.center,
+        ltExpanded = ltExpanded,
+        onActivate = handle.onActivate,
+        modifier = modifier,
+    )
+}
+
+/**
+ * Top-left toast host, parked in the LT Social pill slot. Observes [ShellNotificationCenter.active].
+ * Host this in the same Box as [AccountPill], not as a sibling of the whole Home pane.
  */
 @Composable
 fun BoxScope.NotificationBannerHost(
@@ -81,9 +119,14 @@ fun BoxScope.NotificationBannerHost(
     val reduceMotion = rememberReduceMotion()
 
     AnimatedVisibility(
-        visible = center.notificationsEnabled && active != null && !ltExpanded,
+        visible = shouldShowNotificationBanner(
+            notificationsEnabled = center.notificationsEnabled,
+            hasActive = active != null,
+            ltExpanded = ltExpanded,
+        ),
         modifier = modifier
             .align(Alignment.TopStart)
+            .zIndex(2f)
             .padding(top = BannerTop, start = BannerStart, end = 20.dp),
         enter = if (reduceMotion) {
             fadeIn()

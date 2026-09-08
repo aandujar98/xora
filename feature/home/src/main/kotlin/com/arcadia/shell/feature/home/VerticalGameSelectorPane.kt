@@ -64,6 +64,7 @@ import com.arcadia.shell.designsystem.XoraForegroundShadow
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.component.AccountPill
+import com.arcadia.shell.feature.home.component.HomeSlotNotificationBanner
 import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
@@ -293,6 +294,7 @@ fun VerticalGameSelectorPane(
                     .align(Alignment.TopStart)
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             )
+            HomeSlotNotificationBanner(ltExpanded = accountExpanded)
             SystemPill(
                 profile = state.profile,
                 avatarImageModel = state.profileAvatarModel,

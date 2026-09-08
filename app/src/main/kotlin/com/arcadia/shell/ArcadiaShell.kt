@@ -79,8 +79,9 @@ import com.arcadia.shell.feature.home.VitaShortcutIconSheet
 import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.feature.home.XoraXmbHeroDetail
 import com.arcadia.shell.feature.home.component.GuidePanel
-import com.arcadia.shell.feature.home.component.NotificationBannerHost
+import com.arcadia.shell.feature.home.component.LocalShellNotificationBanner
 import com.arcadia.shell.feature.home.component.NotificationHistoryPanel
+import com.arcadia.shell.feature.home.component.ShellNotificationBannerHandle
 import com.arcadia.shell.feature.home.component.NetplayInvitePromptDialog
 import com.arcadia.shell.feature.home.component.DiscordConversationWindow
 import com.arcadia.shell.feature.home.component.XoraConversationWindow
@@ -137,6 +138,12 @@ fun ArcadiaShell(
         chooseEmulatorPlatformId != null ||
         musicCustomizeId != null
     val overlayOpen = dialogOverlayOpen || sheetOverlayOpen
+    val notificationBanner = remember(homeViewModel) {
+        ShellNotificationBannerHandle(
+            center = homeViewModel.shellNotifications,
+            onActivate = homeViewModel::activateShellNotification,
+        )
+    }
     val context = LocalContext.current
     var pendingGameMediaId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingShortcutIconId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -553,6 +560,7 @@ fun ArcadiaShell(
         return
     }
 
+    CompositionLocalProvider(LocalShellNotificationBanner provides notificationBanner) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = Color.Transparent,
@@ -759,11 +767,6 @@ fun ArcadiaShell(
                     onDismiss = homeViewModel::dismissWelcomeBack,
                     modifier = Modifier.fillMaxSize(),
                 )
-                NotificationBannerHost(
-                    center = homeViewModel.shellNotifications,
-                    ltExpanded = state.accountPanelExpanded,
-                    onActivate = homeViewModel::activateShellNotification,
-                )
                 HomeTutorialOverlay(
                     state = state.tutorial,
                     onNext = homeViewModel::advanceHomeTutorial,
@@ -808,6 +811,7 @@ fun ArcadiaShell(
         }
         }
     }
+    }
 
     if (shellState.useDualLayout) {
         SecondaryDisplayPane(displayId = shellState.secondaryDisplayId) {
@@ -820,6 +824,9 @@ fun ArcadiaShell(
                 uiLayoutScale = shellState.secondaryUiLayoutScale,
                 liteVisualsOverride = shellState.liteVisualsOverride,
             ) {
+                CompositionLocalProvider(
+                    LocalShellNotificationBanner provides notificationBanner,
+                ) {
                 when (route) {
                     ShellRoute.Settings -> SettingsCompanionPane(
                         modifier = Modifier.fillMaxSize(),
@@ -860,8 +867,8 @@ fun ArcadiaShell(
                                 homeViewModel = homeViewModel,
                                 modifier = Modifier.fillMaxSize(),
                             )
-                            // Guide may still mirror; Start settings + notification banners stay on
-                            // the primary Activity display only (topology.primary / first screen).
+                            // Guide may still mirror; Start settings stay on the primary Activity.
+                            // Notification banners host next to the LT capsule on this pane.
                             GuideOverlay(
                                 state = state,
                                 homeViewModel = homeViewModel,
@@ -881,6 +888,7 @@ fun ArcadiaShell(
                             )
                         }
                     }
+                }
                 }
             }
         }
