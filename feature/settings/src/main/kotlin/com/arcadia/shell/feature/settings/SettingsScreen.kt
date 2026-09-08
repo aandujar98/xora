@@ -450,9 +450,9 @@ fun SettingsScreen(
                 SettingsFieldLabel("Performance")
                 val deviceBudget = remember(context) { readDeviceVisualBudget(context) }
                 Text(
-                    text = "Default is Auto: this phone's RAM and memory class pick Smooth " +
-                        "or Full quality. Smooth skips glass blur, looping wallpaper, and " +
-                        "idle trailers on budget devices.",
+                    text = "Default is Auto: this phone's RAM and memory class pick Performance " +
+                        "or Quality. Performance uses a static wallpaper and skips glass blur, " +
+                        "looping video, and idle trailers.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

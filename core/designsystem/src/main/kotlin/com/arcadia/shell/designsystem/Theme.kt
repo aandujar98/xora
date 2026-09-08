@@ -77,7 +77,7 @@ fun ArcadiaTheme(
     uiLayoutScale: Float = 1f,
     /**
      * User visual-performance override. `null` = Auto (lite on budget RAM),
-     * `true` = Smooth, `false` = Full quality. Battery saver still forces lite.
+     * `true` = Performance (lite), `false` = Quality. Battery saver still forces lite.
      */
     liteVisualsOverride: Boolean? = null,
     content: @Composable () -> Unit,

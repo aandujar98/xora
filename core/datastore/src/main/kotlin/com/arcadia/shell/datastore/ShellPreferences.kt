@@ -73,7 +73,7 @@ enum class ThemeMode {
  *
  * [Auto] drops those effects on budget RAM (Galaxy A15-class).
  * [Quality] keeps the full look unless battery saver is on.
- * [Smooth] always uses the lite path.
+ * [Smooth] is the Performance choice — always uses the lite path.
  */
 enum class VisualPerformanceMode {
     Auto,
@@ -81,7 +81,14 @@ enum class VisualPerformanceMode {
     Smooth,
 }
 
-/** `null` = Auto, `true` = Smooth, `false` = Quality. */
+/** On-screen order for the Performance picker: Auto, Performance, Quality. */
+val VisualPerformanceChoices: List<VisualPerformanceMode> = listOf(
+    VisualPerformanceMode.Auto,
+    VisualPerformanceMode.Smooth,
+    VisualPerformanceMode.Quality,
+)
+
+/** `null` = Auto, `true` = Performance (lite), `false` = Quality. */
 fun VisualPerformanceMode.liteVisualsOverride(): Boolean? = when (this) {
     VisualPerformanceMode.Auto -> null
     VisualPerformanceMode.Quality -> false
@@ -90,8 +97,8 @@ fun VisualPerformanceMode.liteVisualsOverride(): Boolean? = when (this) {
 
 fun visualPerformanceModeLabel(mode: VisualPerformanceMode): String = when (mode) {
     VisualPerformanceMode.Auto -> "Auto"
-    VisualPerformanceMode.Quality -> "Full quality"
-    VisualPerformanceMode.Smooth -> "Smooth"
+    VisualPerformanceMode.Quality -> "Quality"
+    VisualPerformanceMode.Smooth -> "Performance"
 }
 
 fun visualPerformanceModeSubtitle(mode: VisualPerformanceMode): String =
@@ -113,13 +120,13 @@ fun visualPerformanceModeSubtitle(
     VisualPerformanceMode.Auto -> {
         val ram = deviceRamLabel?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
         when (deviceSuggestsLite) {
-            true -> "Auto on this device · Smooth$ram"
-            false -> "Auto on this device · Full quality$ram"
+            true -> "Auto on this device · Performance$ram"
+            false -> "Auto on this device · Quality$ram"
             null -> "Auto · uses this device's RAM"
         }
     }
     VisualPerformanceMode.Quality -> "Full glass, motion & video wallpaper"
-    VisualPerformanceMode.Smooth -> "No blur, idle video, or looping motion"
+    VisualPerformanceMode.Smooth -> "Static wallpaper · no blur or idle video"
 }
 
 /** How an idle game trailer is shown on the hero artwork pane. */

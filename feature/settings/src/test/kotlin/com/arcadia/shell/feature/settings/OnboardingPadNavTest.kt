@@ -232,6 +232,26 @@ class OnboardingPadNavTest {
     }
 
     @Test
+    fun performanceChoicesWalkAsThreePadRows() {
+        val layout = SettingsPadLayout(
+            listOf(
+                listOf("perf_auto"),
+                listOf("perf_smooth"),
+                listOf("perf_quality"),
+            ),
+        )
+        val chrome = onboardingChromeIds(canGoBack = true, optional = false)
+        val start = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
+        assertEquals("perf_auto", onboardingPadFocusId(start, layout, chrome))
+        val down = onboardingPadAfterAction(start, NavAction.Down, layout, chrome)
+        assertEquals("perf_smooth", onboardingPadFocusId(down, layout, chrome))
+        val last = onboardingPadAfterAction(down, NavAction.Down, layout, chrome)
+        assertEquals("perf_quality", onboardingPadFocusId(last, layout, chrome))
+        val next = onboardingPadAfterAction(last, NavAction.Down, layout, chrome)
+        assertEquals(OnboardingPadIds.Next, onboardingPadFocusId(next, layout, chrome))
+    }
+
+    @Test
     fun dpadStaysOnControlsAndWalksRowsLikeAdvancedSettings() {
         val layout = SettingsPadLayout(
             listOf(

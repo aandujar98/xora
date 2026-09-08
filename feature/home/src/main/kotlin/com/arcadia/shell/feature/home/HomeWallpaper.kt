@@ -27,6 +27,7 @@ import coil3.request.crossfade
 import coil3.request.maxBitmapSize
 import coil3.size.Size
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.LiteStaticWallpaper
 import com.arcadia.shell.designsystem.LocalLiteVisuals
 import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.ShellThemeBackdrop
@@ -132,12 +133,25 @@ private fun WallpaperLayerContent(
     )
     val panMedia = kotlin.math.abs(alignX) > 0.001f || kotlin.math.abs(alignY) > 0.001f
     val lite = LocalLiteVisuals.current
+    val customIsVideo = customFile != null && customFile.isVideoWallpaper()
+    val themeIsVideo = !layer.assetPath.isNullOrBlank() &&
+        layer.assetPath.isVideoWallpaperPath() &&
+        assetExists(androidContext, layer.assetPath)
 
     Box(modifier = modifier.fillMaxSize().clipToBounds()) {
         when {
-            !lite && customFile != null && customFile.isVideoWallpaper() -> {
+            shouldUseLiteStaticWallpaper(
+                lite = lite,
+                customIsVideo = customIsVideo,
+                hasCustomStill = customFile != null && !customIsVideo,
+                themeIsVideo = themeIsVideo,
+            ) -> {
+                LiteStaticWallpaper(Modifier.fillMaxSize())
+            }
+            !lite && customIsVideo -> {
+                val videoFile = customFile ?: return@Box
                 LoopingWallpaperVideo(
-                    uri = "file://${customFile.absolutePath}",
+                    uri = "file://${videoFile.absolutePath}",
                     alignment = alignment,
                     pan = panMedia,
                     modifier = Modifier.fillMaxSize(),
@@ -258,6 +272,17 @@ internal fun assetExists(context: android.content.Context, path: String): Boolea
     runCatching {
         context.assets.open(path).use { true }
     }.getOrDefault(false)
+
+/** Lite mode skips video decode; a custom still still wins over the bundled static plate. */
+internal fun shouldUseLiteStaticWallpaper(
+    lite: Boolean,
+    customIsVideo: Boolean,
+    hasCustomStill: Boolean,
+    themeIsVideo: Boolean,
+): Boolean {
+    if (!lite || hasCustomStill) return false
+    return customIsVideo || themeIsVideo
+}
 
 /** Cap wallpaper decode for handheld RAM; crop still fills the viewport. */
 private const val WALLPAPER_DECODE_EDGE = 1280

@@ -33,23 +33,38 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.LocalLiteVisuals
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.assetExists
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Bundled cold-start boot clip (from the `xora-boot` GitHub release). */
+/** Quality / default cold-start clip (from the `xora-boot` GitHub release). */
 const val BOOT_INTRO_ASSET = "boot/bootup.mp4"
+
+/**
+ * Lower-bitrate boot clip for Performance and Auto-on-Performance.
+ * 720p30 Constrained Baseline so RG Rotate / Galaxy A15-class decoders stay smooth.
+ */
+const val BOOT_INTRO_LITE_ASSET = "boot/bootup_lite.mp4"
 
 /** Fraction of the white dissolve that passes before the XMB starts its entrance. */
 private const val BOOT_REVEAL_AT = 0.55f
 
-private const val BOOT_URI = "asset:///$BOOT_INTRO_ASSET"
+/**
+ * Quality always keeps [BOOT_INTRO_ASSET]. Performance / Auto-lite uses the low-bitrate
+ * encode when that file is bundled, otherwise falls back to the quality clip.
+ */
+fun bootIntroAsset(lite: Boolean, liteExists: Boolean): String =
+    if (lite && liteExists) BOOT_INTRO_LITE_ASSET else BOOT_INTRO_ASSET
+
+private fun bootIntroUri(assetPath: String): String = "asset:///$assetPath"
 
 /**
- * Cold-start boot: play [BOOT_INTRO_ASSET] once (TextureView, so Compose can actually show it),
- * then fade the white last frame into the XMB. Tap / Back / B skips after a short grace period.
+ * Cold-start boot: play the quality or Performance clip once (TextureView, so Compose can
+ * actually show it), then fade the white last frame into the XMB. Tap / Back / B skips after
+ * a short grace period.
  */
 @Composable
 fun BootIntroOverlay(
@@ -63,6 +78,11 @@ fun BootIntroOverlay(
 
     val context = LocalContext.current
     val reduceMotion = rememberReduceMotion()
+    val lite = LocalLiteVisuals.current
+    val liteExists = remember(context) { assetExists(context, BOOT_INTRO_LITE_ASSET) }
+    val qualityExists = remember(context) { assetExists(context, BOOT_INTRO_ASSET) }
+    val assetPath = bootIntroAsset(lite = lite, liteExists = liteExists)
+    val hasAsset = if (assetPath == BOOT_INTRO_LITE_ASSET) liteExists else qualityExists
     val whiteAlpha = remember { Animatable(1f) }
     var playVideo by remember { mutableStateOf(false) }
     var requestEnd by remember { mutableStateOf(false) }
@@ -71,7 +91,6 @@ fun BootIntroOverlay(
     var firstFrame by remember { mutableStateOf(false) }
     val revealHome = rememberUpdatedState(onRevealHome)
     val finished = rememberUpdatedState(onFinished)
-    val hasAsset = remember(context) { assetExists(context, BOOT_INTRO_ASSET) }
 
     LaunchedEffect(Unit) {
         delay(500)
@@ -127,6 +146,7 @@ fun BootIntroOverlay(
     ) {
         if (playVideo) {
             BootIntroPlayer(
+                assetPath = assetPath,
                 onFirstFrame = { firstFrame = true },
                 onEnded = { requestEnd = true },
                 onError = { requestEnd = true },
@@ -144,6 +164,7 @@ fun BootIntroOverlay(
 
 @Composable
 private fun BootIntroPlayer(
+    assetPath: String,
     onFirstFrame: () -> Unit,
     onEnded: () -> Unit,
     onError: () -> Unit,
@@ -154,7 +175,7 @@ private fun BootIntroPlayer(
     val firstFrame = rememberUpdatedState(onFirstFrame)
     val ended = rememberUpdatedState(onEnded)
     val failed = rememberUpdatedState(onError)
-    val player = remember {
+    val player = remember(assetPath) {
         ExoPlayer.Builder(context).build().apply {
             repeatMode = Player.REPEAT_MODE_OFF
             volume = 1f
@@ -162,7 +183,7 @@ private fun BootIntroPlayer(
         }
     }
 
-    DisposableEffect(player, lifecycleOwner) {
+    DisposableEffect(player, lifecycleOwner, assetPath) {
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
                 firstFrame.value()
@@ -176,7 +197,7 @@ private fun BootIntroPlayer(
         }
         // Attach before prepare — a local asset can reach READY synchronously.
         player.addListener(listener)
-        player.setMediaItem(MediaItem.fromUri(BOOT_URI))
+        player.setMediaItem(MediaItem.fromUri(bootIntroUri(assetPath)))
         player.prepare()
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             when (event) {

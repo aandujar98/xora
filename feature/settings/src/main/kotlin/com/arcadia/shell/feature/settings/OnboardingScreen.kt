@@ -19,6 +19,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -87,7 +88,12 @@ import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
 import com.arcadia.shell.datastore.ScraperCredentials
 import com.arcadia.shell.datastore.SteamWebApiCredentials
+import com.arcadia.shell.datastore.VisualPerformanceChoices
+import com.arcadia.shell.datastore.VisualPerformanceMode
+import com.arcadia.shell.datastore.visualPerformanceModeLabel
+import com.arcadia.shell.datastore.visualPerformanceModeSubtitle
 import com.arcadia.shell.designsystem.ArcadiaGlass
+import com.arcadia.shell.designsystem.readDeviceVisualBudget
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.DefaultThemeBackdrop
 import com.arcadia.shell.designsystem.XoraSecondaryText
@@ -433,6 +439,10 @@ fun OnboardingScreen(
                                 mode = state.settings.displayMode,
                                 onSelect = viewModel::setDisplayMode,
                             )
+                            OnboardingStep.Performance -> PerformanceStep(
+                                mode = state.settings.visualPerformanceMode,
+                                onSelect = viewModel::setVisualPerformanceMode,
+                            )
                             OnboardingStep.Library -> LibraryStep(
                                 hasStorageAccess = state.hasStorageAccess,
                                 roots = state.roots,
@@ -639,6 +649,7 @@ private fun stepLabel(step: OnboardingStep): String = when (step) {
     OnboardingStep.Welcome -> "Welcome"
     OnboardingStep.Profile -> "Profile"
     OnboardingStep.DisplayMode -> "Display"
+    OnboardingStep.Performance -> "Performance"
     OnboardingStep.Library -> "Library"
     OnboardingStep.AndroidApps -> "Android"
     OnboardingStep.Emulators -> "Emulators"
@@ -677,7 +688,8 @@ private fun WelcomeStep(brandIcon: Painter) {
         )
         Text(
             text = "Welcome. Start with your local profile, then a few choices get your " +
-                "library, display, and sound ready. You can change everything later in Setup.",
+                "library, display, performance, and sound ready. You can change everything " +
+                "later in Setup.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -849,6 +861,65 @@ private fun DisplayModeStep(
         }
     }
 }
+
+@Composable
+private fun PerformanceStep(
+    mode: VisualPerformanceMode,
+    onSelect: (VisualPerformanceMode) -> Unit,
+) {
+    val context = LocalContext.current
+    val budget = remember(context) { readDeviceVisualBudget(context) }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        StepTitle("Performance")
+        Text(
+            text = "How hard Home should work on glass, wallpaper motion, and idle video. " +
+                "Auto picks Performance on phones like the Galaxy A15. You can change this " +
+                "later in Start → Display.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        VisualPerformanceChoices.forEach { choice ->
+            val selected = mode == choice
+            SettingsPadTarget(
+                id = onboardingPerformancePadId(choice),
+                onActivate = { onSelect(choice) },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(
+                            width = if (selected) 2.dp else 1.dp,
+                            color = if (selected) AccentInk else TrackInk,
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .clickable { onSelect(choice) }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = visualPerformanceModeLabel(choice),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = visualPerformanceModeSubtitle(
+                            mode = choice,
+                            deviceSuggestsLite = budget.suggestsLiteVisuals,
+                            deviceRamLabel = budget.usableRamLabel,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+internal fun onboardingPerformancePadId(mode: VisualPerformanceMode): String =
+    "perf_${mode.name.lowercase()}"
 
 @Composable
 private fun LibraryStep(

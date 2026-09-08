@@ -11,6 +11,7 @@ import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.launcher.music.MusicAlbum
 import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.launcher.music.NowPlayingState
+import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.photos.DevicePhoto
 import com.arcadia.shell.launcher.photos.PhotoAccess
 import com.arcadia.shell.model.Game
@@ -289,6 +290,8 @@ data class HomeUiState(
         emptyList(),
     val notificationUnreadCount: Int = 0,
     val notificationHistorySelectedIndex: Int = 0,
+    /** Toast currently occupying the Friends pill slot. */
+    val activeNotification: ShellNotification? = null,
     /** True while a toast is occupying the Friends pill slot. */
     val activeNotificationPresent: Boolean = false,
     /** RT profile card chrome (status, favorite game, pickers). */

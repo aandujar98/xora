@@ -17,6 +17,7 @@ import com.arcadia.shell.datastore.ScraperCredentials
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.SteamWebApiCredentials
+import com.arcadia.shell.datastore.VisualPerformanceMode
 import com.arcadia.shell.launcher.InstalledApp
 import com.arcadia.shell.launcher.InstalledAppCatalog
 import com.arcadia.shell.launcher.InstalledAppSync
@@ -58,6 +59,7 @@ enum class OnboardingStep {
     Welcome,
     Profile,
     DisplayMode,
+    Performance,
     Library,
     AndroidApps,
     Emulators,
@@ -429,6 +431,10 @@ class OnboardingViewModel @Inject constructor(
 
     fun setDisplayMode(mode: DisplayMode) {
         viewModelScope.launch { preferences.setDisplayMode(mode) }
+    }
+
+    fun setVisualPerformanceMode(mode: VisualPerformanceMode) {
+        viewModelScope.launch { preferences.setVisualPerformanceMode(mode) }
     }
 
     fun setProfileName(name: String) {

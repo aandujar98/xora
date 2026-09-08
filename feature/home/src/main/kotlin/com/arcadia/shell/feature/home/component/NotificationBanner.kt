@@ -28,14 +28,20 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -67,8 +73,102 @@ private val BannerShape = ArcadiaGlass.PillShape
 private val CardEdge = Color.White.copy(alpha = 0.25f)
 
 /**
- * Top-left toast host, parked under the LT Social pill. Observes [ShellNotificationCenter.active].
- * Host only on the primary Activity composition in dual-display mode.
+ * Activity-scoped handle so every pane that owns the LT capsule can host the toast
+ * in that same Box — above wallpaper / TextureView, on the display the pill lives on.
+ */
+class ShellNotificationBannerHandle(
+    val center: ShellNotificationCenter,
+    val onActivate: (ShellNotification) -> Unit,
+)
+
+val LocalShellNotificationBanner = staticCompositionLocalOf<ShellNotificationBannerHandle?> { null }
+
+/** Master toggle on, an active toast, and LT not already expanded over the slot. */
+fun shouldShowNotificationBanner(
+    notificationsEnabled: Boolean,
+    hasActive: Boolean,
+    ltExpanded: Boolean,
+): Boolean = notificationsEnabled && hasActive && !ltExpanded
+
+/**
+ * Banner in the LT capsule slot. Driven by the same [notification] that hides the
+ * social capsule — not a second collector — so sound + hide + toast cannot drift.
+ *
+ * Drawn in a [Popup] so wallpaper TextureView / ExoPlayer cannot cover it.
+ */
+@Composable
+fun BoxScope.HomeSlotNotificationBanner(
+    notification: ShellNotification?,
+    ltExpanded: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val handle = LocalShellNotificationBanner.current
+    val reduceMotion = rememberReduceMotion()
+    val visible = shouldShowNotificationBanner(
+        notificationsEnabled = true,
+        hasActive = notification != null,
+        ltExpanded = ltExpanded,
+    )
+    val density = LocalDensity.current
+    val offset = with(density) {
+        IntOffset(BannerStart.roundToPx(), BannerTop.roundToPx())
+    }
+    if (!visible && notification == null) return
+
+    Popup(
+        alignment = Alignment.TopStart,
+        offset = offset,
+        properties = PopupProperties(
+            focusable = false,
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+            clippingEnabled = false,
+        ),
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            modifier = modifier,
+            enter = if (reduceMotion) {
+                fadeIn()
+            } else {
+                slideInHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                    initialOffsetX = { -it },
+                ) + fadeIn(
+                    animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                )
+            },
+            exit = if (reduceMotion) {
+                fadeOut()
+            } else {
+                slideOutHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                    targetOffsetX = { -it },
+                ) + fadeOut()
+            },
+            label = "shellNotificationBanner",
+        ) {
+            val current = notification
+            if (current != null) {
+                NotificationBanner(
+                    notification = current,
+                    onDismiss = { handle?.center?.dismiss() },
+                    onActivate = handle?.onActivate,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Top-left toast host, parked in the LT Social pill slot. Observes [ShellNotificationCenter.active].
+ * Host this in the same Box as [AccountPill], not as a sibling of the whole Home pane.
  */
 @Composable
 fun BoxScope.NotificationBannerHost(
@@ -81,9 +181,14 @@ fun BoxScope.NotificationBannerHost(
     val reduceMotion = rememberReduceMotion()
 
     AnimatedVisibility(
-        visible = center.notificationsEnabled && active != null && !ltExpanded,
+        visible = shouldShowNotificationBanner(
+            notificationsEnabled = center.notificationsEnabled,
+            hasActive = active != null,
+            ltExpanded = ltExpanded,
+        ),
         modifier = modifier
             .align(Alignment.TopStart)
+            .zIndex(2f)
             .padding(top = BannerTop, start = BannerStart, end = 20.dp),
         enter = if (reduceMotion) {
             fadeIn()
