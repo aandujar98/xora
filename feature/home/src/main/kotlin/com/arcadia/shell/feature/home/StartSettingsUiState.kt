@@ -7,6 +7,7 @@ import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.UiFitMode
+import com.arcadia.shell.datastore.VisualPerformanceMode
 import com.arcadia.shell.datastore.uiTextScaleLabel
 import com.arcadia.shell.datastore.visualPerformanceModeSubtitle
 import com.arcadia.shell.designsystem.ShellThemeCatalog
@@ -70,7 +71,8 @@ sealed interface StartSettingsAction {
     data object CycleTrailerDisplay : StartSettingsAction
     data object CycleGameIconIdleMedia : StartSettingsAction
     data object CycleThemeMode : StartSettingsAction
-    data object CycleVisualPerformance : StartSettingsAction
+    data object OpenVisualPerformance : StartSettingsAction
+    data class SelectVisualPerformance(val mode: VisualPerformanceMode) : StartSettingsAction
     data object CycleFeedColumns : StartSettingsAction
     data object CycleUiTextScale : StartSettingsAction
     data object ToggleUiFitMode : StartSettingsAction
@@ -150,6 +152,8 @@ data class StartSettingsUiState(
     val settings: ShellSettings = ShellSettings(),
     val isScraping: Boolean = false,
     val isScanning: Boolean = false,
+    val performancePickerOpen: Boolean = false,
+    val performancePickerIndex: Int = 0,
 ) {
     val selectedRow: StartSettingsRow? get() = rows.getOrNull(selectedRowIndex)
 
@@ -244,7 +248,7 @@ fun buildStartSettingsRows(
                 deviceSuggestsLite = deviceSuggestsLite,
                 deviceRamLabel = deviceRamLabel,
             ),
-            action = StartSettingsAction.CycleVisualPerformance,
+            action = StartSettingsAction.OpenVisualPerformance,
         ),
         StartSettingsRow.Action(
             id = "theme",

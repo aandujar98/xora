@@ -55,7 +55,11 @@ class StartSettingsUiStateTest {
         assertTrue(ids.contains("trailer_display"))
         assertTrue(ids.contains("visual_performance"))
         val performance = rows.first { it.id == "visual_performance" }
-        assertEquals("Auto on this device · Smooth · 5.2 GB RAM", performance.subtitle)
+        assertEquals("Auto on this device · Performance · 5.2 GB RAM", performance.subtitle)
+        assertEquals(
+            StartSettingsAction.OpenVisualPerformance,
+            (performance as StartSettingsRow.Action).action,
+        )
     }
 
     @Test

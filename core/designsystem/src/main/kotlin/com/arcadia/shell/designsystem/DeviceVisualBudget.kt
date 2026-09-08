@@ -53,7 +53,7 @@ fun readDeviceVisualBudget(context: Context): DeviceVisualBudget {
 }
 
 /**
- * [override] is the user pref: `null` = Auto, `true` = Smooth, `false` = Full quality.
+ * [override] is the user pref: `null` = Auto, `true` = Performance, `false` = Quality.
  * Battery saver always wins so a Quality override cannot keep Haze spinning on a dying pack.
  */
 fun resolveLiteVisuals(

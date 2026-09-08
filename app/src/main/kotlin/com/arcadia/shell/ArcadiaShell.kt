@@ -1184,6 +1184,7 @@ private fun StartSettingsOverlay(
         onActivate = { homeViewModel.activateStartSettingsSelection() },
         onBack = homeViewModel::dismissStartSettings,
         onDismiss = homeViewModel::closeStartSettings,
+        onSelectPerformanceMode = homeViewModel::setVisualPerformanceFromPicker,
         modifier = modifier,
     )
 }

@@ -58,7 +58,12 @@ import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.motionMillis
+import com.arcadia.shell.datastore.VisualPerformanceChoices
+import com.arcadia.shell.datastore.VisualPerformanceMode
+import com.arcadia.shell.datastore.visualPerformanceModeLabel
+import com.arcadia.shell.datastore.visualPerformanceModeSubtitle
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.feature.home.StartSettingsAction
 import com.arcadia.shell.feature.home.StartSettingsRow
 import com.arcadia.shell.feature.home.StartSettingsTrailingIcon
 import com.arcadia.shell.feature.home.StartSettingsUiState
@@ -80,6 +85,7 @@ fun StartSettingsPanel(
     onActivate: () -> Unit,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
+    onSelectPerformanceMode: (VisualPerformanceMode) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
@@ -185,6 +191,87 @@ fun StartSettingsPanel(
                         }
                     }
                 }
+            }
+            if (state.performancePickerOpen) {
+                VisualPerformancePickerOverlay(
+                    selectedMode = state.settings.visualPerformanceMode,
+                    focusedIndex = state.performancePickerIndex,
+                    content = glass.content,
+                    muted = glass.contentMuted,
+                    onSelect = onSelectPerformanceMode,
+                    onDismiss = onBack,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VisualPerformancePickerOverlay(
+    selectedMode: VisualPerformanceMode,
+    focusedIndex: Int,
+    content: Color,
+    muted: Color,
+    onSelect: (VisualPerformanceMode) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val glass = rememberGlassTokens(GlassTone.OverMedia)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.42f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                ),
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .widthIn(max = 420.dp)
+                .fillMaxWidth(0.72f)
+                .liquidGlass(
+                    shape = ListShape,
+                    tone = GlassTone.OverMedia,
+                    intensity = GlassIntensity.Strong,
+                    shimmer = true,
+                )
+                .padding(horizontal = 12.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Performance",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = glass.content,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .height(1.dp)
+                    .background(glass.border.copy(alpha = 0.35f)),
+            )
+            VisualPerformanceChoices.forEachIndexed { index, mode ->
+                val focused = index == focusedIndex
+                StartSettingsListRow(
+                    row = StartSettingsRow.Action(
+                        id = "perf_${mode.name}",
+                        title = visualPerformanceModeLabel(mode),
+                        subtitle = buildString {
+                            append(visualPerformanceModeSubtitle(mode))
+                            if (mode == selectedMode) append(" · Active")
+                        },
+                        action = StartSettingsAction.SelectVisualPerformance(mode),
+                    ),
+                    selected = focused,
+                    content = content,
+                    muted = muted,
+                    onClick = { onSelect(mode) },
+                )
             }
         }
     }

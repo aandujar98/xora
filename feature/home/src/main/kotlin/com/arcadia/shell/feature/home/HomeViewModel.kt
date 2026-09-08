@@ -350,6 +350,8 @@ class HomeViewModel @Inject constructor(
     private val startSettingsCategory = MutableStateFlow(StartSettingsCategory.Display)
     private val startSettingsRowIndex = MutableStateFlow(0)
     private val startSettingsInCategory = MutableStateFlow(false)
+    private val startSettingsPerformancePickerOpen = MutableStateFlow(false)
+    private val startSettingsPerformancePickerIndex = MutableStateFlow(0)
     private val systemUpdate = MutableStateFlow(SystemUpdateUiState())
     /** Release the last check found, kept out of UI state because only the download needs it. */
     private var pendingUpdateRelease: GithubApkRelease? = null
@@ -534,12 +536,21 @@ class HomeViewModel @Inject constructor(
         guideOpen,
         guideSelectedIndex,
         combine(
-            startSettingsOpen,
-            startSettingsCategory,
-            startSettingsRowIndex,
-            startSettingsInCategory,
-        ) { open, category, row, inCategory ->
-            StartSettingsNav(open, category, row, inCategory)
+            combine(
+                startSettingsOpen,
+                startSettingsCategory,
+                startSettingsRowIndex,
+                startSettingsInCategory,
+            ) { open, category, row, inCategory ->
+                StartSettingsNav(open, category, row, inCategory)
+            },
+            startSettingsPerformancePickerOpen,
+            startSettingsPerformancePickerIndex,
+        ) { nav, pickerOpen, pickerIndex ->
+            nav.copy(
+                performancePickerOpen = pickerOpen,
+                performancePickerIndex = pickerIndex,
+            )
         },
         isScraping,
         raSettingsState,
@@ -551,6 +562,8 @@ class HomeViewModel @Inject constructor(
             startSettingsCategory = start.category,
             startSettingsRowIndex = start.rowIndex,
             startSettingsInCategory = start.inCategory,
+            startSettingsPerformancePickerOpen = start.performancePickerOpen,
+            startSettingsPerformancePickerIndex = start.performancePickerIndex,
             isScraping = scraping,
             raSettings = ra,
         )
@@ -561,6 +574,8 @@ class HomeViewModel @Inject constructor(
         val category: StartSettingsCategory,
         val rowIndex: Int,
         val inCategory: Boolean,
+        val performancePickerOpen: Boolean = false,
+        val performancePickerIndex: Int = 0,
     )
 
     private data class GuideAndStartChrome(
@@ -570,6 +585,8 @@ class HomeViewModel @Inject constructor(
         val startSettingsCategory: StartSettingsCategory,
         val startSettingsRowIndex: Int,
         val startSettingsInCategory: Boolean,
+        val startSettingsPerformancePickerOpen: Boolean,
+        val startSettingsPerformancePickerIndex: Int,
         val isScraping: Boolean,
         val raSettings: RetroAchievementsSettings,
     )
@@ -677,6 +694,8 @@ class HomeViewModel @Inject constructor(
             startSettingsCategory = guide.startSettingsCategory,
             startSettingsRowIndex = guide.startSettingsRowIndex,
             startSettingsInCategory = guide.startSettingsInCategory,
+            startSettingsPerformancePickerOpen = guide.startSettingsPerformancePickerOpen,
+            startSettingsPerformancePickerIndex = guide.startSettingsPerformancePickerIndex,
             isScraping = guide.isScraping,
             raSettings = guide.raSettings,
             xoraEmulator = xoraEmulator,
@@ -883,6 +902,8 @@ class HomeViewModel @Inject constructor(
         val startSettingsCategory: StartSettingsCategory,
         val startSettingsRowIndex: Int,
         val startSettingsInCategory: Boolean,
+        val startSettingsPerformancePickerOpen: Boolean,
+        val startSettingsPerformancePickerIndex: Int,
         val isScraping: Boolean,
         val raSettings: RetroAchievementsSettings,
         val xoraEmulator: XoraEmulatorSettings,
@@ -980,6 +1001,8 @@ class HomeViewModel @Inject constructor(
             startSettingsCategory = overlay.startSettingsCategory,
             startSettingsRowIndex = overlay.startSettingsRowIndex,
             startSettingsInCategory = overlay.startSettingsInCategory,
+            startSettingsPerformancePickerOpen = overlay.startSettingsPerformancePickerOpen,
+            startSettingsPerformancePickerIndex = overlay.startSettingsPerformancePickerIndex,
             isScraping = overlay.isScraping,
             raSettings = overlay.raSettings,
             xoraEmulator = overlay.xoraEmulator,
@@ -2147,6 +2170,8 @@ class HomeViewModel @Inject constructor(
         startSettingsCategory: StartSettingsCategory,
         startSettingsRowIndex: Int,
         startSettingsInCategory: Boolean,
+        startSettingsPerformancePickerOpen: Boolean,
+        startSettingsPerformancePickerIndex: Int,
         isScraping: Boolean,
         raSettings: RetroAchievementsSettings,
         xoraEmulator: XoraEmulatorSettings,
@@ -2399,6 +2424,8 @@ class HomeViewModel @Inject constructor(
                 settings = chrome.settings,
                 isScraping = isScraping,
                 isScanning = chrome.progress.isRunning,
+                performancePickerOpen = startSettingsPerformancePickerOpen,
+                performancePickerIndex = startSettingsPerformancePickerIndex,
             ),
             raLibrary = raLibrary.copy(selectedIndex = raIndex),
             quickLaunchGames = quickLaunch,
@@ -7077,6 +7104,7 @@ class HomeViewModel @Inject constructor(
             startSettingsInCategory.value = false
         }
         startSettingsRowIndex.value = 0
+        startSettingsPerformancePickerOpen.value = false
         startSettingsOpen.value = true
         gamepadDispatcher.startSettingsOpen = true
     }
@@ -7086,11 +7114,16 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         startSettingsOpen.value = false
         startSettingsInCategory.value = false
+        startSettingsPerformancePickerOpen.value = false
         gamepadDispatcher.startSettingsOpen = false
     }
 
-    /** Back closes the overlay. A category page does not return to the Settings list. */
+    /** Back closes a picker first, then the overlay. */
     fun dismissStartSettings() {
+        if (startSettingsPerformancePickerOpen.value) {
+            closeVisualPerformancePicker()
+            return
+        }
         closeStartSettings()
     }
 
@@ -7101,6 +7134,25 @@ class HomeViewModel @Inject constructor(
         startSettingsRowIndex.value = 0
     }
 
+    fun openVisualPerformancePicker() {
+        noteUserActivity()
+        val current = uiState.value.startSettings.settings.visualPerformanceMode
+        startSettingsPerformancePickerIndex.value = visualPerformancePickerFocusIndex(current)
+        startSettingsPerformancePickerOpen.value = true
+    }
+
+    fun closeVisualPerformancePicker() {
+        if (!startSettingsPerformancePickerOpen.value) return
+        noteUserActivity()
+        startSettingsPerformancePickerOpen.value = false
+    }
+
+    fun setVisualPerformanceFromPicker(mode: VisualPerformanceMode) {
+        noteUserActivity()
+        startSettingsPerformancePickerOpen.value = false
+        viewModelScope.launch { preferences.setVisualPerformanceMode(mode) }
+    }
+
     fun selectStartSettingsRow(index: Int) {
         noteUserActivity()
         val last = (uiState.value.startSettings.rows.size - 1).coerceAtLeast(0)
@@ -7109,6 +7161,12 @@ class HomeViewModel @Inject constructor(
 
     fun activateStartSettingsSelection(index: Int? = null) {
         noteUserActivity()
+        if (startSettingsPerformancePickerOpen.value) {
+            setVisualPerformanceFromPicker(
+                visualPerformancePickerMode(startSettingsPerformancePickerIndex.value),
+            )
+            return
+        }
         if (index != null) selectStartSettingsRow(index)
         val row = uiState.value.startSettings.selectedRow ?: return
         val action = when (row) {
@@ -7120,6 +7178,21 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun onStartSettingsNavAction(action: NavAction) {
+        if (startSettingsPerformancePickerOpen.value) {
+            when (action) {
+                NavAction.Up, NavAction.Down -> {
+                    startSettingsPerformancePickerIndex.value = visualPerformancePickerIndex(
+                        action,
+                        startSettingsPerformancePickerIndex.value,
+                    )
+                }
+                NavAction.Confirm -> activateStartSettingsSelection()
+                NavAction.Cancel -> closeVisualPerformancePicker()
+                NavAction.Menu -> closeStartSettings()
+                else -> Unit
+            }
+            return
+        }
         when (action) {
             NavAction.Up -> moveStartSettingsRow(-1)
             NavAction.Down -> moveStartSettingsRow(1)
@@ -7180,12 +7253,9 @@ class HomeViewModel @Inject constructor(
                 val next = values[(current.ordinal + 1) % values.size]
                 preferences.setThemeMode(next)
             }
-            StartSettingsAction.CycleVisualPerformance -> viewModelScope.launch {
-                val values = VisualPerformanceMode.entries
-                val current = preferences.settings.first().visualPerformanceMode
-                val next = values[(current.ordinal + 1) % values.size]
-                preferences.setVisualPerformanceMode(next)
-            }
+            StartSettingsAction.OpenVisualPerformance -> openVisualPerformancePicker()
+            is StartSettingsAction.SelectVisualPerformance ->
+                setVisualPerformanceFromPicker(action.mode)
             StartSettingsAction.CycleFeedColumns -> viewModelScope.launch {
                 val options = listOf(2, 3, 4, 5, 6)
                 val current = preferences.settings.first().gridColumns.coerceIn(2, 6)
