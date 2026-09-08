@@ -114,7 +114,7 @@ fun HeroPane(
     profileEditRequest: Int = 0,
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
-    onRequestLocalAvatar: () -> Unit,
+    onRequestLocalAvatar: (PhotoImportSource) -> Unit,
     onUseRaAvatar: () -> Unit,
     onUseDiscordAvatar: () -> Unit,
     onUseXoraAvatar: () -> Unit,

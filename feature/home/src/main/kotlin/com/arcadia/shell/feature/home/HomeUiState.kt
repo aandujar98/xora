@@ -408,7 +408,9 @@ sealed interface HomeMediaPickerRequest {
     data object ShortcutGif : HomeMediaPickerRequest
     data object Wallpaper : HomeMediaPickerRequest
     data object Bgm : HomeMediaPickerRequest
-    data object ProfileAvatar : HomeMediaPickerRequest
+
+    /** Local profile picture from the Photos picker or the Files app. */
+    data class ProfileAvatar(val source: PhotoImportSource) : HomeMediaPickerRequest
 
     /** Photo / GIF to attach to the open Discord DM. */
     data object DiscordAttachment : HomeMediaPickerRequest
@@ -429,10 +431,14 @@ sealed interface HomeMediaPickerRequest {
     data object HomeFolderImage : HomeMediaPickerRequest
 }
 
-/**
- * External browser / Custom Tab launches that must start from the primary Activity (not a
- * Presentation). Same hoist pattern as [HomeMediaPickerRequest].
- */
+/** Where the user wants to pick a profile photo from. */
+enum class PhotoImportSource {
+    /** System Photos / Android photo picker. */
+    PhotosApp,
+    /** Android Files / DocumentsUI. */
+    FilesApp,
+}
+
 /** Music browsing plus the shared Now Playing state behind the pill and the player page. */
 data class MusicUiState(
     val albums: List<MusicAlbum> = emptyList(),
@@ -549,6 +555,10 @@ sealed interface PhotoPaneCommand {
     data object Back : PhotoPaneCommand
 }
 
+/**
+ * External browser / Custom Tab launches that must start from the primary Activity (not a
+ * Presentation). Same hoist pattern as [HomeMediaPickerRequest].
+ */
 sealed interface HomeExternalAuthRequest {
     data object SteamOpenId : HomeExternalAuthRequest
     /** Spotify Authorization Code + PKCE (Custom Tab → sora://spotify-auth). */

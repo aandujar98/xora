@@ -154,6 +154,11 @@ fun OnboardingScreen(
     ) { uri ->
         uri?.let(viewModel::setLocalAvatar)
     }
+    val photoFilesPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri?.let(viewModel::setLocalAvatar)
+    }
 
     val onFinishedNow = rememberUpdatedState(onFinished)
     val stateNow = rememberUpdatedState(state)
@@ -412,12 +417,15 @@ fun OnboardingScreen(
                                 avatarPath = state.avatarPath,
                                 onNameChange = viewModel::setProfileName,
                                 onSelectPreset = viewModel::selectAvatarPreset,
-                                onPickPhoto = {
+                                onPickFromPhotos = {
                                     photoPicker.launch(
                                         PickVisualMediaRequest(
                                             ActivityResultContracts.PickVisualMedia.ImageOnly,
                                         ),
                                     )
+                                },
+                                onPickFromFiles = {
+                                    photoFilesPicker.launch(arrayOf("image/*"))
                                 },
                                 onClearPhoto = viewModel::clearLocalAvatar,
                             )
@@ -694,7 +702,8 @@ private fun ProfileStep(
     avatarPath: String?,
     onNameChange: (String) -> Unit,
     onSelectPreset: (String) -> Unit,
-    onPickPhoto: () -> Unit,
+    onPickFromPhotos: () -> Unit,
+    onPickFromFiles: () -> Unit,
     onClearPhoto: () -> Unit,
 ) {
     var name by remember(profile.displayName) { mutableStateOf(profile.displayName) }
@@ -713,7 +722,7 @@ private fun ProfileStep(
     ) {
         StepTitle("Your profile")
         Text(
-            text = "This name and picture show on the Home social card. You can change them later.",
+            text = "This name and picture show on the Home social card. Upload from Photos or Files.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -745,10 +754,16 @@ private fun ProfileStep(
         SettingsPadRow("profile_photo") {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SettingsPadTarget(
-                    id = "profile_upload",
-                    onActivate = onPickPhoto,
+                    id = "profile_upload_photos",
+                    onActivate = onPickFromPhotos,
                 ) {
-                    Button(onClick = onPickPhoto) { Text("Upload photo") }
+                    Button(onClick = onPickFromPhotos) { Text("Photos") }
+                }
+                SettingsPadTarget(
+                    id = "profile_upload_files",
+                    onActivate = onPickFromFiles,
+                ) {
+                    OutlinedButton(onClick = onPickFromFiles) { Text("Files") }
                 }
                 if (usingPhoto) {
                     SettingsPadTarget(

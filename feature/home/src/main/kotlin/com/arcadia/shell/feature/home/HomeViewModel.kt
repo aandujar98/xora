@@ -5436,10 +5436,10 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun requestProfileAvatarPicker() {
+    fun requestProfileAvatarPicker(source: PhotoImportSource) {
         noteUserActivity()
         viewModelScope.launch {
-            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.ProfileAvatar) }
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.ProfileAvatar(source)) }
         }
     }
 
