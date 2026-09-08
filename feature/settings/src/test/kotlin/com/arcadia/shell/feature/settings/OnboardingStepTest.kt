@@ -37,4 +37,16 @@ class OnboardingStepTest {
         val library = OnboardingUiState(step = OnboardingStep.Library, scanRunning = true)
         assertTrue(library.canAdvance)
     }
+
+    @Test
+    fun artworkStepListsSteamGridIgdbAndScreenScraper() {
+        assertEquals(
+            listOf(
+                OnboardingScraperService.SteamGridDb,
+                OnboardingScraperService.Igdb,
+                OnboardingScraperService.ScreenScraper,
+            ),
+            OnboardingScraperService.entries.toList(),
+        )
+    }
 }

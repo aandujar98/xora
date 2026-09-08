@@ -108,6 +108,17 @@ class OnboardingPadNavTest {
                 pickerOpen = true,
             ),
         )
+        assertEquals(
+            OnboardingPadCommand.Activate,
+            onboardingPadCommand(
+                NavAction.Confirm,
+                canGoBack = true,
+                canAdvance = true,
+                optional = true,
+                pickerOpen = true,
+                intraForm = true,
+            ),
+        )
     }
 
     @Test

@@ -44,8 +44,12 @@ internal fun onboardingPadCommand(
     intraForm: Boolean = false,
 ): OnboardingPadCommand {
     if (pickerOpen) {
-        return if (action == NavAction.Cancel) OnboardingPadCommand.DismissPicker
-        else OnboardingPadCommand.None
+        return when (action) {
+            NavAction.Cancel -> OnboardingPadCommand.DismissPicker
+            NavAction.Confirm ->
+                if (intraForm) OnboardingPadCommand.Activate else OnboardingPadCommand.None
+            else -> OnboardingPadCommand.None
+        }
     }
     if (intraForm) {
         return when (action) {
