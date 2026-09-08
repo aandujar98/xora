@@ -24,6 +24,8 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LiquidGlassSurface
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.R as DsR
+import com.arcadia.shell.feature.settings.SettingsPadIds
+import com.arcadia.shell.feature.settings.SettingsPadTarget
 
 /**
  * Opt-in for replacing the device home screen, in two deliberate steps.
@@ -89,14 +91,24 @@ fun HomeRoleCard(
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                FilterChip(
-                    selected = state.isHomeCandidate,
-                    onClick = { onSetHomeCandidate(!state.isHomeCandidate) },
-                    label = { Text(text = "Offer as home screen") },
-                )
+                SettingsPadTarget(
+                    id = SettingsPadIds.SystemOfferHome,
+                    onActivate = { onSetHomeCandidate(!state.isHomeCandidate) },
+                ) {
+                    FilterChip(
+                        selected = state.isHomeCandidate,
+                        onClick = { onSetHomeCandidate(!state.isHomeCandidate) },
+                        label = { Text(text = "Offer as home screen") },
+                    )
+                }
                 if (state.isHomeCandidate && !state.isDefaultHome) {
-                    OutlinedButton(onClick = onOpenHomeSettings) {
-                        Text(text = "Open home settings")
+                    SettingsPadTarget(
+                        id = SettingsPadIds.SystemOpenHomeSettings,
+                        onActivate = onOpenHomeSettings,
+                    ) {
+                        OutlinedButton(onClick = onOpenHomeSettings) {
+                            Text(text = "Open home settings")
+                        }
                     }
                 }
             }

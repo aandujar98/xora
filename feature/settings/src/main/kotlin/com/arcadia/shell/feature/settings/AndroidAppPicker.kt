@@ -14,8 +14,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.launcher.InstalledApp
@@ -47,13 +50,19 @@ fun AndroidAppPicker(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            label = { Text("Search apps") },
-        )
+        val searchRequester = remember { FocusRequester() }
+        SettingsPadTarget(
+            id = "android_search",
+            onActivate = { searchRequester.requestFocus() },
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.fillMaxWidth().focusRequester(searchRequester),
+                singleLine = true,
+                label = { Text("Search apps") },
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -65,11 +74,21 @@ fun AndroidAppPicker(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onSelectAll, enabled = apps.isNotEmpty()) {
-                    Text("Select all")
+                SettingsPadTarget(
+                    id = "android_select_all",
+                    onActivate = { if (apps.isNotEmpty()) onSelectAll() },
+                ) {
+                    TextButton(onClick = onSelectAll, enabled = apps.isNotEmpty()) {
+                        Text("Select all")
+                    }
                 }
-                TextButton(onClick = onClear, enabled = selectedPackages.isNotEmpty()) {
-                    Text("Clear")
+                SettingsPadTarget(
+                    id = "android_clear",
+                    onActivate = { if (selectedPackages.isNotEmpty()) onClear() },
+                ) {
+                    TextButton(onClick = onClear, enabled = selectedPackages.isNotEmpty()) {
+                        Text("Clear")
+                    }
                 }
             }
         }
@@ -89,6 +108,10 @@ fun AndroidAppPicker(
             ) {
                 visible.forEach { app ->
                     val checked = app.packageName in selectedPackages
+                    SettingsPadTarget(
+                        id = "android_app_${app.packageName}",
+                        onActivate = { onToggle(app.packageName, !checked) },
+                    ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -115,6 +138,7 @@ fun AndroidAppPicker(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                    }
                     }
                 }
                 if (visible.isEmpty()) {
