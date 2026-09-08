@@ -13,6 +13,7 @@ import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.datastore.PlatformEmulatorChoice
 import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
+import com.arcadia.shell.datastore.ScraperCredentials
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.SteamWebApiCredentials
@@ -67,6 +68,13 @@ enum class OnboardingStep {
     Done,
 }
 
+/** Artwork service opened from the Scrapers step (submenu of credential fields). */
+enum class OnboardingScraperService {
+    SteamGridDb,
+    Igdb,
+    ScreenScraper,
+}
+
 /** Activity-scoped auth that ArcadiaShell must hoist (Custom Tabs / Discord OAuth). */
 sealed interface OnboardingExternalAuthRequest {
     data object SteamOpenId : OnboardingExternalAuthRequest
@@ -97,6 +105,7 @@ data class OnboardingUiState(
     val discordPresence: DiscordPresenceUiState = DiscordPresenceUiState(),
     val profile: LocalProfile = LocalProfile(),
     val avatarPath: String? = null,
+    val credentials: ScraperCredentials = ScraperCredentials(),
     val message: String? = null,
 ) {
     val stepIndex: Int get() = OnboardingStep.entries.indexOf(step)
@@ -184,9 +193,19 @@ class OnboardingViewModel @Inject constructor(
         val raPendingWebApiUser: String?,
     )
 
-    private val identityFlow = combine(message, preferences.profile) { msg, profile ->
-        msg to profile
+    private val identityFlow = combine(
+        message,
+        preferences.profile,
+        preferences.credentials,
+    ) { msg, profile, creds ->
+        IdentityBundle(msg, profile, creds)
     }
+
+    private data class IdentityBundle(
+        val message: String?,
+        val profile: LocalProfile,
+        val credentials: ScraperCredentials,
+    )
 
     private val baseFlow = combine(
         step,
@@ -202,8 +221,9 @@ class OnboardingViewModel @Inject constructor(
             roots = storage.second,
             suggestedVolumes = storage.third,
             gameCount = games.size,
-            message = identity.first,
-            profile = identity.second,
+            message = identity.message,
+            profile = identity.profile,
+            credentials = identity.credentials,
         )
     }
 
@@ -216,6 +236,7 @@ class OnboardingViewModel @Inject constructor(
         val gameCount: Int,
         val message: String?,
         val profile: LocalProfile,
+        val credentials: ScraperCredentials,
     )
 
     private val scanFlow = combine(scanRunning, scanCompleted, scanError, filesSeen) {
@@ -294,6 +315,7 @@ class OnboardingViewModel @Inject constructor(
             avatarPath = avatarStore.resolveFile(base.profile.localAvatarFileName)
                 ?.absolutePath
                 ?.takeIf { base.profile.avatarSource == AvatarSource.Local },
+            credentials = base.credentials,
             message = base.message,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OnboardingUiState())
@@ -387,6 +409,22 @@ class OnboardingViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun setSteamGridDbKey(key: String) {
+        viewModelScope.launch { preferences.setSteamGridDbKey(key) }
+    }
+
+    fun setIgdbCredentials(clientId: String, clientSecret: String) {
+        viewModelScope.launch { preferences.setIgdbCredentials(clientId, clientSecret) }
+    }
+
+    fun setScreenScraperCredentials(user: String, password: String) {
+        viewModelScope.launch { preferences.setScreenScraperCredentials(user, password) }
+    }
+
+    fun setScreenScraperDevCredentials(devId: String, devPassword: String) {
+        viewModelScope.launch { preferences.setScreenScraperDevCredentials(devId, devPassword) }
     }
 
     fun setDisplayMode(mode: DisplayMode) {

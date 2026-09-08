@@ -76,6 +76,7 @@ import com.arcadia.shell.datastore.AvatarSource
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
+import com.arcadia.shell.datastore.ScraperCredentials
 import com.arcadia.shell.datastore.SteamWebApiCredentials
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
@@ -121,6 +122,14 @@ fun OnboardingScreen(
         mutableStateOf(SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0))
     }
     val profilePadNow = rememberUpdatedState(profilePad)
+    val scraperListPadRegistry = remember { SettingsPadRegistry() }
+    val scraperSheetPadRegistry = remember { SettingsPadRegistry() }
+    var scraperPad by remember {
+        mutableStateOf(SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0))
+    }
+    val scraperPadNow = rememberUpdatedState(scraperPad)
+    var scraperSheet by remember { mutableStateOf<OnboardingScraperService?>(null) }
+    val scraperSheetNow = rememberUpdatedState(scraperSheet)
 
     val safPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -159,18 +168,32 @@ fun OnboardingScreen(
                 lastDirectionalMs = now
             }
             val current = stateNow.value
-            val intraForm = current.step == OnboardingStep.Profile
+            val scraperOpen = scraperSheetNow.value != null
+            val intraForm = current.step == OnboardingStep.Profile ||
+                current.step == OnboardingStep.Scrapers
             if (intraForm &&
                 (action == NavAction.Left || action == NavAction.Right ||
                     action == NavAction.Up || action == NavAction.Down)
             ) {
-                val layout = profilePadRegistry.layout()
-                profilePad = settingsPadAfterAction(
-                    settingsPadCoerce(profilePadNow.value, layout),
+                val registry = when {
+                    current.step == OnboardingStep.Scrapers && scraperOpen ->
+                        scraperSheetPadRegistry
+                    current.step == OnboardingStep.Scrapers -> scraperListPadRegistry
+                    else -> profilePadRegistry
+                }
+                val padNow = if (current.step == OnboardingStep.Scrapers) {
+                    scraperPadNow.value
+                } else {
+                    profilePadNow.value
+                }
+                val layout = registry.layout()
+                val next = settingsPadAfterAction(
+                    settingsPadCoerce(padNow, layout),
                     action,
                     sectionCount = 1,
                     layout = layout,
                 )
+                if (current.step == OnboardingStep.Scrapers) scraperPad = next else profilePad = next
                 return@collect
             }
             when (
@@ -179,7 +202,7 @@ fun OnboardingScreen(
                     canGoBack = current.canGoBack,
                     canAdvance = current.canAdvance,
                     optional = isOptional(current.step),
-                    pickerOpen = pickerOpenNow.value,
+                    pickerOpen = pickerOpenNow.value || scraperOpen,
                     intraForm = intraForm,
                 )
             ) {
@@ -188,14 +211,32 @@ fun OnboardingScreen(
                 }
                 OnboardingPadCommand.Back -> viewModel.back()
                 OnboardingPadCommand.Skip -> viewModel.skipOptional()
-                OnboardingPadCommand.DismissPicker -> showFolderPicker = false
+                OnboardingPadCommand.DismissPicker -> {
+                    if (scraperOpen) {
+                        scraperSheet = null
+                        scraperPad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
+                    } else {
+                        showFolderPicker = false
+                    }
+                }
                 OnboardingPadCommand.Activate -> {
-                    val layout = profilePadRegistry.layout()
+                    val registry = when {
+                        current.step == OnboardingStep.Scrapers && scraperOpen ->
+                            scraperSheetPadRegistry
+                        current.step == OnboardingStep.Scrapers -> scraperListPadRegistry
+                        else -> profilePadRegistry
+                    }
+                    val padNow = if (current.step == OnboardingStep.Scrapers) {
+                        scraperPadNow.value
+                    } else {
+                        profilePadNow.value
+                    }
+                    val layout = registry.layout()
                     val focusId = settingsPadFocusId(
-                        settingsPadCoerce(profilePadNow.value, layout),
+                        settingsPadCoerce(padNow, layout),
                         layout,
                     )
-                    focusId?.let(profilePadRegistry::binding)?.activate?.invoke()
+                    focusId?.let(registry::binding)?.activate?.invoke()
                 }
                 OnboardingPadCommand.None -> Unit
             }
@@ -205,6 +246,13 @@ fun OnboardingScreen(
     LaunchedEffect(Unit) {
         viewModel.refresh()
         focusRequester.requestFocus()
+    }
+
+    LaunchedEffect(state.step) {
+        if (state.step != OnboardingStep.Scrapers) {
+            scraperSheet = null
+            scraperPad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
+        }
     }
 
     LaunchedEffect(state.message) {
@@ -254,11 +302,14 @@ fun OnboardingScreen(
                 .focusable()
                 .onPreviewKeyEvent { event ->
                     if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                    val intraForm = state.step == OnboardingStep.Profile ||
+                        state.step == OnboardingStep.Scrapers
                     when (event.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_BUTTON_A,
                         KeyEvent.KEYCODE_DPAD_CENTER,
                         KeyEvent.KEYCODE_ENTER,
                         -> {
+                            if (intraForm) return@onPreviewKeyEvent false
                             if (state.isLast) {
                                 viewModel.finish(onFinished)
                             } else if (state.canAdvance) {
@@ -269,7 +320,11 @@ fun OnboardingScreen(
                         KeyEvent.KEYCODE_BUTTON_B,
                         KeyEvent.KEYCODE_BACK,
                         -> {
-                            if (state.canGoBack) {
+                            if (scraperSheet != null) {
+                                scraperSheet = null
+                                scraperPad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
+                                true
+                            } else if (state.canGoBack) {
                                 viewModel.back()
                                 true
                             } else {
@@ -325,17 +380,26 @@ fun OnboardingScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 28.dp, vertical = 24.dp),
                     ) { step ->
-                        val profileLayout = profilePadRegistry.layout()
+                        val padRegistry = when (step) {
+                            OnboardingStep.Profile -> profilePadRegistry
+                            OnboardingStep.Scrapers ->
+                                if (scraperSheet != null) scraperSheetPadRegistry
+                                else scraperListPadRegistry
+                            else -> null
+                        }
+                        val padState = when (step) {
+                            OnboardingStep.Profile -> profilePad
+                            OnboardingStep.Scrapers -> scraperPad
+                            else -> null
+                        }
+                        val padLayout = padRegistry?.layout()
                         CompositionLocalProvider(
-                            LocalSettingsPadRegistry provides
-                                if (step == OnboardingStep.Profile) profilePadRegistry else null,
-                            LocalSettingsPadFocusId provides if (step == OnboardingStep.Profile) {
+                            LocalSettingsPadRegistry provides padRegistry,
+                            LocalSettingsPadFocusId provides padLayout?.let { layout ->
                                 settingsPadFocusId(
-                                    settingsPadCoerce(profilePad, profileLayout),
-                                    profileLayout,
+                                    settingsPadCoerce(padState!!, layout),
+                                    layout,
                                 )
-                            } else {
-                                null
                             },
                         ) {
                         when (step) {
@@ -389,11 +453,31 @@ fun OnboardingScreen(
                                 onRetry = viewModel::retryLibraryScan,
                                 onSelectPlayer = viewModel::selectPlayer,
                             )
-                            OnboardingStep.Scrapers -> TipStep(
-                                title = "Artwork scrapers",
-                                body = "ScreenScraper, IGDB, and SteamGridDB fill in covers and " +
-                                    "metadata after a library scan. You can add credentials anytime " +
-                                    "in Setup → Scrapers / Metadata.",
+                            OnboardingStep.Scrapers -> ScrapersStep(
+                                credentials = state.credentials,
+                                open = scraperSheet,
+                                onOpen = { service ->
+                                    scraperSheet = service
+                                    scraperPad = SettingsPadNavState(
+                                        0,
+                                        SettingsPadZone.Controls,
+                                        0,
+                                        0,
+                                    )
+                                },
+                                onClose = {
+                                    scraperSheet = null
+                                    scraperPad = SettingsPadNavState(
+                                        0,
+                                        SettingsPadZone.Controls,
+                                        0,
+                                        0,
+                                    )
+                                },
+                                onSteamGridDbKey = viewModel::setSteamGridDbKey,
+                                onIgdb = viewModel::setIgdbCredentials,
+                                onScreenScraper = viewModel::setScreenScraperCredentials,
+                                onScreenScraperDev = viewModel::setScreenScraperDevCredentials,
                             )
                             OnboardingStep.Social -> SocialStep(
                                 steam = state.steamWebApi,
@@ -441,7 +525,7 @@ fun OnboardingScreen(
                     onSkip = viewModel::skipOptional,
                 )
 
-                OnboardingHints(state = state)
+                OnboardingHints(state = state, scraperSheet = scraperSheet)
             }
         }
     }
@@ -918,14 +1002,239 @@ private fun OnboardingPlatformEmulatorCard(
 }
 
 @Composable
-private fun TipStep(title: String, body: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        StepTitle(title)
-        Text(
-            text = body,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun ScrapersStep(
+    credentials: ScraperCredentials,
+    open: OnboardingScraperService?,
+    onOpen: (OnboardingScraperService) -> Unit,
+    onClose: () -> Unit,
+    onSteamGridDbKey: (String) -> Unit,
+    onIgdb: (String, String) -> Unit,
+    onScreenScraper: (String, String) -> Unit,
+    onScreenScraperDev: (String, String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 360.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (open == null) {
+            StepTitle("Artwork scrapers")
+            Text(
+                text = "Open a service to paste your API key or account. Covers and logos fill " +
+                    "in after a library scan. Skip and add them later in Setup if you want.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ScraperServiceButton(
+                id = "scraper_open_sgdb",
+                title = "SteamGridDB",
+                subtitle = "Widescreen grids, heroes, and logos.",
+                configured = credentials.hasSteamGridDb,
+                onClick = { onOpen(OnboardingScraperService.SteamGridDb) },
+            )
+            ScraperServiceButton(
+                id = "scraper_open_igdb",
+                title = "IGDB",
+                subtitle = "Twitch / IGDB client id and secret.",
+                configured = credentials.hasIgdb,
+                onClick = { onOpen(OnboardingScraperService.Igdb) },
+            )
+            ScraperServiceButton(
+                id = "scraper_open_ss",
+                title = "ScreenScraper",
+                subtitle = "Hash matches for covers, videos, and manuals.",
+                configured = credentials.hasScreenScraper,
+                onClick = { onOpen(OnboardingScraperService.ScreenScraper) },
+            )
+            Text(
+                text = "Music art (iTunes, Deezer) needs no key. You can change any of these " +
+                    "later in Setup → Scrapers / Metadata.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            ScraperServiceSheet(
+                service = open,
+                credentials = credentials,
+                onClose = onClose,
+                onSteamGridDbKey = onSteamGridDbKey,
+                onIgdb = onIgdb,
+                onScreenScraper = onScreenScraper,
+                onScreenScraperDev = onScreenScraperDev,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScraperServiceButton(
+    id: String,
+    title: String,
+    subtitle: String,
+    configured: Boolean,
+    onClick: () -> Unit,
+) {
+    SettingsPadTarget(id = id, onActivate = onClick) {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                    )
+                    Text(
+                        text = if (configured) "Saved" else "Set up",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (configured) AccentInk else MutedInk,
+                    )
+                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Start,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScraperServiceSheet(
+    service: OnboardingScraperService,
+    credentials: ScraperCredentials,
+    onClose: () -> Unit,
+    onSteamGridDbKey: (String) -> Unit,
+    onIgdb: (String, String) -> Unit,
+    onScreenScraper: (String, String) -> Unit,
+    onScreenScraperDev: (String, String) -> Unit,
+) {
+    var steamKey by remember(credentials.steamGridDbKey) {
+        mutableStateOf(credentials.steamGridDbKey)
+    }
+    var igdbId by remember(credentials.igdbClientId) { mutableStateOf(credentials.igdbClientId) }
+    var igdbSecret by remember(credentials.igdbClientSecret) {
+        mutableStateOf(credentials.igdbClientSecret)
+    }
+    var ssUser by remember(credentials.screenScraperUser) {
+        mutableStateOf(credentials.screenScraperUser)
+    }
+    var ssPass by remember(credentials.screenScraperPassword) {
+        mutableStateOf(credentials.screenScraperPassword)
+    }
+    var ssDevId by remember(credentials.screenScraperDevId) {
+        mutableStateOf(credentials.screenScraperDevId)
+    }
+    var ssDevPass by remember(credentials.screenScraperDevPassword) {
+        mutableStateOf(credentials.screenScraperDevPassword)
+    }
+
+    val save: () -> Unit = {
+        when (service) {
+            OnboardingScraperService.SteamGridDb -> onSteamGridDbKey(steamKey)
+            OnboardingScraperService.Igdb -> onIgdb(igdbId, igdbSecret)
+            OnboardingScraperService.ScreenScraper -> {
+                onScreenScraper(ssUser, ssPass)
+                onScreenScraperDev(ssDevId, ssDevPass)
+            }
+        }
+        onClose()
+    }
+
+    val title = when (service) {
+        OnboardingScraperService.SteamGridDb -> "SteamGridDB"
+        OnboardingScraperService.Igdb -> "IGDB"
+        OnboardingScraperService.ScreenScraper -> "ScreenScraper"
+    }
+    val body = when (service) {
+        OnboardingScraperService.SteamGridDb ->
+            "Paste the Web API key from steamgriddb.com → Account. This is the art this " +
+                "layout is built around."
+        OnboardingScraperService.Igdb ->
+            "Create a Twitch / IGDB application and paste the client id and secret."
+        OnboardingScraperService.ScreenScraper ->
+            "Account user and password, plus the developer id and password issued for your app. " +
+                "Hash lookups need all four."
+    }
+
+    StepTitle(title)
+    Text(
+        text = body,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    when (service) {
+        OnboardingScraperService.SteamGridDb -> OnboardingSecretField(
+            label = "SteamGridDB API key",
+            value = steamKey,
+            onCommit = { steamKey = it },
+            live = true,
         )
+        OnboardingScraperService.Igdb -> {
+            OnboardingSecretField(
+                label = "IGDB client id",
+                value = igdbId,
+                onCommit = { igdbId = it },
+                live = true,
+            )
+            OnboardingSecretField(
+                label = "IGDB client secret",
+                value = igdbSecret,
+                onCommit = { igdbSecret = it },
+                live = true,
+            )
+        }
+        OnboardingScraperService.ScreenScraper -> {
+            OnboardingSecretField(
+                label = "ScreenScraper user",
+                value = ssUser,
+                onCommit = { ssUser = it },
+                live = true,
+            )
+            OnboardingSecretField(
+                label = "ScreenScraper password",
+                value = ssPass,
+                onCommit = { ssPass = it },
+                live = true,
+            )
+            OnboardingSecretField(
+                label = "Developer id",
+                value = ssDevId,
+                onCommit = { ssDevId = it },
+                live = true,
+            )
+            OnboardingSecretField(
+                label = "Developer password",
+                value = ssDevPass,
+                onCommit = { ssDevPass = it },
+                live = true,
+            )
+        }
+    }
+    SettingsPadRow("scraper_sheet_actions") {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SettingsPadTarget(id = "scraper_sheet_back", onActivate = onClose) {
+                OutlinedButton(onClick = onClose) { Text("Back") }
+            }
+            SettingsPadTarget(id = "scraper_sheet_save", onActivate = save) {
+                Button(onClick = save) { Text("Save") }
+            }
+        }
     }
 }
 
@@ -1080,21 +1389,26 @@ private fun OnboardingSecretField(
     label: String,
     value: String,
     onCommit: (String) -> Unit,
+    live: Boolean = false,
 ) {
     var draft by remember(value) { mutableStateOf(value) }
     OutlinedTextField(
-        value = draft,
-        onValueChange = { draft = it },
+        value = if (live) value else draft,
+        onValueChange = { next ->
+            if (live) onCommit(next) else draft = next
+        },
         label = { Text(text = label) },
         singleLine = true,
-        visualTransformation = if (draft.isBlank()) {
+        visualTransformation = if ((if (live) value else draft).isBlank()) {
             VisualTransformation.None
         } else {
             PasswordVisualTransformation()
         },
         modifier = Modifier
             .fillMaxWidth()
-            .onFocusChanged { focus -> if (!focus.isFocused && draft != value) onCommit(draft) },
+            .onFocusChanged { focus ->
+                if (!live && !focus.isFocused && draft != value) onCommit(draft)
+            },
     )
 }
 
@@ -1204,7 +1518,10 @@ private fun OnboardingActions(
 }
 
 @Composable
-private fun OnboardingHints(state: OnboardingUiState) {
+private fun OnboardingHints(
+    state: OnboardingUiState,
+    scraperSheet: OnboardingScraperService? = null,
+) {
     val optional = isOptional(state.step)
     val hints = buildList {
         if (state.step == OnboardingStep.Profile) {
@@ -1212,6 +1529,12 @@ private fun OnboardingHints(state: OnboardingUiState) {
             add("U/D/L/R" to "Move")
             add("RB" to "Next")
             if (state.canGoBack) add("B / LB" to "Back")
+        } else if (state.step == OnboardingStep.Scrapers) {
+            add("A" to if (scraperSheet != null) "Save / use field" else "Open service")
+            add("U/D" to "Move")
+            add("RB" to "Continue")
+            add("B / LB" to if (scraperSheet != null) "Close" else "Back")
+            add("Y" to "Skip")
         } else {
             add("A / → / RB" to if (state.isLast) "Finish" else if (optional) "Continue" else "Next")
             if (state.canGoBack) add("B / ← / LB" to "Back")
