@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.Flow
 enum class PlatformEditorSection(val label: String) {
     Details("Details"),
     Artwork("Artwork"),
+    Emulators("Emulators"),
     Library("Library"),
 }
 
@@ -65,6 +66,7 @@ data class PlatformEditorActions(
     val onRefreshArt: () -> Unit,
     val onSetPlatformPreference: (ScraperPreference) -> Unit,
     val onChooseEmulator: () -> Unit,
+    val onClearEmulator: () -> Unit,
     val onRescrapePlatform: () -> Unit,
 )
 
@@ -273,85 +275,136 @@ private fun rememberPlatformEditorRows(
     platformPreference,
     currentEmulatorLabel,
 ) {
-    when (section) {
-        PlatformEditorSection.Details -> listOf(
+    platformEditorRows(
+        section = section,
+        platform = platform,
+        gameCount = gameCount,
+        bannerPath = bannerPath,
+        hasCustomBanner = hasCustomBanner,
+        platformPreference = platformPreference,
+        currentEmulatorLabel = currentEmulatorLabel,
+        actions = actions,
+    )
+}
+
+internal fun platformEditorRows(
+    section: PlatformEditorSection,
+    platform: GamePlatform,
+    gameCount: Int,
+    bannerPath: String?,
+    hasCustomBanner: Boolean,
+    platformPreference: ScraperPreference,
+    currentEmulatorLabel: String?,
+    actions: PlatformEditorActions,
+): List<RomEditorRow> = when (section) {
+    PlatformEditorSection.Details -> listOf(
+        RomEditorRow(
+            key = "name",
+            label = "Name",
+            value = platform.displayName,
+        ),
+        RomEditorRow(
+            key = "short",
+            label = "Short name",
+            value = platform.shortName,
+        ),
+        RomEditorRow(
+            key = "count",
+            label = "Games",
+            value = gameCount.toString(),
+            hint = if (gameCount == 1) "1 title on this system" else "$gameCount titles on this system",
+        ),
+    )
+    PlatformEditorSection.Artwork -> buildList {
+        add(
             RomEditorRow(
-                key = "name",
-                label = "Name",
-                value = platform.displayName,
-            ),
-            RomEditorRow(
-                key = "short",
-                label = "Short name",
-                value = platform.shortName,
-            ),
-            RomEditorRow(
-                key = "count",
-                label = "Games",
-                value = gameCount.toString(),
-                hint = if (gameCount == 1) "1 title on this system" else "$gameCount titles on this system",
+                key = "banner",
+                label = "Console banner",
+                value = when {
+                    hasCustomBanner -> "Your image"
+                    !bannerPath.isNullOrBlank() -> "Scraped"
+                    else -> "None"
+                },
+                hint = "Shown on the system card. Browse your files, or restore the scraped art.",
+                onActivate = actions.onUploadBanner,
+                onClear = actions.onClearBanner.takeIf { hasCustomBanner },
             ),
         )
-        PlatformEditorSection.Artwork -> buildList {
-            add(
-                RomEditorRow(
-                    key = "banner",
-                    label = "Console banner",
-                    value = when {
-                        hasCustomBanner -> "Your image"
-                        !bannerPath.isNullOrBlank() -> "Scraped"
-                        else -> "None"
-                    },
-                    hint = "Shown on the system card. Browse your files, or restore the scraped art.",
-                    onActivate = actions.onUploadBanner,
-                    onClear = actions.onClearBanner.takeIf { hasCustomBanner },
-                ),
-            )
-            add(
-                RomEditorRow(
-                    key = "upload",
-                    label = "Upload my own banner",
-                    hint = "Any local jpg / png / webp.",
-                    onActivate = actions.onUploadBanner,
-                ),
-            )
-            add(
-                RomEditorRow(
-                    key = "refresh",
-                    label = "Refresh scraped art",
-                    hint = "Looks up ScreenScraper system media again.",
-                    onActivate = actions.onRefreshArt,
-                ),
-            )
-        }
-        PlatformEditorSection.Library -> {
-            val options = ScraperPreference.entries
-            listOf(
-                RomEditorRow(
-                    key = "scraperplatform",
-                    label = "Scraper for ${platform.shortName}",
-                    hint = "Applies to every game on this system.",
-                    value = platformPreference.label,
-                    onAdjust = { direction ->
-                        val next = options[(options.indexOf(platformPreference) + direction +
-                            options.size) % options.size]
-                        actions.onSetPlatformPreference(next)
-                    },
-                ),
-                RomEditorRow(
-                    key = "emulator",
-                    label = "Emulator for ${platform.shortName}",
-                    value = currentEmulatorLabel?.takeIf { it.isNotBlank() } ?: "Default",
-                    onActivate = actions.onChooseEmulator,
-                ),
-                RomEditorRow(
-                    key = "rescrapeplatform",
-                    label = "Re-scrape all ${platform.shortName} games",
-                    onActivate = actions.onRescrapePlatform,
-                    destructive = true,
-                ),
-            )
-        }
+        add(
+            RomEditorRow(
+                key = "upload",
+                label = "Upload my own banner",
+                hint = "Any local jpg / png / webp.",
+                onActivate = actions.onUploadBanner,
+            ),
+        )
+        add(
+            RomEditorRow(
+                key = "refresh",
+                label = "Refresh scraped art",
+                hint = "Looks up ScreenScraper system media again.",
+                onActivate = actions.onRefreshArt,
+            ),
+        )
+    }
+    PlatformEditorSection.Emulators -> emulatorRows(platform, currentEmulatorLabel, actions)
+    PlatformEditorSection.Library -> {
+        val options = ScraperPreference.entries
+        listOf(
+            RomEditorRow(
+                key = "scraperplatform",
+                label = "Scraper for ${platform.shortName}",
+                hint = "Applies to every game on this system.",
+                value = platformPreference.label,
+                onAdjust = { direction ->
+                    val next = options[(options.indexOf(platformPreference) + direction +
+                        options.size) % options.size]
+                    actions.onSetPlatformPreference(next)
+                },
+            ),
+            RomEditorRow(
+                key = "rescrapeplatform",
+                label = "Re-scrape all ${platform.shortName} games",
+                onActivate = actions.onRescrapePlatform,
+                destructive = true,
+            ),
+        )
+    }
+}
+
+internal fun emulatorRows(
+    platform: GamePlatform,
+    currentEmulatorLabel: String?,
+    actions: PlatformEditorActions,
+): List<RomEditorRow> = buildList {
+    val label = currentEmulatorLabel?.takeIf { it.isNotBlank() }
+    add(
+        RomEditorRow(
+            key = "emulator",
+            label = "Default emulator",
+            value = label ?: "Automatic",
+            hint = "Used when you start a ${platform.shortName} game. A opens the installed list.",
+            onActivate = actions.onChooseEmulator,
+            onClear = actions.onClearEmulator.takeIf { label != null },
+        ),
+    )
+    add(
+        RomEditorRow(
+            key = "emulator_choose",
+            label = "Change emulator",
+            hint = "Pick which emulator launches ${platform.shortName} titles.",
+            onActivate = actions.onChooseEmulator,
+        ),
+    )
+    if (label != null) {
+        add(
+            RomEditorRow(
+                key = "emulator_auto",
+                label = "Use automatic",
+                hint = "First installed emulator for this system.",
+                onActivate = actions.onClearEmulator,
+            ),
+        )
     }
 }
 

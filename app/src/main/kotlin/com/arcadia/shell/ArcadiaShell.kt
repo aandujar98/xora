@@ -103,6 +103,7 @@ import com.arcadia.shell.model.ScreenRole
 import com.arcadia.shell.role.HomeRoleCard
 import com.arcadia.shell.scraper.ScraperPreference
 import com.arcadia.shell.scraper.SteamOpenId
+import kotlinx.coroutines.flow.emptyFlow
 
 private enum class ShellRoute { Home, Settings }
 
@@ -1034,7 +1035,8 @@ fun ArcadiaShell(
             val platformPref by produceState(ScraperPreference.Auto, platformId) {
                 value = homeViewModel.scraperPreferenceForPlatform(platformId)
             }
-            val emulatorLabel by produceState<String?>(null, platformId) {
+            val emulatorEpoch by homeViewModel.emulatorChoiceEpochFlow.collectAsStateWithLifecycle()
+            val emulatorLabel by produceState<String?>(null, platformId, emulatorEpoch) {
                 value = homeViewModel.platformEmulatorLabel(platformId)
             }
             val mediaEpoch by homeViewModel.customMediaEpochFlow.collectAsStateWithLifecycle()
@@ -1056,7 +1058,10 @@ fun ArcadiaShell(
                 .firstOrNull { it.platform.id == platformId }
                 ?.gameCount
                 ?: state.games.count { it.platformId == platformId }
-            SheetNavCapture(homeViewModel)
+            val choosingEmulator = chooseEmulatorPlatformId != null
+            if (!choosingEmulator) {
+                SheetNavCapture(homeViewModel)
+            }
             PlatformEditorPane(
                 platform = platform,
                 gameCount = gameCount,
@@ -1064,7 +1069,11 @@ fun ArcadiaShell(
                 hasCustomBanner = hasCustomBanner,
                 platformPreference = platformPref,
                 currentEmulatorLabel = emulatorLabel,
-                navActions = homeViewModel.sheetNavActionFlow,
+                navActions = if (choosingEmulator) {
+                    emptyFlow()
+                } else {
+                    homeViewModel.sheetNavActionFlow
+                },
                 actions = PlatformEditorActions(
                     onDismiss = { platformEditorId = null },
                     onUploadBanner = { homeViewModel.requestPlatformBanner(platformId) },
@@ -1073,10 +1082,8 @@ fun ArcadiaShell(
                     onSetPlatformPreference = {
                         homeViewModel.setPlatformScraperPreference(platformId, it)
                     },
-                    onChooseEmulator = {
-                        platformEditorId = null
-                        chooseEmulatorPlatformId = platformId
-                    },
+                    onChooseEmulator = { chooseEmulatorPlatformId = platformId },
+                    onClearEmulator = { homeViewModel.clearPlatformEmulator(platformId) },
                     onRescrapePlatform = { homeViewModel.rescrapePlatform(platformId) },
                 ),
             )
