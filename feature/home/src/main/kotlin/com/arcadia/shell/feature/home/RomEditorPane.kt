@@ -363,7 +363,7 @@ fun RomEditorPane(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     itemsIndexed(sections, key = { _, it -> it.name }) { index, entry ->
-                        RailRow(
+                        EditorRailRow(
                             label = entry.label,
                             selected = index == sectionIndex,
                             active = column == EditorColumn.Rail && index == sectionIndex,
@@ -480,7 +480,7 @@ private fun RomEditorHeader(game: Game, customTitle: String?) {
 }
 
 @Composable
-private fun RailRow(label: String, selected: Boolean, active: Boolean) {
+internal fun EditorRailRow(label: String, selected: Boolean, active: Boolean) {
     val glass = rememberGlassTokens(GlassTone.Surface)
     val background = when {
         active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
@@ -505,7 +505,7 @@ private fun RailRow(label: String, selected: Boolean, active: Boolean) {
 }
 
 @Composable
-private fun EditorRowItem(row: RomEditorRow, active: Boolean) {
+internal fun EditorRowItem(row: RomEditorRow, active: Boolean) {
     val glass = rememberGlassTokens(GlassTone.Surface)
     val accent = MaterialTheme.colorScheme.primary
     Row(

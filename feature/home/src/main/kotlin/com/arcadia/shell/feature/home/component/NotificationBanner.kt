@@ -365,6 +365,20 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             },
         )
 
+        is ShellNotification.FriendPlaying -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_friends,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.displayName.take(1).ifBlank { "F" },
+            accent = when (notification.network) {
+                FriendNetwork.Discord -> Color(0xFF5865F2)
+                FriendNetwork.Steam -> Color(0xFF66C0F4)
+                FriendNetwork.Xora -> Color(0xFF0070D1)
+            },
+        )
+
         is ShellNotification.GameDownloading -> BannerContent(
             category = copy.category,
             categoryIconRes = R.drawable.ic_banner_download,

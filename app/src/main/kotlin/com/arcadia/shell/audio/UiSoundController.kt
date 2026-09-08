@@ -120,6 +120,8 @@ class UiSoundController @Inject constructor(
                     settings.steamFriendOnlineNotifications
                 notificationCenter.xoraFriendOnlineEnabled =
                     settings.xoraFriendOnlineNotifications
+                notificationCenter.friendPlayingEnabled =
+                    settings.friendPlayingNotifications
             }
         }
         scope.launch {

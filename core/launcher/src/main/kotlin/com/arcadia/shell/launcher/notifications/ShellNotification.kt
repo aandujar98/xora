@@ -88,6 +88,15 @@ sealed interface ShellNotification {
         val activityLabel: String? = null,
     ) : ShellNotification
 
+    /** A friend on Steam, Discord, or XOrA Network started (or switched) a game. */
+    data class FriendPlaying(
+        override val id: String,
+        val displayName: String,
+        val gameTitle: String,
+        val network: FriendNetwork,
+        val avatarUrl: String? = null,
+    ) : ShellNotification
+
     /**
      * Progress-style banner. There is no ROM/APK download pipeline yet; library scan
      * and similar long jobs reuse this shape.
@@ -138,6 +147,13 @@ fun ShellNotification.dismissalKeys(): Set<String> = buildSet {
             val name = self.displayName.trim().lowercase()
             if (name.isNotBlank()) {
                 add("friend-online:${self.network.name.lowercase()}:$name")
+            }
+        }
+        is ShellNotification.FriendPlaying -> {
+            val name = self.displayName.trim().lowercase()
+            val game = self.gameTitle.trim().lowercase()
+            if (name.isNotBlank() && game.isNotBlank()) {
+                add("friend-playing:${self.network.name.lowercase()}:$name:$game")
             }
         }
         else -> Unit

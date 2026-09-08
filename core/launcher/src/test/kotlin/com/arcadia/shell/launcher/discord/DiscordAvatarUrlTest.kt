@@ -46,6 +46,14 @@ class DiscordAvatarUrlTest {
     }
 
     @Test
+    fun `friends payload reads optional game title`() {
+        val payload = "99\tPal\tonline_game\thttps://cdn.discordapp.com/avatars/99/deadbeef.png\tCeleste\n"
+        val friend = DiscordSocialSdkBridge.parseFriendsPayload(payload).single()
+        assertEquals("Celeste", friend.currentGame)
+        assertEquals("https://cdn.discordapp.com/avatars/99/deadbeef.png", friend.avatarUrl)
+    }
+
+    @Test
     fun `friends payload rewrites sdk png for animated hashes`() {
         val payload = "99\tPal\tanimated\thttps://cdn.discordapp.com/avatars/99/a_hash.png\n"
         val friend = DiscordSocialSdkBridge.parseFriendsPayload(payload).single()

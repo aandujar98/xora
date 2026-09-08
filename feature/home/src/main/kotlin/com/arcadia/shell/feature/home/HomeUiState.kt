@@ -386,6 +386,8 @@ sealed interface HomeEvent {
     data class OpenGameOptions(val gameId: String) : HomeEvent
     /** Select button: ROM options (customize + saves + scrape) for [gameId]. */
     data class OpenScrapeMenu(val gameId: String) : HomeEvent
+    /** Select on a system card: same editor chrome as a ROM, for that console. */
+    data class OpenPlatformEditor(val platformId: String) : HomeEvent
     /** Select / Options on an album or track: custom cover and wallpaper. */
     data class OpenMusicCustomize(val mediaId: String, val title: String) : HomeEvent
     /** Best-effort: reorder the shell task to the front when Guide opens. */

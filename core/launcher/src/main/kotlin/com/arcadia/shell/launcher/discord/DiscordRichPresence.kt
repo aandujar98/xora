@@ -97,6 +97,8 @@ data class DiscordFriendEntry(
      * `cdn.discordapp.com/avatars/{id}/{hash}.png` / default avatar when hash is known.
      */
     val avatarUrl: String? = null,
+    /** Game / activity name when the Social SDK exposes one; otherwise null. */
+    val currentGame: String? = null,
 ) {
     val isOnline: Boolean get() = group != "offline"
 }

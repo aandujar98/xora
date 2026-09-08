@@ -69,6 +69,8 @@ class ShellNotificationCenter @Inject constructor(
     @Volatile var discordFriendOnlineEnabled: Boolean = true
     @Volatile var steamFriendOnlineEnabled: Boolean = true
     @Volatile var xoraFriendOnlineEnabled: Boolean = true
+    /** Master toggle for "friend started a game" banners across Steam, Discord, and XOrA. */
+    @Volatile var friendPlayingEnabled: Boolean = true
 
     /**
      * Master enable for banners **and** Android notifications.
@@ -110,7 +112,7 @@ class ShellNotificationCenter @Inject constructor(
 
     fun emit(notification: ShellNotification, force: Boolean = false) {
         if (!notificationsEnabled && !force) return
-        if (!force && !friendOnlineAllowed(notification)) return
+        if (!force && !friendPresenceAllowed(notification)) return
         if (isSuppressed(notification)) return
         if (!recentIds.add(notification.id)) return
         if (recentIds.size > MAX_RECENT_IDS) {
@@ -223,13 +225,14 @@ class ShellNotificationCenter @Inject constructor(
         _active.value = null
     }
 
-    private fun friendOnlineAllowed(notification: ShellNotification): Boolean {
-        val online = notification as? ShellNotification.FriendOnline ?: return true
-        return when (online.network) {
+    private fun friendPresenceAllowed(notification: ShellNotification): Boolean = when (notification) {
+        is ShellNotification.FriendPlaying -> friendPlayingEnabled
+        is ShellNotification.FriendOnline -> when (notification.network) {
             FriendNetwork.Discord -> discordFriendOnlineEnabled
             FriendNetwork.Steam -> steamFriendOnlineEnabled
             FriendNetwork.Xora -> xoraFriendOnlineEnabled
         }
+        else -> true
     }
 
     private fun recordHistory(notification: ShellNotification) {

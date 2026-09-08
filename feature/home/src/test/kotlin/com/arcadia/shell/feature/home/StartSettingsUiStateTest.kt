@@ -59,6 +59,23 @@ class StartSettingsUiStateTest {
     }
 
     @Test
+    fun notificationsPageIncludesFriendPlayingToggle() {
+        val rows = buildStartSettingsRows(
+            category = StartSettingsCategory.Notifications,
+            settings = com.arcadia.shell.datastore.ShellSettings(),
+            isScraping = false,
+            isScanning = false,
+            hasCustomBgm = false,
+        )
+        val ids = rows.map { it.id }
+        assertTrue(ids.contains("friend_playing"))
+        val playing = rows.first { it.id == "friend_playing" } as StartSettingsRow.Toggle
+        assertEquals("Friend is playing", playing.title)
+        assertTrue(playing.checked)
+        assertEquals(StartSettingsAction.ToggleFriendPlaying, playing.action)
+    }
+
+    @Test
     fun generalPageDropsXmbTitleStyle() {
         val rows = buildStartSettingsRows(
             category = StartSettingsCategory.General,

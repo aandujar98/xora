@@ -124,6 +124,7 @@ sealed interface StartSettingsAction {
     data object ToggleDiscordFriendOnline : StartSettingsAction
     data object ToggleSteamFriendOnline : StartSettingsAction
     data object ToggleXoraFriendOnline : StartSettingsAction
+    data object ToggleFriendPlaying : StartSettingsAction
     data object TestNotification : StartSettingsAction
 
     // General
@@ -571,6 +572,17 @@ fun buildStartSettingsRows(
             },
             checked = settings.xoraFriendOnlineNotifications,
             action = StartSettingsAction.ToggleXoraFriendOnline,
+        ),
+        StartSettingsRow.Toggle(
+            id = "friend_playing",
+            title = "Friend is playing",
+            subtitle = if (settings.friendPlayingNotifications) {
+                "Banner when a Steam, Discord, or XOrA friend starts a game"
+            } else {
+                "Hidden"
+            },
+            checked = settings.friendPlayingNotifications,
+            action = StartSettingsAction.ToggleFriendPlaying,
         ),
         StartSettingsRow.Action(
             id = "test_notification",

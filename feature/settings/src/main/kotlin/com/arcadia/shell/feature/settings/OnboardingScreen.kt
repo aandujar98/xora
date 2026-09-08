@@ -13,21 +13,26 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -130,6 +135,8 @@ fun OnboardingScreen(
     val scraperPadNow = rememberUpdatedState(scraperPad)
     var scraperSheet by remember { mutableStateOf<OnboardingScraperService?>(null) }
     val scraperSheetNow = rememberUpdatedState(scraperSheet)
+    val scrollState = rememberScrollState()
+    val scrollStateNow = rememberUpdatedState(scrollState)
 
     val safPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -171,6 +178,20 @@ fun OnboardingScreen(
             val scraperOpen = scraperSheetNow.value != null
             val intraForm = current.step == OnboardingStep.Profile ||
                 current.step == OnboardingStep.Scrapers
+            if (!intraForm &&
+                !scraperOpen &&
+                !pickerOpenNow.value &&
+                (action == NavAction.Up || action == NavAction.Down)
+            ) {
+                val scroll = scrollStateNow.value
+                if (scroll.maxValue > 0) {
+                    val delta = if (action == NavAction.Down) 180 else -180
+                    scroll.animateScrollTo(
+                        (scroll.value + delta).coerceIn(0, scroll.maxValue),
+                    )
+                    return@collect
+                }
+            }
             if (intraForm &&
                 (action == NavAction.Left || action == NavAction.Right ||
                     action == NavAction.Up || action == NavAction.Down)
@@ -249,6 +270,7 @@ fun OnboardingScreen(
     }
 
     LaunchedEffect(state.step) {
+        scrollState.scrollTo(0)
         if (state.step != OnboardingStep.Scrapers) {
             scraperSheet = null
             scraperPad = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
@@ -336,14 +358,25 @@ fun OnboardingScreen(
                 }
                 .padding(horizontal = 40.dp, vertical = 24.dp),
         ) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .widthIn(max = 720.dp)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val viewportHeight = maxHeight
+                Row(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(scrollState)
+                            .heightIn(min = viewportHeight)
+                            .padding(end = 14.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .widthIn(max = 720.dp)
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
                 OnboardingStepRail(
                     step = state.step,
                     stepIndex = state.stepIndex,
@@ -526,7 +559,49 @@ fun OnboardingScreen(
                 )
 
                 OnboardingHints(state = state, scraperSheet = scraperSheet)
+                        }
+                    }
+                    OnboardingScrollIndicator(
+                        scrollState = scrollState,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .padding(vertical = 8.dp),
+                    )
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun OnboardingScrollIndicator(
+    scrollState: ScrollState,
+    modifier: Modifier = Modifier,
+) {
+    val max = scrollState.maxValue
+    val canScroll = max > 0
+    Box(
+        modifier = modifier
+            .width(5.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(Color.White.copy(alpha = if (canScroll) 0.20f else 0.10f)),
+    ) {
+        if (!canScroll) return@Box
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val trackPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+            val thumbFraction = (trackPx / (trackPx + max)).coerceIn(0.14f, 1f)
+            val thumbHeight = maxHeight * thumbFraction
+            val travel = (maxHeight - thumbHeight).coerceAtLeast(0.dp)
+            val fraction = (scrollState.value.toFloat() / max.toFloat()).coerceIn(0f, 1f)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(thumbHeight)
+                    .offset(y = travel * fraction)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(AccentInk),
+            )
         }
     }
 }

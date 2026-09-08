@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -326,13 +328,13 @@ private fun RaLibrarySidePanel(
             .padding(horizontal = 22.dp, vertical = 22.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        XoraOutlinedText(
-            text = "RetroAchievements",
-            fontFamily = XoraFonts.Title,
-            fontWeight = FontWeight.Bold,
-            fontSize = 22.sp,
-            letterSpacing = XoraFonts.TitleLetterSpacing,
-            maxLines = 2,
+        Image(
+            painter = painterResource(id = R.drawable.ra_logo),
+            contentDescription = "RetroAchievements",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 72.dp),
         )
 
         val viewedFollower = if (ra.viewingFollower) ra.comparePeer else null

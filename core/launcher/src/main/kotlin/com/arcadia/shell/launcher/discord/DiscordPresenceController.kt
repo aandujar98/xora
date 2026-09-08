@@ -7,8 +7,10 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import com.arcadia.shell.launcher.notifications.FriendNetwork
+import com.arcadia.shell.launcher.notifications.FriendPlayingTracker
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
+import com.arcadia.shell.launcher.notifications.discordPlayingGameTitle
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +60,7 @@ class DiscordPresenceController @Inject constructor(
     /** First friends snapshot only seeds online ids so reconnects do not flood banners. */
     private var discordOnlineSeeded = false
     private val knownOnlineDiscordIds = linkedSetOf<String>()
+    private val discordPlayingTracker = FriendPlayingTracker()
     private var currentUserId: String? = null
     /** Newest message id seen per peer — used to emit inbound DM banners once. */
     private val lastSeenMessageIdByPeer = mutableMapOf<String, String>()
@@ -101,6 +104,7 @@ class DiscordPresenceController @Inject constructor(
         }
         bridge.setFriendsListener { friends ->
             emitDiscordFriendOnlineBanners(friends)
+            emitDiscordFriendPlayingBanners(friends)
             _state.update { current ->
                 rebuild(
                     applicationId = current.applicationId,
@@ -784,10 +788,8 @@ class DiscordPresenceController @Inject constructor(
         for (friend in onlineNow) {
             if (friend.userId in knownOnlineDiscordIds) continue
             knownOnlineDiscordIds.add(friend.userId)
-            val activity = when (friend.group) {
-                "online_game" -> "In a game"
-                else -> null
-            }
+            val activity = friend.currentGame?.takeIf { it.isNotBlank() }
+                ?: if (friend.group == "online_game") "In a game" else null
             notificationCenter.emit(
                 ShellNotification.FriendOnline(
                     id = "discord-online:${friend.userId}:${SystemClock.elapsedRealtime()}",
@@ -799,6 +801,28 @@ class DiscordPresenceController @Inject constructor(
             )
         }
         knownOnlineDiscordIds.retainAll(onlineIds)
+    }
+
+    private fun emitDiscordFriendPlayingBanners(friends: List<DiscordFriendEntry>) {
+        val started = discordPlayingTracker.consume(
+            friends.map { friend ->
+                friend.userId to discordPlayingGameTitle(friend.currentGame, friend.group)
+            },
+        )
+        if (started.isEmpty()) return
+        val byId = friends.associateBy { it.userId }
+        for ((userId, game) in started) {
+            val friend = byId[userId] ?: continue
+            notificationCenter.emit(
+                ShellNotification.FriendPlaying(
+                    id = "discord-playing:$userId:${SystemClock.elapsedRealtime()}",
+                    displayName = friend.displayName.ifBlank { "Discord friend" },
+                    gameTitle = game,
+                    network = FriendNetwork.Discord,
+                    avatarUrl = friend.avatarUrl,
+                ),
+            )
+        }
     }
 
     companion object {

@@ -94,6 +94,19 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
         )
     }
 
+    is ShellNotification.FriendPlaying -> {
+        val networkLabel = when (network) {
+            FriendNetwork.Discord -> "Discord"
+            FriendNetwork.Steam -> "Steam"
+            FriendNetwork.Xora -> "XOrA Network"
+        }
+        ShellNotificationCopy(
+            category = "Friends",
+            body = friendPlayingHeadline(displayName, gameTitle),
+            subtitle = networkLabel,
+        )
+    }
+
     is ShellNotification.GameDownloading -> ShellNotificationCopy(
         category = "Download",
         body = title,
