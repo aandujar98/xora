@@ -73,6 +73,7 @@ fun AndroidAppPicker(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            SettingsPadRow("android_actions") {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 SettingsPadTarget(
                     id = "android_select_all",
@@ -90,6 +91,7 @@ fun AndroidAppPicker(
                         Text("Clear")
                     }
                 }
+            }
             }
         }
         if (apps.isEmpty()) {

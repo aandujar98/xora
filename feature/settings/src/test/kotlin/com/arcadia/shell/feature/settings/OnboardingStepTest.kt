@@ -10,10 +10,13 @@ class OnboardingStepTest {
     @Test
     fun `android apps sits between library and emulators`() {
         val steps = OnboardingStep.entries
-        assertEquals(OnboardingStep.Library, steps[2])
-        assertEquals(OnboardingStep.AndroidApps, steps[3])
-        assertEquals(OnboardingStep.Emulators, steps[4])
-        assertEquals(OnboardingStep.Scrapers, steps[5])
+        assertEquals(OnboardingStep.Welcome, steps[0])
+        assertEquals(OnboardingStep.Profile, steps[1])
+        assertEquals(OnboardingStep.DisplayMode, steps[2])
+        assertEquals(OnboardingStep.Library, steps[3])
+        assertEquals(OnboardingStep.AndroidApps, steps[4])
+        assertEquals(OnboardingStep.Emulators, steps[5])
+        assertEquals(OnboardingStep.Scrapers, steps[6])
     }
 
     @Test

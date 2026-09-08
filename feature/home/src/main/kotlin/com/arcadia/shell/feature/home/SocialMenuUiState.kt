@@ -76,7 +76,8 @@ data class CircleMemberUi(
 )
 
 /**
- * Focusable rows inside the expanded LT social menu (flat list for U/D within the active tab).
+ * Focusable rows inside the expanded LT social menu. Notifications, then a horizontal pin row,
+ * then a vertical friend / conversation list. See [accountPanelAfterAction].
  */
 sealed interface AccountPanelRow {
     /** Opens the LT notification center (recent banners + message inbox). */

@@ -130,7 +130,8 @@ fun SettingsScreen(
             SettingsPadNavState(
                 sectionIndex = 0,
                 zone = SettingsPadZone.Controls,
-                controlIndex = 0,
+                rowIndex = 0,
+                colIndex = 0,
             ),
         )
     }
@@ -143,7 +144,8 @@ fun SettingsScreen(
         pad = SettingsPadNavState(
             sectionIndex = SetupSection.entries.indexOf(section).coerceAtLeast(0),
             zone = SettingsPadZone.Controls,
-            controlIndex = 0,
+            rowIndex = 0,
+            colIndex = 0,
         )
     }
 
@@ -156,13 +158,13 @@ fun SettingsScreen(
         val sections = SetupSection.entries
         val scrollStep = with(density) { 96.dp.toPx() }
         flow.collect { action ->
-            val controlIds = padRegistry.ids()
-            val current = settingsPadCoerce(padNow.value, controlIds.size)
+            val layout = padRegistry.layout()
+            val current = settingsPadCoerce(padNow.value, layout)
             if (action == NavAction.Cancel || action == NavAction.Menu) {
                 onBackNow.value()
                 return@collect
             }
-            val focusId = settingsPadFocusId(current, controlIds)
+            val focusId = settingsPadFocusId(current, layout)
             val binding = focusId?.let(padRegistry::binding)
             if (action == NavAction.Confirm) {
                 when (current.zone) {
@@ -172,7 +174,7 @@ fun SettingsScreen(
                             current,
                             NavAction.Confirm,
                             sections.size,
-                            controlIds.size,
+                            layout,
                         )
                     }
                     SettingsPadZone.Controls -> binding?.activate?.invoke()
@@ -195,7 +197,7 @@ fun SettingsScreen(
                 current,
                 action,
                 sections.size,
-                controlIds.size,
+                layout,
             )
             if (settingsPadShouldScrollPage(current, next, action)) {
                 val pageDelta = if (action == NavAction.Down) scrollStep else -scrollStep
@@ -271,9 +273,9 @@ fun SettingsScreen(
         onBackground = Color.White,
     )
     MaterialTheme(colorScheme = setupScheme) {
-    val controlIds = padRegistry.ids()
-    val coercedPad = settingsPadCoerce(pad, controlIds.size)
-    val padFocusId = settingsPadFocusId(coercedPad, controlIds)
+    val padLayout = padRegistry.layout()
+    val coercedPad = settingsPadCoerce(pad, padLayout)
+    val padFocusId = settingsPadFocusId(coercedPad, padLayout)
     CompositionLocalProvider(
         LocalContentColor provides Color.White,
         LocalSettingsPadFocusId provides padFocusId,
@@ -351,7 +353,8 @@ fun SettingsScreen(
                     onActivate = {
                         pad = coercedPad.copy(
                             zone = SettingsPadZone.Controls,
-                            controlIndex = 0,
+                            rowIndex = 0,
+                            colIndex = 0,
                         )
                     },
                     listed = false,
@@ -425,6 +428,7 @@ fun SettingsScreen(
                 modifier = Modifier,
             ) {
                 SettingsFieldLabel("Theme")
+                SettingsPadRow("theme") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ThemeMode.entries.forEach { mode ->
                         PadChip(
@@ -439,6 +443,7 @@ fun SettingsScreen(
                         )
                     }
                 }
+                }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
@@ -451,14 +456,16 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    VisualPerformanceMode.entries.forEach { mode ->
-                        PadChip(
-                            id = "perf_${mode.name}",
-                            selected = state.settings.visualPerformanceMode == mode,
-                            onClick = { viewModel.setVisualPerformanceMode(mode) },
-                            label = visualPerformanceModeLabel(mode),
-                        )
+                SettingsPadRow("perf") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VisualPerformanceMode.entries.forEach { mode ->
+                            PadChip(
+                                id = "perf_${mode.name}",
+                                selected = state.settings.visualPerformanceMode == mode,
+                                onClick = { viewModel.setVisualPerformanceMode(mode) },
+                                label = visualPerformanceModeLabel(mode),
+                            )
+                        }
                     }
                 }
                 Text(
@@ -479,31 +486,33 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PadChip(
-                        id = "trailer_in_icon",
-                        selected = state.settings.trailerDisplayMode == TrailerDisplayMode.InIcon,
-                        onClick = { viewModel.setTrailerDisplayMode(TrailerDisplayMode.InIcon) },
-                        enabled = state.settings.trailerEnabled,
-                        label = "Game icon",
-                    )
-                    PadChip(
-                        id = "trailer_full_bg",
-                        selected = state.settings.trailerDisplayMode ==
-                            TrailerDisplayMode.FullBackground,
-                        onClick = {
-                            viewModel.setTrailerDisplayMode(TrailerDisplayMode.FullBackground)
-                        },
-                        enabled = state.settings.trailerEnabled,
-                        label = "Full background",
-                    )
-                    PadChip(
-                        id = "trailer_pip",
-                        selected = state.settings.trailerDisplayMode == TrailerDisplayMode.CornerPip,
-                        onClick = { viewModel.setTrailerDisplayMode(TrailerDisplayMode.CornerPip) },
-                        enabled = state.settings.trailerEnabled,
-                        label = "Corner PIP",
-                    )
+                SettingsPadRow("trailer_display") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PadChip(
+                            id = "trailer_in_icon",
+                            selected = state.settings.trailerDisplayMode == TrailerDisplayMode.InIcon,
+                            onClick = { viewModel.setTrailerDisplayMode(TrailerDisplayMode.InIcon) },
+                            enabled = state.settings.trailerEnabled,
+                            label = "Game icon",
+                        )
+                        PadChip(
+                            id = "trailer_full_bg",
+                            selected = state.settings.trailerDisplayMode ==
+                                TrailerDisplayMode.FullBackground,
+                            onClick = {
+                                viewModel.setTrailerDisplayMode(TrailerDisplayMode.FullBackground)
+                            },
+                            enabled = state.settings.trailerEnabled,
+                            label = "Full background",
+                        )
+                        PadChip(
+                            id = "trailer_pip",
+                            selected = state.settings.trailerDisplayMode == TrailerDisplayMode.CornerPip,
+                            onClick = { viewModel.setTrailerDisplayMode(TrailerDisplayMode.CornerPip) },
+                            enabled = state.settings.trailerEnabled,
+                            label = "Corner PIP",
+                        )
+                    }
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
@@ -515,19 +524,21 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PadChip(
-                        id = "idle_trailer",
-                        selected = state.settings.gameIconIdleMedia == GameIconIdleMedia.Trailer,
-                        onClick = { viewModel.setGameIconIdleMedia(GameIconIdleMedia.Trailer) },
-                        label = "Trailers",
-                    )
-                    PadChip(
-                        id = "idle_screenshot",
-                        selected = state.settings.gameIconIdleMedia == GameIconIdleMedia.Screenshot,
-                        onClick = { viewModel.setGameIconIdleMedia(GameIconIdleMedia.Screenshot) },
-                        label = "Screenshots",
-                    )
+                SettingsPadRow("idle_media") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PadChip(
+                            id = "idle_trailer",
+                            selected = state.settings.gameIconIdleMedia == GameIconIdleMedia.Trailer,
+                            onClick = { viewModel.setGameIconIdleMedia(GameIconIdleMedia.Trailer) },
+                            label = "Trailers",
+                        )
+                        PadChip(
+                            id = "idle_screenshot",
+                            selected = state.settings.gameIconIdleMedia == GameIconIdleMedia.Screenshot,
+                            onClick = { viewModel.setGameIconIdleMedia(GameIconIdleMedia.Screenshot) },
+                            label = "Screenshots",
+                        )
+                    }
                 }
             }
         }
@@ -545,14 +556,16 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(2, 3, 4, 5, 6).forEach { columns ->
-                        PadChip(
-                            id = "grid_cols_$columns",
-                            selected = state.settings.gridColumns == columns,
-                            onClick = { viewModel.setGridColumns(columns) },
-                            label = columns.toString(),
-                        )
+                SettingsPadRow("grid_cols") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(2, 3, 4, 5, 6).forEach { columns ->
+                            PadChip(
+                                id = "grid_cols_$columns",
+                                selected = state.settings.gridColumns == columns,
+                                onClick = { viewModel.setGridColumns(columns) },
+                                label = columns.toString(),
+                            )
+                        }
                     }
                 }
 
@@ -679,6 +692,7 @@ fun SettingsScreen(
                         ?: "All device music",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                SettingsPadRow("audio_folder") {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SettingsPadTarget(
                         id = "audio_choose_folder",
@@ -703,6 +717,7 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
                 }
                 if (!state.hasStorageAccess) {
                     Text(
@@ -752,6 +767,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 SettingsFieldLabel("Trailer source")
+                SettingsPadRow("trailer_src") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TrailerSourcePreference.entries.forEach { preference ->
                         PadChip(
@@ -768,6 +784,7 @@ fun SettingsScreen(
                             },
                         )
                     }
+                }
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -858,6 +875,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                SettingsPadRow("scrape_actions") {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SettingsPadTarget(
                         id = "scrape_now",
@@ -882,6 +900,7 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
                 }
             }
         }
@@ -1388,6 +1407,7 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                SettingsPadRow("storage_add") {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SettingsPadTarget(
                         id = "storage_add_folder",
@@ -1410,6 +1430,7 @@ fun SettingsScreen(
                             Text(text = "Add via document picker")
                         }
                     }
+                }
                 }
 
                 state.roots.forEach { root ->
@@ -2143,6 +2164,7 @@ private fun PairedSecretFields(
         if (first != firstValue || second != secondValue) onCommit(first, second)
     }
 
+    SettingsPadRow(firstPadId) {
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2184,6 +2206,7 @@ private fun PairedSecretFields(
                     .onFocusChanged { focus -> if (!focus.isFocused) commit() },
             )
         }
+    }
     }
 }
 

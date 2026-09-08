@@ -6,128 +6,161 @@ import org.junit.Test
 
 class SettingsPadNavTest {
 
+    private val threeByTwo = SettingsPadLayout(
+        listOf(
+            listOf("a", "b", "c"),
+            listOf("d", "e"),
+        ),
+    )
+
     @Test
-    fun shouldersChangeTabsAndLandOnTheFirstControl() {
-        val start = SettingsPadNavState(1, SettingsPadZone.Tabs, controlIndex = 4)
-        val left = settingsPadAfterAction(start, NavAction.PreviousPlatform, sectionCount = 7, controlCount = 5)
+    fun shouldersChangeTabsAndLandOnTheFirstCell() {
+        val start = SettingsPadNavState(1, SettingsPadZone.Tabs, rowIndex = 4, colIndex = 2)
+        val left = settingsPadAfterAction(start, NavAction.PreviousPlatform, sectionCount = 7, layout = threeByTwo)
         assertEquals(0, left.sectionIndex)
         assertEquals(SettingsPadZone.Controls, left.zone)
-        assertEquals(0, left.controlIndex)
+        assertEquals(0, left.rowIndex)
+        assertEquals(0, left.colIndex)
 
         val right = settingsPadAfterAction(
             start,
             NavAction.NextPlatform,
             sectionCount = 7,
-            controlCount = 5,
+            layout = threeByTwo,
         )
         assertEquals(2, right.sectionIndex)
         assertEquals(SettingsPadZone.Controls, right.zone)
-        assertEquals(0, right.controlIndex)
 
         val wrap = settingsPadAfterAction(
-            SettingsPadNavState(0, SettingsPadZone.Controls, 0),
+            SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0),
             NavAction.PreviousPlatform,
             sectionCount = 7,
-            controlCount = 5,
+            layout = threeByTwo,
         )
         assertEquals(6, wrap.sectionIndex)
     }
 
     @Test
-    fun downLeavesTheTabsAndWalksEveryControlThenStops() {
+    fun downLeavesTheTabsAndWalksRowsNotCells() {
         val into = settingsPadAfterAction(
-            SettingsPadNavState(0, SettingsPadZone.Tabs, 0),
+            SettingsPadNavState(0, SettingsPadZone.Tabs, 0, 0),
             NavAction.Down,
             sectionCount = 7,
-            controlCount = 3,
+            layout = threeByTwo,
         )
         assertEquals(SettingsPadZone.Controls, into.zone)
-        assertEquals(0, into.controlIndex)
+        assertEquals(0, into.rowIndex)
+        assertEquals(0, into.colIndex)
+        assertEquals("a", settingsPadFocusId(into, threeByTwo))
 
-        val next = settingsPadAfterAction(into, NavAction.Down, sectionCount = 7, controlCount = 3)
-        assertEquals(1, next.controlIndex)
-
-        val last = settingsPadAfterAction(
-            SettingsPadNavState(0, SettingsPadZone.Controls, 2),
-            NavAction.Down,
-            sectionCount = 7,
-            controlCount = 3,
-        )
-        assertEquals(2, last.controlIndex)
+        val nextRow = settingsPadAfterAction(into, NavAction.Down, sectionCount = 7, layout = threeByTwo)
+        assertEquals(1, nextRow.rowIndex)
+        assertEquals(0, nextRow.colIndex)
+        assertEquals("d", settingsPadFocusId(nextRow, threeByTwo))
     }
 
     @Test
-    fun upFromTheFirstControlReachesTabsThenDone() {
+    fun upFromTheFirstRowReachesTabsThenDone() {
         val tabs = settingsPadAfterAction(
-            SettingsPadNavState(0, SettingsPadZone.Controls, 0),
+            SettingsPadNavState(0, SettingsPadZone.Controls, 0, 1),
             NavAction.Up,
             sectionCount = 7,
-            controlCount = 3,
+            layout = threeByTwo,
         )
         assertEquals(SettingsPadZone.Tabs, tabs.zone)
-        assertEquals(SettingsPadIds.Tabs, settingsPadFocusId(tabs, listOf("a", "b")))
+        assertEquals(SettingsPadIds.Tabs, settingsPadFocusId(tabs, threeByTwo))
 
-        val done = settingsPadAfterAction(tabs, NavAction.Up, sectionCount = 7, controlCount = 3)
+        val done = settingsPadAfterAction(tabs, NavAction.Up, sectionCount = 7, layout = threeByTwo)
         assertEquals(SettingsPadZone.Done, done.zone)
-        assertEquals(SettingsPadIds.Done, settingsPadFocusId(done, listOf("a", "b")))
+        assertEquals(SettingsPadIds.Done, settingsPadFocusId(done, threeByTwo))
     }
 
     @Test
-    fun leftAndRightOnControlsWalkTheListWhenTheControlIsNotASlider() {
-        val mid = SettingsPadNavState(0, SettingsPadZone.Controls, 1)
-        val left = settingsPadAfterAction(mid, NavAction.Left, sectionCount = 7, controlCount = 4)
-        assertEquals(0, left.controlIndex)
-        val right = settingsPadAfterAction(mid, NavAction.Right, sectionCount = 7, controlCount = 4)
-        assertEquals(2, right.controlIndex)
+    fun leftAndRightStayOnTheRowInsteadOfWalkingTheFlatList() {
+        val mid = SettingsPadNavState(0, SettingsPadZone.Controls, rowIndex = 0, colIndex = 1)
+        val left = settingsPadAfterAction(mid, NavAction.Left, sectionCount = 7, layout = threeByTwo)
+        assertEquals(0, left.rowIndex)
+        assertEquals(0, left.colIndex)
+        assertEquals("a", settingsPadFocusId(left, threeByTwo))
+
+        val right = settingsPadAfterAction(mid, NavAction.Right, sectionCount = 7, layout = threeByTwo)
+        assertEquals(0, right.rowIndex)
+        assertEquals(2, right.colIndex)
+        assertEquals("c", settingsPadFocusId(right, threeByTwo))
+
+        val edge = settingsPadAfterAction(left, NavAction.Left, sectionCount = 7, layout = threeByTwo)
+        assertEquals(0, edge.rowIndex)
+        assertEquals(0, edge.colIndex)
     }
 
     @Test
-    fun coerceKeepsTheCursorOnALiveControlWhenTheListShrinks() {
-        val shrunk = settingsPadCoerce(
-            SettingsPadNavState(0, SettingsPadZone.Controls, 8),
-            controlCount = 3,
+    fun downFromAMiddleChipLandsOnTheSameColumnOfTheNextRow() {
+        val light = SettingsPadNavState(0, SettingsPadZone.Controls, rowIndex = 0, colIndex = 1)
+        val down = settingsPadAfterAction(light, NavAction.Down, sectionCount = 7, layout = threeByTwo)
+        assertEquals(1, down.rowIndex)
+        assertEquals(1, down.colIndex)
+        assertEquals("e", settingsPadFocusId(down, threeByTwo))
+
+        val clamped = settingsPadAfterAction(
+            SettingsPadNavState(0, SettingsPadZone.Controls, rowIndex = 0, colIndex = 2),
+            NavAction.Down,
+            sectionCount = 7,
+            layout = threeByTwo,
         )
-        assertEquals(2, shrunk.controlIndex)
+        assertEquals(1, clamped.rowIndex)
+        assertEquals(1, clamped.colIndex)
+        assertEquals("e", settingsPadFocusId(clamped, threeByTwo))
+    }
+
+    @Test
+    fun coerceKeepsTheCursorOnALiveCellWhenTheListShrinks() {
+        val shrunk = settingsPadCoerce(
+            SettingsPadNavState(0, SettingsPadZone.Controls, rowIndex = 8, colIndex = 4),
+            threeByTwo,
+        )
+        assertEquals(1, shrunk.rowIndex)
+        assertEquals(1, shrunk.colIndex)
         val empty = settingsPadCoerce(
-            SettingsPadNavState(0, SettingsPadZone.Controls, 1),
-            controlCount = 0,
+            SettingsPadNavState(0, SettingsPadZone.Controls, 1, 1),
+            SettingsPadLayout(),
         )
         assertEquals(SettingsPadZone.Tabs, empty.zone)
     }
 
     @Test
-    fun downOnTheLastControlStaysPutSoTheHostCanScrollThePage() {
-        val last = SettingsPadNavState(0, SettingsPadZone.Controls, 4)
-        val still = settingsPadAfterAction(last, NavAction.Down, sectionCount = 7, controlCount = 5)
+    fun downOnTheLastRowStaysPutSoTheHostCanScrollThePage() {
+        val last = SettingsPadNavState(0, SettingsPadZone.Controls, rowIndex = 1, colIndex = 0)
+        val still = settingsPadAfterAction(last, NavAction.Down, sectionCount = 7, layout = threeByTwo)
         assertEquals(last, still)
         assertEquals(true, settingsPadShouldScrollPage(last, still, NavAction.Down))
         assertEquals(
             false,
             settingsPadShouldScrollPage(
                 last,
-                settingsPadAfterAction(last, NavAction.Up, sectionCount = 7, controlCount = 5),
+                settingsPadAfterAction(last, NavAction.Up, sectionCount = 7, layout = threeByTwo),
                 NavAction.Up,
             ),
         )
     }
 
     @Test
-    fun confirmOnTabsDropsIntoTheFirstControlAndConfirmOnAControlStays() {
+    fun confirmOnTabsDropsIntoTheFirstCellAndConfirmOnAControlStays() {
         val into = settingsPadAfterAction(
-            SettingsPadNavState(0, SettingsPadZone.Tabs, 0),
+            SettingsPadNavState(0, SettingsPadZone.Tabs, 0, 0),
             NavAction.Confirm,
             sectionCount = 7,
-            controlCount = 4,
+            layout = threeByTwo,
         )
         assertEquals(SettingsPadZone.Controls, into.zone)
-        assertEquals(0, into.controlIndex)
+        assertEquals(0, into.rowIndex)
+        assertEquals(0, into.colIndex)
         assertEquals(
-            SettingsPadNavState(0, SettingsPadZone.Controls, 1),
+            SettingsPadNavState(0, SettingsPadZone.Controls, 0, 1),
             settingsPadAfterAction(
-                SettingsPadNavState(0, SettingsPadZone.Controls, 1),
+                SettingsPadNavState(0, SettingsPadZone.Controls, 0, 1),
                 NavAction.Confirm,
                 sectionCount = 7,
-                controlCount = 4,
+                layout = threeByTwo,
             ),
         )
     }

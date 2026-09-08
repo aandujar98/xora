@@ -15,38 +15,56 @@ internal enum class SettingsPadZone {
     Controls,
 }
 
+/** Row-major pad geometry. Each inner list is one visual row, left to right. */
+internal data class SettingsPadLayout(
+    val rows: List<List<String>> = emptyList(),
+) {
+    val rowCount: Int get() = rows.size
+
+    fun cols(row: Int): Int = rows.getOrNull(row)?.size ?: 0
+
+    fun idAt(row: Int, col: Int): String? = rows.getOrNull(row)?.getOrNull(col)
+
+    fun clamp(row: Int, col: Int): Pair<Int, Int>? {
+        if (rows.isEmpty()) return null
+        val r = row.coerceIn(0, rows.lastIndex)
+        val lastCol = rows[r].lastIndex.coerceAtLeast(0)
+        return r to col.coerceIn(0, lastCol)
+    }
+}
+
 /**
- * Gamepad focus inside Advanced Settings. Shoulders change tabs. Up/Down (and Left/Right when
- * the control is not a slider) walk every button, switch, chip, and field. Done sits above the
- * tab strip so chrome stays reachable without eating the first Down.
+ * Gamepad focus inside Advanced Settings. Shoulders change tabs. Left/Right stay on a visual
+ * row; Up/Down change rows. Done sits above the tab strip so chrome stays reachable without
+ * eating the first Down.
  */
 internal data class SettingsPadNavState(
     val sectionIndex: Int,
     val zone: SettingsPadZone,
-    val controlIndex: Int,
+    val rowIndex: Int = 0,
+    val colIndex: Int = 0,
 )
 
 internal fun settingsPadAfterAction(
     state: SettingsPadNavState,
     action: NavAction,
     sectionCount: Int,
-    controlCount: Int,
+    layout: SettingsPadLayout,
 ): SettingsPadNavState {
     val sections = sectionCount.coerceAtLeast(1)
-    val controls = controlCount.coerceAtLeast(0)
-    fun atControl(index: Int): SettingsPadNavState {
-        if (controls <= 0) {
-            return state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
-        }
-        return state.copy(
-            zone = SettingsPadZone.Controls,
-            controlIndex = index.coerceIn(0, controls - 1),
+    fun atCell(row: Int, col: Int): SettingsPadNavState {
+        val cell = layout.clamp(row, col) ?: return state.copy(
+            zone = SettingsPadZone.Tabs,
+            rowIndex = 0,
+            colIndex = 0,
         )
+        return state.copy(zone = SettingsPadZone.Controls, rowIndex = cell.first, colIndex = cell.second)
     }
     fun changeSection(delta: Int) = SettingsPadNavState(
         sectionIndex = (state.sectionIndex + delta + sections) % sections,
         zone = SettingsPadZone.Controls,
-        controlIndex = 0,
+        rowIndex = 0,
+        colIndex = 0,
     )
     return when (action) {
         NavAction.PreviousPlatform -> changeSection(-1)
@@ -55,34 +73,34 @@ internal fun settingsPadAfterAction(
             SettingsPadZone.Done,
             SettingsPadZone.Tabs,
             -> changeSection(-1)
-            SettingsPadZone.Controls -> if (state.controlIndex > 0) {
-                atControl(state.controlIndex - 1)
-            } else {
-                state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
-            }
+            SettingsPadZone.Controls -> atCell(state.rowIndex, state.colIndex - 1)
         }
         NavAction.Right -> when (state.zone) {
             SettingsPadZone.Done,
             SettingsPadZone.Tabs,
             -> changeSection(1)
-            SettingsPadZone.Controls -> atControl(state.controlIndex + 1)
+            SettingsPadZone.Controls -> atCell(state.rowIndex, state.colIndex + 1)
         }
         NavAction.Down -> when (state.zone) {
-            SettingsPadZone.Done -> state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
-            SettingsPadZone.Tabs -> atControl(0)
-            SettingsPadZone.Controls -> atControl(state.controlIndex + 1)
+            SettingsPadZone.Done -> state.copy(zone = SettingsPadZone.Tabs, rowIndex = 0, colIndex = 0)
+            SettingsPadZone.Tabs -> atCell(0, 0)
+            SettingsPadZone.Controls -> if (state.rowIndex < layout.rowCount - 1) {
+                atCell(state.rowIndex + 1, state.colIndex)
+            } else {
+                state
+            }
         }
         NavAction.Up -> when (state.zone) {
             SettingsPadZone.Done -> state
-            SettingsPadZone.Tabs -> state.copy(zone = SettingsPadZone.Done, controlIndex = 0)
-            SettingsPadZone.Controls -> if (state.controlIndex > 0) {
-                atControl(state.controlIndex - 1)
+            SettingsPadZone.Tabs -> state.copy(zone = SettingsPadZone.Done, rowIndex = 0, colIndex = 0)
+            SettingsPadZone.Controls -> if (state.rowIndex > 0) {
+                atCell(state.rowIndex - 1, state.colIndex)
             } else {
-                state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
+                state.copy(zone = SettingsPadZone.Tabs, rowIndex = 0, colIndex = 0)
             }
         }
-        NavAction.Confirm -> if (state.zone == SettingsPadZone.Tabs && controls > 0) {
-            atControl(0)
+        NavAction.Confirm -> if (state.zone == SettingsPadZone.Tabs && layout.rowCount > 0) {
+            atCell(0, 0)
         } else {
             state
         }
@@ -92,22 +110,24 @@ internal fun settingsPadAfterAction(
 
 internal fun settingsPadFocusId(
     state: SettingsPadNavState,
-    controlIds: List<String>,
+    layout: SettingsPadLayout,
 ): String? = when (state.zone) {
     SettingsPadZone.Done -> SettingsPadIds.Done
     SettingsPadZone.Tabs -> SettingsPadIds.Tabs
-    SettingsPadZone.Controls -> controlIds.getOrNull(
-        state.controlIndex.coerceIn(0, (controlIds.size - 1).coerceAtLeast(0)),
-    )
+    SettingsPadZone.Controls -> {
+        val cell = layout.clamp(state.rowIndex, state.colIndex)
+        if (cell == null) null else layout.idAt(cell.first, cell.second)
+    }
 }
 
 internal fun settingsPadCoerce(
     state: SettingsPadNavState,
-    controlCount: Int,
+    layout: SettingsPadLayout,
 ): SettingsPadNavState {
     if (state.zone != SettingsPadZone.Controls) return state
-    if (controlCount <= 0) return state.copy(zone = SettingsPadZone.Tabs, controlIndex = 0)
-    return state.copy(controlIndex = state.controlIndex.coerceIn(0, controlCount - 1))
+    val cell = layout.clamp(state.rowIndex, state.colIndex)
+        ?: return state.copy(zone = SettingsPadZone.Tabs, rowIndex = 0, colIndex = 0)
+    return state.copy(rowIndex = cell.first, colIndex = cell.second)
 }
 
 /** True when Up/Down cannot move the cursor, so Setup should scroll the page instead. */

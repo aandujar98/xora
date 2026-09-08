@@ -145,6 +145,43 @@ class OnboardingPadNavTest {
     }
 
     @Test
+    fun profileFormUsesAToActivateAndShouldersToChangeSteps() {
+        assertEquals(
+            OnboardingPadCommand.Activate,
+            onboardingPadCommand(
+                NavAction.Confirm,
+                canGoBack = true,
+                canAdvance = true,
+                optional = false,
+                pickerOpen = false,
+                intraForm = true,
+            ),
+        )
+        assertEquals(
+            OnboardingPadCommand.None,
+            onboardingPadCommand(
+                NavAction.Right,
+                canGoBack = true,
+                canAdvance = true,
+                optional = false,
+                pickerOpen = false,
+                intraForm = true,
+            ),
+        )
+        assertEquals(
+            OnboardingPadCommand.Next,
+            onboardingPadCommand(
+                NavAction.NextPlatform,
+                canGoBack = true,
+                canAdvance = true,
+                optional = false,
+                pickerOpen = false,
+                intraForm = true,
+            ),
+        )
+    }
+
+    @Test
     fun dpadRepeatIsThrottledSoAHeldStickCannotSkipTheWizard() {
         assertTrue(shouldAcceptOnboardingPadRepeat(NavAction.Right, nowMs = 0L, lastDirectionalMs = null))
         assertFalse(

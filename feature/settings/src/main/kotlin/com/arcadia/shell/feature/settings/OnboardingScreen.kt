@@ -1,8 +1,10 @@
 package com.arcadia.shell.feature.settings
 
 import android.app.Activity
+import android.graphics.BitmapFactory
 import android.view.KeyEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -12,6 +14,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -38,6 +43,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +59,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
@@ -65,7 +72,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.arcadia.shell.datastore.AvatarSource
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.LocalProfile
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
 import com.arcadia.shell.datastore.SteamWebApiCredentials
 import com.arcadia.shell.designsystem.ArcadiaGlass
@@ -107,6 +116,11 @@ fun OnboardingScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showFolderPicker by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    val profilePadRegistry = remember { SettingsPadRegistry() }
+    var profilePad by remember {
+        mutableStateOf(SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0))
+    }
+    val profilePadNow = rememberUpdatedState(profilePad)
 
     val safPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -119,6 +133,12 @@ fun OnboardingScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { viewModel.refresh() }
+
+    val photoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        uri?.let(viewModel::setLocalAvatar)
+    }
 
     val onFinishedNow = rememberUpdatedState(onFinished)
     val stateNow = rememberUpdatedState(state)
@@ -139,6 +159,20 @@ fun OnboardingScreen(
                 lastDirectionalMs = now
             }
             val current = stateNow.value
+            val intraForm = current.step == OnboardingStep.Profile
+            if (intraForm &&
+                (action == NavAction.Left || action == NavAction.Right ||
+                    action == NavAction.Up || action == NavAction.Down)
+            ) {
+                val layout = profilePadRegistry.layout()
+                profilePad = settingsPadAfterAction(
+                    settingsPadCoerce(profilePadNow.value, layout),
+                    action,
+                    sectionCount = 1,
+                    layout = layout,
+                )
+                return@collect
+            }
             when (
                 onboardingPadCommand(
                     action = action,
@@ -146,6 +180,7 @@ fun OnboardingScreen(
                     canAdvance = current.canAdvance,
                     optional = isOptional(current.step),
                     pickerOpen = pickerOpenNow.value,
+                    intraForm = intraForm,
                 )
             ) {
                 OnboardingPadCommand.Next -> {
@@ -154,6 +189,14 @@ fun OnboardingScreen(
                 OnboardingPadCommand.Back -> viewModel.back()
                 OnboardingPadCommand.Skip -> viewModel.skipOptional()
                 OnboardingPadCommand.DismissPicker -> showFolderPicker = false
+                OnboardingPadCommand.Activate -> {
+                    val layout = profilePadRegistry.layout()
+                    val focusId = settingsPadFocusId(
+                        settingsPadCoerce(profilePadNow.value, layout),
+                        layout,
+                    )
+                    focusId?.let(profilePadRegistry::binding)?.activate?.invoke()
+                }
                 OnboardingPadCommand.None -> Unit
             }
         }
@@ -282,8 +325,35 @@ fun OnboardingScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 28.dp, vertical = 24.dp),
                     ) { step ->
+                        val profileLayout = profilePadRegistry.layout()
+                        CompositionLocalProvider(
+                            LocalSettingsPadRegistry provides
+                                if (step == OnboardingStep.Profile) profilePadRegistry else null,
+                            LocalSettingsPadFocusId provides if (step == OnboardingStep.Profile) {
+                                settingsPadFocusId(
+                                    settingsPadCoerce(profilePad, profileLayout),
+                                    profileLayout,
+                                )
+                            } else {
+                                null
+                            },
+                        ) {
                         when (step) {
                             OnboardingStep.Welcome -> WelcomeStep(brandIcon = brandIcon)
+                            OnboardingStep.Profile -> ProfileStep(
+                                profile = state.profile,
+                                avatarPath = state.avatarPath,
+                                onNameChange = viewModel::setProfileName,
+                                onSelectPreset = viewModel::selectAvatarPreset,
+                                onPickPhoto = {
+                                    photoPicker.launch(
+                                        PickVisualMediaRequest(
+                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                        ),
+                                    )
+                                },
+                                onClearPhoto = viewModel::clearLocalAvatar,
+                            )
                             OnboardingStep.DisplayMode -> DisplayModeStep(
                                 mode = state.settings.displayMode,
                                 onSelect = viewModel::setDisplayMode,
@@ -353,6 +423,7 @@ fun OnboardingScreen(
                                 onSfxChange = viewModel::setUiSfxVolume,
                             )
                             OnboardingStep.Done -> DoneStep()
+                        }
                         }
                     }
                 }
@@ -441,6 +512,7 @@ private fun OnboardingStepRail(
 
 private fun stepLabel(step: OnboardingStep): String = when (step) {
     OnboardingStep.Welcome -> "Welcome"
+    OnboardingStep.Profile -> "Profile"
     OnboardingStep.DisplayMode -> "Display"
     OnboardingStep.Library -> "Library"
     OnboardingStep.AndroidApps -> "Android"
@@ -479,12 +551,141 @@ private fun WelcomeStep(brandIcon: Painter) {
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = "Welcome. A few quick choices get your library, display, and sound ready. " +
-                "You can change everything later in Setup.",
+            text = "Welcome. Start with your local profile, then a few choices get your " +
+                "library, display, and sound ready. You can change everything later in Setup.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
+    }
+}
+
+private data class OnboardingAvatarPreset(val id: String, val color: Color)
+
+private val OnboardingAvatarPresets = listOf(
+    OnboardingAvatarPreset("preset_0", Color(0xFF6E7BFF)),
+    OnboardingAvatarPreset("preset_1", Color(0xFF37D6A0)),
+    OnboardingAvatarPreset("preset_2", Color(0xFFFFC24B)),
+    OnboardingAvatarPreset("preset_3", Color(0xFFFF5C6C)),
+    OnboardingAvatarPreset("preset_4", Color(0xFFA6AEFF)),
+    OnboardingAvatarPreset("preset_5", Color(0xFF4ECDC4)),
+)
+
+@Composable
+private fun ProfileStep(
+    profile: LocalProfile,
+    avatarPath: String?,
+    onNameChange: (String) -> Unit,
+    onSelectPreset: (String) -> Unit,
+    onPickPhoto: () -> Unit,
+    onClearPhoto: () -> Unit,
+) {
+    var name by remember(profile.displayName) { mutableStateOf(profile.displayName) }
+    val nameRequester = remember { FocusRequester() }
+    val photo = remember(avatarPath) {
+        avatarPath?.let { BitmapFactory.decodeFile(it) }
+    }
+    val usingPhoto = profile.avatarSource == AvatarSource.Local && photo != null
+    val preset = OnboardingAvatarPresets.firstOrNull { it.id == profile.avatarPresetId }
+        ?: OnboardingAvatarPresets.first()
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        StepTitle("Your profile")
+        Text(
+            text = "This name and picture show on the Home social card. You can change them later.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Box(
+            modifier = Modifier
+                .size(88.dp)
+                .clip(CircleShape)
+                .background(preset.color)
+                .border(2.dp, Color.White.copy(alpha = 0.7f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (photo != null && usingPhoto) {
+                Image(
+                    bitmap = photo.asImageBitmap(),
+                    contentDescription = "Profile photo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Text(
+                    text = name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "P",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        SettingsPadRow("profile_photo") {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SettingsPadTarget(
+                    id = "profile_upload",
+                    onActivate = onPickPhoto,
+                ) {
+                    Button(onClick = onPickPhoto) { Text("Upload photo") }
+                }
+                if (usingPhoto) {
+                    SettingsPadTarget(
+                        id = "profile_clear_photo",
+                        onActivate = onClearPhoto,
+                    ) {
+                        OutlinedButton(onClick = onClearPhoto) { Text("Use colour") }
+                    }
+                }
+            }
+        }
+        SettingsPadRow("profile_presets") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OnboardingAvatarPresets.forEach { swatch ->
+                    SettingsPadTarget(
+                        id = "profile_preset_${swatch.id}",
+                        onActivate = { onSelectPreset(swatch.id) },
+                        shape = CircleShape,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(swatch.color)
+                                .clickable { onSelectPreset(swatch.id) }
+                                .then(
+                                    if (!usingPhoto && swatch.id == profile.avatarPresetId) {
+                                        Modifier.border(2.dp, Color.White, CircleShape)
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                        )
+                    }
+                }
+            }
+        }
+        SettingsPadTarget(
+            id = "profile_name",
+            onActivate = { nameRequester.requestFocus() },
+        ) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { next ->
+                    name = next.take(24)
+                    onNameChange(name)
+                },
+                label = { Text("Username") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(nameRequester),
+            )
+        }
     }
 }
 
@@ -1006,9 +1207,16 @@ private fun OnboardingActions(
 private fun OnboardingHints(state: OnboardingUiState) {
     val optional = isOptional(state.step)
     val hints = buildList {
-        add("A / → / RB" to if (state.isLast) "Finish" else if (optional) "Continue" else "Next")
-        if (state.canGoBack) add("B / ← / LB" to "Back")
-        if (optional) add("Y" to "Skip")
+        if (state.step == OnboardingStep.Profile) {
+            add("A" to "Use photo / colour / name")
+            add("U/D/L/R" to "Move")
+            add("RB" to "Next")
+            if (state.canGoBack) add("B / LB" to "Back")
+        } else {
+            add("A / → / RB" to if (state.isLast) "Finish" else if (optional) "Continue" else "Next")
+            if (state.canGoBack) add("B / ← / LB" to "Back")
+            if (optional) add("Y" to "Skip")
+        }
     }
     Row(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
