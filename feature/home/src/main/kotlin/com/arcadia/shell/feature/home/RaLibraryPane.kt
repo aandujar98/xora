@@ -334,7 +334,7 @@ private fun RaLibrarySidePanel(
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 72.dp),
+                .heightIn(max = 128.dp),
         )
 
         val viewedFollower = if (ra.viewingFollower) ra.comparePeer else null
