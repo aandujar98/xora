@@ -84,6 +84,7 @@ import com.arcadia.shell.feature.home.component.StartSettingsPanel
 import com.arcadia.shell.feature.home.component.SystemUpdatePanel
 import com.arcadia.shell.feature.home.component.WelcomeBackOverlay
 import com.arcadia.shell.feature.home.component.BootIntroOverlay
+import com.arcadia.shell.feature.home.component.HomeTutorialOverlay
 import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.feature.settings.OnboardingExternalAuthRequest
 import com.arcadia.shell.feature.settings.OnboardingScreen
@@ -386,7 +387,7 @@ fun ArcadiaShell(
     }
 
     // Idle trailers are Home-only; Settings, options, Guide, Start config, welcome-back, boot, and launch overlay must return to artwork.
-    LaunchedEffect(route, overlayOpen, state.isLaunching, state.guideOpen, state.startSettingsOpen, state.welcomeBackOpen, state.bootIntroOpen, shellState.showOnboarding) {
+    LaunchedEffect(route, overlayOpen, state.isLaunching, state.guideOpen, state.startSettingsOpen, state.welcomeBackOpen, state.bootIntroOpen, state.tutorial.open, shellState.showOnboarding) {
         homeViewModel.setTrailerGateAllowed(
             allowed = route == ShellRoute.Home &&
                 !overlayOpen &&
@@ -395,17 +396,19 @@ fun ArcadiaShell(
                 !state.startSettingsOpen &&
                 !state.welcomeBackOpen &&
                 !state.bootIntroOpen &&
+                !state.tutorial.open &&
                 !shellState.showOnboarding,
         )
     }
 
     // Drop a queued wake greeting / boot clip if Settings owns the shell. Onboarding Finish
     // starts the boot clip on the way to Home, so do not cancel it just because the prefs
-    // flag has not flipped yet.
-    LaunchedEffect(state.welcomeBackOpen, state.bootIntroOpen, route) {
+    // flag has not flipped yet. Do not offer the tutorial when leaving Home mid-boot.
+    LaunchedEffect(state.welcomeBackOpen, state.bootIntroOpen, state.tutorial.open, route) {
         if (route != ShellRoute.Home) {
             if (state.welcomeBackOpen) homeViewModel.dismissWelcomeBack()
-            if (state.bootIntroOpen) homeViewModel.dismissBootIntro()
+            if (state.bootIntroOpen) homeViewModel.dismissBootIntro(offerTutorial = false)
+            if (state.tutorial.open) homeViewModel.skipHomeTutorial()
         }
     }
 
@@ -543,6 +546,7 @@ fun ArcadiaShell(
         val swipeEnabled = route == ShellRoute.Home &&
             !state.bootIntroOpen &&
             !state.welcomeBackOpen &&
+            !state.tutorial.open &&
             !state.isLaunching
         val swipeModifier = if (swipeEnabled) {
             Modifier.xoraSwipeNavigate(
@@ -744,6 +748,12 @@ fun ArcadiaShell(
                     ltExpanded = state.accountPanelExpanded,
                     onActivate = homeViewModel::activateShellNotification,
                 )
+                HomeTutorialOverlay(
+                    state = state.tutorial,
+                    onNext = homeViewModel::advanceHomeTutorial,
+                    onSkip = homeViewModel::skipHomeTutorial,
+                    modifier = Modifier.fillMaxSize(),
+                )
                 NotificationHistoryPanel(
                     open = state.notificationHistoryOpen,
                     items = state.notificationHistory,
@@ -805,6 +815,7 @@ fun ArcadiaShell(
                             .xoraSwipeNavigate(
                                 enabled = !state.bootIntroOpen &&
                                     !state.welcomeBackOpen &&
+                                    !state.tutorial.open &&
                                     !state.isLaunching,
                                 onSwipe = { direction ->
                                     homeViewModel.onTouchNav(direction.toNavAction())

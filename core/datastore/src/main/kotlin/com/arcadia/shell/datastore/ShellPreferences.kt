@@ -665,6 +665,15 @@ class ShellPreferences @Inject constructor(
     }
 
     /**
+     * Whether the Home coach marks have been finished or skipped since the last onboarding
+     * Finish. [setOnboardingComplete] clears this so every completed wizard run replays them
+     * after the boot clip.
+     */
+    val homeTutorialComplete: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.HOME_TUTORIAL_COMPLETE] ?: false
+    }
+
+    /**
      * Mixed Steam + Discord pins for the LT “Pinned Friends” strip
      * (order preserved, max [CIRCLE_FRIEND_LIMIT]).
      *
@@ -1151,6 +1160,13 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setOnboardingComplete(done: Boolean) = edit {
         it[Keys.ONBOARDING_COMPLETE] = done
+        // Finish and Settings redo both drop this so the Home tutorial runs after every
+        // completed onboarding + boot clip, not only the first install.
+        it[Keys.HOME_TUTORIAL_COMPLETE] = false
+    }
+
+    suspend fun setHomeTutorialComplete(done: Boolean) = edit {
+        it[Keys.HOME_TUTORIAL_COMPLETE] = done
     }
 
     suspend fun setHomeShortcuts(shortcuts: List<HomeShortcut>) = edit {
@@ -1511,6 +1527,7 @@ class ShellPreferences @Inject constructor(
         val HOME_SHORTCUT_GRID_COLUMNS = intPreferencesKey("home_shortcut_grid_columns")
         val HOME_SHORTCUT_GRID_ROWS = intPreferencesKey("home_shortcut_grid_rows")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+        val HOME_TUTORIAL_COMPLETE = booleanPreferencesKey("home_tutorial_complete")
         val LAST_UPDATE_CHECK_AT = longPreferencesKey("last_update_check_at")
         val ANNOUNCED_UPDATE_VERSION = stringPreferencesKey("announced_update_version")
     }

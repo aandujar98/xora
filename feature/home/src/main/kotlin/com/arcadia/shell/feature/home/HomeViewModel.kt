@@ -358,6 +358,8 @@ class HomeViewModel @Inject constructor(
     private val bootIntroOpen = MutableStateFlow(false)
     private val bootIntroSkip = MutableStateFlow(false)
     private val homeIntroReveal = MutableStateFlow(true)
+    private val tutorialOpen = MutableStateFlow(false)
+    private val tutorialStep = MutableStateFlow(HomeTutorialStep.Profile)
     private val isScraping = MutableStateFlow(false)
     private val lastInputAt = MutableStateFlow(SystemClock.elapsedRealtime())
     /** False while Settings / options dialog own the shell, or the host asks to pause trailers. */
@@ -1029,6 +1031,7 @@ class HomeViewModel @Inject constructor(
         val bootSkip: Boolean,
         val homeIntroReveal: Boolean,
         val notif: NotificationChrome,
+        val tutorial: HomeTutorialUiState,
     )
 
     private data class AuxChrome(
@@ -1037,6 +1040,7 @@ class HomeViewModel @Inject constructor(
         val bootSkip: Boolean,
         val homeIntroReveal: Boolean,
         val notif: NotificationChrome,
+        val tutorial: HomeTutorialUiState,
         val systemProfile: SystemProfileCardState,
         val photos: PhotosUiState,
         val dashboard: XoraDashboardUiState,
@@ -1054,9 +1058,14 @@ class HomeViewModel @Inject constructor(
                 bootIntroOpen,
                 bootIntroSkip,
                 homeIntroReveal,
-                notificationChrome,
-            ) { welcome, boot, skip, reveal, notif ->
-                WakeChrome(welcome, boot, skip, reveal, notif)
+                combine(
+                    notificationChrome,
+                    combine(tutorialOpen, tutorialStep) { open, step ->
+                        HomeTutorialUiState(open = open, step = step)
+                    },
+                ) { notif, tutorial -> notif to tutorial },
+            ) { welcome, boot, skip, reveal, pair: Pair<NotificationChrome, HomeTutorialUiState> ->
+                WakeChrome(welcome, boot, skip, reveal, pair.first, pair.second)
             },
             systemProfileChromeFlow(),
             photosUi,
@@ -1069,6 +1078,7 @@ class HomeViewModel @Inject constructor(
                 bootSkip = wake.bootSkip,
                 homeIntroReveal = wake.homeIntroReveal,
                 notif = wake.notif,
+                tutorial = wake.tutorial,
                 systemProfile = systemProfile,
                 photos = photos,
                 dashboard = dashboard,
@@ -1097,6 +1107,7 @@ class HomeViewModel @Inject constructor(
             bootIntroOpen = aux.bootIntro,
             bootIntroSkip = aux.bootSkip,
             homeIntroReveal = aux.homeIntroReveal,
+            tutorial = aux.tutorial,
             notificationHistoryOpen = aux.notif.open,
             notificationHistory = aux.notif.history,
             notificationUnreadCount = aux.notif.unreadCount,
@@ -2820,6 +2831,16 @@ class HomeViewModel @Inject constructor(
         if (state.welcomeBackOpen) {
             if (action == NavAction.Cancel || action == NavAction.Confirm) {
                 dismissWelcomeBack()
+            }
+            return
+        }
+
+        if (state.tutorial.open) {
+            noteUserActivity()
+            when (homeTutorialPadCommand(action)) {
+                HomeTutorialCommand.Next -> advanceHomeTutorial()
+                HomeTutorialCommand.Skip -> skipHomeTutorial()
+                null -> Unit
             }
             return
         }
@@ -9389,12 +9410,47 @@ class HomeViewModel @Inject constructor(
         bootIntroOpen.value = true
     }
 
-    fun dismissBootIntro() {
+    fun dismissBootIntro(offerTutorial: Boolean = true) {
         if (!bootIntroOpen.value) return
         noteUserActivity()
         bootIntroOpen.value = false
         bootIntroSkip.value = false
         homeIntroReveal.value = true
+        if (offerTutorial) {
+            viewModelScope.launch { maybeStartHomeTutorial() }
+        }
+    }
+
+    fun advanceHomeTutorial() {
+        if (!tutorialOpen.value) return
+        noteUserActivity()
+        val next = tutorialStep.value.nextOrNull()
+        if (next == null) {
+            viewModelScope.launch { finishHomeTutorial() }
+        } else {
+            tutorialStep.value = next
+        }
+    }
+
+    fun skipHomeTutorial() {
+        if (!tutorialOpen.value) return
+        noteUserActivity()
+        viewModelScope.launch { finishHomeTutorial() }
+    }
+
+    private suspend fun maybeStartHomeTutorial() {
+        if (tutorialOpen.value) return
+        val onboardingDone = preferences.onboardingComplete.first()
+        val tutorialDone = preferences.homeTutorialComplete.first()
+        if (!shouldOfferHomeTutorial(onboardingDone, tutorialDone)) return
+        collapseHeroPanels()
+        tutorialStep.value = HomeTutorialStep.Profile
+        tutorialOpen.value = true
+    }
+
+    private suspend fun finishHomeTutorial() {
+        tutorialOpen.value = false
+        preferences.setHomeTutorialComplete(true)
     }
 
     private suspend fun maybeShowWelcomeBack() {

@@ -320,6 +320,8 @@ data class HomeUiState(
     val welcomeBackOpen: Boolean = false,
     /** Cold-start boot clip overlay (fully closed → opened). */
     val bootIntroOpen: Boolean = false,
+    /** First-run Home coach marks after onboarding and the boot clip. */
+    val tutorial: HomeTutorialUiState = HomeTutorialUiState(),
     /** Gamepad / caller asked the boot overlay to skip to the white fade. */
     val bootIntroSkip: Boolean = false,
     /**
