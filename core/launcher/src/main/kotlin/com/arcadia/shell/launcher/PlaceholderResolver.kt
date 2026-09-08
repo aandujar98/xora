@@ -38,6 +38,10 @@ class PlaceholderResolver @Inject constructor(
     fun resolve(raw: String, game: Game): String {
         var value = raw
 
+        if (value.contains(LaunchBootPath.PLACEHOLDER)) {
+            value = value.replace(LaunchBootPath.PLACEHOLDER, LaunchBootPath.resolve(game))
+        }
+
         if (value.contains(PATH)) {
             val path = game.filePath ?: throw MissingPlaceholderException(
                 PATH,

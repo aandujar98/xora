@@ -281,6 +281,7 @@ class GameLauncher @Inject constructor(
      */
     private fun bindKnownPackage(player: Player): Player? {
         if (RetroArchPackages.isRetroArchPlayer(player)) return bindRetroArchPackage(player)
+        if (Ps2Packages.isPlayPlayer(player)) return bindPs2PlayPackage(player)
         if (Ps2Packages.isPs2Player(player)) return bindPs2Package(player)
         return player
     }
@@ -291,9 +292,16 @@ class GameLauncher @Inject constructor(
         return RetroArchPackages.withPackage(player, installed)
     }
 
+    private fun bindPs2PlayPackage(player: Player): Player? {
+        val installed = Ps2Packages.findInstalledPlayPackage(probe) ?: return null
+        return Ps2Packages.withPackage(player, installed)
+    }
+
     private fun bindPs2Package(player: Player): Player? {
         if (!Ps2Packages.isPs2Player(player)) return player
-        val installed = Ps2Packages.findInstalledPackage(probe) ?: return null
+        val installed = Ps2Packages.findInstalledPackage(probe)
+            ?: Ps2Packages.findInstalledPlayPackage(probe)
+            ?: return null
         return Ps2Packages.withPackage(player, installed)
     }
 
@@ -363,10 +371,10 @@ class GameLauncher @Inject constructor(
         // the shell's own task stack and could never be placed on a different display.
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-        // FLAG_GRANT_* on the intent only covers Intent.data. Emulators that take the rom as a
-        // string extra (NetherSX2 bootPath, etc.) need the same uris on ClipData, and every
-        // content uri we can grant also needs an explicit package grant so the target UID can
-        // openInputStream after startActivity returns.
+        // FLAG_GRANT_* on the intent only covers Intent.data. Emulators that take a content URI
+        // as a string extra need the same uris on ClipData, and every content uri we can grant
+        // also needs an explicit package grant so the target UID can openInputStream after
+        // startActivity returns. NetherSX2 bootPath is a filesystem path, not a content URI.
         grantUriAccess(intent, args.packageName)
 
         return intent

@@ -958,6 +958,7 @@ class HomeViewModel @Inject constructor(
         xoraCoreCatalog.all.mapTo(mutableSetOf()) { it.platformId }
 
     private val customMediaEpoch = MutableStateFlow(0)
+    private val emulatorChoiceEpoch = MutableStateFlow(0)
 
     private val platformChromeFlow = combine(
         combine(
@@ -9351,9 +9352,14 @@ class HomeViewModel @Inject constructor(
     }
 
     val customMediaEpochFlow: StateFlow<Int> get() = customMediaEpoch
+    val emulatorChoiceEpochFlow: StateFlow<Int> get() = emulatorChoiceEpoch
 
     private fun bumpCustomMedia() {
         customMediaEpoch.update { it + 1 }
+    }
+
+    private fun bumpEmulatorChoice() {
+        emulatorChoiceEpoch.update { it + 1 }
     }
 
     private fun overlayMusicCustomMedia(items: List<XoraXmbItem>, epoch: Int): List<XoraXmbItem> {
@@ -9500,6 +9506,7 @@ class HomeViewModel @Inject constructor(
                 ),
             )
             playerRepository.selectPlayerForPlatform(platformId, emulator.playerId)
+            bumpEmulatorChoice()
             emit(HomeEvent.ShowMessage("${emulator.displayName} set for this system"))
         }
     }
@@ -9511,6 +9518,7 @@ class HomeViewModel @Inject constructor(
             if (platformId == "n64") {
                 preferences.setN64UseMupen64PlusNext(false)
             }
+            bumpEmulatorChoice()
         }
     }
 

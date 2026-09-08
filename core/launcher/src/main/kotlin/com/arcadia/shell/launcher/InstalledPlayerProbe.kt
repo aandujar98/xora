@@ -31,6 +31,9 @@ class InstalledPlayerProbe @Inject constructor(
         if (RetroArchPackages.isRetroArchPlayer(player)) {
             return RetroArchPackages.findInstalledPackage(this) != null
         }
+        if (Ps2Packages.isPlayPlayer(player)) {
+            return Ps2Packages.findInstalledPlayPackage(this) != null
+        }
         if (Ps2Packages.isPs2Player(player)) {
             return Ps2Packages.findInstalledPackage(this) != null
         }
@@ -42,6 +45,9 @@ class InstalledPlayerProbe @Inject constructor(
         return players.filter { player ->
             if (RetroArchPackages.isRetroArchPlayer(player)) {
                 return@filter RetroArchPackages.findInstalledPackage(this) != null
+            }
+            if (Ps2Packages.isPlayPlayer(player)) {
+                return@filter Ps2Packages.findInstalledPlayPackage(this) != null
             }
             if (Ps2Packages.isPs2Player(player)) {
                 return@filter Ps2Packages.findInstalledPackage(this) != null

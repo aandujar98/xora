@@ -99,15 +99,26 @@ object BuiltInPlayers {
                 "-a android.intent.action.VIEW " +
                 "-d {file.uri}",
         ),
-        // NetherSX2 (and original AetherSX2) share xyz.aethersx2.android. bootPath must be a
-        // grantable content URI — FileProvider when indexed by path, SAF document otherwise.
+        // NetherSX2 (and original AetherSX2) share xyz.aethersx2.android. bootPath is fopen'd as
+        // a filename — a FileProvider content URI shows up as "Requested filename 'content://…'".
         player(
             id = "nethersx2.ps2",
             name = "NetherSX2 / AetherSX2",
             platformIds = setOf("ps2"),
             template = "-n xyz.aethersx2.android/.EmulationActivity " +
                 "-a android.intent.action.MAIN " +
-                "-e bootPath {file.uri} " +
+                "-e bootPath {file.bootpath} " +
+                "--activity-clear-task --activity-clear-top",
+            killPackageProcesses = true,
+        ),
+        // Google Play listing (com.theemulatorapp.nethersx2). Same bootPath extra, different id.
+        player(
+            id = "nethersx2.play",
+            name = "NetherSX2 (Play Store)",
+            platformIds = setOf("ps2"),
+            template = "-n com.theemulatorapp.nethersx2/xyz.aethersx2.android.EmulationActivity " +
+                "-a android.intent.action.MAIN " +
+                "-e bootPath {file.bootpath} " +
                 "--activity-clear-task --activity-clear-top",
             killPackageProcesses = true,
         ),
@@ -118,7 +129,7 @@ object BuiltInPlayers {
             platformIds = setOf("ps2"),
             template = "-n xyz.aethersx2.android/.EmulationActivity " +
                 "-a android.intent.action.MAIN " +
-                "-e bootPath {file.uri} " +
+                "-e bootPath {file.bootpath} " +
                 "--activity-clear-task --activity-clear-top",
             killPackageProcesses = true,
         ),
