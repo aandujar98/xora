@@ -665,6 +665,14 @@ class ShellPreferences @Inject constructor(
     }
 
     /**
+     * Whether the first-run Home coach marks have been finished or skipped. Independent of
+     * [onboardingComplete] so Settings can replay the wizard without replaying the tutorial.
+     */
+    val homeTutorialComplete: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.HOME_TUTORIAL_COMPLETE] ?: false
+    }
+
+    /**
      * Mixed Steam + Discord pins for the LT “Pinned Friends” strip
      * (order preserved, max [CIRCLE_FRIEND_LIMIT]).
      *
@@ -1153,6 +1161,10 @@ class ShellPreferences @Inject constructor(
         it[Keys.ONBOARDING_COMPLETE] = done
     }
 
+    suspend fun setHomeTutorialComplete(done: Boolean) = edit {
+        it[Keys.HOME_TUTORIAL_COMPLETE] = done
+    }
+
     suspend fun setHomeShortcuts(shortcuts: List<HomeShortcut>) = edit {
         it[Keys.HOME_SHORTCUTS] = encodeHomeShortcuts(shortcuts)
     }
@@ -1511,6 +1523,7 @@ class ShellPreferences @Inject constructor(
         val HOME_SHORTCUT_GRID_COLUMNS = intPreferencesKey("home_shortcut_grid_columns")
         val HOME_SHORTCUT_GRID_ROWS = intPreferencesKey("home_shortcut_grid_rows")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+        val HOME_TUTORIAL_COMPLETE = booleanPreferencesKey("home_tutorial_complete")
         val LAST_UPDATE_CHECK_AT = longPreferencesKey("last_update_check_at")
         val ANNOUNCED_UPDATE_VERSION = stringPreferencesKey("announced_update_version")
     }
