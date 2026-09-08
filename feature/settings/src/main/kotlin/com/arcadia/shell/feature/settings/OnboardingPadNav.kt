@@ -12,9 +12,16 @@ internal enum class OnboardingPadCommand {
     Activate,
 }
 
+internal object OnboardingPadIds {
+    const val Back = "onboarding_back"
+    const val Skip = "onboarding_skip"
+    const val Next = "onboarding_next"
+}
+
 /**
  * Hat/stick auto-repeat from [com.arcadia.shell.input.GamepadDispatcher] is 70ms after a 350ms
- * delay. A wizard should not skip several steps while Right is held, so Left/Right are gated.
+ * delay. Shoulders still change steps, so LB/RB are gated. D-pad Left/Right move the cursor
+ * and must not be throttled.
  */
 internal const val ONBOARDING_PAD_DIRECTION_DEBOUNCE_MS = 400L
 
@@ -23,7 +30,7 @@ internal fun shouldAcceptOnboardingPadRepeat(
     nowMs: Long,
     lastDirectionalMs: Long?,
 ): Boolean {
-    if (action != NavAction.Left && action != NavAction.Right) return true
+    if (action != NavAction.NextPlatform && action != NavAction.PreviousPlatform) return true
     val previous = lastDirectionalMs ?: return true
     return nowMs - previous >= ONBOARDING_PAD_DIRECTION_DEBOUNCE_MS
 }
@@ -32,8 +39,8 @@ internal fun shouldAcceptOnboardingPadRepeat(
  * Maps controller actions onto the first-run wizard.
  *
  * Handhelds report D-pad as a hat/stick, which never becomes Compose focus, so this is the
- * path that actually walks the steps. A / Right / RB advance, B / Left / LB go back, Y skips
- * an optional step.
+ * path that actually walks the steps. A activates the focused control (same as Advanced
+ * Settings), RB / LB change steps, B goes back, Y skips an optional step.
  */
 internal fun onboardingPadCommand(
     action: NavAction,
@@ -78,5 +85,54 @@ internal fun onboardingPadCommand(
         NavAction.Options,
         -> if (optional) OnboardingPadCommand.Skip else OnboardingPadCommand.None
         else -> OnboardingPadCommand.None
+    }
+}
+
+/** Keep the wizard cursor on live controls. Never promote it into Setup's Tabs/Done chrome. */
+internal fun onboardingPadCoerce(
+    state: SettingsPadNavState,
+    layout: SettingsPadLayout,
+): SettingsPadNavState {
+    val cell = layout.clamp(state.rowIndex, state.colIndex)
+        ?: return state.copy(zone = SettingsPadZone.Controls, rowIndex = 0, colIndex = 0)
+    return state.copy(
+        zone = SettingsPadZone.Controls,
+        rowIndex = cell.first,
+        colIndex = cell.second,
+    )
+}
+
+/**
+ * D-pad walks every registered button and field. Left/Right stay on a visual row; Up/Down
+ * change rows. Edges stay put so the host can scroll the window.
+ */
+internal fun onboardingPadAfterAction(
+    state: SettingsPadNavState,
+    action: NavAction,
+    layout: SettingsPadLayout,
+): SettingsPadNavState {
+    val current = onboardingPadCoerce(state, layout)
+    fun atCell(row: Int, col: Int): SettingsPadNavState {
+        val cell = layout.clamp(row, col) ?: return current
+        return current.copy(
+            zone = SettingsPadZone.Controls,
+            rowIndex = cell.first,
+            colIndex = cell.second,
+        )
+    }
+    return when (action) {
+        NavAction.Left -> atCell(current.rowIndex, current.colIndex - 1)
+        NavAction.Right -> atCell(current.rowIndex, current.colIndex + 1)
+        NavAction.Down -> if (current.rowIndex < layout.rowCount - 1) {
+            atCell(current.rowIndex + 1, current.colIndex)
+        } else {
+            current
+        }
+        NavAction.Up -> if (current.rowIndex > 0) {
+            atCell(current.rowIndex - 1, current.colIndex)
+        } else {
+            current
+        }
+        else -> current
     }
 }
