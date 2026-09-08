@@ -38,7 +38,7 @@ class LaunchBootPathTest {
 
     @Test
     fun ps2RecipesUseBootpathNotFileUri() {
-        listOf("nethersx2.ps2", "aethersx2.ps2").forEach { id ->
+        listOf("nethersx2.ps2", "nethersx2.play", "aethersx2.ps2").forEach { id ->
             val args = BuiltInPlayers.all.first { it.uniqueId == id }.amStartArguments
             assertTrue(args.contains("bootPath {file.bootpath}"))
             assertFalse(args.contains("bootPath {file.uri}"))

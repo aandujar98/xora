@@ -281,6 +281,7 @@ class GameLauncher @Inject constructor(
      */
     private fun bindKnownPackage(player: Player): Player? {
         if (RetroArchPackages.isRetroArchPlayer(player)) return bindRetroArchPackage(player)
+        if (Ps2Packages.isPlayPlayer(player)) return bindPs2PlayPackage(player)
         if (Ps2Packages.isPs2Player(player)) return bindPs2Package(player)
         return player
     }
@@ -291,9 +292,16 @@ class GameLauncher @Inject constructor(
         return RetroArchPackages.withPackage(player, installed)
     }
 
+    private fun bindPs2PlayPackage(player: Player): Player? {
+        val installed = Ps2Packages.findInstalledPlayPackage(probe) ?: return null
+        return Ps2Packages.withPackage(player, installed)
+    }
+
     private fun bindPs2Package(player: Player): Player? {
         if (!Ps2Packages.isPs2Player(player)) return player
-        val installed = Ps2Packages.findInstalledPackage(probe) ?: return null
+        val installed = Ps2Packages.findInstalledPackage(probe)
+            ?: Ps2Packages.findInstalledPlayPackage(probe)
+            ?: return null
         return Ps2Packages.withPackage(player, installed)
     }
 

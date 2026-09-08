@@ -111,6 +111,17 @@ object BuiltInPlayers {
                 "--activity-clear-task --activity-clear-top",
             killPackageProcesses = true,
         ),
+        // Google Play listing (com.theemulatorapp.nethersx2). Same bootPath extra, different id.
+        player(
+            id = "nethersx2.play",
+            name = "NetherSX2 (Play Store)",
+            platformIds = setOf("ps2"),
+            template = "-n com.theemulatorapp.nethersx2/xyz.aethersx2.android.EmulationActivity " +
+                "-a android.intent.action.MAIN " +
+                "-e bootPath {file.bootpath} " +
+                "--activity-clear-task --activity-clear-top",
+            killPackageProcesses = true,
+        ),
         // Keep the historical id so existing per-game overrides still resolve after upsert.
         player(
             id = "aethersx2.ps2",

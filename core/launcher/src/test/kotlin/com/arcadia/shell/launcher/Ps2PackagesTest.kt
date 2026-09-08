@@ -36,5 +36,28 @@ class Ps2PackagesTest {
         assertTrue(Ps2Packages.CANDIDATE_PACKAGES.contains(Ps2Packages.PACKAGE_DEFAULT))
         assertTrue(Ps2Packages.CANDIDATE_PACKAGES.contains(Ps2Packages.PACKAGE_CTURNIP))
         assertTrue(Ps2Packages.CANDIDATE_PACKAGES.contains(Ps2Packages.PACKAGE_TTURNIP))
+        assertFalse(Ps2Packages.CANDIDATE_PACKAGES.contains(Ps2Packages.PACKAGE_PLAY))
+    }
+
+    @Test
+    fun playStoreRecipeIsSeparateFromSideloadFamily() {
+        val play = BuiltInPlayers.all.first { it.uniqueId == Ps2Packages.PLAYER_PLAY_ID }
+        assertTrue(Ps2Packages.isPlayPlayer(play))
+        assertFalse(Ps2Packages.isPs2Player(play))
+        assertTrue(Ps2Packages.PLAY_PACKAGES.contains(Ps2Packages.PACKAGE_PLAY))
+        assertTrue(Ps2Packages.PLAY_PACKAGES.contains(Ps2Packages.PACKAGE_PLAY_NSX2))
+    }
+
+    @Test
+    fun withPackageRetargetsPlayStoreNsx2Listing() {
+        val play = BuiltInPlayers.all.first { it.uniqueId == Ps2Packages.PLAYER_PLAY_ID }
+        val bound = Ps2Packages.withPackage(play, Ps2Packages.PACKAGE_PLAY_NSX2)
+        assertEquals(Ps2Packages.PACKAGE_PLAY_NSX2, bound.packageName)
+        assertTrue(
+            bound.amStartArguments.contains(
+                "${Ps2Packages.PACKAGE_PLAY_NSX2}/${Ps2Packages.ACTIVITY_LEGACY}",
+            ),
+        )
+        assertTrue(bound.amStartArguments.contains("bootPath {file.bootpath}"))
     }
 }

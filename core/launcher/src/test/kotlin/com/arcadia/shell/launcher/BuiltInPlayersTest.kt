@@ -135,9 +135,18 @@ class BuiltInPlayersTest {
         val nether = BuiltInPlayers.all.first { it.uniqueId == "nethersx2.ps2" }
         assertEquals(Ps2Packages.PACKAGE_DEFAULT, nether.packageName)
         assertTrue(Ps2Packages.isPs2Player(nether))
+        assertFalse(Ps2Packages.isPlayPlayer(nether))
         assertTrue(nether.amStartArguments.contains("bootPath {file.bootpath}"))
         assertFalse(nether.amStartArguments.contains("bootPath {file.uri}"))
         assertTrue(nether.amStartArguments.contains("--activity-clear-task"))
+
+        val play = BuiltInPlayers.all.first { it.uniqueId == Ps2Packages.PLAYER_PLAY_ID }
+        assertEquals("NetherSX2 (Play Store)", play.name)
+        assertEquals(Ps2Packages.PACKAGE_PLAY, play.packageName)
+        assertTrue(Ps2Packages.isPlayPlayer(play))
+        assertFalse(Ps2Packages.isPs2Player(play))
+        assertTrue(play.amStartArguments.contains("bootPath {file.bootpath}"))
+        assertTrue(play.amStartArguments.contains(Ps2Packages.ACTIVITY_LEGACY))
 
         val flycast = BuiltInPlayers.all.first { it.uniqueId == "flycast.dreamcast" }
         assertEquals("com.flycast.emulator", flycast.packageName)

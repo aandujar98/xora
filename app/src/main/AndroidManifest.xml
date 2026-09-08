@@ -80,6 +80,8 @@
         <package android:name="xyz.aethersx2.android" />
         <package android:name="xyz.aethersx2.cturnip" />
         <package android:name="xyz.aethersx2.tturnip" />
+        <package android:name="com.theemulatorapp.nethersx2" />
+        <package android:name="com.aethersx2.ps22" />
         <package android:name="com.retroarch.aarch64" />
         <package android:name="com.retroarch" />
         <package android:name="org.mupen64plusae.v3.fzurita" />
