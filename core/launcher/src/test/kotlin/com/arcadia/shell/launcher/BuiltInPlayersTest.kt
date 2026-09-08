@@ -135,7 +135,8 @@ class BuiltInPlayersTest {
         val nether = BuiltInPlayers.all.first { it.uniqueId == "nethersx2.ps2" }
         assertEquals(Ps2Packages.PACKAGE_DEFAULT, nether.packageName)
         assertTrue(Ps2Packages.isPs2Player(nether))
-        assertTrue(nether.amStartArguments.contains("bootPath {file.uri}"))
+        assertTrue(nether.amStartArguments.contains("bootPath {file.bootpath}"))
+        assertFalse(nether.amStartArguments.contains("bootPath {file.uri}"))
         assertTrue(nether.amStartArguments.contains("--activity-clear-task"))
 
         val flycast = BuiltInPlayers.all.first { it.uniqueId == "flycast.dreamcast" }
@@ -188,7 +189,12 @@ class BuiltInPlayersTest {
     /** A profile that names no file placeholder would launch the emulator with no game. */
     @Test
     fun `every template passes the game to the emulator`() {
-        val placeholders = listOf("{file.path}", "{file.uri}", "{file.documenturi}")
+        val placeholders = listOf(
+            "{file.path}",
+            "{file.uri}",
+            "{file.documenturi}",
+            "{file.bootpath}",
+        )
 
         BuiltInPlayers.all.forEach { player ->
             assertTrue(

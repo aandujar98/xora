@@ -28,7 +28,7 @@ class Ps2PackagesTest {
                 "${Ps2Packages.PACKAGE_CTURNIP}/${Ps2Packages.ACTIVITY_LEGACY}",
             ),
         )
-        assertTrue(bound.amStartArguments.contains("bootPath {file.uri}"))
+        assertTrue(bound.amStartArguments.contains("bootPath {file.bootpath}"))
     }
 
     @Test

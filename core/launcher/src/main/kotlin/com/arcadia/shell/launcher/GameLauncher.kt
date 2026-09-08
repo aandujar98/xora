@@ -363,10 +363,10 @@ class GameLauncher @Inject constructor(
         // the shell's own task stack and could never be placed on a different display.
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-        // FLAG_GRANT_* on the intent only covers Intent.data. Emulators that take the rom as a
-        // string extra (NetherSX2 bootPath, etc.) need the same uris on ClipData, and every
-        // content uri we can grant also needs an explicit package grant so the target UID can
-        // openInputStream after startActivity returns.
+        // FLAG_GRANT_* on the intent only covers Intent.data. Emulators that take a content URI
+        // as a string extra need the same uris on ClipData, and every content uri we can grant
+        // also needs an explicit package grant so the target UID can openInputStream after
+        // startActivity returns. NetherSX2 bootPath is a filesystem path, not a content URI.
         grantUriAccess(intent, args.packageName)
 
         return intent
