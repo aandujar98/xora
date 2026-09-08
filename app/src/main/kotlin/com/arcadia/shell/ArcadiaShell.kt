@@ -79,6 +79,7 @@ import com.arcadia.shell.feature.home.VitaShortcutIconSheet
 import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.feature.home.XoraXmbHeroDetail
 import com.arcadia.shell.feature.home.component.GuidePanel
+import com.arcadia.shell.feature.home.component.HomeSlotNotificationBanner
 import com.arcadia.shell.feature.home.component.LocalShellNotificationBanner
 import com.arcadia.shell.feature.home.component.NotificationHistoryPanel
 import com.arcadia.shell.feature.home.component.ShellNotificationBannerHandle
@@ -767,6 +768,10 @@ fun ArcadiaShell(
                     onDismiss = homeViewModel::dismissWelcomeBack,
                     modifier = Modifier.fillMaxSize(),
                 )
+                HomeSlotNotificationBanner(
+                    notification = state.activeNotification,
+                    ltExpanded = state.accountPanelExpanded,
+                )
                 HomeTutorialOverlay(
                     state = state.tutorial,
                     onNext = homeViewModel::advanceHomeTutorial,
@@ -868,7 +873,10 @@ fun ArcadiaShell(
                                 modifier = Modifier.fillMaxSize(),
                             )
                             // Guide may still mirror; Start settings stay on the primary Activity.
-                            // Notification banners host next to the LT capsule on this pane.
+                            HomeSlotNotificationBanner(
+                                notification = state.activeNotification,
+                                ltExpanded = state.accountPanelExpanded,
+                            )
                             GuideOverlay(
                                 state = state,
                                 homeViewModel = homeViewModel,

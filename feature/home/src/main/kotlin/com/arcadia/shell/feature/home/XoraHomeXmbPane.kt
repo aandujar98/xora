@@ -84,7 +84,6 @@ import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.component.AccountPill
-import com.arcadia.shell.feature.home.component.HomeSlotNotificationBanner
 import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
@@ -1051,13 +1050,6 @@ private fun XoraXmbPillChrome(
                     alpha = introAlpha
                     translationX = -slidePx
                 },
-        )
-        HomeSlotNotificationBanner(
-            ltExpanded = accountExpanded,
-            modifier = Modifier.graphicsLayer {
-                alpha = introAlpha
-                translationX = -slidePx
-            },
         )
         SystemPill(
             profile = state.profile,

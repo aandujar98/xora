@@ -39,6 +39,24 @@ class NotificationBannerVisibilityTest {
     }
 
     @Test
+    fun bannerFollowsTheSameActiveToastThatHidesTheCapsule() {
+        assertTrue(
+            shouldShowNotificationBanner(
+                notificationsEnabled = true,
+                hasActive = true,
+                ltExpanded = false,
+            ),
+        )
+        assertFalse(
+            shouldShowNotificationBanner(
+                notificationsEnabled = true,
+                hasActive = false,
+                ltExpanded = false,
+            ),
+        )
+    }
+
+    @Test
     fun bannerHidesWhenLtIsOpenOrMasterToggleIsOff() {
         assertFalse(
             shouldShowNotificationBanner(

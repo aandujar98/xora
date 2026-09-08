@@ -38,6 +38,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -87,21 +91,79 @@ fun shouldShowNotificationBanner(
 ): Boolean = notificationsEnabled && hasActive && !ltExpanded
 
 /**
- * Banner in the LT capsule slot. No-ops when [LocalShellNotificationBanner] is unset
- * (emulator overlay, previews).
+ * Banner in the LT capsule slot. Driven by the same [notification] that hides the
+ * social capsule — not a second collector — so sound + hide + toast cannot drift.
+ *
+ * Drawn in a [Popup] so wallpaper TextureView / ExoPlayer cannot cover it.
  */
 @Composable
 fun BoxScope.HomeSlotNotificationBanner(
+    notification: ShellNotification?,
     ltExpanded: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val handle = LocalShellNotificationBanner.current ?: return
-    NotificationBannerHost(
-        center = handle.center,
+    val handle = LocalShellNotificationBanner.current
+    val reduceMotion = rememberReduceMotion()
+    val visible = shouldShowNotificationBanner(
+        notificationsEnabled = true,
+        hasActive = notification != null,
         ltExpanded = ltExpanded,
-        onActivate = handle.onActivate,
-        modifier = modifier,
     )
+    val density = LocalDensity.current
+    val offset = with(density) {
+        IntOffset(BannerStart.roundToPx(), BannerTop.roundToPx())
+    }
+    if (!visible && notification == null) return
+
+    Popup(
+        alignment = Alignment.TopStart,
+        offset = offset,
+        properties = PopupProperties(
+            focusable = false,
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+            clippingEnabled = false,
+        ),
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            modifier = modifier,
+            enter = if (reduceMotion) {
+                fadeIn()
+            } else {
+                slideInHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                    initialOffsetX = { -it },
+                ) + fadeIn(
+                    animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                )
+            },
+            exit = if (reduceMotion) {
+                fadeOut()
+            } else {
+                slideOutHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                    targetOffsetX = { -it },
+                ) + fadeOut()
+            },
+            label = "shellNotificationBanner",
+        ) {
+            val current = notification
+            if (current != null) {
+                NotificationBanner(
+                    notification = current,
+                    onDismiss = { handle?.center?.dismiss() },
+                    onActivate = handle?.onActivate,
+                )
+            }
+        }
+    }
 }
 
 /**

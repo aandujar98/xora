@@ -1028,7 +1028,7 @@ class HomeViewModel @Inject constructor(
             netplayInvitePromptOpen,
             shellNotifications.active,
         ) { invite, prompt, active ->
-            Triple(invite, prompt, active != null)
+            Triple(invite, prompt, active)
         },
     ) { open, selected, history, unread, invite ->
         NotificationChrome(
@@ -1049,8 +1049,10 @@ class HomeViewModel @Inject constructor(
         val unreadCount: Int,
         val pendingInvite: NetplayInvitePrompt?,
         val invitePromptOpen: Boolean,
-        val activePresent: Boolean,
-    )
+        val active: ShellNotification?,
+    ) {
+        val activePresent: Boolean get() = active != null
+    }
 
     private data class WakeChrome(
         val welcomeBack: Boolean,
@@ -1140,6 +1142,7 @@ class HomeViewModel @Inject constructor(
             notificationUnreadCount = aux.notif.unreadCount,
             notificationHistorySelectedIndex = aux.notif.selectedIndex
                 .coerceIn(0, if (aux.notif.history.isEmpty()) 0 else aux.notif.history.size),
+            activeNotification = aux.notif.active,
             activeNotificationPresent = aux.notif.activePresent,
             pendingNetplayInvite = aux.notif.pendingInvite,
             netplayInvitePromptOpen = aux.notif.invitePromptOpen,
