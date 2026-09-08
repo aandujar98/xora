@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -36,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -178,9 +180,13 @@ fun OnboardingScreen(
                 if (action == NavAction.Cancel) showFolderPicker = false
                 return@collect
             }
-            val layout = padRegistry.layout()
-            val current = onboardingPadCoerce(padNow.value, layout)
-            val focusId = settingsPadFocusId(current, layout)
+            val layout = onboardingControlsLayout(padRegistry.layout())
+            val chromeIds = onboardingChromeIds(
+                canGoBack = currentState.canGoBack,
+                optional = isOptional(currentState.step),
+            )
+            val current = onboardingPadCoerce(padNow.value, layout, chromeIds)
+            val focusId = onboardingPadFocusId(current, layout, chromeIds)
             val binding = focusId?.let(padRegistry::binding)
             val directional = action == NavAction.Left ||
                 action == NavAction.Right ||
@@ -199,7 +205,7 @@ fun OnboardingScreen(
                         return@collect
                     }
                 }
-                val next = onboardingPadAfterAction(current, action, layout)
+                val next = onboardingPadAfterAction(current, action, layout, chromeIds)
                 if (settingsPadShouldScrollPage(current, next, action)) {
                     val pageDelta = if (action == NavAction.Down) scrollStep else -scrollStep
                     scrollStateNow.value.animateScrollBy(pageDelta)
@@ -326,22 +332,30 @@ fun OnboardingScreen(
                 }
                 .padding(horizontal = 40.dp, vertical = 24.dp),
         ) {
-            val padLayout = padRegistry.layout()
-            val coercedPad = onboardingPadCoerce(pad, padLayout)
-            val padFocusId = settingsPadFocusId(coercedPad, padLayout)
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val viewportHeight = maxHeight
+            val chromeIds = onboardingChromeIds(
+                canGoBack = state.canGoBack,
+                optional = isOptional(state.step),
+            )
+            val padLayout = onboardingControlsLayout(padRegistry.layout())
+            val coercedPad = onboardingPadCoerce(pad, padLayout, chromeIds)
+            val padFocusId = onboardingPadFocusId(coercedPad, padLayout, chromeIds)
             CompositionLocalProvider(
                 LocalSettingsPadRegistry provides padRegistry,
                 LocalSettingsPadFocusId provides padFocusId,
             ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Column(
                     modifier = Modifier
                         .widthIn(max = 720.dp)
                         .fillMaxWidth()
-                        .weight(1f),
+                        .heightIn(max = viewportHeight)
+                        .weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -353,8 +367,9 @@ fun OnboardingScreen(
 
                 Box(
                     modifier = Modifier
-                        .weight(1f)
                         .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .wrapContentHeight(align = Alignment.Top)
                         .clip(ArcadiaGlass.PanelShape)
                         .xoraModalGlass(ArcadiaGlass.PanelShape),
                 ) {
@@ -362,22 +377,15 @@ fun OnboardingScreen(
                     val fadeOutSpec = arcadiaTween<Float>(ArcadiaMotion.Fast)
                     val slideInSpec = arcadiaTween<IntOffset>(ArcadiaMotion.Medium)
                     val slideOutSpec = arcadiaTween<IntOffset>(ArcadiaMotion.Fast)
-                    Row(modifier = Modifier.fillMaxSize()) {
-                    BoxWithConstraints(
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                    Column(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxHeight(),
+                            .heightIn(max = viewportHeight)
+                            .verticalScroll(scrollState)
+                            .padding(start = 28.dp, end = 12.dp, top = 20.dp, bottom = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        val viewportHeight = maxHeight
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .verticalScroll(scrollState)
-                                .heightIn(min = viewportHeight)
-                                .padding(start = 28.dp, end = 12.dp, top = 24.dp, bottom = 24.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
                     AnimatedContent(
                         targetState = state.step,
                         transitionSpec = {
@@ -488,15 +496,16 @@ fun OnboardingScreen(
                             OnboardingStep.Done -> DoneStep()
                         }
                     }
-                        }
                     }
-                    OnboardingScrollIndicator(
-                        scrollState = scrollState,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(vertical = 18.dp)
-                            .padding(end = 10.dp),
-                    )
+                    if (scrollState.maxValue > 0) {
+                        OnboardingScrollIndicator(
+                            scrollState = scrollState,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(vertical = 18.dp)
+                                .padding(end = 10.dp),
+                        )
+                    }
                     }
                 }
 
@@ -515,6 +524,7 @@ fun OnboardingScreen(
 
                 OnboardingHints(state = state, scraperSheet = scraperSheet)
                 }
+            }
             }
             }
         }
@@ -989,13 +999,15 @@ private fun EmulatorsStep(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                choices.forEach { choice ->
-                    OnboardingPlatformEmulatorCard(
-                        choice = choice,
-                        onSelect = { playerId ->
-                            onSelectPlayer(choice.summary.platform.id, playerId)
-                        },
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    choices.forEach { choice ->
+                        OnboardingPlatformEmulatorCard(
+                            choice = choice,
+                            onSelect = { playerId ->
+                                onSelectPlayer(choice.summary.platform.id, playerId)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -1007,47 +1019,76 @@ private fun OnboardingPlatformEmulatorCard(
     choice: PlatformPlayerChoice,
     onSelect: (String?) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val status = when {
+        choice.candidates.isEmpty() ->
+            "No emulator installed yet — XOrA will add one when you install it."
+        choice.effectivePlayer == null -> "Nothing installed that can open these games."
+        choice.isInstalled -> "Opens with ${choice.effectivePlayer.name}"
+        else -> "${choice.effectivePlayer.name} is selected but not installed."
+    }
+    val statusOk = choice.isInstalled || choice.effectivePlayer == null
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ArcadiaGlass.CardShape)
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), ArcadiaGlass.CardShape)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = choice.summary.platform.displayName,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "${choice.summary.gameCount} games",
+                style = MaterialTheme.typography.labelMedium,
+                color = MutedInk,
+            )
+        }
         Text(
-            text = "${choice.summary.platform.displayName} (${choice.summary.gameCount})",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = when {
-                choice.candidates.isEmpty() ->
-                    "No emulator for this system is installed yet. XOrA will add one when you install it."
-                choice.effectivePlayer == null -> "Nothing installed that can open these games."
-                choice.isInstalled -> "Opens with ${choice.effectivePlayer.name}"
-                else -> "${choice.effectivePlayer.name} is selected but not installed."
-            },
+            text = status,
             style = MaterialTheme.typography.bodySmall,
-            color = if (choice.isInstalled || choice.effectivePlayer == null) {
+            color = if (statusOk) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
                 MaterialTheme.colorScheme.error
             },
         )
-        SettingsPadRow("emu_${choice.summary.platform.id}") {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                choice.candidates.forEach { player ->
-                    val select = {
-                        onSelect(
-                            if (choice.selectedPlayerId == player.uniqueId) null else player.uniqueId,
-                        )
-                    }
-                    SettingsPadTarget(
-                        id = "emu_${choice.summary.platform.id}_${player.uniqueId}",
-                        onActivate = select,
-                    ) {
-                        FilterChip(
-                            selected = choice.selectedPlayerId == player.uniqueId,
-                            onClick = select,
-                            label = { Text(text = player.name) },
-                        )
+        if (choice.candidates.isNotEmpty()) {
+            SettingsPadRow("emu_${choice.summary.platform.id}") {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    choice.candidates.forEach { player ->
+                        val select = {
+                            onSelect(
+                                if (choice.selectedPlayerId == player.uniqueId) {
+                                    null
+                                } else {
+                                    player.uniqueId
+                                },
+                            )
+                        }
+                        SettingsPadTarget(
+                            id = "emu_${choice.summary.platform.id}_${player.uniqueId}",
+                            onActivate = select,
+                        ) {
+                            FilterChip(
+                                selected = choice.selectedPlayerId == player.uniqueId,
+                                onClick = select,
+                                label = { Text(text = player.name) },
+                            )
+                        }
                     }
                 }
             }
@@ -1628,7 +1669,8 @@ private fun OnboardingHints(
     val optional = isOptional(state.step)
     val hints = buildList {
         add("A" to "Use")
-        add("U/D/L/R" to "Move")
+        add("U" to "Next")
+        add("D/L/R" to "Move")
         add("RB" to if (state.isLast) "Finish" else if (optional) "Continue" else "Next")
         if (state.canGoBack) {
             add("B / LB" to if (scraperSheet != null) "Close" else "Back")

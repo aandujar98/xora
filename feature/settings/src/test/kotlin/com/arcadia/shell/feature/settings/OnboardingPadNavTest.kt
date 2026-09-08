@@ -237,38 +237,75 @@ class OnboardingPadNavTest {
             listOf(
                 listOf("steam", "discord"),
                 listOf("api_key"),
-                listOf(OnboardingPadIds.Back, OnboardingPadIds.Skip, OnboardingPadIds.Next),
             ),
         )
+        val chrome = onboardingChromeIds(canGoBack = true, optional = true)
         val start = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
-        val right = onboardingPadAfterAction(start, NavAction.Right, layout)
-        assertEquals("discord", settingsPadFocusId(onboardingPadCoerce(right, layout), layout))
+        val right = onboardingPadAfterAction(start, NavAction.Right, layout, chrome)
+        assertEquals("discord", onboardingPadFocusId(right, layout, chrome))
 
-        val down = onboardingPadAfterAction(right, NavAction.Down, layout)
-        assertEquals("api_key", settingsPadFocusId(onboardingPadCoerce(down, layout), layout))
+        val down = onboardingPadAfterAction(right, NavAction.Down, layout, chrome)
+        assertEquals("api_key", onboardingPadFocusId(down, layout, chrome))
+    }
 
-        val chrome = onboardingPadAfterAction(down, NavAction.Down, layout)
-        assertEquals(OnboardingPadIds.Back, settingsPadFocusId(onboardingPadCoerce(chrome, layout), layout))
+    @Test
+    fun upFromTheFirstFieldAndDownFromTheLastJumpToNext() {
+        val layout = SettingsPadLayout(
+            listOf(
+                listOf("steam"),
+                listOf("api_key"),
+            ),
+        )
+        val chrome = onboardingChromeIds(canGoBack = true, optional = true)
+        val first = SettingsPadNavState(0, SettingsPadZone.Controls, 0, 0)
+        val up = onboardingPadAfterAction(first, NavAction.Up, layout, chrome)
+        assertEquals(SettingsPadZone.Done, up.zone)
+        assertEquals(OnboardingPadIds.Next, onboardingPadFocusId(up, layout, chrome))
 
-        val skip = onboardingPadAfterAction(chrome, NavAction.Right, layout)
-        assertEquals(OnboardingPadIds.Skip, settingsPadFocusId(onboardingPadCoerce(skip, layout), layout))
+        val last = SettingsPadNavState(0, SettingsPadZone.Controls, 1, 0)
+        val down = onboardingPadAfterAction(last, NavAction.Down, layout, chrome)
+        assertEquals(OnboardingPadIds.Next, onboardingPadFocusId(down, layout, chrome))
 
-        val next = onboardingPadAfterAction(skip, NavAction.Right, layout)
-        assertEquals(OnboardingPadIds.Next, settingsPadFocusId(onboardingPadCoerce(next, layout), layout))
+        val intoForm = onboardingPadAfterAction(down, NavAction.Down, layout, chrome)
+        assertEquals("steam", onboardingPadFocusId(intoForm, layout, chrome))
 
-        val still = onboardingPadAfterAction(next, NavAction.Down, layout)
-        assertEquals(next.copy(zone = SettingsPadZone.Controls), still)
-        assertTrue(settingsPadShouldScrollPage(still, still, NavAction.Down))
+        val back = onboardingPadAfterAction(up, NavAction.Left, layout, chrome)
+        assertEquals(OnboardingPadIds.Skip, onboardingPadFocusId(back, layout, chrome))
+        val further = onboardingPadAfterAction(back, NavAction.Left, layout, chrome)
+        assertEquals(OnboardingPadIds.Back, onboardingPadFocusId(further, layout, chrome))
+    }
+
+    @Test
+    fun emptyFormLandsOnNextAndStripsChromeFromTheControlGrid() {
+        val chrome = onboardingChromeIds(canGoBack = false, optional = false)
+        val empty = onboardingPadCoerce(
+            SettingsPadNavState(0, SettingsPadZone.Controls, 8, 4),
+            SettingsPadLayout(),
+            chrome,
+        )
+        assertEquals(SettingsPadZone.Done, empty.zone)
+        assertEquals(OnboardingPadIds.Next, onboardingPadFocusId(empty, SettingsPadLayout(), chrome))
+
+        val mixed = onboardingControlsLayout(
+            SettingsPadLayout(
+                listOf(
+                    listOf("steam"),
+                    listOf(OnboardingPadIds.Back, OnboardingPadIds.Skip, OnboardingPadIds.Next),
+                ),
+            ),
+        )
+        assertEquals(listOf(listOf("steam")), mixed.rows)
     }
 
     @Test
     fun coerceNeverPromotesTheWizardCursorIntoSetupTabs() {
+        val chrome = onboardingChromeIds(canGoBack = true, optional = false)
         val empty = onboardingPadCoerce(
             SettingsPadNavState(0, SettingsPadZone.Tabs, 8, 4),
             SettingsPadLayout(),
+            chrome,
         )
-        assertEquals(SettingsPadZone.Controls, empty.zone)
-        assertEquals(0, empty.rowIndex)
-        assertEquals(0, empty.colIndex)
+        assertEquals(SettingsPadZone.Done, empty.zone)
+        assertEquals(OnboardingPadIds.Next, onboardingPadFocusId(empty, SettingsPadLayout(), chrome))
     }
 }
