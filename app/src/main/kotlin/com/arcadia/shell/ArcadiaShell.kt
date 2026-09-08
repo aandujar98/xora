@@ -46,6 +46,7 @@ import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.SkyBackground
 import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.inverted
 import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.designsystem.xoraSwipeNavigate
 import com.arcadia.shell.input.NavAction
@@ -556,7 +557,7 @@ fun ArcadiaShell(
         val swipeModifier = if (swipeEnabled) {
             Modifier.xoraSwipeNavigate(
                 onSwipe = { direction ->
-                    homeViewModel.onTouchNav(direction.toNavAction())
+                    homeViewModel.onTouchNav(direction.inverted().toNavAction())
                 },
                 onTwoFingerSwipe = { direction ->
                     homeViewModel.onTwoFingerSwipe(direction)
@@ -823,7 +824,7 @@ fun ArcadiaShell(
                                     !state.tutorial.open &&
                                     !state.isLaunching,
                                 onSwipe = { direction ->
-                                    homeViewModel.onTouchNav(direction.toNavAction())
+                                    homeViewModel.onTouchNav(direction.inverted().toNavAction())
                                 },
                                 onTwoFingerSwipe = { direction ->
                                     homeViewModel.onTwoFingerSwipe(direction)
@@ -1463,6 +1464,7 @@ private fun PaneForRole(
     }
 }
 
+/** Finger flicks map to pad steps after [XoraSwipeDirection.inverted] so the XMB follows the drag. */
 private fun XoraSwipeDirection.toNavAction(): NavAction = when (this) {
     XoraSwipeDirection.Left -> NavAction.Left
     XoraSwipeDirection.Right -> NavAction.Right
