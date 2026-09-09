@@ -33,6 +33,7 @@ import com.arcadia.shell.launcher.discord.XORA_PLUS_BYPASS_CODE
 import com.arcadia.shell.launcher.discord.XoraPlusCheckState
 import com.arcadia.shell.launcher.discord.XoraPlusMembership
 import com.arcadia.shell.launcher.discord.discordAccountLinked
+import com.arcadia.shell.launcher.discord.discordOnboardingMayAdvance
 import com.arcadia.shell.libretro.XoraLibretroPlayers
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
@@ -128,7 +129,11 @@ data class OnboardingUiState(
     val discordLinked: Boolean get() = discordAccountLinked(discordPresence)
     val canAdvance: Boolean get() = when (step) {
         OnboardingStep.Emulators -> !scanRunning
-        OnboardingStep.Discord -> xoraPlusBypass || (discordLinked && xoraPlus.hasPlus)
+        OnboardingStep.Discord -> discordOnboardingMayAdvance(
+            bypass = xoraPlusBypass,
+            plus = xoraPlus,
+            presence = discordPresence,
+        )
         else -> true
     }
 }
@@ -394,8 +399,7 @@ class OnboardingViewModel @Inject constructor(
         if (step.value == OnboardingStep.Discord) {
             val plus = xoraPlusMembership.state.value
             val bypass = plusBypassOverride.value || uiState.value.xoraPlusBypass
-            val linked = discordAccountLinked(discordRichPresence.state.value)
-            if (!bypass && !(linked && plus.hasPlus)) return
+            if (!discordOnboardingMayAdvance(bypass, plus, discordRichPresence.state.value)) return
         }
         if (step.value == OnboardingStep.AndroidApps) {
             persistAndroidAppSelection()

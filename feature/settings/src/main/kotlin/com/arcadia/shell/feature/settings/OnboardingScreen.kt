@@ -114,6 +114,9 @@ import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import com.arcadia.shell.launcher.discord.XORA_DISCORD_INVITE_URL
 import com.arcadia.shell.launcher.discord.XoraPlusCheckState
+import com.arcadia.shell.launcher.discord.discordOnboardingLinkEnabled
+import com.arcadia.shell.launcher.discord.discordOnboardingLinkLabel
+import com.arcadia.shell.launcher.discord.discordOnboardingSessionReady
 import com.arcadia.shell.launcher.discord.xoraPlusOnboardingLine
 import kotlin.math.roundToInt
 
@@ -1571,28 +1574,8 @@ private fun DiscordStep(
             color = Color.White,
         )
 
-        val discordLabel = when {
-            discordPresence.connecting -> "Connecting Discord…"
-            discordPresence.capability == DiscordPresenceCapability.Connected ->
-                "Discord linked"
-            discordPresence.capability == DiscordPresenceCapability.NeedsDiscordApp ->
-                "Install Discord"
-            discordPresence.capability == DiscordPresenceCapability.Failed ->
-                "Retry Discord link"
-            discordPresence.capability == DiscordPresenceCapability.SdkMissing ->
-                "Discord SDK missing"
-            discordPresence.capability == DiscordPresenceCapability.NotConfigured ->
-                "Link Discord"
-            else -> "Link Discord"
-        }
-        val canLinkDiscord = discordPresence.capability == DiscordPresenceCapability.NeedsAccountLink ||
-            discordPresence.capability == DiscordPresenceCapability.NeedsDiscordApp ||
-            discordPresence.capability == DiscordPresenceCapability.Failed ||
-            discordPresence.capability == DiscordPresenceCapability.Connected ||
-            (discordPresence.capability == DiscordPresenceCapability.NotConfigured &&
-                discordPresence.applicationId.isNotBlank())
-        val discordEnabled = canLinkDiscord && !discordPresence.connecting &&
-            discordPresence.capability != DiscordPresenceCapability.SdkMissing
+        val discordLabel = discordOnboardingLinkLabel(discordPresence)
+        val discordEnabled = discordOnboardingLinkEnabled(discordPresence)
 
         SettingsPadTarget(
             id = "social_discord",
@@ -1605,9 +1588,15 @@ private fun DiscordStep(
                 Text(discordLabel)
             }
         }
-        if (discordPresence.capability == DiscordPresenceCapability.Connected) {
+        if (discordOnboardingSessionReady(discordPresence)) {
             Text(
-                text = "Discord account linked.",
+                text = if (discordPresence.connecting &&
+                    discordPresence.capability != DiscordPresenceCapability.Connected
+                ) {
+                    "Discord sign-in received. If this stays on Connecting, tap it again."
+                } else {
+                    "Discord account linked."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White,
             )

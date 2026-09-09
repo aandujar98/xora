@@ -111,6 +111,27 @@ class OnboardingStepTest {
             xoraPlusBypass = true,
         )
         assertTrue(bypass.canAdvance)
+
+        // Tokens exist but Social SDK Connect() has not reached Ready yet.
+        val connectingPlus = OnboardingUiState(
+            step = OnboardingStep.Discord,
+            discordPresence = DiscordPresenceUiState(
+                capability = DiscordPresenceCapability.NeedsAccountLink,
+                connecting = true,
+            ),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
+        )
+        assertTrue(connectingPlus.canAdvance)
+
+        val connectingNoPlus = OnboardingUiState(
+            step = OnboardingStep.Discord,
+            discordPresence = DiscordPresenceUiState(
+                capability = DiscordPresenceCapability.NeedsAccountLink,
+                connecting = true,
+            ),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.CheckFailed),
+        )
+        assertFalse(connectingNoPlus.canAdvance)
     }
 
     @Test
