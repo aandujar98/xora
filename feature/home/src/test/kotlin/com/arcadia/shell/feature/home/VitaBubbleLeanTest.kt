@@ -9,6 +9,14 @@ import kotlin.math.abs
 class VitaBubbleLeanTest {
 
     @Test
+    fun `profile bubble and tray share the same lean limits`() {
+        assertEquals(13f, VITA_BUBBLE_TILT_DEG)
+        assertEquals(6f, VITA_BUBBLE_CAMERA_DISTANCE)
+        assertEquals(0.03f, VITA_BUBBLE_SHEEN_TRAVEL)
+        assertEquals(0.115f, VITA_BUBBLE_TILT_SHIFT_FRACTION)
+    }
+
+    @Test
     fun `idle rock leans both ways over a cycle and never overpowers the sway`() {
         val samples = (0..40).map { vitaBubbleIdleLean(index = 0, cycleUnit = it / 40f) }
         assertTrue(samples.any { it > 0.2f })
