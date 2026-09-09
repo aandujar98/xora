@@ -977,9 +977,18 @@ class HomeViewModel @Inject constructor(
     private val xoraEmulatedPlatformIds: Set<String> =
         xoraCoreCatalog.all.mapTo(mutableSetOf()) { it.platformId }
 
+    /**
+     * [nowPlayingController.state] without its 250ms position tick, so track/transport changes
+     * still flow into [buildState] normally but a bare progress-bar frame does not — that tick
+     * used to re-run the whole library grouping and platform chrome pipeline 4x/sec while music
+     * played. Live position is merged back into [uiState] separately, below.
+     */
+    private val nowPlayingStable = nowPlayingController.state
+        .distinctUntilChanged { old, new -> old.copy(positionMs = 0) == new.copy(positionMs = 0) }
+
     private val musicFlow = combine(
         musicUi,
-        nowPlayingController.state,
+        nowPlayingStable,
         customMediaEpoch,
         preferences.settings.map { it.bgmVolume }.distinctUntilChanged(),
     ) { music, nowPlaying, _, bgmVolume ->
@@ -1204,11 +1213,24 @@ class HomeViewModel @Inject constructor(
             dashboard = aux.dashboard,
             systemUpdate = aux.systemUpdate,
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.Eagerly,
-        initialValue = HomeUiState(),
-    )
+    }
+        // Cheap shallow copy on every 250ms position tick instead of routing it through the
+        // heavy combine above — see nowPlayingStable.
+        .combine(
+            nowPlayingController.state.map { it.positionMs }.distinctUntilChanged(),
+        ) { state, positionMs ->
+            val current = state.music.nowPlaying
+            if (current.track == null || current.positionMs == positionMs) {
+                state
+            } else {
+                state.copy(music = state.music.copy(nowPlaying = current.copy(positionMs = positionMs)))
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = HomeUiState(),
+        )
 
     init {
         refreshInstalledApps()
@@ -1385,6 +1407,20 @@ class HomeViewModel @Inject constructor(
         }
             .distinctUntilChanged()
             .onEach { gamepadDispatcher.vitaBubbleLaunchSfx = it }
+            .launchIn(viewModelScope)
+
+        // Mirrors the top-level Cancel branch in onVitaShortcutTrayNavAction: B closes the tray
+        // (not a launch page, edit mode, or bubble move) straight back to the XMB.
+        combine(
+            vitaShortcutTrayOpen,
+            vitaShortcutLaunch,
+            vitaShortcutMoveIndex,
+            homeShortcutsEditMode,
+        ) { open, launch, moveIndex, editMode ->
+            open && launch == null && moveIndex == null && !editMode
+        }
+            .distinctUntilChanged()
+            .onEach { gamepadDispatcher.vitaTrayClosesOnCancel = it }
             .launchIn(viewModelScope)
 
         observeIdleTrailer()
@@ -3277,6 +3313,7 @@ class HomeViewModel @Inject constructor(
 
     fun closeVitaShortcutTray() {
         noteUserActivity()
+        if (vitaShortcutTrayOpen.value) playUiOneShot(UiOneShot.VitaMenuClose)
         dropVitaShortcutMove(announce = false)
         clearVitaShortcutPeel()
         vitaShortcutLaunch.value = null
