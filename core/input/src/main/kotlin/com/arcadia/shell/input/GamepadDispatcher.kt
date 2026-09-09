@@ -77,6 +77,14 @@ class GamepadDispatcher @Inject constructor() {
     var vitaBubbleLaunchSfx: Boolean = false
 
     /**
+     * True when B will close the Vita shortcut tray back to the XMB rather than step back
+     * inside it (a launch page, edit mode, or a bubble move in progress). The audio layer
+     * skips the generic cancel click so [UiOneShot.VitaMenuClose] can play instead.
+     */
+    @Volatile
+    var vitaTrayClosesOnCancel: Boolean = false
+
+    /**
      * App audio layer registers here so Home can fire LT/RT open/close one-shots (including
      * touch toggles) without feature modules depending on `:app`.
      */
