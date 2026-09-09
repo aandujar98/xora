@@ -15,7 +15,10 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import android.content.Context
 import com.arcadia.shell.datastore.ShellPreferences
+import com.arcadia.shell.display.OverlayPermission
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 /**
  * One history entry for the RT notification center (newest first).
@@ -39,6 +42,7 @@ data class ShellNotificationHistoryItem(
  */
 @Singleton
 class ShellNotificationCenter @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val foregroundTracker: AppForegroundTracker,
     private val systemNotifier: ShellSystemNotifier,
     private val preferences: ShellPreferences,
@@ -124,6 +128,10 @@ class ShellNotificationCenter @Inject constructor(
         recordHistory(notification)
 
         if (foregroundTracker.isForegroundNow) {
+            inbound.trySend(notification)
+        } else if (notification.isFriendPresenceBanner() && OverlayPermission.isGranted(context)) {
+            // FriendBannerOverlayService renders this from the same queue as the in-app banner —
+            // it is the only other collector of [active] while XOrA is not in front.
             inbound.trySend(notification)
         } else if (force && !systemNotifier.notificationsEnabled) {
             // Test preview while master toggle is off: briefly allow the system post.

@@ -49,6 +49,7 @@ import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.datastore.next
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.display.OverlayPermission
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.isReduceMotionPreferred
 import com.arcadia.shell.designsystem.readDeviceVisualBudget
@@ -2314,6 +2315,7 @@ class HomeViewModel @Inject constructor(
                 raSettings = raSettings,
                 deviceSuggestsLite = deviceVisualBudget.suggestsLiteVisuals,
                 deviceRamLabel = deviceVisualBudget.usableRamLabel,
+                friendBannerOverlayGranted = OverlayPermission.isGranted(appContext),
             )
         } else {
             buildStartSettingsCategoryRows()
@@ -7071,6 +7073,11 @@ class HomeViewModel @Inject constructor(
         emit(HomeEvent.ShowError("Could not open Discord conversation."))
     }
 
+    private fun openFriendBannerOverlaySettings() {
+        runCatching { appContext.startActivity(OverlayPermission.settingsIntent(appContext)) }
+            .onFailure { emit(HomeEvent.ShowError("Could not open \"Display over other apps\" settings.")) }
+    }
+
     private fun openNotificationListenerSettings() {
         conversationRepository.refreshListenerEnabled()
         val intent = conversationRepository.notificationListenerSettingsIntent()
@@ -7492,6 +7499,7 @@ class HomeViewModel @Inject constructor(
                 preferences.setUiFitMode(next)
             }
             is StartSettingsAction.OpenCategory -> selectStartSettingsCategory(action.category)
+            StartSettingsAction.OpenFriendBannerOverlaySettings -> openFriendBannerOverlaySettings()
             StartSettingsAction.OpenSystemDisplay -> {
                 closeStartSettings()
                 openSystemSettings(Settings.ACTION_DISPLAY_SETTINGS)
