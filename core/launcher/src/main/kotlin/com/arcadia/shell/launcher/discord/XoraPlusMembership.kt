@@ -301,3 +301,15 @@ internal fun hasXoraPlusRole(
 fun discordAccountLinked(state: DiscordPresenceUiState): Boolean =
     state.capability == DiscordPresenceCapability.Connected ||
         !state.currentUserId.isNullOrBlank()
+
+/** True when Advanced Settings should offer Sign out (linked, or OAuth still connecting). */
+fun discordCanSignOut(state: DiscordPresenceUiState): Boolean =
+    discordAccountLinked(state) || state.connecting
+
+/** Label for the Advanced Settings Discord sign-in button. */
+fun discordSettingsSignInLabel(state: DiscordPresenceUiState): String = when {
+    state.connecting -> "Connecting Discord…"
+    discordAccountLinked(state) -> "Re-link Discord"
+    state.capability == DiscordPresenceCapability.Failed -> "Retry Discord sign-in"
+    else -> "Sign in with Discord"
+}

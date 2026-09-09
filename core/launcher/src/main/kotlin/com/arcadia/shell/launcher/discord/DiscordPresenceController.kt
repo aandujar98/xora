@@ -367,6 +367,35 @@ class DiscordPresenceController @Inject constructor(
         }
     }
 
+    override fun signOutAccount() {
+        Log.i(TAG, "signOutAccount")
+        lastAuthError = null
+        lastPublishOk = null
+        lastPublishMessage = null
+        lastPublishKey = null
+        tokenStore.clear()
+        discordOnlineSeeded = false
+        knownOnlineDiscordIds.clear()
+        discordPlayingTracker.reset()
+        runCatching { bridge.clearPresence() }
+            .onFailure { Log.w(TAG, "clearPresence during sign-out failed", it) }
+        stopSdk()
+        val id = _state.value.applicationId
+        if (id.isNotBlank()) {
+            startSdk(id)
+        }
+        _state.update { current ->
+            rebuild(
+                applicationId = current.applicationId,
+                activity = current.activity,
+                ready = bridge.isReady,
+                authorized = bridge.isAuthorized,
+                friends = emptyList(),
+            )
+        }
+        scope.launch { xoraPlusMembership.refresh() }
+    }
+
     override fun statusBridgeShareIntent(context: Context): Intent? {
         val snapshot = _state.value
         if (!snapshot.isConfigured) return null

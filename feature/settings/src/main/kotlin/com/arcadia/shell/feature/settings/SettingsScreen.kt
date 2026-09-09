@@ -1,6 +1,7 @@
 package com.arcadia.shell.feature.settings
 
 import android.app.Activity
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -82,6 +83,8 @@ import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.display.OverlayPermission
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
+import com.arcadia.shell.launcher.discord.discordCanSignOut
+import com.arcadia.shell.launcher.discord.discordSettingsSignInLabel
 import com.arcadia.shell.designsystem.readDeviceVisualBudget
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
@@ -1238,6 +1241,52 @@ fun SettingsScreen(
                 }
 
                 SettingsFieldLabel("Discord")
+                val discordCanSignIn =
+                    !state.discordPresence.connecting &&
+                        state.discordPresence.capability != DiscordPresenceCapability.SdkMissing &&
+                        state.discordPresence.applicationId.isNotBlank()
+                val discordSignedIn = discordCanSignOut(state.discordPresence)
+                SettingsPadRow("social_discord_auth") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsPadTarget(
+                            id = "social_discord_signin",
+                            onActivate = {
+                                if (discordCanSignIn) {
+                                    val activity = context.settingsHostActivity()
+                                    if (activity != null) {
+                                        viewModel.linkDiscordAccount(activity)
+                                    } else {
+                                        viewModel.signInDiscordUnavailable()
+                                    }
+                                }
+                            },
+                        ) {
+                            Button(
+                                onClick = {
+                                    val activity = context.settingsHostActivity()
+                                    if (activity != null) {
+                                        viewModel.linkDiscordAccount(activity)
+                                    } else {
+                                        viewModel.signInDiscordUnavailable()
+                                    }
+                                },
+                                enabled = discordCanSignIn,
+                            ) {
+                                Text(text = discordSettingsSignInLabel(state.discordPresence))
+                            }
+                        }
+                        if (discordSignedIn) {
+                            SettingsPadTarget(
+                                id = "social_discord_signout",
+                                onActivate = viewModel::signOutDiscord,
+                            ) {
+                                OutlinedButton(onClick = viewModel::signOutDiscord) {
+                                    Text(text = "Sign out of Discord")
+                                }
+                            }
+                        }
+                    }
+                }
                 var discordDraft by remember(state.discordSocial.openUrl) {
                     mutableStateOf(state.discordSocial.openUrl)
                 }
@@ -1362,8 +1411,8 @@ fun SettingsScreen(
                     DiscordPresenceCapability.Failed,
                     -> {
                         Text(
-                            text = "Social SDK is in this build. Use Social → Circle/Messages → " +
-                                "Link Discord (redirect ${state.discordPresence.oauthRedirectUri}). " +
+                            text = "Use Sign in with Discord above " +
+                                "(redirect ${state.discordPresence.oauthRedirectUri}). " +
                                 "Public Client must be enabled. Presence is visible to Discord friends.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2550,4 +2599,13 @@ private fun PlatformPlayerCard(
             }
         }
     }
+}
+
+private fun Context.settingsHostActivity(): Activity? {
+    var ctx: Context? = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }
