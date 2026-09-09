@@ -42,6 +42,18 @@ class AmArgumentParserTest {
     }
 
     @Test
+    fun `parses string-array extras`() {
+        val args = AmArgumentParser.parse(
+            "--esa AppStartParameters -r,{vita.titleId}",
+        )
+
+        assertEquals(
+            listOf(AmExtra.StringArrayValue("AppStartParameters", listOf("-r", "{vita.titleId}"))),
+            args.extras,
+        )
+    }
+
+    @Test
     fun `parses typed extras`() {
         val args = AmArgumentParser.parse(
             "-e bootPath {file.path} --ez resumeState 0 --ei slot 3 --el seed 90000000000 " +

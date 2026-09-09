@@ -356,6 +356,11 @@ class GameLauncher @Inject constructor(
             when (extra) {
                 is AmExtra.StringValue ->
                     intent.putExtra(extra.key, placeholderResolver.resolve(extra.value, game))
+                is AmExtra.StringArrayValue ->
+                    intent.putExtra(
+                        extra.key,
+                        extra.values.map { placeholderResolver.resolve(it, game) }.toTypedArray(),
+                    )
                 is AmExtra.BooleanValue -> intent.putExtra(extra.key, extra.value)
                 is AmExtra.IntValue -> intent.putExtra(extra.key, extra.value)
                 is AmExtra.LongValue -> intent.putExtra(extra.key, extra.value)

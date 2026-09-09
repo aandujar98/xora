@@ -18,6 +18,8 @@ class PlatformResolverTest {
         assertEquals("gb", resolve("Tetris.gb")?.id)
         assertEquals("gba", resolve("Pokemon Emerald.gba")?.id)
         assertEquals("nds", resolve("Mario Kart DS.nds")?.id)
+        assertEquals("psvita", resolve("Uncharted.vpk")?.id)
+        assertEquals("psvita", resolve("PCSE00546.psvita")?.id)
     }
 
     @Test
@@ -29,6 +31,8 @@ class PlatformResolverTest {
         assertEquals("gb", resolve("Tetris.zip", folders = listOf("Game Boy"))?.id)
         assertEquals("gba", resolve("Advance Wars.zip", folders = listOf("GBA"))?.id)
         assertEquals("nds", resolve("Brain Age.zip", folders = listOf("Nintendo DS"))?.id)
+        assertEquals("psvita", resolve("Uncharted.zip", folders = listOf("vita"))?.id)
+        assertEquals("psvita", resolve("Persona.7z", folders = listOf("PSVita"))?.id)
     }
 
     @Test
