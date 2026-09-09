@@ -27,13 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -49,21 +44,12 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
-import com.arcadia.shell.designsystem.rememberShellResumed
-import com.arcadia.shell.designsystem.rememberThrottledAmbientUnit
 import com.arcadia.shell.designsystem.xoraForegroundShadow
-import com.arcadia.shell.feature.home.ACCOUNT_PILL_CAMERA_DISTANCE
-import com.arcadia.shell.feature.home.ACCOUNT_PILL_IDLE_TILT_DEGREES
-import com.arcadia.shell.feature.home.ACCOUNT_PILL_MAX_TILT_DEGREES
 import com.arcadia.shell.feature.home.AccountPanelRow
-import com.arcadia.shell.feature.home.AccountPillGyro
 import com.arcadia.shell.feature.home.CircleMemberUi
 import com.arcadia.shell.feature.home.SocialMenuTab
 import com.arcadia.shell.feature.home.SocialMenuUiState
 import com.arcadia.shell.feature.home.SocialPresence
-import com.arcadia.shell.feature.home.VITA_BUBBLE_ROCK_CYCLE_MS
-import com.arcadia.shell.feature.home.accountPillIdleLean
-import com.arcadia.shell.feature.home.rememberAccountPillGyro
 
 private val NotificationRed = Color(0xFFFF3B30)
 
@@ -151,28 +137,9 @@ fun AccountPill(
                     transformOrigin = TransformOrigin(0.1f, 0f),
                 ),
             ) {
-                // Tilt answers a physical movement, so it is not treated as shell decoration:
-                // battery saver / lite visuals must not freeze it, only a backgrounded shell does.
-                val gyroEnabled = !expanded && !hideCollapsedChrome && rememberShellResumed()
-                val gyro = rememberAccountPillGyro(enabled = gyroEnabled)
-                val idleRock = rememberThrottledAmbientUnit(cycleMs = VITA_BUBBLE_ROCK_CYCLE_MS)
-                val densityScale = LocalDensity.current.density
                 Box {
                     Row(
                         modifier = Modifier
-                            .graphicsLayer {
-                                val pose = gyro.value
-                                val idle = accountPillIdleLean(idleRock.floatValue)
-                                cameraDistance = ACCOUNT_PILL_CAMERA_DISTANCE * densityScale
-                                transformOrigin = TransformOrigin.Center
-                                rotationY = pose.rotationY +
-                                    (idle.x * ACCOUNT_PILL_IDLE_TILT_DEGREES)
-                                rotationX = pose.rotationX +
-                                    (idle.y * ACCOUNT_PILL_IDLE_TILT_DEGREES)
-                                translationX = pose.translationX
-                                translationY = pose.translationY
-                                clip = false
-                            }
                             .xoraForegroundShadow(ArcadiaGlass.PillShape)
                             .liquidGlass(
                                 shape = ArcadiaGlass.PillShape,
@@ -181,13 +148,6 @@ fun AccountPill(
                                 shimmer = true,
                             )
                             .clip(ArcadiaGlass.PillShape)
-                            .drawWithContent {
-                                drawContent()
-                                accountPillSheen(
-                                    pose = gyro.value,
-                                    idle = accountPillIdleLean(idleRock.floatValue),
-                                )
-                            }
                             .clickable(onClick = onToggle)
                             .padding(PillPad),
                         verticalAlignment = Alignment.CenterVertically,
@@ -266,39 +226,6 @@ fun AccountPill(
             }
         }
     }
-}
-
-/** How far the sheen slides against the tilt, as a fraction of the pill. */
-private const val PillSheenTravel = 0.16f
-
-/**
- * Specular highlight for the collapsed pill. A fixed light source travels across the glass as the
- * pill turns, which is what sells the dome — a bare rotation on a 48dp disc reads as flat.
- */
-private fun DrawScope.accountPillSheen(pose: AccountPillGyro, idle: Offset) {
-    val unitX = ((pose.rotationY / ACCOUNT_PILL_MAX_TILT_DEGREES) + (idle.x * 0.35f))
-        .coerceIn(-1f, 1f)
-    val unitY = ((pose.rotationX / ACCOUNT_PILL_MAX_TILT_DEGREES) + (idle.y * 0.35f))
-        .coerceIn(-1f, 1f)
-    val center = Offset(
-        x = (size.width * 0.3f) - (unitX * size.width * PillSheenTravel),
-        y = (size.height * 0.12f) - (unitY * size.height * PillSheenTravel),
-    )
-    val radius = size.maxDimension * 0.85f
-    drawCircle(
-        brush = Brush.radialGradient(
-            colorStops = arrayOf(
-                0f to Color.White.copy(alpha = 0.20f),
-                0.6f to Color.White.copy(alpha = 0.05f),
-                1f to Color.Transparent,
-            ),
-            center = center,
-            radius = radius,
-        ),
-        radius = radius,
-        center = center,
-        blendMode = BlendMode.Screen,
-    )
 }
 
 @Composable
