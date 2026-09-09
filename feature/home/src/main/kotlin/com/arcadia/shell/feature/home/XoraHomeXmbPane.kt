@@ -450,6 +450,7 @@ fun XoraHomeXmbPane(
             ) {
                 XoraXmbPillChrome(
                     state = state,
+                    nowPlayingPositionMs = nowPlayingPositionMs,
                     onToggleAccountPanel = onToggleAccountPanel,
                     onToggleSystemPanel = onToggleSystemPanel,
                     onToggleAchievementsPanel = onToggleAchievementsPanel,
@@ -487,6 +488,8 @@ fun XoraHomeXmbPane(
 @Composable
 fun XoraXmbHeroDetail(
     state: HomeUiState,
+    /** Live playback position — see [XoraHomeXmbPane]'s parameter of the same name. */
+    nowPlayingPositionMs: Long = 0L,
     onToggleAccountPanel: () -> Unit = {},
     onToggleSystemPanel: () -> Unit = {},
     onToggleAchievementsPanel: () -> Unit = {},
@@ -706,6 +709,7 @@ fun XoraXmbHeroDetail(
             ) {
                 XoraXmbPillChrome(
                     state = state,
+                    nowPlayingPositionMs = nowPlayingPositionMs,
                     onToggleAccountPanel = onToggleAccountPanel,
                     onToggleSystemPanel = onToggleSystemPanel,
                     onToggleAchievementsPanel = onToggleAchievementsPanel,
@@ -961,6 +965,8 @@ internal fun xmbCopyTransition(reduceMotion: Boolean): ContentTransform {
 @Composable
 private fun XoraXmbPillChrome(
     state: HomeUiState,
+    /** Live playback position — see [XoraHomeXmbPane]'s parameter of the same name. */
+    nowPlayingPositionMs: Long,
     onToggleAccountPanel: () -> Unit,
     onToggleSystemPanel: () -> Unit,
     onToggleAchievementsPanel: () -> Unit,

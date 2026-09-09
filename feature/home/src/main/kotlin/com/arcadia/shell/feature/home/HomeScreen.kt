@@ -186,6 +186,7 @@ fun HomeScreen(
                         ) {
                             HomePageContent(
                                 state = state,
+                                nowPlayingPositionMs = nowPlayingPositionMs,
                                 onSelectTab = onSelectTab,
                                 onSelectGame = onSelectGame,
                                 onLaunchGame = onLaunchGame,
@@ -287,6 +288,7 @@ fun HomeScreen(
                         ) {
                             HomePageContent(
                                 state = state,
+                                nowPlayingPositionMs = nowPlayingPositionMs,
                                 onSelectTab = onSelectTab,
                                 onSelectGame = onSelectGame,
                                 onLaunchGame = onLaunchGame,
@@ -480,6 +482,7 @@ fun HomeScreen(
 
                         HomePageContent(
                             state = state,
+                            nowPlayingPositionMs = nowPlayingPositionMs,
                             onSelectTab = onSelectTab,
                             onSelectGame = onSelectGame,
                             onLaunchGame = onLaunchGame,
@@ -584,6 +587,8 @@ fun HomeScreen(
 @Composable
 fun HomePageContent(
     state: HomeUiState,
+    /** Live playback position — see [HomeScreen]'s parameter of the same name. */
+    nowPlayingPositionMs: Long = 0L,
     onSelectTab: (Int) -> Unit,
     onSelectGame: (Int) -> Unit,
     onLaunchGame: (Int) -> Unit,

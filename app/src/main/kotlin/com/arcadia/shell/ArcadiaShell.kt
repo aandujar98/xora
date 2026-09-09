@@ -1316,6 +1316,7 @@ private fun PaneForRole(
 ) {
     val enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
     val exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
+    val nowPlayingPositionMs by homeViewModel.nowPlayingPositionMs.collectAsStateWithLifecycle()
     AnimatedContent(
         targetState = role,
         transitionSpec = { enter togetherWith exit },
@@ -1327,6 +1328,7 @@ private fun PaneForRole(
                 if (state.homePage == HomePage.Home) {
                     XoraXmbHeroDetail(
                         state = state,
+                        nowPlayingPositionMs = nowPlayingPositionMs,
                         onToggleAccountPanel = homeViewModel::toggleAccountPanel,
                         onToggleSystemPanel = homeViewModel::toggleSystemPanel,
                     onOpenNotifications = homeViewModel::openNotificationHistory,
