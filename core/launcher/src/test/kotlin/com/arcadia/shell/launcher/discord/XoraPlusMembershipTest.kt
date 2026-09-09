@@ -62,10 +62,14 @@ class XoraPlusMembershipTest {
     }
 
     @Test
-    fun unverifiedMembershipStillOpensTheGateButIsNotConfirmed() {
+    fun unverifiedMembershipDoesNotOpenTheGate() {
         val unverified = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified)
-        assertTrue(unverified.hasPlus)
+        assertFalse(unverified.hasPlus)
         assertFalse(unverified.plusConfirmed)
+
+        val noPlus = XoraPlusCheckState(status = XoraPlusStatus.InGuildNoPlus)
+        assertFalse(noPlus.hasPlus)
+        assertFalse(noPlus.plusConfirmed)
 
         val confirmed = XoraPlusCheckState(status = XoraPlusStatus.HasPlus)
         assertTrue(confirmed.hasPlus)
@@ -75,6 +79,7 @@ class XoraPlusMembershipTest {
             XoraPlusStatus.NotLinked,
             XoraPlusStatus.Checking,
             XoraPlusStatus.InGuildNoPlus,
+            XoraPlusStatus.InGuildUnverified,
             XoraPlusStatus.NotInGuild,
             XoraPlusStatus.CheckFailed,
         )) {
@@ -141,7 +146,7 @@ class XoraPlusMembershipTest {
             ),
         )
         assertEquals(
-            "You're in the XOrA Discord. XOrA could not confirm the XOrA Plus role.",
+            "XOrA did not detect the XOrA Plus role on this Discord account.",
             xoraPlusOnboardingLine(
                 bypass = false,
                 plus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
@@ -190,7 +195,7 @@ class XoraPlusMembershipTest {
                 token = "abc",
                 previousToken = "abc",
                 previous = previous,
-                nowMs = 10_000L,
+                nowMs = 3_000L,
                 previousAtMs = 1_000L,
             ),
         )
@@ -199,7 +204,7 @@ class XoraPlusMembershipTest {
                 token = "abc",
                 previousToken = "abc",
                 previous = previous,
-                nowMs = 40_000L,
+                nowMs = 10_000L,
                 previousAtMs = 1_000L,
             ),
         )
@@ -239,6 +244,13 @@ class XoraPlusMembershipTest {
             discordOnboardingMayAdvance(
                 bypass = false,
                 plus = XoraPlusCheckState(status = XoraPlusStatus.HasPlus),
+                presence = connecting,
+            ),
+        )
+        assertFalse(
+            discordOnboardingMayAdvance(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
                 presence = connecting,
             ),
         )

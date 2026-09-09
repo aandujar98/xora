@@ -96,7 +96,7 @@ class OnboardingStepTest {
         )
         assertTrue(plus.canAdvance)
 
-        // Discord never names guild roles for a user token; membership alone still opens the gate.
+        // In the server without a matched Plus role does not unlock Next.
         val unverified = OnboardingUiState(
             step = OnboardingStep.Discord,
             discordPresence = DiscordPresenceUiState(
@@ -104,7 +104,7 @@ class OnboardingStepTest {
             ),
             xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
         )
-        assertTrue(unverified.canAdvance)
+        assertFalse(unverified.canAdvance)
 
         val bypass = OnboardingUiState(
             step = OnboardingStep.Discord,
@@ -119,7 +119,7 @@ class OnboardingStepTest {
                 capability = DiscordPresenceCapability.NeedsAccountLink,
                 connecting = true,
             ),
-            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.HasPlus),
         )
         assertTrue(connectingPlus.canAdvance)
 

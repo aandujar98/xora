@@ -723,7 +723,7 @@ class OnboardingViewModel @Inject constructor(
     /** Re-run the guild / role lookup, e.g. after the player is granted Plus in Discord. */
     fun refreshXoraPlus() {
         viewModelScope.launch {
-            xoraPlusMembership.refresh()
+            xoraPlusMembership.refresh(force = true)
             message.value = "Re-checking XOrA Plus…"
         }
     }

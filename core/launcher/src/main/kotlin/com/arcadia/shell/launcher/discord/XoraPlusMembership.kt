@@ -36,11 +36,8 @@ enum class XoraPlusStatus {
     /** In the guild, but Plus is missing. */
     InGuildNoPlus,
     /**
-     * In the guild, but nothing on the device can name the guild's roles.
-     *
-     * Discord only hands role *snowflakes* to a user OAuth token — names need a bot token. Until
-     * a role id is configured this is as far as the check can get, so it is treated as a pass:
-     * locking every member (including the owner) out of the launcher is the worse failure.
+     * In the guild, but Plus could not be verified (no role ids, or Discord hid them).
+     * Next stays locked until [HasPlus].
      */
     InGuildUnverified,
     /** Linked Discord account is not in the XOrA guild. */
@@ -58,9 +55,8 @@ data class XoraPlusCheckState(
     /** Discord 429 wait, when [status] is [XoraPlusStatus.CheckFailed] from rate limiting. */
     val retryAfterMs: Long = 0L,
 ) {
-    /** True when onboarding may advance past the Discord step. */
-    val hasPlus: Boolean
-        get() = status == XoraPlusStatus.HasPlus || status == XoraPlusStatus.InGuildUnverified
+    /** True when onboarding may advance: the Plus role was actually matched. */
+    val hasPlus: Boolean get() = status == XoraPlusStatus.HasPlus
 
     /** True only when a role actually matched, so copy can stay honest about it. */
     val plusConfirmed: Boolean get() = status == XoraPlusStatus.HasPlus
@@ -89,7 +85,7 @@ class XoraPlusMembership @Inject constructor(
     private var cachedNamedRoles: Map<String, String> = emptyMap()
     private var cachedNamedRolesAtMs: Long = 0L
 
-    suspend fun refresh() {
+    suspend fun refresh(force: Boolean = false) {
         mutex.withLock {
             val token = tokenStore.read()?.accessToken?.trim().orEmpty()
             if (token.isBlank()) {
@@ -103,7 +99,7 @@ class XoraPlusMembership @Inject constructor(
             }
             val now = android.os.SystemClock.elapsedRealtime()
             val cached = lastCacheable
-            if (shouldReusePlusCheck(token, lastToken, cached, now, lastCacheableAtMs)) {
+            if (!force && shouldReusePlusCheck(token, lastToken, cached, now, lastCacheableAtMs)) {
                 _state.value = cached!!
                 return
             }
@@ -192,23 +188,17 @@ class XoraPlusMembership @Inject constructor(
                 detail = "XOrA detected the XOrA Plus role.",
                 roleIds = roleIds.toList(),
             )
-            named.isNotEmpty() || configuredRoleIds.isNotEmpty() -> XoraPlusCheckState(
+            else -> XoraPlusCheckState(
                 status = XoraPlusStatus.InGuildNoPlus,
                 detail = "XOrA did not detect the XOrA Plus role on this Discord account.",
-                roleIds = roleIds.toList(),
-            )
-            else -> XoraPlusCheckState(
-                status = XoraPlusStatus.InGuildUnverified,
-                detail = "You're in the XOrA Discord. XOrA could not confirm the XOrA Plus role.",
                 roleIds = roleIds.toList(),
             )
         }
     }
 
     /**
-     * `guilds.members.read` was refused, so roles are out of reach on this token. The plain
-     * `guilds` scope still proves the account is in the XOrA server, which is as strict as the
-     * gate can get without asking the player to re-link.
+     * `guilds.members.read` was refused, so role ids are out of reach on this token.
+     * Guild membership alone does not unlock Next.
      */
     private fun membershipWithoutRoles(token: String, memberCode: Int): XoraPlusCheckState {
         val guilds = restGet("$API/users/@me/guilds", authorization = "Bearer $token")
@@ -327,7 +317,7 @@ class XoraPlusMembership @Inject constructor(
 internal const val DISCORD_429_MAX_ATTEMPTS = 4
 internal const val DISCORD_429_MIN_WAIT_MS = 400L
 internal const val DISCORD_429_MAX_WAIT_MS = 5_000L
-internal const val PLUS_CHECK_CACHE_MS = 30_000L
+internal const val PLUS_CHECK_CACHE_MS = 2_500L
 
 internal const val XORA_PLUS_RATE_LIMITED_DETAIL =
     "Discord is busy (rate limited). Wait a few seconds, then tap Check XOrA Plus again."
@@ -446,7 +436,7 @@ fun xoraPlusOnboardingLine(
     plus.status == XoraPlusStatus.InGuildNoPlus ->
         "XOrA did not detect the XOrA Plus role on this Discord account."
     plus.status == XoraPlusStatus.InGuildUnverified ->
-        "You're in the XOrA Discord. XOrA could not confirm the XOrA Plus role."
+        "XOrA did not detect the XOrA Plus role on this Discord account."
     plus.status == XoraPlusStatus.NotInGuild ->
         "This account is not in the XOrA Discord. Join $XORA_DISCORD_INVITE_URL, get XOrA Plus, " +
             "then check again."
@@ -470,7 +460,7 @@ fun discordOnboardingMayAdvance(
     bypass: Boolean,
     plus: XoraPlusCheckState,
     presence: DiscordPresenceUiState,
-): Boolean = bypass || (plus.hasPlus && discordOnboardingSessionReady(presence))
+): Boolean = bypass || (plus.plusConfirmed && discordOnboardingSessionReady(presence))
 
 fun discordOnboardingLinkLabel(state: DiscordPresenceUiState): String = when {
     discordAccountLinked(state) -> "Discord linked"

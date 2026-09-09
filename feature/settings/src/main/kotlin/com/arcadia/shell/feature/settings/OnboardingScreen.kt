@@ -1882,7 +1882,7 @@ private fun OnboardingActions(
             onActivate = { if (state.canAdvance) onNext() },
         ) {
             Button(
-                onClick = onNext,
+                onClick = { if (state.canAdvance) onNext() },
                 enabled = state.canAdvance,
             ) {
                 Text(
