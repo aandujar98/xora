@@ -142,6 +142,11 @@ fun HomeScreen(
     onSignOutRetroAchievements: () -> Unit,
     onPhotoCommand: (PhotoPaneCommand) -> Unit = {},
     onDashboardCommand: (DashboardCommand) -> Unit = {},
+    /**
+     * Live playback position, ticking every ~250ms while music plays — kept out of [state] so
+     * the Now Playing pane can animate smoothly without recomposing the rest of the XMB.
+     */
+    nowPlayingPositionMs: Long = 0L,
     modifier: Modifier = Modifier,
 ) {
     val contentTween = arcadiaTween<Float>(ArcadiaMotion.Medium)
@@ -693,6 +698,7 @@ fun HomePageContent(
                     val trayOpen = state.homeHub.vitaShortcutTrayOpen
                     XoraHomeXmbPane(
                         state = state,
+                        nowPlayingPositionMs = nowPlayingPositionMs,
                         onSelectCategory = onSelectXoraCategory,
                         onSelectItem = onSelectXoraItem,
                         onActivateItem = onActivateXoraItem,

@@ -1213,23 +1213,24 @@ class HomeViewModel @Inject constructor(
             dashboard = aux.dashboard,
             systemUpdate = aux.systemUpdate,
         )
-    }
-        // Cheap shallow copy on every 250ms position tick instead of routing it through the
-        // heavy combine above — see nowPlayingStable.
-        .combine(
-            nowPlayingController.state.map { it.positionMs }.distinctUntilChanged(),
-        ) { state, positionMs ->
-            val current = state.music.nowPlaying
-            if (current.track == null || current.positionMs == positionMs) {
-                state
-            } else {
-                state.copy(music = state.music.copy(nowPlaying = current.copy(positionMs = positionMs)))
-            }
-        }
-        .stateIn(
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = HomeUiState(),
+    )
+
+    /**
+     * Live playback position, ticking every ~250ms while music plays. Kept out of [uiState]
+     * entirely (unlike [nowPlayingStable]) so the Now Playing pane / mini pill can animate
+     * smoothly without the rest of the XMB recomposing 4x/sec — [HomeUiState] is a large,
+     * Compose-unstable type, so any change to its identity forces every consumer that reads
+     * `state` to recompose, not just the one that actually needs the live tick.
+     */
+    val nowPlayingPositionMs: StateFlow<Long> =
+        nowPlayingController.state.map { it.positionMs }.distinctUntilChanged().stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
-            initialValue = HomeUiState(),
+            initialValue = 0L,
         )
 
     init {
@@ -6128,8 +6129,10 @@ class HomeViewModel @Inject constructor(
         val picker = state.homeHub.shortcutTargetPicker
         if (picker != null) {
             when (action) {
-                NavAction.Up -> selectShortcutTarget(picker.selectedIndex - 1)
-                NavAction.Down -> selectShortcutTarget(picker.selectedIndex + 1)
+                NavAction.Up -> selectShortcutTarget(picker.selectedIndex - ADD_SHORTCUT_GRID_COLUMNS)
+                NavAction.Down -> selectShortcutTarget(picker.selectedIndex + ADD_SHORTCUT_GRID_COLUMNS)
+                NavAction.Left -> selectShortcutTarget(picker.selectedIndex - 1)
+                NavAction.Right -> selectShortcutTarget(picker.selectedIndex + 1)
                 NavAction.Confirm -> confirmShortcutTarget()
                 NavAction.Cancel -> cancelShortcutTargetPicker()
                 else -> Unit

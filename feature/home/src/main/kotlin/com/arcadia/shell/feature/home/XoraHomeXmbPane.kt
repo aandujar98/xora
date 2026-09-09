@@ -91,6 +91,7 @@ import com.arcadia.shell.feature.home.component.NowPlayingPill
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.feature.home.component.XmbStarFieldLayer
+import com.arcadia.shell.launcher.music.NowPlayingState
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
@@ -105,6 +106,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun XoraHomeXmbPane(
     state: HomeUiState,
+    /** Live playback position — see [HomeScreen]'s parameter of the same name. */
+    nowPlayingPositionMs: Long = 0L,
     onSelectCategory: (Int) -> Unit,
     onSelectItem: (Int) -> Unit,
     onActivateItem: () -> Unit,
@@ -336,7 +339,7 @@ fun XoraHomeXmbPane(
                 ) { depth ->
                 when (depth) {
                     XoraXmbDepth.NowPlaying -> XoraNowPlayingPane(
-                        state = state.music.nowPlaying,
+                        state = state.music.nowPlaying.withLivePosition(nowPlayingPositionMs),
                         onTogglePlayPause = onToggleNowPlaying,
                         onSkipPrevious = onSkipPreviousTrack,
                         onSkipNext = onSkipNextTrack,
@@ -738,6 +741,14 @@ fun XoraXmbHeroDetail(
 
 
 /**
+ * Overlays a live playback position onto an otherwise-stable [NowPlayingState] snapshot, so the
+ * seek bar can tick every frame without [HomeUiState] itself changing identity that often — see
+ * [XoraHomeXmbPane]'s `nowPlayingPositionMs` parameter.
+ */
+private fun NowPlayingState.withLivePosition(positionMs: Long): NowPlayingState =
+    if (track == null) this else copy(positionMs = positionMs)
+
+/**
  * Launch-hold zoom for wallpaper / hero plates. Category and item navigation must not
  * pan or drift the backdrop — the menu moves; the sky stays put.
  */
@@ -1084,7 +1095,7 @@ private fun XoraXmbPillChrome(
             state.xoraXmb.depth != XoraXmbDepth.RaLibrary
         if (showMiniPlayer) {
             NowPlayingPill(
-                state = state.music.nowPlaying,
+                state = state.music.nowPlaying.withLivePosition(nowPlayingPositionMs),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(horizontal = 16.dp, vertical = 12.dp)

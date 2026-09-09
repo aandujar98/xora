@@ -125,6 +125,7 @@ fun ArcadiaShell(
     modifier: Modifier = Modifier,
 ) {
     val state by homeViewModel.uiState.collectAsStateWithLifecycle()
+    val nowPlayingPositionMs by homeViewModel.nowPlayingPositionMs.collectAsStateWithLifecycle()
     val gameCompanion by homeViewModel.gameCompanion.collectAsStateWithLifecycle()
     var route by rememberSaveable { mutableStateOf(ShellRoute.Home) }
     var pendingBootAfterOnboarding by remember { mutableStateOf(false) }
@@ -606,6 +607,7 @@ fun ArcadiaShell(
             } else if (route != ShellRoute.Settings) {
                 HomeScreen(
                     state = state,
+                    nowPlayingPositionMs = nowPlayingPositionMs,
                     onSelectTab = homeViewModel::selectTab,
                     onSelectGame = homeViewModel::selectGame,
                     onLaunchGame = { index ->
