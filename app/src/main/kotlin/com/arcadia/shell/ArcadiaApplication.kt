@@ -72,6 +72,7 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        installCrashLogger()
         // Seeding touches the database, so it must not run on the main thread during startup.
         applicationScope.launch { playerSeeder.seedIfNeeded() }
         emulatorInstallMonitor.start()
@@ -201,6 +202,40 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
                 level == ComponentCallbacks2.TRIM_MEMORY_MODERATE -> {
                 runCatching { SingletonImageLoader.get(this).memoryCache?.clear() }
             }
+        }
+    }
+
+    /**
+     * Writes any uncaught crash to a plain-text file in Downloads (or the app's own external
+     * files dir if Downloads is not writable), so a crash can be diagnosed by opening a file
+     * manager instead of needing adb. Re-delivers to the previous handler afterward so the
+     * crash still surfaces normally — this only ever adds a copy of what would happen anyway.
+     */
+    private fun installCrashLogger() {
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                val downloads = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS,
+                )
+                val dir = if (downloads.isDirectory || downloads.mkdirs()) {
+                    downloads
+                } else {
+                    getExternalFilesDir(null) ?: filesDir
+                }
+                val stamp = System.currentTimeMillis()
+                val file = java.io.File(dir, "XOrA_crash_$stamp.txt")
+                file.writeText(
+                    buildString {
+                        appendLine("XOrA crash at $stamp")
+                        appendLine("Thread: ${thread.name}")
+                        appendLine()
+                        appendLine(Log.getStackTraceString(throwable))
+                    },
+                )
+                Log.e("CrashLogger", "Wrote crash log to ${file.absolutePath}")
+            }.onFailure { Log.e("CrashLogger", "Failed to write crash log", it) }
+            previousHandler?.uncaughtException(thread, throwable)
         }
     }
 
