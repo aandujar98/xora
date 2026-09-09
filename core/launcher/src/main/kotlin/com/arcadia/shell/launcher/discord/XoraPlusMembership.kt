@@ -8,8 +8,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
@@ -169,31 +167,33 @@ class XoraPlusMembership @Inject constructor(
 }
 
 internal fun parseMemberRoleIds(json: String): Set<String> {
-    if (json.isBlank()) return emptySet()
-    return runCatching {
-        val array = JSONObject(json).optJSONArray("roles") ?: JSONArray()
-        buildSet {
-            for (i in 0 until array.length()) {
-                val id = array.optString(i).trim()
-                if (id.isNotEmpty()) add(id)
-            }
-        }
-    }.getOrDefault(emptySet())
+    val rolesIndex = json.indexOf("\"roles\"")
+    if (rolesIndex < 0) return emptySet()
+    val open = json.indexOf('[', rolesIndex)
+    val close = json.indexOf(']', open + 1)
+    if (open < 0 || close <= open) return emptySet()
+    return json.substring(open + 1, close)
+        .split(',')
+        .map { it.trim().trim('"') }
+        .filter { it.isNotEmpty() && it != "null" }
+        .toSet()
 }
 
 internal fun parseGuildRoleNames(json: String): Map<String, String> {
-    if (json.isBlank()) return emptyMap()
-    return runCatching {
-        val array = JSONArray(json)
-        buildMap {
-            for (i in 0 until array.length()) {
-                val obj = array.optJSONObject(i) ?: continue
-                val id = obj.optString("id").trim()
-                val name = obj.optString("name").trim()
-                if (id.isNotEmpty()) put(id, name)
-            }
-        }
-    }.getOrDefault(emptyMap())
+    val result = linkedMapOf<String, String>()
+    val objects = Regex("""\{[^{}]*\}""").findAll(json)
+    val idPattern = Regex(""""id"\s*:\s*"([^"]+)"""")
+    val namePattern = Regex(""""name"\s*:\s*"((?:\\.|[^"\\])*)"""")
+    for (match in objects) {
+        val obj = match.value
+        val id = idPattern.find(obj)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+        val name = namePattern.find(obj)?.groupValues?.getOrNull(1)
+            ?.replace("\\\"", "\"")
+            ?.trim()
+            .orEmpty()
+        if (id.isNotEmpty()) result[id] = name
+    }
+    return result
 }
 
 internal fun isXoraPlusRoleName(name: String): Boolean {
@@ -215,6 +215,6 @@ internal fun hasXoraPlusRole(
     }
 }
 
-internal fun discordAccountLinked(state: DiscordPresenceUiState): Boolean =
+fun discordAccountLinked(state: DiscordPresenceUiState): Boolean =
     state.capability == DiscordPresenceCapability.Connected ||
         !state.currentUserId.isNullOrBlank()
