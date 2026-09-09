@@ -291,6 +291,8 @@ class HomeViewModel @Inject constructor(
     private val vitaShortcutDepartingIndex = MutableStateFlow<Int?>(null)
     /** A / plate tap asked for the start gate to peel itself; the page runs the animation. */
     private val vitaShortcutPeelRequested = MutableStateFlow(false)
+    /** Peel zoom sting plays once per LiveArea visit (A auto-peel or first dog-ear drag). */
+    private var vitaPeelLaunchSfxPlayed = false
     /** Bubble held for repositioning in the Vita tray. */
     private val vitaShortcutMoveIndex = MutableStateFlow<Int?>(null)
     /** Shortcut order as it was when the move started, so B can put it back. */
@@ -992,7 +994,8 @@ class HomeViewModel @Inject constructor(
         nowPlayingStable,
         customMediaEpoch,
         preferences.settings.map { it.bgmVolume }.distinctUntilChanged(),
-    ) { music, nowPlaying, _, bgmVolume ->
+        preferences.settings.map { it.musicCategoryArtBackdrop }.distinctUntilChanged(),
+    ) { music, nowPlaying, _, bgmVolume, artBackdrop ->
         val track = nowPlaying.track
         val backdrop = track?.let { playing ->
             gameCustomMediaStore.findBackground("track_${playing.id}")
@@ -1002,6 +1005,7 @@ class HomeViewModel @Inject constructor(
             nowPlaying = nowPlaying,
             nowPlayingBackdropPath = backdrop,
             backdropAudioVolume = bgmVolume,
+            categoryArtBackdropEnabled = artBackdrop,
         )
     }
 
@@ -3370,6 +3374,7 @@ class HomeViewModel @Inject constructor(
     fun confirmVitaShortcutLaunch() {
         noteUserActivity()
         if (vitaShortcutLaunch.value == null) return
+        playVitaPeelZoomSfx()
         vitaShortcutPeelRequested.value = true
     }
 
@@ -3378,11 +3383,15 @@ class HomeViewModel @Inject constructor(
         val preview = vitaShortcutLaunch.value ?: return
         if (isLaunching.value) return
         gameSoundBitePlayer.stop()
-        playUiOneShot(UiOneShot.BootVita)
+        playVitaPeelZoomSfx()
         // The page already resolved the title when it opened, so the cinematic can start on
         // the frame the sheet comes off instead of after another trip through the library.
         val game = preview.game
-        if (game != null) launchGame(game, playBootSfx = false) else openHomeShortcut(preview.shortcut)
+        if (game != null) {
+            launchGame(game, playBootSfx = false)
+        } else {
+            beginVitaNonGameLaunch(preview.shortcut)
+        }
         vitaLaunchHandoff?.cancel()
         vitaLaunchHandoff = viewModelScope.launch {
             // The page holds the title's artwork through the launch cinematic instead of
@@ -3413,6 +3422,40 @@ class HomeViewModel @Inject constructor(
         vitaLaunchHandoff?.cancel()
         vitaLaunchHandoff = null
         vitaShortcutPeelRequested.value = false
+        vitaPeelLaunchSfxPlayed = false
+    }
+
+    private fun playVitaPeelZoomSfx() {
+        vitaPeelZoomOneShot(vitaPeelLaunchSfxPlayed)?.let { shot ->
+            vitaPeelLaunchSfxPlayed = true
+            playUiOneShot(shot)
+        }
+    }
+
+    /**
+     * Apps and pinned media never go through [launchGame], so they used to skip [isLaunching]
+     * and the peel zoom died the moment the Activity started. Hold the cinematic first.
+     */
+    private fun beginVitaNonGameLaunch(shortcut: HomeShortcut) {
+        when (shortcut.kind) {
+            HomeShortcutKind.Game, HomeShortcutKind.AndroidApp -> openHomeShortcut(shortcut)
+            HomeShortcutKind.Picture, HomeShortcutKind.Gif -> {
+                isLaunching.value = true
+                viewModelScope.launch {
+                    val waitMs = if (appContext.isReduceMotionPreferred()) {
+                        0L
+                    } else {
+                        ArcadiaMotion.LaunchHold.toLong()
+                    }
+                    if (waitMs > 0L) delay(waitMs)
+                    try {
+                        openHomeShortcut(shortcut)
+                    } finally {
+                        isLaunching.value = false
+                    }
+                }
+            }
+        }
     }
 
     private suspend fun resolveVitaShortcutLaunch(shortcut: HomeShortcut): VitaShortcutLaunchUi {
@@ -7469,6 +7512,10 @@ class HomeViewModel @Inject constructor(
                 }
                 preferences.setGameIconIdleMedia(next)
             }
+            StartSettingsAction.ToggleMusicCategoryArt -> viewModelScope.launch {
+                val current = preferences.settings.first().musicCategoryArtBackdrop
+                preferences.setMusicCategoryArtBackdrop(!current)
+            }
             StartSettingsAction.CycleThemeMode -> viewModelScope.launch {
                 val values = ThemeMode.entries
                 val current = preferences.settings.first().themeMode
@@ -8672,6 +8719,7 @@ class HomeViewModel @Inject constructor(
     }
 
     fun playVitaPeelSfx(speed: VitaPeelDragSpeed?) {
+        if (speed != null) playVitaPeelZoomSfx()
         playUiOneShot(vitaPeelOneShot(speed))
     }
 
@@ -9996,7 +10044,7 @@ class HomeViewModel @Inject constructor(
          * How long a peeled start gate waits for [launchGame] to take over. Shortcuts that open
          * a plain Activity instead (apps, pictures) never set it, and fall back to the gate.
          */
-        private const val VITA_LAUNCH_HANDOFF_MS = 1_500L
+        private const val VITA_LAUNCH_HANDOFF_MS = 3_200L
     }
 
     private fun refreshInstalledApps() {

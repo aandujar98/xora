@@ -543,6 +543,28 @@ fun SettingsScreen(
                         )
                     }
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("Music cover backdrop")
+                Text(
+                    text = "When a song is playing and you are on the Music column, show " +
+                        "that track's cover art with a wave mask composited on top.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = "Cover + wave", style = MaterialTheme.typography.bodyMedium)
+                    PadSwitch(
+                        id = "music_art_backdrop",
+                        checked = state.settings.musicCategoryArtBackdrop,
+                        onCheckedChange = viewModel::setMusicCategoryArtBackdrop,
+                    )
+                }
             }
         }
 

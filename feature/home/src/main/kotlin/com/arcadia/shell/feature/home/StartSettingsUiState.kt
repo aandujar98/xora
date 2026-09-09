@@ -70,6 +70,7 @@ sealed interface StartSettingsAction {
     data object CycleSecondaryRole : StartSettingsAction
     data object CycleTrailerDisplay : StartSettingsAction
     data object CycleGameIconIdleMedia : StartSettingsAction
+    data object ToggleMusicCategoryArt : StartSettingsAction
     data object CycleThemeMode : StartSettingsAction
     data object OpenVisualPerformance : StartSettingsAction
     data class SelectVisualPerformance(val mode: VisualPerformanceMode) : StartSettingsAction
@@ -243,6 +244,17 @@ fun buildStartSettingsRows(
                 GameIconIdleMedia.Screenshot -> "Your screenshots & GIFs"
             },
             action = StartSettingsAction.CycleGameIconIdleMedia,
+        ),
+        StartSettingsRow.Toggle(
+            id = "music_art_backdrop",
+            title = "Music cover backdrop",
+            subtitle = if (settings.musicCategoryArtBackdrop) {
+                "On · cover art + wave while a song plays"
+            } else {
+                "Off · keep the theme wallpaper on Music"
+            },
+            checked = settings.musicCategoryArtBackdrop,
+            action = StartSettingsAction.ToggleMusicCategoryArt,
         ),
         StartSettingsRow.Action(
             id = "visual_performance",

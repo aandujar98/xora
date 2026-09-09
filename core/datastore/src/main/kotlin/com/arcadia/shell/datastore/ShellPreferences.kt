@@ -335,6 +335,11 @@ data class ShellSettings(
      * 4–6 GB phones so XMB stays responsive.
      */
     val visualPerformanceMode: VisualPerformanceMode = VisualPerformanceMode.Auto,
+    /**
+     * When true, a playing track on the Music XMB column uses cover art plus the bundled
+     * wave Multiply mask as the backdrop.
+     */
+    val musicCategoryArtBackdrop: Boolean = true,
 )
 
 /**
@@ -525,6 +530,7 @@ class ShellPreferences @Inject constructor(
             visualPerformanceMode = prefs[Keys.VISUAL_PERFORMANCE_MODE]
                 ?.let { name -> runCatching { VisualPerformanceMode.valueOf(name) }.getOrNull() }
                 ?: VisualPerformanceMode.Auto,
+            musicCategoryArtBackdrop = prefs[Keys.MUSIC_CATEGORY_ART_BACKDROP] ?: true,
         )
     }
 
@@ -878,6 +884,10 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setGameIconIdleMedia(media: GameIconIdleMedia) = edit {
         it[Keys.GAME_ICON_IDLE_MEDIA] = media.name
+    }
+
+    suspend fun setMusicCategoryArtBackdrop(enabled: Boolean) = edit {
+        it[Keys.MUSIC_CATEGORY_ART_BACKDROP] = enabled
     }
 
     suspend fun setHomeWallpaperPath(path: String?) = edit {
@@ -1526,6 +1536,7 @@ class ShellPreferences @Inject constructor(
         val GAME_TITLE_OVERRIDES = stringPreferencesKey("game_title_overrides")
         val SHOW_HIDDEN_GAMES = booleanPreferencesKey("show_hidden_games")
         val VISUAL_PERFORMANCE_MODE = stringPreferencesKey("visual_performance_mode")
+        val MUSIC_CATEGORY_ART_BACKDROP = booleanPreferencesKey("music_category_art_backdrop")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
         val WALLPAPER_ALIGN_X = floatPreferencesKey("wallpaper_align_x")
         val WALLPAPER_ALIGN_Y = floatPreferencesKey("wallpaper_align_y")

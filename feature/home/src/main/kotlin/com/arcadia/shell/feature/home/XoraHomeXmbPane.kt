@@ -58,7 +58,9 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -74,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.LocalLiteVisuals
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.arcadiaHazeSource
@@ -166,17 +169,24 @@ fun XoraHomeXmbPane(
             xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
             xmb.selectedItem?.action is XoraXmbAction.LaunchGame
     }
-    // Playing-track wallpaper follows the user around the XMB. Music browse still paints the
+    // Playing-track cover + wave stay on the Music column. Browse still paints the
     // focused album / song when nothing is playing.
-    val playingBackdrop = state.music.nowPlayingBackdropPath?.takeIf {
-        state.music.nowPlaying.hasTrack
-    }
-    val musicArtPath = playingBackdrop ?: when (xmb.depth) {
-        XoraXmbDepth.MusicAlbums, XoraXmbDepth.MusicTracks ->
-            xmb.selectedItem?.heroPath ?: xmb.selectedItem?.artPath
-        XoraXmbDepth.NowPlaying -> state.music.nowPlaying.track?.albumArtUri
-        XoraXmbDepth.Category -> xmb.selectedItem?.heroPath
-        else -> null
+    val musicBackdrop = musicCategoryBackdrop(
+        category = xmb.category,
+        playing = state.music.nowPlaying.hasTrack,
+        enabled = state.music.categoryArtBackdropEnabled,
+        coverPath = state.music.nowPlayingArtPath,
+    )
+    val musicArtPath = if (musicBackdrop.showCover) {
+        musicBackdrop.coverPath
+    } else {
+        when (xmb.depth) {
+            XoraXmbDepth.MusicAlbums, XoraXmbDepth.MusicTracks ->
+                xmb.selectedItem?.heroPath ?: xmb.selectedItem?.artPath
+            XoraXmbDepth.NowPlaying -> state.music.nowPlaying.track?.albumArtUri
+            XoraXmbDepth.Category -> xmb.selectedItem?.heroPath
+            else -> null
+        }
     }
     val backdropArtPath = musicArtPath ?: xmbGameSelectWallpaperPath(
         game = heroGame,
@@ -250,23 +260,31 @@ fun XoraHomeXmbPane(
             )
 
             // Keep mounted so focus / back / cancel always crossfade (never unmount-snap).
-            XoraRomHeroBackdrop(
-                artPath = backdropArtPath,
-                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
-                    XMB_GAME_SELECT_SETTLE_MS
-                } else {
-                    XMB_FOCUS_SETTLE_MS
-                },
-                audioVolume = if (playingBackdrop != null) {
-                    state.music.backdropAudioVolume
-                } else {
-                    0f
-                },
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(backdropMotion)
-                    .graphicsLayer { alpha = recedeAlpha },
-            )
+                    .graphicsLayer {
+                        alpha = recedeAlpha
+                        if (musicBackdrop.showWaveMask) {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                    },
+            ) {
+                XoraRomHeroBackdrop(
+                    artPath = backdropArtPath,
+                    settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                        XMB_GAME_SELECT_SETTLE_MS
+                    } else {
+                        XMB_FOCUS_SETTLE_MS
+                    },
+                    audioVolume = 0f,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                if (musicBackdrop.showWaveMask) {
+                    MusicWaveMaskLayer(Modifier.fillMaxSize())
+                }
+            }
 
             HeroTrailerLayer(
                 state = state.trailer,
@@ -522,9 +540,12 @@ fun XoraXmbHeroDetail(
 ) {
     val xmb = state.xoraXmb
     val heroGame = xmb.focusGame
-    val playingBackdrop = state.music.nowPlayingBackdropPath?.takeIf {
-        state.music.nowPlaying.hasTrack
-    }
+    val musicBackdrop = musicCategoryBackdrop(
+        category = xmb.category,
+        playing = state.music.nowPlaying.hasTrack,
+        enabled = state.music.categoryArtBackdropEnabled,
+        coverPath = state.music.nowPlayingArtPath,
+    )
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
     val reduceMotion = rememberReduceMotion()
@@ -576,35 +597,46 @@ fun XoraXmbHeroDetail(
                     .fillMaxSize()
                     .then(backdropMotion),
             )
-            XoraRomHeroBackdrop(
-                artPath = playingBackdrop
-                    ?: xmb.selectedItem?.heroPath
-                    ?: xmb.selectedItem?.artPath?.takeIf {
-                        xmb.depth == XoraXmbDepth.MusicAlbums ||
-                            xmb.depth == XoraXmbDepth.MusicTracks
-                    }
-                    ?: xmbGameSelectWallpaperPath(
-                        heroGame?.takeIf {
-                            xmb.depth == XoraXmbDepth.Roms ||
-                                xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
-                                xmb.selectedItem?.action is XoraXmbAction.LaunchGame
-                        },
-                    ),
-                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
-                    XMB_GAME_SELECT_SETTLE_MS
-                } else {
-                    XMB_FOCUS_SETTLE_MS
-                },
-                audioVolume = if (playingBackdrop != null) {
-                    state.music.backdropAudioVolume
-                } else {
-                    0f
-                },
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(backdropMotion)
-                    .graphicsLayer { alpha = recedeAlpha },
-            )
+                    .graphicsLayer {
+                        alpha = recedeAlpha
+                        if (musicBackdrop.showWaveMask) {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                    },
+            ) {
+                XoraRomHeroBackdrop(
+                    artPath = if (musicBackdrop.showCover) {
+                        musicBackdrop.coverPath
+                    } else {
+                        xmb.selectedItem?.heroPath
+                            ?: xmb.selectedItem?.artPath?.takeIf {
+                                xmb.depth == XoraXmbDepth.MusicAlbums ||
+                                    xmb.depth == XoraXmbDepth.MusicTracks
+                            }
+                            ?: xmbGameSelectWallpaperPath(
+                                heroGame?.takeIf {
+                                    xmb.depth == XoraXmbDepth.Roms ||
+                                        xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
+                                        xmb.selectedItem?.action is XoraXmbAction.LaunchGame
+                                },
+                            )
+                    },
+                    settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                        XMB_GAME_SELECT_SETTLE_MS
+                    } else {
+                        XMB_FOCUS_SETTLE_MS
+                    },
+                    audioVolume = 0f,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                if (musicBackdrop.showWaveMask) {
+                    MusicWaveMaskLayer(Modifier.fillMaxSize())
+                }
+            }
             HeroTrailerLayer(
                 state = state.trailer,
                 modifier = Modifier
@@ -834,6 +866,15 @@ internal fun formatXmbPlaytime(millis: Long): String {
         minutes == 0L -> if (hours == 1L) "1 hour" else "$hours hours"
         else -> "${hours}h ${minutes}m"
     }
+}
+
+@Composable
+private fun MusicWaveMaskLayer(modifier: Modifier = Modifier) {
+    if (LocalLiteVisuals.current) return
+    LoopingWallpaperVideo(
+        uri = MUSIC_WAVE_MASK_URI,
+        modifier = modifier.graphicsLayer { blendMode = BlendMode.Multiply },
+    )
 }
 
 @Composable

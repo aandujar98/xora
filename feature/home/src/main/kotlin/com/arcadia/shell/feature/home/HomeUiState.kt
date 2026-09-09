@@ -467,6 +467,11 @@ data class MusicUiState(
     val nowPlayingBackdropPath: String? = null,
     /** Volume for track background video audio; the song itself uses Now Playing volume. */
     val backdropAudioVolume: Float = 0f,
+    /**
+     * Display toggle: while a track plays on the Music column, show cover art plus the
+     * bundled wave Multiply mask.
+     */
+    val categoryArtBackdropEnabled: Boolean = true,
 ) {
     /** Cover art for whichever music rung is focused, used as the XMB backdrop. */
     val nowPlayingArtPath: String? get() = nowPlaying.track?.albumArtUri

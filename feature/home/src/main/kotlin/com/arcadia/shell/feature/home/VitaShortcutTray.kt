@@ -838,6 +838,13 @@ internal fun vitaTrayOpenOneShot(alreadyOpen: Boolean): UiOneShot? =
     if (alreadyOpen) null else UiOneShot.VitaOpen
 
 /**
+ * Peel-into-game zoom sting (`boot_vita.wav`). Plays once when the dog-ear starts moving
+ * or A auto-peels; later peel rasps / the launch handoff stay silent on this cue.
+ */
+internal fun vitaPeelZoomOneShot(alreadyStarted: Boolean): UiOneShot? =
+    if (alreadyStarted) null else UiOneShot.BootVita
+
+/**
  * Slot indices for [page], grouped into the staggered rows the design uses. Indices are absolute
  * so callers can address a slot without knowing which page it lives on.
  */
