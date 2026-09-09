@@ -70,6 +70,7 @@ import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.inverted
 import com.arcadia.shell.designsystem.rememberAmbientMotionActive
 import com.arcadia.shell.designsystem.rememberThrottledAmbientUnit
 import com.arcadia.shell.designsystem.xoraSwipeNavigate
@@ -206,7 +207,7 @@ fun VitaShortcutTray(
                     horizontal = false,
                     vertical = true,
                     onSwipe = { direction ->
-                        when (direction) {
+                        when (direction.inverted()) {
                             XoraSwipeDirection.Down -> onPageSwipe(1)
                             XoraSwipeDirection.Up -> onPageSwipe(-1)
                             else -> Unit
