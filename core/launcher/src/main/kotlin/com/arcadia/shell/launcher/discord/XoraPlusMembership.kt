@@ -18,7 +18,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Public invite for the XOrA Discord used during onboarding. */
-const val XORA_DISCORD_INVITE_URL = "https://discord.gg/CRTXSPTeK"
+const val XORA_DISCORD_INVITE_URL = "https://discord.gg/kYDvttqGeT"
 
 /** Guild behind [XORA_DISCORD_INVITE_URL]. */
 const val XORA_DISCORD_GUILD_ID = "1539658971126694070"
