@@ -45,7 +45,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -104,13 +106,21 @@ import com.arcadia.shell.designsystem.xoraSwipeNavigate
 import com.arcadia.shell.input.NavAction
 import kotlinx.coroutines.flow.Flow
 import com.arcadia.shell.designsystem.XoraSwipeDirection
+import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerInput
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
+import com.arcadia.shell.launcher.discord.XORA_DISCORD_INVITE_URL
+import com.arcadia.shell.launcher.discord.XoraPlusCheckState
+import com.arcadia.shell.launcher.discord.XoraPlusStatus
 import kotlin.math.roundToInt
 
 private val AccentInk = Color(0xFF7EC8E8)
 private val TrackInk = Color.White.copy(alpha = 0.16f)
-private val MutedInk = Color.White.copy(alpha = 0.62f)
+/** Onboarding copy is white end to end, so "muted" only means smaller, never dimmer. */
+private val MutedInk = Color.White
 
 /**
  * First-run (and Settings-restarted) onboarding. Landscape / controller-friendly: A / Right / RB
@@ -129,8 +139,54 @@ fun OnboardingScreen(
     padActions: Flow<NavAction>? = null,
     onPadCapture: (Boolean) -> Unit = {},
 ) {
+    // Every word of onboarding reads white over the wallpaper. Overriding the scheme once here
+    // also covers Material's own labels — buttons, chips, fields, dialogs — which no amount of
+    // per-Text colouring would reach.
+    MaterialTheme(colorScheme = onboardingWhiteInk(MaterialTheme.colorScheme)) {
+        CompositionLocalProvider(LocalContentColor provides Color.White) {
+            OnboardingSteps(
+                brandIcon = brandIcon,
+                onFinished = onFinished,
+                modifier = modifier,
+                viewModel = viewModel,
+                padActions = padActions,
+                onPadCapture = onPadCapture,
+            )
+        }
+    }
+}
+
+/** Every ink role Material can pick for text or an icon during onboarding, forced to white. */
+internal fun onboardingWhiteInk(base: ColorScheme): ColorScheme = base.copy(
+    onSurface = Color.White,
+    onSurfaceVariant = Color.White,
+    onBackground = Color.White,
+    onPrimary = Color.White,
+    onPrimaryContainer = Color.White,
+    onSecondary = Color.White,
+    onSecondaryContainer = Color.White,
+    onTertiary = Color.White,
+    onTertiaryContainer = Color.White,
+    inverseOnSurface = Color.White,
+    error = Color.White,
+    onError = Color.White,
+    onErrorContainer = Color.White,
+)
+
+@Composable
+private fun OnboardingSteps(
+    brandIcon: Painter,
+    onFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: OnboardingViewModel = hiltViewModel(),
+    padActions: Flow<NavAction>? = null,
+    onPadCapture: (Boolean) -> Unit = {},
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showFolderPicker by remember { mutableStateOf(false) }
+    var showPlusPasscode by remember { mutableStateOf(false) }
+    var plusPasscode by remember { mutableStateOf("") }
+    var plusPasscodeError by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val padRegistry = remember { SettingsPadRegistry() }
     var pad by remember {
@@ -292,9 +348,77 @@ fun OnboardingScreen(
         )
     }
 
+    if (showPlusPasscode) {
+        AlertDialog(
+            onDismissRequest = { showPlusPasscode = false },
+            title = { Text("Override") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter the access code to continue without XOrA Plus.")
+                    OutlinedTextField(
+                        value = plusPasscode,
+                        onValueChange = {
+                            plusPasscode = it.filter { ch -> ch.isDigit() }.take(8)
+                            plusPasscodeError = false
+                        },
+                        label = { Text("Passcode") },
+                        singleLine = true,
+                        isError = plusPasscodeError,
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    if (plusPasscodeError) {
+                        Text(
+                            text = "That code is not valid.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (viewModel.submitPlusBypass(plusPasscode)) {
+                            showPlusPasscode = false
+                            plusPasscode = ""
+                        } else {
+                            plusPasscodeError = true
+                        }
+                    },
+                ) { Text("Unlock") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPlusPasscode = false }) { Text("Cancel") }
+            },
+        )
+    }
+
         Box(
             modifier = modifier
                 .fillMaxSize()
+                .pointerInput(Unit) {
+                    var taps = 0
+                    var windowStart = 0L
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Final)
+                            val up = event.changes.any { it.changedToUpIgnoreConsumed() }
+                            if (!up) continue
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (now - windowStart > 2_500L) {
+                                taps = 0
+                                windowStart = now
+                            }
+                            taps += 1
+                            if (taps >= 5) {
+                                taps = 0
+                                showPlusPasscode = true
+                                plusPasscode = ""
+                                plusPasscodeError = false
+                            }
+                        }
+                    }
+                }
                 .xoraSwipeNavigate(
                     vertical = false,
                     onSwipe = { direction ->
@@ -484,13 +608,20 @@ fun OnboardingScreen(
                                 onScreenScraper = viewModel::setScreenScraperCredentials,
                                 onScreenScraperDev = viewModel::setScreenScraperDevCredentials,
                             )
-                            OnboardingStep.Social -> SocialStep(
-                                steam = state.steamWebApi,
+                            OnboardingStep.Discord -> DiscordStep(
                                 discordPresence = state.discordPresence,
+                                xoraPlus = state.xoraPlus,
+                                xoraPlusBypass = state.xoraPlusBypass,
+                                plusRoleIds = state.xoraPlusRoleIds,
+                                onLinkDiscord = viewModel::requestLinkDiscord,
+                                onRecheckPlus = viewModel::refreshXoraPlus,
+                                onPlusRoleIds = viewModel::setPlusRoleIds,
+                            )
+                            OnboardingStep.Steam -> SteamStep(
+                                steam = state.steamWebApi,
                                 notificationListenerEnabled = state.notificationListenerEnabled,
                                 onSignInSteam = viewModel::requestSteamOpenId,
                                 onSteamApiKey = viewModel::setSteamWebApiKey,
-                                onLinkDiscord = viewModel::requestLinkDiscord,
                                 onOpenNotificationAccess = {
                                     permissionLauncher.launch(
                                         viewModel.notificationListenerSettingsIntent(),
@@ -528,7 +659,7 @@ fun OnboardingScreen(
                 }
 
                 state.message?.let { msg ->
-                    XoraSecondaryText(text = msg, fontSize = 13.sp, fillColor = AccentInk)
+                    XoraSecondaryText(text = msg, fontSize = 13.sp, fillColor = Color.White)
                 }
 
                 OnboardingActions(
@@ -654,17 +785,18 @@ private fun stepLabel(step: OnboardingStep): String = when (step) {
     OnboardingStep.AndroidApps -> "Android"
     OnboardingStep.Emulators -> "Emulators"
     OnboardingStep.Scrapers -> "Artwork"
-    OnboardingStep.Social -> "Social"
+    OnboardingStep.Discord -> "Discord"
+    OnboardingStep.Steam -> "Steam"
     OnboardingStep.RetroAchievements -> "Achievements"
     OnboardingStep.Audio -> "Sound"
     OnboardingStep.Done -> "Finish"
 }
 
-/** Steps that only link external accounts, so they can be skipped without breaking setup. */
+/** Steps that only link optional accounts, so they can be skipped without breaking setup. */
 private fun isOptional(step: OnboardingStep): Boolean =
     step == OnboardingStep.AndroidApps ||
         step == OnboardingStep.Scrapers ||
-        step == OnboardingStep.Social ||
+        step == OnboardingStep.Steam ||
         step == OnboardingStep.RetroAchievements
 
 @Composable
@@ -684,14 +816,14 @@ private fun WelcomeStep(brandIcon: Painter) {
             text = "XOrA",
             style = MaterialTheme.typography.displayLarge,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
+            color = Color.White,
         )
         Text(
             text = "Welcome. Start with your local profile, then a few choices get your " +
                 "library, display, performance, and sound ready. You can change everything " +
                 "later in Setup.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
             textAlign = TextAlign.Center,
         )
     }
@@ -736,7 +868,7 @@ private fun ProfileStep(
         Text(
             text = "This name and picture show on the Home social card. Upload from Photos or Files.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
             textAlign = TextAlign.Center,
         )
         Box(
@@ -845,7 +977,7 @@ private fun DisplayModeStep(
             text = "The Home XMB is a single-screen menu. DS and 3DS games still use their " +
                 "own dual-LCD layout from the emulator overlay.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SettingsPadTarget(
@@ -876,7 +1008,7 @@ private fun PerformanceStep(
                 "Auto picks Performance on phones like the Galaxy A15. You can change this " +
                 "later in Start → Display.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
         )
         VisualPerformanceChoices.forEach { choice ->
             val selected = mode == choice
@@ -901,7 +1033,7 @@ private fun PerformanceStep(
                         text = visualPerformanceModeLabel(choice),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = Color.White,
                     )
                     Text(
                         text = visualPerformanceModeSubtitle(
@@ -910,7 +1042,7 @@ private fun PerformanceStep(
                             deviceRamLabel = budget.usableRamLabel,
                         ),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color.White,
                     )
                 }
             }
@@ -937,7 +1069,7 @@ private fun LibraryStep(
                 "inside it (PSP, PS2, PSP Games, PS2 ISOs) and the ROM files in those. " +
                 "All-files access lets path-based emulators open those files directly.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
         )
         if (!hasStorageAccess) {
             SettingsPadTarget(id = "library_grant", onActivate = onGrantAccess) {
@@ -965,7 +1097,7 @@ private fun LibraryStep(
             Text(
                 text = "No folders yet — you can skip and add them in Setup anytime.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White,
             )
         } else {
             roots.take(4).forEach { root ->
@@ -978,7 +1110,7 @@ private fun LibraryStep(
                 Text(
                     text = "+${roots.size - 4} more",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White,
                 )
             }
         }
@@ -1002,7 +1134,7 @@ private fun AndroidAppsStep(
                 "Skip includes every launchable app. Continue saves the ones you tick — " +
                 "you can change this later in Setup → Storage.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
         )
         AndroidAppPicker(
             apps = apps,
@@ -1046,7 +1178,7 @@ private fun EmulatorsStep(
                         "Scanning your library for ROMs…"
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White,
                 )
                 CircularProgressIndicator(modifier = Modifier.size(36.dp))
             }
@@ -1054,7 +1186,7 @@ private fun EmulatorsStep(
                 Text(
                     text = scanError,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
+                    color = Color.White,
                 )
                 SettingsPadTarget(id = "emu_retry_error", onActivate = onRetry) {
                     Button(onClick = onRetry) { Text("Try again") }
@@ -1066,13 +1198,13 @@ private fun EmulatorsStep(
                         "(PSP, PS2, PSP Games, PS2 ISOs — the parent can be named anything) " +
                         "and try again.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White,
                 )
                 if (!hasFolders) {
                     Text(
                         text = "No library folders yet — go back and add one first.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color.White,
                     )
                 }
                 SettingsPadTarget(id = "emu_retry_empty", onActivate = onRetry) {
@@ -1083,7 +1215,7 @@ private fun EmulatorsStep(
                 Text(
                     text = "These systems have games. Pick the emulator XOrA should use for each.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White,
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     choices.forEach { choice ->
@@ -1143,11 +1275,7 @@ private fun OnboardingPlatformEmulatorCard(
         Text(
             text = status,
             style = MaterialTheme.typography.bodySmall,
-            color = if (statusOk) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.error
-            },
+            color = Color.White,
         )
         if (choice.candidates.isNotEmpty()) {
             SettingsPadRow("emu_${choice.summary.platform.id}") {
@@ -1203,7 +1331,7 @@ private fun ScrapersStep(
                 text = "Open a service to paste your API key or account. Covers and logos fill " +
                     "in after a library scan. Skip and add them later in Setup if you want.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White,
             )
             ScraperServiceButton(
                 id = "scraper_open_sgdb",
@@ -1230,7 +1358,7 @@ private fun ScrapersStep(
                 text = "Music art (iTunes, Deezer) needs no key. You can change any of these " +
                     "later in Setup → Scrapers / Metadata.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White,
             )
         } else {
             ScraperServiceSheet(
@@ -1278,13 +1406,13 @@ private fun ScraperServiceButton(
                     Text(
                         text = if (configured) "Saved" else "Set up",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (configured) AccentInk else MutedInk,
+                        color = Color.White,
                     )
                 }
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White,
                     textAlign = TextAlign.Start,
                 )
             }
@@ -1354,7 +1482,7 @@ private fun ScraperServiceSheet(
     Text(
         text = body,
         style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = Color.White,
     )
     when (service) {
         OnboardingScraperService.SteamGridDb -> OnboardingSecretField(
@@ -1423,52 +1551,28 @@ private fun ScraperServiceSheet(
     }
 }
 
+/** Required step: Discord link plus the XOrA Plus role check. */
 @Composable
-private fun SocialStep(
-    steam: SteamWebApiCredentials,
+private fun DiscordStep(
     discordPresence: DiscordPresenceUiState,
-    notificationListenerEnabled: Boolean,
-    onSignInSteam: () -> Unit,
-    onSteamApiKey: (String) -> Unit,
+    xoraPlus: XoraPlusCheckState,
+    xoraPlusBypass: Boolean,
+    plusRoleIds: String,
     onLinkDiscord: () -> Unit,
-    onOpenNotificationAccess: () -> Unit,
+    onRecheckPlus: () -> Unit,
+    onPlusRoleIds: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        StepTitle("Social")
+        StepTitle("Sign in with Discord")
         Text(
-            text = "Sign in with Steam for your SteamID64, paste a Web API key once, and link " +
-                "Discord for Rich Presence. Notification access lets XOrA mirror chat previews.",
+            text = "XOrA is limited to XOrA Plus members for now, so linking Discord is " +
+                "required. Join the server at $XORA_DISCORD_INVITE_URL, pick up XOrA Plus, " +
+                "then link the account you use there.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        SettingsPadTarget(id = "social_steam", onActivate = onSignInSteam) {
-            Button(onClick = onSignInSteam) {
-                Text(
-                    text = if (steam.steamId64.isNotBlank()) {
-                        "Re-link Steam (ID ${steam.steamId64})"
-                    } else {
-                        "Sign in with Steam"
-                    },
-                )
-            }
-        }
-        if (steam.steamId64.isNotBlank()) {
-            Text(
-                text = "Steam ID linked.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-
-        OnboardingSecretField(
-            id = "social_steam_key",
-            label = "Steam Web API key",
-            value = steam.apiKey,
-            onCommit = onSteamApiKey,
+            color = Color.White,
         )
 
         val discordLabel = when {
@@ -1509,15 +1613,106 @@ private fun SocialStep(
             Text(
                 text = "Discord account linked.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
+                color = Color.White,
             )
         } else if (discordPresence.capability == DiscordPresenceCapability.SdkMissing) {
             Text(
-                text = "Discord Social SDK is not in this build — link later from Social when available.",
+                text = "Discord Social SDK is not in this build — use the emergency override if you cannot link.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White,
             )
         }
+
+        val plusLine = when {
+            xoraPlusBypass -> "Access override accepted."
+            xoraPlus.checking -> "Checking XOrA Plus…"
+            xoraPlus.detail.isNotBlank() -> xoraPlus.detail
+            xoraPlus.plusConfirmed -> "XOrA Plus confirmed."
+            else -> "Next stays locked until XOrA Plus is confirmed."
+        }
+        Text(
+            text = plusLine,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White,
+        )
+
+        SettingsPadTarget(id = "social_discord_recheck", onActivate = onRecheckPlus) {
+            OutlinedButton(onClick = onRecheckPlus, enabled = !xoraPlus.checking) {
+                Text("Check XOrA Plus again")
+            }
+        }
+
+        // Role *names* are bot-only on Discord's API, so an exact check needs the snowflake.
+        // Shown with the account's own role ids to copy from when the owner sets it up.
+        val roleHintVisible = plusRoleIds.isNotBlank() ||
+            xoraPlus.status == XoraPlusStatus.InGuildUnverified ||
+            xoraPlus.status == XoraPlusStatus.InGuildNoPlus
+        if (roleHintVisible) {
+            OnboardingSecretField(
+                id = "social_plus_role",
+                label = "XOrA Plus role ID (optional)",
+                value = plusRoleIds,
+                onCommit = onPlusRoleIds,
+            )
+            if (xoraPlus.roleIds.isNotEmpty()) {
+                Text(
+                    text = "Your roles on the XOrA server: " +
+                        xoraPlus.roleIds.joinToString(", "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White,
+                )
+            }
+        }
+    }
+}
+
+/** Optional step: Steam sign-in, Web API key, and media notification access. */
+@Composable
+private fun SteamStep(
+    steam: SteamWebApiCredentials,
+    notificationListenerEnabled: Boolean,
+    onSignInSteam: () -> Unit,
+    onSteamApiKey: (String) -> Unit,
+    onOpenNotificationAccess: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        StepTitle("Sign in with Steam")
+        Text(
+            text = "Optional. Steam brings your friends list and playtime into the social card. " +
+                "A Web API key is only needed if Steam asks for one. Notification access lets " +
+                "XOrA show what is playing on the XMB.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+        )
+
+        SettingsPadTarget(id = "social_steam", onActivate = onSignInSteam) {
+            Button(onClick = onSignInSteam) {
+                Text(
+                    text = if (steam.steamId64.isNotBlank()) {
+                        "Re-link Steam (ID ${steam.steamId64})"
+                    } else {
+                        "Sign in with Steam"
+                    },
+                )
+            }
+        }
+        if (steam.steamId64.isNotBlank()) {
+            Text(
+                text = "Steam ID linked.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White,
+            )
+        }
+
+        OnboardingSecretField(
+            id = "social_steam_key",
+            label = "Steam Web API key",
+            value = steam.apiKey,
+            onCommit = onSteamApiKey,
+        )
 
         if (!notificationListenerEnabled) {
             SettingsPadTarget(id = "social_notifications", onActivate = onOpenNotificationAccess) {
@@ -1529,7 +1724,7 @@ private fun SocialStep(
             Text(
                 text = "Notification access is on.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
+                color = Color.White,
             )
         }
     }
@@ -1553,14 +1748,14 @@ private fun RetroAchievementsStep(
             text = "Sign in with your username and password. If RA asks for a Web API key, " +
                 "paste it once from your control panel (Keys).",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
         )
 
         if (configured.isConfigured && pendingWebApiUsername.isNullOrBlank()) {
             Text(
                 text = "Signed in as ${configured.username}",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = Color.White,
             )
         } else {
             RetroAchievementsSignInFields(
@@ -1625,7 +1820,7 @@ private fun AudioStep(
             text = "Soundtrack and UI click volumes. Themes on Home can also swap wallpaper " +
                 "and custom BGM later.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
         )
         Text(
             text = "Background music: ${(draftBgm * 100f).roundToInt()}%",
@@ -1684,7 +1879,7 @@ private fun DoneStep() {
             text = "Head to Home to browse games, pin shortcuts, and open Setup anytime from " +
                 "the hub. Welcome to XOrA.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White,
             textAlign = TextAlign.Center,
         )
     }
@@ -1777,7 +1972,7 @@ private fun OnboardingHints(
                 Text(
                     text = button,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimary,
+                    color = Color.White,
                     modifier = Modifier
                         .clip(RoundedCornerShape(percent = 50))
                         .background(MaterialTheme.colorScheme.primary)
@@ -1786,7 +1981,7 @@ private fun OnboardingHints(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White,
                 )
             }
         }

@@ -43,6 +43,7 @@ class DiscordPresenceController @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val tokenStore: DiscordTokenStore,
     private val notificationCenter: ShellNotificationCenter,
+    private val xoraPlusMembership: XoraPlusMembership,
 ) : DiscordRichPresence {
 
     private val bridge = DiscordSocialSdkBridge()
@@ -88,6 +89,7 @@ class DiscordPresenceController @Inject constructor(
             if (ready) {
                 Log.i(TAG, "Social SDK Ready — publishing Rich Presence")
                 schedulePublish(immediate = true)
+                scope.launch { xoraPlusMembership.refresh() }
                 val openPeer = _dmThread.value.peerUserId
                 if (!openPeer.isNullOrBlank()) {
                     bridge.setShowingChat(true)
@@ -101,6 +103,7 @@ class DiscordPresenceController @Inject constructor(
             lastAuthError = null
             tokenStore.save(access, refresh, expiresIn)
             Log.i(TAG, "OAuth tokens stored (expiresIn=${expiresIn}s)")
+            scope.launch { xoraPlusMembership.refresh() }
         }
         bridge.setFriendsListener { friends ->
             emitDiscordFriendOnlineBanners(friends)

@@ -116,6 +116,11 @@ data class HomeHubUiState(
     val vitaShortcutDepartingIndex: Int? = null,
     /** A was pressed on the launch page: the LiveArea start gate peels itself off. */
     val vitaShortcutPeelRequested: Boolean = false,
+    /**
+     * Bubble picked up for repositioning (hold a bubble, or A in edit mode). While set, the
+     * D-pad / stick and finger drags move the bubble between slots instead of moving focus.
+     */
+    val vitaShortcutMoveIndex: Int? = null,
     /** Absolute path to custom wallpaper, or null for the bundled default. */
     val wallpaperPath: String? = null,
     val wallpaperAlignX: Float = 0f,

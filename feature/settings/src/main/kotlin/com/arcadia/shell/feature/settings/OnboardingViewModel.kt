@@ -29,6 +29,10 @@ import com.arcadia.shell.launcher.RetroArchPackages
 import com.arcadia.shell.launcher.conversations.ConversationRepository
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
+import com.arcadia.shell.launcher.discord.XORA_PLUS_BYPASS_CODE
+import com.arcadia.shell.launcher.discord.XoraPlusCheckState
+import com.arcadia.shell.launcher.discord.XoraPlusMembership
+import com.arcadia.shell.launcher.discord.discordAccountLinked
 import com.arcadia.shell.libretro.XoraLibretroPlayers
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
@@ -47,7 +51,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -64,7 +70,8 @@ enum class OnboardingStep {
     AndroidApps,
     Emulators,
     Scrapers,
-    Social,
+    Discord,
+    Steam,
     RetroAchievements,
     Audio,
     Done,
@@ -109,12 +116,21 @@ data class OnboardingUiState(
     val avatarPath: String? = null,
     val credentials: ScraperCredentials = ScraperCredentials(),
     val message: String? = null,
+    val xoraPlus: XoraPlusCheckState = XoraPlusCheckState(),
+    val xoraPlusBypass: Boolean = false,
+    /** Comma-separated Plus role snowflakes the player (or the build) supplied. */
+    val xoraPlusRoleIds: String = "",
 ) {
     val stepIndex: Int get() = OnboardingStep.entries.indexOf(step)
     val stepCount: Int get() = OnboardingStep.entries.size
     val canGoBack: Boolean get() = stepIndex > 0
     val isLast: Boolean get() = step == OnboardingStep.Done
-    val canAdvance: Boolean get() = step != OnboardingStep.Emulators || !scanRunning
+    val discordLinked: Boolean get() = discordAccountLinked(discordPresence)
+    val canAdvance: Boolean get() = when (step) {
+        OnboardingStep.Emulators -> !scanRunning
+        OnboardingStep.Discord -> xoraPlusBypass || (discordLinked && xoraPlus.hasPlus)
+        else -> true
+    }
 }
 
 @HiltViewModel
@@ -134,6 +150,7 @@ class OnboardingViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
     private val retroAchievements: RetroAchievementsRepository,
     private val discordRichPresence: DiscordRichPresence,
+    private val xoraPlusMembership: XoraPlusMembership,
 ) : ViewModel() {
 
     private val step = MutableStateFlow(OnboardingStep.Welcome)
@@ -170,12 +187,22 @@ class OnboardingViewModel @Inject constructor(
         Triple(busy, error, pending)
     }
 
+    private val plusBypassOverride = MutableStateFlow(false)
+
     private val socialFlow = combine(
         preferences.retroAchievements,
         preferences.steamWebApi,
         discordRichPresence.state,
         raAuthFlow,
-    ) { ra, steam, discord, raAuth ->
+        combine(
+            xoraPlusMembership.state,
+            preferences.xoraPlusBypass,
+            plusBypassOverride,
+            preferences.xoraPlusRoleIds,
+        ) { plus, stored, override, roleIds ->
+            PlusBundle(plus, stored || override, roleIds)
+        },
+    ) { ra, steam, discord, raAuth, plus ->
         SocialBundle(
             retroAchievements = ra,
             steamWebApi = steam,
@@ -183,8 +210,17 @@ class OnboardingViewModel @Inject constructor(
             raBusy = raAuth.first,
             raError = raAuth.second,
             raPendingWebApiUser = raAuth.third,
+            xoraPlus = plus.state,
+            xoraPlusBypass = plus.bypass,
+            xoraPlusRoleIds = plus.roleIds,
         )
     }
+
+    private data class PlusBundle(
+        val state: XoraPlusCheckState,
+        val bypass: Boolean,
+        val roleIds: String,
+    )
 
     private data class SocialBundle(
         val retroAchievements: RetroAchievementsCredentials,
@@ -193,6 +229,9 @@ class OnboardingViewModel @Inject constructor(
         val raBusy: Boolean,
         val raError: String?,
         val raPendingWebApiUser: String?,
+        val xoraPlus: XoraPlusCheckState,
+        val xoraPlusBypass: Boolean,
+        val xoraPlusRoleIds: String,
     )
 
     private val identityFlow = combine(
@@ -319,6 +358,9 @@ class OnboardingViewModel @Inject constructor(
                 ?.takeIf { base.profile.avatarSource == AvatarSource.Local },
             credentials = base.credentials,
             message = base.message,
+            xoraPlus = social.xoraPlus,
+            xoraPlusBypass = social.xoraPlusBypass,
+            xoraPlusRoleIds = social.xoraPlusRoleIds,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OnboardingUiState())
 
@@ -326,6 +368,19 @@ class OnboardingViewModel @Inject constructor(
 
     init {
         loadLaunchableAndroidApps()
+        viewModelScope.launch {
+            discordRichPresence.state
+                .map { it.currentUserId to it.capability }
+                .distinctUntilChanged()
+                .collect { (userId, capability) ->
+                    val linked = !userId.isNullOrBlank() ||
+                        capability == com.arcadia.shell.launcher.discord.DiscordPresenceCapability.Connected
+                    if (linked) xoraPlusMembership.refresh()
+                }
+        }
+        viewModelScope.launch {
+            xoraPlusMembership.refresh()
+        }
     }
 
     fun refresh() {
@@ -336,6 +391,12 @@ class OnboardingViewModel @Inject constructor(
 
     fun next() {
         if (step.value == OnboardingStep.Emulators && scanRunning.value) return
+        if (step.value == OnboardingStep.Discord) {
+            val plus = xoraPlusMembership.state.value
+            val bypass = plusBypassOverride.value || uiState.value.xoraPlusBypass
+            val linked = discordAccountLinked(discordRichPresence.state.value)
+            if (!bypass && !(linked && plus.hasPlus)) return
+        }
         if (step.value == OnboardingStep.AndroidApps) {
             persistAndroidAppSelection()
         }
@@ -642,9 +703,39 @@ class OnboardingViewModel @Inject constructor(
         return true
     }
 
+    fun submitPlusBypass(code: String): Boolean {
+        if (code.trim() != XORA_PLUS_BYPASS_CODE) return false
+        plusBypassOverride.value = true
+        viewModelScope.launch { preferences.setXoraPlusBypass(true) }
+        return true
+    }
+
     fun requestLinkDiscord() {
         viewModelScope.launch {
             runCatching { externalAuthRequests.send(OnboardingExternalAuthRequest.LinkDiscord) }
+        }
+    }
+
+    /** Re-run the guild / role lookup, e.g. after the player is granted Plus in Discord. */
+    fun refreshXoraPlus() {
+        viewModelScope.launch {
+            xoraPlusMembership.refresh()
+            message.value = "Re-checking XOrA Plus…"
+        }
+    }
+
+    /**
+     * Store the XOrA Plus role snowflake. Discord never gives apps role names, so this is what
+     * turns "in the server" into an exact Plus check.
+     */
+    fun setPlusRoleIds(raw: String) {
+        viewModelScope.launch {
+            xoraPlusMembership.setPlusRoleIds(raw)
+            message.value = if (raw.isBlank()) {
+                "Plus role id cleared."
+            } else {
+                "Plus role id saved."
+            }
         }
     }
 

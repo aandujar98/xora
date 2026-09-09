@@ -92,6 +92,8 @@ fun hintsForPage(
     HomePage.Home -> when {
         homeHub?.vitaShortcutTrayOpen == true && homeHub.vitaShortcutLaunch != null ->
             VitaShortcutLaunchHints
+        homeHub?.vitaShortcutTrayOpen == true && homeHub.vitaShortcutMoveIndex != null ->
+            VitaShortcutTrayMoveHints
         homeHub?.vitaShortcutTrayOpen == true && homeHub.shortcutsEditMode ->
             VitaShortcutTrayEditHints
         homeHub?.vitaShortcutTrayOpen == true -> VitaShortcutTrayHints
@@ -124,7 +126,7 @@ val XoraXmbHints: List<Pair<String, String>> = listOf(
     "LB/RB" to "Category",
     "A" to "Select",
     "B" to "Back",
-    "X" to "Achievements",
+    "X" to "Volume",
     "Y" to "Shortcuts",
     "LT" to "Social",
     "RT" to "Profile",
@@ -138,6 +140,7 @@ val XoraSystemBrowseHints: List<Pair<String, String>> = listOf(
     "U/D" to "System",
     "A" to "Open",
     "B" to "Back",
+    "X" to "Volume",
     "Select" to "Console art",
     "LT" to "Circle",
     "RT" to "Profile / Alerts",
@@ -149,6 +152,7 @@ val XoraMusicBrowseHints: List<Pair<String, String>> = listOf(
     "U/D" to "Browse",
     "A" to "Open",
     "B" to "Back",
+    "X" to "Volume",
     "Select" to "Customize",
     "LT" to "Circle",
     "RT" to "Profile / Alerts",
@@ -181,6 +185,7 @@ val XoraNowPlayingHints: List<Pair<String, String>> = listOf(
     "L/R" to "Prev / Next",
     "U/D" to "Shuffle / Repeat",
     "B" to "Back",
+    "X" to "Volume",
     "Start" to "Settings",
 )
 
@@ -199,7 +204,7 @@ val XoraRomBrowseHints: List<Pair<String, String>> = listOf(
     "U/D" to "Game",
     "A" to "Play",
     "B" to "Systems",
-    "X" to "Achievements",
+    "X" to "Volume",
     "Y" to "Favourite",
     "Select" to "ROM options",
     "LT" to "Circle",
@@ -221,6 +226,7 @@ val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
     "L/R" to "Shortcut",
     "U/D" to "Page",
     "A" to "Open",
+    "Hold" to "Move bubble",
     "Select" to "Edit",
     "Y" to "Close",
     "B" to "Close",
@@ -232,11 +238,20 @@ val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
 val VitaShortcutTrayEditHints: List<Pair<String, String>> = listOf(
     "L/R" to "Shortcut",
     "U/D" to "Page",
-    "A" to "Icon / Add",
-    "Select" to "Done",
+    "A" to "Move / Add",
+    "Hold" to "Move bubble",
+    "Select" to "Icon",
     "Y" to "Close",
     "B" to "Done",
     "Start+Select" to "Guide",
+)
+
+/** A bubble is lifted and waiting for a new slot. */
+val VitaShortcutTrayMoveHints: List<Pair<String, String>> = listOf(
+    "L/R/U/D" to "Place",
+    "Drag" to "Place",
+    "A" to "Drop here",
+    "B" to "Cancel",
 )
 
 val HomeHubHints: List<Pair<String, String>> = XoraXmbHints

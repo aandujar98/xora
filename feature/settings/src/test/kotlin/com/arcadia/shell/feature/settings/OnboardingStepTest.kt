@@ -3,6 +3,10 @@ package com.arcadia.shell.feature.settings
 import com.arcadia.shell.datastore.VisualPerformanceChoices
 import com.arcadia.shell.datastore.VisualPerformanceMode
 import com.arcadia.shell.datastore.visualPerformanceModeLabel
+import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
+import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
+import com.arcadia.shell.launcher.discord.XoraPlusCheckState
+import com.arcadia.shell.launcher.discord.XoraPlusStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -21,6 +25,14 @@ class OnboardingStepTest {
         assertEquals(OnboardingStep.AndroidApps, steps[5])
         assertEquals(OnboardingStep.Emulators, steps[6])
         assertEquals(OnboardingStep.Scrapers, steps[7])
+    }
+
+    @Test
+    fun `discord and steam are separate steps in that order`() {
+        val steps = OnboardingStep.entries
+        assertEquals(OnboardingStep.Discord, steps[8])
+        assertEquals(OnboardingStep.Steam, steps[9])
+        assertEquals(OnboardingStep.RetroAchievements, steps[10])
     }
 
     @Test
@@ -58,6 +70,51 @@ class OnboardingStepTest {
 
         val library = OnboardingUiState(step = OnboardingStep.Library, scanRunning = true)
         assertTrue(library.canAdvance)
+    }
+
+    @Test
+    fun discordNextRequiresPlusOrBypass() {
+        val blocked = OnboardingUiState(step = OnboardingStep.Discord)
+        assertFalse(blocked.canAdvance)
+
+        val linkedNoPlus = OnboardingUiState(
+            step = OnboardingStep.Discord,
+            discordPresence = DiscordPresenceUiState(
+                capability = DiscordPresenceCapability.Connected,
+            ),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.InGuildNoPlus),
+        )
+        assertFalse(linkedNoPlus.canAdvance)
+
+        val plus = OnboardingUiState(
+            step = OnboardingStep.Discord,
+            discordPresence = DiscordPresenceUiState(
+                capability = DiscordPresenceCapability.Connected,
+            ),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.HasPlus),
+        )
+        assertTrue(plus.canAdvance)
+
+        // Discord never names guild roles for a user token; membership alone still opens the gate.
+        val unverified = OnboardingUiState(
+            step = OnboardingStep.Discord,
+            discordPresence = DiscordPresenceUiState(
+                capability = DiscordPresenceCapability.Connected,
+            ),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
+        )
+        assertTrue(unverified.canAdvance)
+
+        val bypass = OnboardingUiState(
+            step = OnboardingStep.Discord,
+            xoraPlusBypass = true,
+        )
+        assertTrue(bypass.canAdvance)
+    }
+
+    @Test
+    fun steamStepNeverBlocksTheFlow() {
+        assertTrue(OnboardingUiState(step = OnboardingStep.Steam).canAdvance)
     }
 
     @Test

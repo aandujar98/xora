@@ -290,8 +290,15 @@ class HomeViewModel @Inject constructor(
     private val vitaShortcutDepartingIndex = MutableStateFlow<Int?>(null)
     /** A / plate tap asked for the start gate to peel itself; the page runs the animation. */
     private val vitaShortcutPeelRequested = MutableStateFlow(false)
+    /** Bubble held for repositioning in the Vita tray. */
+    private val vitaShortcutMoveIndex = MutableStateFlow<Int?>(null)
+    /** Shortcut order as it was when the move started, so B can put it back. */
+    private var vitaShortcutMoveSnapshot: List<HomeShortcut>? = null
     /** Filled Vita bubble whose icon sheet is open (edit mode). */
     private val vitaShortcutIconEditId = MutableStateFlow<String?>(null)
+    /** XMB volume mix overlay — face X (and Options outside ROM folders). */
+    private val volumeMixerOpen = MutableStateFlow(false)
+    private val volumeMixerFocus = MutableStateFlow(VOLUME_MIXER_MUSIC)
     /** Watches the launch that a peeled gate started, so the page knows when to stand down. */
     private var vitaLaunchHandoff: Job? = null
     private val themesOpen = MutableStateFlow(false)
@@ -726,9 +733,19 @@ class HomeViewModel @Inject constructor(
                 vitaShortcutPinMode,
                 vitaShortcutLaunch,
                 vitaShortcutDepartingIndex,
-                vitaShortcutPeelRequested,
-            ) { open, pin, launch, departing, peel ->
-                VitaTrayChrome(open, pin, launch, departing, peel)
+                combine(
+                    vitaShortcutPeelRequested,
+                    vitaShortcutMoveIndex,
+                ) { peel, move -> peel to move },
+            ) { open, pin, launch, departing, peelMove ->
+                VitaTrayChrome(
+                    open = open,
+                    pin = pin,
+                    launch = launch,
+                    departingIndex = departing,
+                    peelRequested = peelMove.first,
+                    moveIndex = peelMove.second,
+                )
             },
         ) { columns, rows, chrome, tray ->
             HomeHubLayout(
@@ -740,6 +757,7 @@ class HomeViewModel @Inject constructor(
                 vitaShortcutLaunch = tray.launch,
                 vitaShortcutDepartingIndex = tray.departingIndex,
                 vitaShortcutPeelRequested = tray.peelRequested,
+                vitaShortcutMoveIndex = tray.moveIndex,
             )
         },
     ) { core, layout ->
@@ -756,6 +774,7 @@ class HomeViewModel @Inject constructor(
             vitaShortcutLaunch = layout.vitaShortcutLaunch,
             vitaShortcutDepartingIndex = layout.vitaShortcutDepartingIndex,
             vitaShortcutPeelRequested = layout.vitaShortcutPeelRequested,
+            vitaShortcutMoveIndex = layout.vitaShortcutMoveIndex,
         )
     }
 
@@ -775,6 +794,7 @@ class HomeViewModel @Inject constructor(
         val vitaShortcutLaunch: VitaShortcutLaunchUi?,
         val vitaShortcutDepartingIndex: Int?,
         val vitaShortcutPeelRequested: Boolean,
+        val vitaShortcutMoveIndex: Int?,
     )
 
     private data class VitaTrayChrome(
@@ -783,6 +803,7 @@ class HomeViewModel @Inject constructor(
         val launch: VitaShortcutLaunchUi?,
         val departingIndex: Int?,
         val peelRequested: Boolean,
+        val moveIndex: Int?,
     )
 
     private data class HomeHubNav(
@@ -798,6 +819,7 @@ class HomeViewModel @Inject constructor(
         val vitaShortcutLaunch: VitaShortcutLaunchUi?,
         val vitaShortcutDepartingIndex: Int?,
         val vitaShortcutPeelRequested: Boolean,
+        val vitaShortcutMoveIndex: Int?,
     )
 
     private val addShortcutChromeFlow = combine(
@@ -1088,6 +1110,23 @@ class HomeViewModel @Inject constructor(
         val photos: PhotosUiState,
         val dashboard: XoraDashboardUiState,
         val systemUpdate: SystemUpdateUiState,
+    )
+
+    val volumeMixerUi: StateFlow<VolumeMixerUiState> = combine(
+        volumeMixerOpen,
+        volumeMixerFocus,
+        preferences.settings.map { it.musicVolume to it.bgmVolume }.distinctUntilChanged(),
+    ) { open, focus, volumes ->
+        VolumeMixerUiState(
+            open = open,
+            focusedIndex = focus,
+            musicVolume = volumes.first,
+            bgmVolume = volumes.second,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = VolumeMixerUiState(),
     )
 
     val uiState: StateFlow<HomeUiState> = combine(
@@ -2380,6 +2419,7 @@ class HomeViewModel @Inject constructor(
                 vitaShortcutLaunch = theme.nav.vitaShortcutLaunch,
                 vitaShortcutDepartingIndex = theme.nav.vitaShortcutDepartingIndex,
                 vitaShortcutPeelRequested = theme.nav.vitaShortcutPeelRequested,
+                vitaShortcutMoveIndex = theme.nav.vitaShortcutMoveIndex,
                 wallpaperPath = theme.wallpaperPath,
                 wallpaperAlignX = theme.wallpaperAlignX,
                 wallpaperAlignY = theme.wallpaperAlignY,
@@ -2992,6 +3032,12 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        if (volumeMixerOpen.value) {
+            noteUserActivity()
+            onVolumeMixerNav(action)
+            return
+        }
+
         if (action == NavAction.ToggleGuide) {
             if (startSettingsOpen.value) closeStartSettings()
             toggleGuide()
@@ -3163,11 +3209,12 @@ class HomeViewModel @Inject constructor(
             }
             NavAction.Cancel -> drillOutXora()
             NavAction.Options -> {
-                if (openMusicCustomizeIfFocused(xmb)) return
                 if (xmb.depth == XoraXmbDepth.Roms) {
                     xmb.focusGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
                         ?: state.selectedGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
+                    return
                 }
+                toggleVolumeMixer()
             }
             NavAction.ScrapeMenu -> {
                 if (openMusicCustomizeIfFocused(xmb)) return
@@ -3199,7 +3246,7 @@ class HomeViewModel @Inject constructor(
             NavAction.SwapScreens -> toggleVitaShortcutTray()
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             NavAction.ToggleSystemPanel -> toggleSystemPanel()
-            NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+            NavAction.ToggleAchievementsPanel -> toggleVolumeMixer()
             else -> Unit
         }
     }
@@ -3228,6 +3275,7 @@ class HomeViewModel @Inject constructor(
 
     fun closeVitaShortcutTray() {
         noteUserActivity()
+        dropVitaShortcutMove(announce = false)
         clearVitaShortcutPeel()
         vitaShortcutLaunch.value = null
         vitaShortcutDepartingIndex.value = null
@@ -3357,8 +3405,97 @@ class HomeViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Pick a bubble up for repositioning. Reached by holding a bubble, or by A in edit mode.
+     * The tray then reflows under the finger / stick until A drops it or B puts it back.
+     */
+    fun beginVitaShortcutMove(index: Int? = null) {
+        noteUserActivity()
+        val hub = uiState.value.homeHub
+        if (!hub.vitaShortcutTrayOpen || hub.vitaLaunchPageOpen) return
+        val target = (index ?: hub.shortcutIndex).coerceAtLeast(0)
+        if (target >= hub.shortcuts.size) return
+        homeShortcutIndex.value = target
+        if (vitaShortcutMoveIndex.value == target) return
+        vitaShortcutMoveSnapshot = homeShortcuts.value
+        vitaShortcutMoveIndex.value = target
+        emit(HomeEvent.ShowMessage("Move ${hub.shortcuts[target].title} — A places it, B cancels."))
+    }
+
+    /** Drop the held bubble into [target], pushing the other bubbles along. */
+    fun moveVitaShortcutTo(target: Int) {
+        val from = vitaShortcutMoveIndex.value ?: return
+        val current = homeShortcuts.value
+        if (from !in current.indices) return
+        val to = target.coerceIn(0, current.lastIndex)
+        if (to == from) return
+        val next = current.toMutableList().apply { add(to, removeAt(from)) }
+        homeShortcuts.value = next
+        vitaShortcutMoveIndex.value = to
+        homeShortcutIndex.value = to
+    }
+
+    /** Nudge the held bubble one slot in [action]'s direction. */
+    private fun nudgeVitaShortcutMove(action: NavAction, hub: HomeHubUiState) {
+        noteUserActivity()
+        val from = hub.vitaShortcutMoveIndex ?: return
+        val (dx, dy) = when (action) {
+            NavAction.Left -> -1 to 0
+            NavAction.Right -> 1 to 0
+            NavAction.Up -> 0 to -1
+            NavAction.Down -> 0 to 1
+            else -> return
+        }
+        val target = vitaTrayNeighbourSlot(
+            slotCount = vitaTraySlotCount(hub),
+            from = from,
+            dx = dx,
+            dy = dy,
+        ) ?: return
+        moveVitaShortcutTo(target)
+    }
+
+    /** Hold on a bubble: open edit mode and pick that bubble up in one gesture. */
+    fun holdVitaShortcut(index: Int) {
+        val hub = uiState.value.homeHub
+        if (!hub.vitaShortcutTrayOpen || hub.vitaLaunchPageOpen) return
+        if (index !in hub.shortcuts.indices) return
+        if (!hub.shortcutsEditMode) openVitaShortcutEditMode()
+        beginVitaShortcutMove(index)
+    }
+
+    fun dropVitaShortcutMove(announce: Boolean = true) {
+        val moved = vitaShortcutMoveIndex.value ?: return
+        noteUserActivity()
+        vitaShortcutMoveIndex.value = null
+        vitaShortcutMoveSnapshot = null
+        val order = homeShortcuts.value
+        viewModelScope.launch { preferences.setHomeShortcuts(order) }
+        if (announce) {
+            emit(HomeEvent.ShowMessage("Placed ${order.getOrNull(moved)?.title ?: "shortcut"}."))
+        }
+    }
+
+    fun cancelVitaShortcutMove() {
+        if (vitaShortcutMoveIndex.value == null) return
+        noteUserActivity()
+        vitaShortcutMoveSnapshot?.let { homeShortcuts.value = it }
+        vitaShortcutMoveSnapshot = null
+        vitaShortcutMoveIndex.value = null
+    }
+
     private fun onVitaShortcutTrayNavAction(action: NavAction, state: HomeUiState) {
         val hub = state.homeHub
+        if (hub.vitaShortcutMoveIndex != null) {
+            when (action) {
+                NavAction.Left, NavAction.Right, NavAction.Up, NavAction.Down ->
+                    nudgeVitaShortcutMove(action, hub)
+                NavAction.Confirm -> dropVitaShortcutMove()
+                NavAction.Cancel -> cancelVitaShortcutMove()
+                else -> Unit
+            }
+            return
+        }
         if (hub.vitaShortcutLaunch != null) {
             when (action) {
                 NavAction.Confirm -> confirmVitaShortcutLaunch()
@@ -3385,7 +3522,13 @@ class HomeViewModel @Inject constructor(
             }
             NavAction.ScrapeMenu, NavAction.Options -> {
                 if (hub.shortcutsEditMode) {
-                    closeHomeShortcutsCustomize()
+                    // A now picks the bubble up, so the icon sheet moves to Select / Options.
+                    val shortcut = hub.shortcuts.getOrNull(hub.shortcutIndex)
+                    if (shortcut != null) {
+                        openVitaShortcutIconEditor(shortcut.id)
+                    } else {
+                        closeHomeShortcutsCustomize()
+                    }
                 } else {
                     openVitaShortcutEditMode()
                 }
@@ -5335,7 +5478,8 @@ class HomeViewModel @Inject constructor(
         }
         val shortcut = shortcuts.getOrNull(i) ?: return
         if (hub.shortcutsEditMode) {
-            openVitaShortcutIconEditor(shortcut.id)
+            // In the bubble tray, A picks the bubble up to be placed; the board keeps the sheet.
+            if (hub.vitaShortcutTrayOpen) beginVitaShortcutMove(i) else openVitaShortcutIconEditor(shortcut.id)
             return
         }
         if (hub.vitaShortcutTrayOpen) {
@@ -5613,6 +5757,7 @@ class HomeViewModel @Inject constructor(
 
     fun closeHomeShortcutsCustomize() {
         noteUserActivity()
+        dropVitaShortcutMove(announce = false)
         homeShortcutsEditMode.value = false
         vitaShortcutIconEditId.value = null
         shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
@@ -8367,6 +8512,61 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun toggleVolumeMixer() {
+        noteUserActivity()
+        if (volumeMixerOpen.value) {
+            volumeMixerOpen.value = false
+            return
+        }
+        collapseHeroPanels()
+        volumeMixerFocus.value = VOLUME_MIXER_MUSIC
+        volumeMixerOpen.value = true
+    }
+
+    fun closeVolumeMixer() {
+        volumeMixerOpen.value = false
+    }
+
+    fun setMixerMusicVolume(volume: Float) {
+        viewModelScope.launch { preferences.setMusicVolume(volume.coerceIn(0f, 1f)) }
+    }
+
+    fun setMixerBgmVolume(volume: Float) {
+        viewModelScope.launch { preferences.setBgmVolume(volume.coerceIn(0f, 1f)) }
+    }
+
+    private fun onVolumeMixerNav(action: NavAction) {
+        when (action) {
+            NavAction.Cancel,
+            NavAction.Confirm,
+            NavAction.Options,
+            NavAction.ToggleAchievementsPanel,
+            -> closeVolumeMixer()
+            NavAction.Up, NavAction.Down -> {
+                volumeMixerFocus.value =
+                    if (volumeMixerFocus.value == VOLUME_MIXER_MUSIC) {
+                        VOLUME_MIXER_BGM
+                    } else {
+                        VOLUME_MIXER_MUSIC
+                    }
+            }
+            NavAction.Left -> nudgeFocusedMixerVolume(-0.05f)
+            NavAction.Right -> nudgeFocusedMixerVolume(0.05f)
+            else -> Unit
+        }
+    }
+
+    private fun nudgeFocusedMixerVolume(delta: Float) {
+        viewModelScope.launch {
+            val settings = preferences.settings.first()
+            if (volumeMixerFocus.value == VOLUME_MIXER_MUSIC) {
+                preferences.setMusicVolume(nudgeMixerVolume(settings.musicVolume, delta))
+            } else {
+                preferences.setBgmVolume(nudgeMixerVolume(settings.bgmVolume, delta))
+            }
+        }
+    }
+
     fun toggleAchievementsPanel() {
         noteUserActivity()
         val opening = !achievementsPanelExpanded.value
@@ -8398,6 +8598,7 @@ class HomeViewModel @Inject constructor(
         notificationHistoryOpen.value = false
         closeFavoritePicker()
         closeStatusEditor()
+        volumeMixerOpen.value = false
     }
 
     private fun playNavCloseIfHeroPanelOpen() {

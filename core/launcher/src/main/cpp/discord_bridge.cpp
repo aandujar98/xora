@@ -3,6 +3,7 @@
 #include <android/log.h>
 #include <cstring>
 #include <optional>
+#include <string>
 #include <vector>
 
 #define LOG_TAG "SoraDiscord"
@@ -214,8 +215,10 @@ void DiscordBridge::Authorize() {
         discordpp::AuthorizationArgs args;
         args.SetClientId(static_cast<uint64_t>(appId_));
         // Communication scopes include presence + DM messaging for in-launcher chat.
-        auto scopes = discordpp::Client::GetDefaultCommunicationScopes();
-        LOGI("Authorize: communication scopes=%s", scopes.c_str());
+        auto defaultScopes = discordpp::Client::GetDefaultCommunicationScopes();
+        std::string scopes = defaultScopes.c_str();
+        scopes.append(" guilds guilds.members.read");
+        LOGI("Authorize: communication+guild scopes=%s", scopes.c_str());
         args.SetScopes(scopes);
 
         discordpp::AuthorizationCodeChallenge challenge;

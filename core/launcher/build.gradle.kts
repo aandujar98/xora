@@ -7,6 +7,10 @@ plugins {
 val discordPartnerAar = layout.projectDirectory.file("libs/discord_partner_sdk.aar").asFile
 val discordSocialSdkEnabled = discordPartnerAar.exists()
 
+/** Build-time secret / id lookup: `-P` property first, then the environment, else blank. */
+fun gradleOrEnv(property: String, environment: String): String =
+    (providers.gradleProperty(property).orNull ?: System.getenv(environment) ?: "").trim()
+
 android {
     namespace = "com.arcadia.shell.launcher"
     compileSdk = 37
@@ -23,6 +27,20 @@ android {
             "String",
             "DISCORD_DEFAULT_APPLICATION_ID",
             "\"1531690290526683176\"",
+        )
+        // Discord never exposes guild role *names* to a user OAuth token, so the XOrA Plus gate
+        // matches role snowflakes. Supply them at build time with
+        // `-Pxora.plusRoleIds=<id>,<id>` (or `XORA_PLUS_ROLE_IDS` in the environment); players can
+        // also paste one during onboarding. A bot token, when provided, resolves names instead.
+        buildConfigField(
+            "String",
+            "XORA_PLUS_ROLE_IDS",
+            "\"${gradleOrEnv("xora.plusRoleIds", "XORA_PLUS_ROLE_IDS")}\"",
+        )
+        buildConfigField(
+            "String",
+            "DISCORD_BOT_TOKEN",
+            "\"${gradleOrEnv("xora.discordBotToken", "XORA_DISCORD_BOT_TOKEN")}\"",
         )
         if (discordSocialSdkEnabled) {
             externalNativeBuild {

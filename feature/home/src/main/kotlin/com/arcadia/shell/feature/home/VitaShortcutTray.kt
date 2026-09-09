@@ -24,6 +24,8 @@ import kotlin.math.exp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -40,8 +42,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +63,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraSwipeDirection
@@ -80,6 +87,7 @@ import com.arcadia.shell.launcher.InstalledAppSync
 import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.HomeShortcutKind
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 // Every measurement below is in Figma artboard units and is scaled by `unit` at layout time,
 // so the tray keeps the designed proportions on any panel.
@@ -177,6 +185,11 @@ fun VitaShortcutTray(
     modifier: Modifier = Modifier,
     departingIndex: Int? = null,
     suppressIdleBubbles: Boolean = false,
+    /** Bubble picked up for repositioning, or null when nothing is being moved. */
+    moveIndex: Int? = null,
+    onBeginMove: (Int) -> Unit = {},
+    onMoveTo: (Int) -> Unit = {},
+    onDropMove: () -> Unit = {},
 ) {
     val enter = slideInVertically(
         animationSpec = arcadiaTween(ArcadiaMotion.Medium),
@@ -245,6 +258,13 @@ fun VitaShortcutTray(
             )
             val idleRock = rememberThrottledAmbientUnit(cycleMs = VITA_BUBBLE_ROCK_CYCLE_MS)
 
+            // Finger travel for the bubble currently picked up; dropped back to zero on release
+            // and whenever the move ends from the controller.
+            var dragOffset by remember { mutableStateOf(Offset.Zero) }
+            LaunchedEffect(moveIndex) {
+                if (moveIndex == null) dragOffset = Offset.Zero
+            }
+
             val pageSlide = tween<IntOffset>(ArcadiaMotion.Medium)
             val pageFade = tween<Float>(ArcadiaMotion.Fast)
             val crowdAlpha by animateFloatAsState(
@@ -266,23 +286,45 @@ fun VitaShortcutTray(
                 modifier = Modifier.fillMaxSize(),
             ) { shownPage ->
                 val rows = vitaTrayPageRows(slots.size, shownPage)
+                // Slot centres relative to the field centre, in pixels — used to work out which
+                // slot a dragged bubble is currently over.
+                val slotCentres = remember(rows, unit, density) {
+                    buildMap {
+                        rows.forEachIndexed { rowIndex, row ->
+                            val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
+                            row.forEachIndexed { column, slotIndex ->
+                                val columnShift = (column - ((row.size - 1) / 2f)) * COLUMN_PITCH
+                                put(
+                                    slotIndex,
+                                    Offset(
+                                        x = columnShift * unit * density.density,
+                                        y = rowShift * unit * density.density,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
                 Box(modifier = Modifier.fillMaxSize()) {
                     rows.forEachIndexed { rowIndex, row ->
                         val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
                         row.forEachIndexed { column, slotIndex ->
                             val columnShift = (column - ((row.size - 1) / 2f)) * COLUMN_PITCH
+                            val moving = slotIndex == moveIndex
                             VitaBubble(
                                 slot = slots[slotIndex],
                                 selected = slotIndex == focus,
                                 departing = slotIndex == departingIndex,
+                                moving = moving,
                                 diameter = bubbleDiameter,
                                 glass = glass,
                                 offsetProvider = {
                                     val tiltShift = motion.offsetAt(slotIndex)
                                     val bounce = jiggle.liftAt(slotIndex) * bubblePx * BUBBLE_JIGGLE_LIFT
+                                    val drag = if (moving) dragOffset else Offset.Zero
                                     Offset(
-                                        tiltShift.x,
-                                        tiltShift.y + landing.offsetY(slotIndex) + bounce,
+                                        tiltShift.x + drag.x,
+                                        tiltShift.y + landing.offsetY(slotIndex) + bounce + drag.y,
                                     )
                                 },
                                 leanProvider = {
@@ -302,9 +344,39 @@ fun VitaShortcutTray(
                                         VitaShortcutSlot.Add -> onAddSlot()
                                     }
                                 },
+                                onLongPress = {
+                                    if (slots[slotIndex] is VitaShortcutSlot.Filled) {
+                                        onBeginMove(slotIndex)
+                                    }
+                                },
+                                onDrag = if (moving) {
+                                    { delta ->
+                                        dragOffset += delta
+                                        val here = slotCentres[slotIndex] ?: Offset.Zero
+                                        val pointer = here + dragOffset
+                                        val target = nearestVitaSlot(
+                                            centres = slotCentres,
+                                            point = pointer,
+                                            limit = shortcuts.size,
+                                        )
+                                        if (target != null && target != slotIndex) {
+                                            // Keep the bubble under the finger as the field reflows.
+                                            val there = slotCentres[target] ?: here
+                                            dragOffset += here - there
+                                            onMoveTo(target)
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
+                                onDragEnd = {
+                                    dragOffset = Offset.Zero
+                                    onDropMove()
+                                },
                                 modifier = Modifier
                                     .align(Alignment.Center)
                                     .offset(x = (columnShift * unit).dp, y = (rowShift * unit).dp)
+                                    .zIndex(if (moving) 2f else 0f)
                                     .graphicsLayer {
                                         if (slotIndex != departingIndex) alpha = crowdAlpha
                                         clip = false
@@ -327,7 +399,11 @@ fun VitaShortcutTray(
                         val pillCentre = rowShift + (BUBBLE_DIAMETER / 2f) + NAME_PILL_GAP +
                             (NAME_PILL_HEIGHT / 2f)
                         SoftwareNamePill(
-                            label = slots[focus].label(editMode),
+                            label = if (moveIndex == focus) {
+                                "Place with A · B cancels"
+                            } else {
+                                slots[focus].label(editMode)
+                            },
                             unit = unit,
                             minWidth = bubbleDiameter,
                             offsetProvider = {
@@ -354,6 +430,16 @@ fun VitaShortcutTray(
     }
 }
 
+/** Nearest slot to [point] among [centres], considering only slots below [limit]. */
+private fun nearestVitaSlot(
+    centres: Map<Int, Offset>,
+    point: Offset,
+    limit: Int,
+): Int? = centres.entries
+    .filter { it.key < limit }
+    .minByOrNull { (_, centre) -> (centre - point).getDistanceSquared() }
+    ?.key
+
 @Composable
 private fun VitaBubble(
     slot: VitaShortcutSlot,
@@ -367,6 +453,12 @@ private fun VitaBubble(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     interactive: Boolean = true,
+    /** True while this bubble is the one being repositioned. */
+    moving: Boolean = false,
+    onLongPress: () -> Unit = {},
+    /** Non-null only while [moving]; receives finger deltas in pixels. */
+    onDrag: ((Offset) -> Unit)? = null,
+    onDragEnd: () -> Unit = {},
 ) {
     val ringWidth = diameter * (SELECTION_RING_WIDTH / BUBBLE_DIAMETER)
     val interaction = remember { MutableInteractionSource() }
@@ -381,6 +473,12 @@ private fun VitaBubble(
     val hovered by interaction.collectIsHoveredAsState()
     val reduceMotion = rememberReduceMotion()
     val highlighted = (selected || hovered) && depart < 0.05f && interactive
+    // A picked-up bubble lifts off the field so it reads as held rather than merely focused.
+    val liftScale by animateFloatAsState(
+        targetValue = if (moving) 1.16f else 1f,
+        animationSpec = arcadiaTween(ArcadiaMotion.Fast),
+        label = "vitaBubbleLift",
+    )
     val pulse = rememberInfiniteTransition(label = "vitaBubblePulse")
     val pulseScale by pulse.animateFloat(
         initialValue = 1f,
@@ -408,8 +506,8 @@ private fun VitaBubble(
                 val shift = offsetProvider()
                 translationX = shift.x
                 translationY = shift.y + (diameter.toPx() * pulseLift)
-                scaleX = pulseScale
-                scaleY = pulseScale
+                scaleX = pulseScale * liftScale
+                scaleY = pulseScale * liftScale
                 // Perspective, so a lean reads as a dome turning rather than an ellipse.
                 cameraDistance = BUBBLE_CAMERA_DISTANCE * density
                 // Handed back to the depart flip, which owns the rotation once a bubble launches.
@@ -422,12 +520,27 @@ private fun VitaBubble(
                 clip = false
             }
             .then(
-                if (interactive) {
-                    Modifier.clickable(
-                        interactionSource = interaction,
-                        indication = null,
-                        onClick = onClick,
-                    )
+                if (interactive && onDrag != null) {
+                    // While held, the bubble follows the finger and the field reflows under it.
+                    Modifier.pointerInput(onDrag) {
+                        detectDragGestures(
+                            onDragEnd = onDragEnd,
+                            onDragCancel = onDragEnd,
+                        ) { change, delta ->
+                            change.consume()
+                            onDrag(delta)
+                        }
+                    }
+                } else if (interactive) {
+                    Modifier
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            onClick = onClick,
+                        )
+                        .pointerInput(onLongPress) {
+                            detectTapGestures(onLongPress = { onLongPress() })
+                        }
                 } else {
                     Modifier
                 },
@@ -691,6 +804,46 @@ private fun buildVitaShortcutSlots(
 ): List<VitaShortcutSlot> {
     val items = shortcuts.map { VitaShortcutSlot.Filled(it) }
     return if (includeAdd) items + VitaShortcutSlot.Add else items
+}
+
+/**
+ * Slot next to [from] in the staggered tray grid, or null at an edge.
+ *
+ * Rows hold 3 / 4 / 3, so a vertical step keeps the horizontal position proportionally — the same
+ * mapping the focus cursor uses — and steps onto the next page when it runs out of rows.
+ */
+internal fun vitaTrayNeighbourSlot(slotCount: Int, from: Int, dx: Int, dy: Int): Int? {
+    if (slotCount <= 0 || from !in 0 until slotCount) return null
+    val page = from / VITA_TRAY_PAGE_SIZE
+    val rows = vitaTrayPageRows(slotCount, page)
+    val rowIndex = rows.indexOfFirst { from in it }
+    if (rowIndex < 0) return null
+    val row = rows[rowIndex]
+    val column = row.indexOf(from).coerceAtLeast(0)
+
+    if (dx != 0) {
+        val next = column + dx
+        return row.getOrNull(next)
+    }
+    if (dy == 0) return null
+
+    fun land(targetRows: List<List<Int>>, targetRowIndex: Int): Int? {
+        val targetRow = targetRows.getOrNull(targetRowIndex) ?: return null
+        val mapped = if (row.size <= 1 || targetRow.size <= 1) {
+            0
+        } else {
+            ((column.toFloat() / (row.size - 1)) * (targetRow.size - 1)).roundToInt()
+        }
+        return targetRow.getOrNull(mapped.coerceIn(0, targetRow.lastIndex))
+    }
+
+    val samePage = land(rows, rowIndex + dy)
+    if (samePage != null) return samePage
+    val nextPage = page + dy
+    if (nextPage !in 0 until vitaTrayPageCount(slotCount)) return null
+    val nextRows = vitaTrayPageRows(slotCount, nextPage)
+    if (nextRows.isEmpty()) return null
+    return land(nextRows, if (dy > 0) 0 else nextRows.lastIndex)
 }
 
 internal fun vitaTrayPageCount(slotCount: Int): Int =

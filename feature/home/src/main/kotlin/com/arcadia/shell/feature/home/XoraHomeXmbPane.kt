@@ -58,7 +58,6 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -255,7 +254,6 @@ fun XoraHomeXmbPane(
                 } else {
                     XMB_FOCUS_SETTLE_MS
                 },
-                scrimAlpha = chromeAlpha,
                 audioVolume = if (playingBackdrop != null) {
                     state.music.backdropAudioVolume
                 } else {
@@ -591,7 +589,6 @@ fun XoraXmbHeroDetail(
                 } else {
                     XMB_FOCUS_SETTLE_MS
                 },
-                scrimAlpha = chromeAlpha,
                 audioVolume = if (playingBackdrop != null) {
                     state.music.backdropAudioVolume
                 } else {
@@ -829,7 +826,6 @@ private fun XoraRomHeroBackdrop(
     artPath: String?,
     modifier: Modifier = Modifier,
     settleMs: Long = XMB_FOCUS_SETTLE_MS,
-    scrimAlpha: Float = 1f,
     audioVolume: Float = 0f,
 ) {
     val reduceMotion = rememberReduceMotion()
@@ -893,30 +889,6 @@ private fun XoraRomHeroBackdrop(
                         )
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = scrimAlpha }
-                        .background(
-                            Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.24f),
-                                0.45f to Color.Black.copy(alpha = 0.12f),
-                                1f to Color.Black.copy(alpha = 0.28f),
-                            ),
-                        ),
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = scrimAlpha }
-                        .background(
-                            Brush.horizontalGradient(
-                                0f to Color.Black.copy(alpha = 0.20f),
-                                0.4f to Color.Black.copy(alpha = 0.05f),
-                                1f to Color.Black.copy(alpha = 0.16f),
-                            ),
-                        ),
-                )
             }
         }
     }

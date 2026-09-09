@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -74,7 +75,7 @@ fun AndroidAppPicker(
             Text(
                 text = "${selectedPackages.size} of ${apps.size} selected",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White,
             )
             SettingsPadRow("android_actions") {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -101,7 +102,7 @@ fun AndroidAppPicker(
             Text(
                 text = "No launchable apps were found on this device.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White,
             )
         } else {
             Column(
@@ -142,7 +143,7 @@ fun AndroidAppPicker(
                             Text(
                                 text = app.packageName,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = Color.White,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -154,7 +155,7 @@ fun AndroidAppPicker(
                     Text(
                         text = "No apps match “$needle”.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color.White,
                     )
                 }
             }

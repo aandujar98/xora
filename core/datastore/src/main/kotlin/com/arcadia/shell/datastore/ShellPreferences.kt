@@ -1189,6 +1189,28 @@ class ShellPreferences @Inject constructor(
         it[Keys.HOME_TUTORIAL_COMPLETE] = false
     }
 
+    val xoraPlusBypass: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.XORA_PLUS_BYPASS] ?: false
+    }
+
+    suspend fun setXoraPlusBypass(enabled: Boolean) = edit {
+        it[Keys.XORA_PLUS_BYPASS] = enabled
+    }
+
+    /**
+     * Comma-separated Discord role snowflakes that count as XOrA Plus.
+     *
+     * Discord hands apps role ids but never role names, so the exact check needs an id from the
+     * server — pasted during onboarding or baked in at build time.
+     */
+    val xoraPlusRoleIds: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.XORA_PLUS_ROLE_IDS].orEmpty()
+    }
+
+    suspend fun setXoraPlusRoleIds(ids: String) = edit {
+        it[Keys.XORA_PLUS_ROLE_IDS] = ids.trim()
+    }
+
     suspend fun setHomeTutorialComplete(done: Boolean) = edit {
         it[Keys.HOME_TUTORIAL_COMPLETE] = done
     }
@@ -1555,6 +1577,8 @@ class ShellPreferences @Inject constructor(
         val HOME_SHORTCUT_GRID_ROWS = intPreferencesKey("home_shortcut_grid_rows")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
         val HOME_TUTORIAL_COMPLETE = booleanPreferencesKey("home_tutorial_complete")
+        val XORA_PLUS_BYPASS = booleanPreferencesKey("xora_plus_bypass")
+        val XORA_PLUS_ROLE_IDS = stringPreferencesKey("xora_plus_role_ids")
         val LAST_UPDATE_CHECK_AT = longPreferencesKey("last_update_check_at")
         val ANNOUNCED_UPDATE_VERSION = stringPreferencesKey("announced_update_version")
     }
