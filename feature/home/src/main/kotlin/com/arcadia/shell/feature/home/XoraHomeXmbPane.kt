@@ -266,9 +266,12 @@ fun XoraHomeXmbPane(
                     .then(backdropMotion)
                     .graphicsLayer {
                         alpha = recedeAlpha
-                        if (musicBackdrop.showWaveMask) {
-                            compositingStrategy = CompositingStrategy.Offscreen
-                        }
+                        // Unconditional (not gated on showWaveMask): the wave mask's Multiply
+                        // blend keeps rendering through its fade-out after showWaveMask flips
+                        // false, and without Offscreen grouping for that whole window it
+                        // composites straight onto the render target instead of just the art
+                        // layer underneath — the black-flash bug this fixes.
+                        compositingStrategy = CompositingStrategy.Offscreen
                     },
             ) {
                 XoraRomHeroBackdrop(
@@ -617,9 +620,12 @@ fun XoraXmbHeroDetail(
                     .then(backdropMotion)
                     .graphicsLayer {
                         alpha = recedeAlpha
-                        if (musicBackdrop.showWaveMask) {
-                            compositingStrategy = CompositingStrategy.Offscreen
-                        }
+                        // Unconditional (not gated on showWaveMask): the wave mask's Multiply
+                        // blend keeps rendering through its fade-out after showWaveMask flips
+                        // false, and without Offscreen grouping for that whole window it
+                        // composites straight onto the render target instead of just the art
+                        // layer underneath — the black-flash bug this fixes.
+                        compositingStrategy = CompositingStrategy.Offscreen
                     },
             ) {
                 XoraRomHeroBackdrop(
