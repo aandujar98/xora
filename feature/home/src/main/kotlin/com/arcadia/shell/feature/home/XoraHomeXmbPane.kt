@@ -281,7 +281,21 @@ fun XoraHomeXmbPane(
                     audioVolume = 0f,
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (musicBackdrop.showWaveMask) {
+                AnimatedVisibility(
+                    visible = musicBackdrop.showWaveMask,
+                    enter = fadeIn(
+                        tween(
+                            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                            easing = FastOutSlowInEasing,
+                        ),
+                    ),
+                    exit = fadeOut(
+                        tween(
+                            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                            easing = FastOutSlowInEasing,
+                        ),
+                    ),
+                ) {
                     MusicWaveMaskLayer(Modifier.fillMaxSize())
                 }
             }
@@ -633,7 +647,21 @@ fun XoraXmbHeroDetail(
                     audioVolume = 0f,
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (musicBackdrop.showWaveMask) {
+                AnimatedVisibility(
+                    visible = musicBackdrop.showWaveMask,
+                    enter = fadeIn(
+                        tween(
+                            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                            easing = FastOutSlowInEasing,
+                        ),
+                    ),
+                    exit = fadeOut(
+                        tween(
+                            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                            easing = FastOutSlowInEasing,
+                        ),
+                    ),
+                ) {
                     MusicWaveMaskLayer(Modifier.fillMaxSize())
                 }
             }
