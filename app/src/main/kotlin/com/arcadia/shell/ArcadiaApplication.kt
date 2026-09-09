@@ -3,6 +3,7 @@ package com.arcadia.shell
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -115,7 +116,10 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
             appForegroundTracker.isForeground,
         ) { notification, foreground -> !foreground && notification?.isFriendPresenceBanner() == true }
             .distinctUntilChanged()
-            .onEach { active -> FriendBannerOverlayService.setActive(this, active) }
+            .onEach { active ->
+                Log.i("ArcadiaApplication", "FriendBannerOverlayService.setActive($active)")
+                FriendBannerOverlayService.setActive(this, active)
+            }
             .launchIn(applicationScope)
 
         nowPlayingController.state

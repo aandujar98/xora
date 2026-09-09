@@ -63,6 +63,7 @@ class FriendBannerOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "onCreate")
         promoteToForeground()
 
         combine(notificationCenter.active, foregroundTracker.isForeground) { active, foreground ->
@@ -71,6 +72,7 @@ class FriendBannerOverlayService : Service() {
         }
             .distinctUntilChanged()
             .onEach { eligible ->
+                Log.i(TAG, "eligible=$eligible (id=${eligible?.id})")
                 if (eligible == null) {
                     hideOverlay()
                     stopSelf()
