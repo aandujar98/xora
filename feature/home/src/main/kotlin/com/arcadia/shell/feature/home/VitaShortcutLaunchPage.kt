@@ -3,7 +3,6 @@ package com.arcadia.shell.feature.home
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -20,10 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -42,6 +38,7 @@ import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.launchBackdropScale
 import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.XoraForegroundShadow
@@ -71,10 +68,10 @@ private const val LAUNCH_TITLE_SHADOW = 4f
 private const val WhiteFadeInMs = 750
 private const val WhiteHoldRevealMs = 420
 /**
- * Peel and post-peel push toward the viewer. Large enough to read as a zoom-in, not a Ken Burns
- * drift — the 5% shared launch zoom is too small once the LiveArea sheet is already full-bleed.
+ * Once the sheet is off, the whole page — bare backing, chrome, status strip — pushes toward the
+ * viewer by this much while it fades, and the game's wallpaper fills the screen behind it.
  */
-private const val LaunchPagePush = 0.22f
+private const val LaunchPagePush = 0.12f
 
 @Composable
 fun VitaShortcutLaunchPage(
@@ -101,31 +98,7 @@ fun VitaShortcutLaunchPage(
         val revealPlate = page != null && !holdWhite
         val reduceMotion = rememberReduceMotion()
         val cinematic = rememberLaunchCinematic(isLaunching)
-        var peelDragging by remember { mutableStateOf(false) }
-        val peelZoom = remember { Animatable(0f) }
-        LaunchedEffect(visible) {
-            if (!visible) {
-                peelDragging = false
-                peelZoom.snapTo(0f)
-            }
-        }
-        val peeling = peelRequested || peelDragging || isLaunching
-        LaunchedEffect(visible, peeling, reduceMotion) {
-            if (!visible) return@LaunchedEffect
-            if (reduceMotion) {
-                peelZoom.snapTo(if (peeling) 1f else 0f)
-                return@LaunchedEffect
-            }
-            peelZoom.animateTo(
-                targetValue = if (peeling) 1f else 0f,
-                animationSpec = tween(
-                    durationMillis = ArcadiaMotion.LaunchZoom,
-                    easing = LinearEasing,
-                ),
-            )
-        }
-        val pagePush = 1f + LaunchPagePush * maxOf(peelZoom.value, cinematic.chrome)
-        val artworkScale = 1f + LaunchPagePush * maxOf(peelZoom.value, cinematic.zoom)
+        val artworkScale = launchBackdropScale(cinematic.zoom)
         val whiteAlpha = remember { Animatable(0f) }
         val fadeUp = holdWhite || page == null
         LaunchedEffect(visible, fadeUp, reduceMotion) {
@@ -192,7 +165,7 @@ fun VitaShortcutLaunchPage(
                         .graphicsLayer {
                             scaleX = artworkScale
                             scaleY = artworkScale
-                            alpha = cinematic.wallpaperAlpha
+                            alpha = cinematic.chrome * cinematic.wallpaperAlpha
                         },
                 )
 
@@ -202,8 +175,9 @@ fun VitaShortcutLaunchPage(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            scaleX = pagePush
-                            scaleY = pagePush
+                            val push = 1f + LaunchPagePush * cinematic.chrome
+                            scaleX = push
+                            scaleY = push
                             alpha = cinematic.chromeAlpha
                         },
                 ) {
@@ -231,10 +205,7 @@ fun VitaShortcutLaunchPage(
                     ),
                     onRequestPeel = onConfirm,
                     onPeeled = onPeeled,
-                    onPeelSpeed = { speed ->
-                        if (speed != null) peelDragging = true
-                        onPeelSpeed(speed)
-                    },
+                    onPeelSpeed = onPeelSpeed,
                     modifier = Modifier
                         .offset(y = (originY + LIVEAREA_STATUS_H * unit).dp)
                         .fillMaxWidth()
