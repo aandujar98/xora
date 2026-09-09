@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -34,8 +35,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -52,7 +56,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.liquidGlass
@@ -65,11 +68,42 @@ import com.arcadia.shell.launcher.notifications.FriendNetwork
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.toCopy
+import kotlin.math.min
 
 /** Same slot as the collapsed Friends pill so the toast can replace it. */
 private val BannerTop = 21.dp
 private val BannerStart = 20.dp
-private val BannerShape = ArcadiaGlass.PillShape
+
+/**
+ * Stadium of the banner itself. Percent-50 [RoundedCornerShape] is resolved against the
+ * drop-shadow layer (offset + blur), so the silhouette becomes a rounded rectangle that
+ * reads as a square hanging off the toast.
+ */
+internal val BannerShape: Shape = GenericShape { size, _ ->
+    val r = bannerCapsuleRadius(size.width, size.height)
+    addRoundRect(
+        RoundRect(
+            left = 0f,
+            top = 0f,
+            right = size.width,
+            bottom = size.height,
+            radiusX = r,
+            radiusY = r,
+        ),
+    )
+}
+
+/** Half the short side — a capsule, never a 50%-of-width box. */
+internal fun bannerCapsuleRadius(width: Float, height: Float): Float =
+    min(width, height) / 2f
+
+/**
+ * Same X4 Y4 B4 S0 as the social card. The XMB glyph shadow (10 / 15) sits too far off a
+ * toast this small and the clipped remainder looks like a square.
+ */
+internal val BannerShadowOffset = 4.dp
+internal val BannerShadowBlur = 4.dp
+private val BannerShadowGutter = BannerShadowOffset + BannerShadowBlur
 private val CardEdge = Color.White.copy(alpha = 0.25f)
 
 /**
@@ -242,86 +276,95 @@ fun NotificationBanner(
         content.subtitle.takeIf { it.isNotBlank() },
     ).joinToString(". ")
 
-    Row(
+    Box(
         modifier = modifier
-            .widthIn(min = 220.dp, max = 300.dp)
-            .xoraForegroundShadow(BannerShape)
-            .liquidGlass(
-                shape = BannerShape,
-                tone = GlassTone.OverMedia,
-                intensity = GlassIntensity.Strong,
-                shimmer = true,
-            )
-            .border(1.5.dp, CardEdge, BannerShape)
-            .clickable(onClick = {
-                if (onActivate != null) onActivate(notification)
-                onDismiss()
-            })
-            .semantics { contentDescription = accessibility }
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .graphicsLayer { clip = false }
+            .padding(end = BannerShadowGutter, bottom = BannerShadowGutter),
     ) {
-        BannerAvatar(
-            url = content.avatarUrl,
-            fallback = content.avatarFallback,
-            accent = content.accent,
-        )
-
-        Column(modifier = Modifier.weight(1f)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Image(
-                    painter = painterResource(content.categoryIconRes),
-                    contentDescription = null,
-                    modifier = Modifier.size(12.dp),
-                    colorFilter = ColorFilter.tint(glass.content),
+        Row(
+            modifier = Modifier
+                .widthIn(min = 220.dp, max = 300.dp)
+                .xoraForegroundShadow(
+                    shape = BannerShape,
+                    offset = BannerShadowOffset,
+                    blur = BannerShadowBlur,
                 )
-                Text(
-                    text = content.category,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = glass.content,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                .liquidGlass(
+                    shape = BannerShape,
+                    tone = GlassTone.OverMedia,
+                    intensity = GlassIntensity.Strong,
+                    shimmer = true,
                 )
-            }
-            Text(
-                text = content.body,
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium,
-                color = glass.content,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 1.dp),
+                .border(1.5.dp, CardEdge, BannerShape)
+                .clickable(onClick = {
+                    if (onActivate != null) onActivate(notification)
+                    onDismiss()
+                })
+                .semantics { contentDescription = accessibility }
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BannerAvatar(
+                url = content.avatarUrl,
+                fallback = content.avatarFallback,
+                accent = content.accent,
             )
-            if (content.subtitle.isNotBlank()) {
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Image(
+                        painter = painterResource(content.categoryIconRes),
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        colorFilter = ColorFilter.tint(glass.content),
+                    )
+                    Text(
+                        text = content.category,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = glass.content,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
-                    text = content.subtitle,
+                    text = content.body,
                     style = MaterialTheme.typography.bodySmall,
-                    color = glass.contentMuted,
+                    fontWeight = FontWeight.Medium,
+                    color = glass.content,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 1.dp),
                 )
-            }
-            val progressFraction = content.progressFraction
-            if (progressFraction != null) {
-                LinearProgressIndicator(
-                    progress = { progressFraction.coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .padding(top = 6.dp)
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = content.accent,
-                    trackColor = glass.content.copy(alpha = 0.12f),
-                )
+                if (content.subtitle.isNotBlank()) {
+                    Text(
+                        text = content.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = glass.contentMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 1.dp),
+                    )
+                }
+                val progressFraction = content.progressFraction
+                if (progressFraction != null) {
+                    LinearProgressIndicator(
+                        progress = { progressFraction.coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = content.accent,
+                        trackColor = glass.content.copy(alpha = 0.12f),
+                    )
+                }
             }
         }
-
     }
 }
 
