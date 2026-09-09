@@ -3453,6 +3453,13 @@ class HomeViewModel @Inject constructor(
             dy = dy,
         ) ?: return
         moveVitaShortcutTo(target)
+        if (dy != 0) {
+            val fromPage = from / VITA_TRAY_PAGE_SIZE
+            val toPage = target / VITA_TRAY_PAGE_SIZE
+            playUiOneShot(
+                vitaTrayVerticalOneShot(crossedPage = toPage != fromPage),
+            )
+        }
     }
 
     /** Hold on a bubble: open edit mode and pick that bubble up in one gesture. */
@@ -3589,6 +3596,7 @@ class HomeViewModel @Inject constructor(
         val targetRowIndex = rowIndex + delta
         if (targetRowIndex in rows.indices) {
             landOn(rows, targetRowIndex)
+            playUiOneShot(vitaTrayVerticalOneShot(crossedPage = false))
             return
         }
         val nextPage = page + delta
@@ -3596,6 +3604,7 @@ class HomeViewModel @Inject constructor(
         val nextRows = vitaTrayPageRows(slotCount, nextPage)
         if (nextRows.isEmpty()) return
         landOn(nextRows, if (delta > 0) 0 else nextRows.lastIndex)
+        playUiOneShot(vitaTrayVerticalOneShot(crossedPage = true))
     }
 
     private fun moveVitaShortcutPage(delta: Int, hub: HomeHubUiState) {
@@ -3608,6 +3617,7 @@ class HomeViewModel @Inject constructor(
         val next = (page + delta).coerceIn(0, pageCount - 1)
         if (next == page) return
         homeShortcutIndex.value = (next * VITA_TRAY_PAGE_SIZE).coerceIn(0, slotCount - 1)
+        playUiOneShot(UiOneShot.VitaPageNavigate)
     }
 
     private fun vitaTraySlotCount(hub: HomeHubUiState): Int {

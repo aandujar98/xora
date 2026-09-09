@@ -67,6 +67,8 @@ class UiSoundController @Inject constructor(
     private var bootXmbId: Int = 0
     private var peelMidId: Int = 0
     private var peelFastId: Int = 0
+    /** Vita shortcut tray page turn (`vita_page_navigate.wav`). */
+    private var vitaPageId: Int = 0
     /** Active looping peel stream so speed changes replace rather than stack. */
     private var peelStreamId: Int = 0
     private var peelSoundId: Int = 0
@@ -180,6 +182,11 @@ class UiSoundController @Inject constructor(
                         vibratePeel(PeelHaptic.Fast)
                     }
                     UiOneShot.PeelStop -> stopPeel()
+                    UiOneShot.Cursor -> {
+                        vibrateCursor()
+                        play(cursorId)
+                    }
+                    UiOneShot.VitaPageNavigate -> play(vitaPageId)
                 }
             }
         }
@@ -227,6 +234,7 @@ class UiSoundController @Inject constructor(
         bootXmbId = 0
         peelMidId = 0
         peelFastId = 0
+        vitaPageId = 0
         peelStreamId = 0
         peelSoundId = 0
     }
@@ -244,7 +252,7 @@ class UiSoundController @Inject constructor(
     /** Select / confirm one-shot (`select.wav`) — launcher Confirm and XOrA Emulator overlay. */
     fun playConfirm() = play(okId)
 
-    /** Cancel / back one-shot (`nav_back.wav`). */
+    /** Cancel / back one-shot (`nav_back.wav`, GitHub tag `nav-back`). */
     fun playCancel() = play(ngId)
 
     /** Cursor / focus-move one-shot (`selection.wav`) plus the same tick as D-pad steps. */
@@ -264,6 +272,14 @@ class UiSoundController @Inject constructor(
             NavAction.NextPlatform,
             NavAction.ToggleAchievementsPanel,
             -> {
+                // Vita tray Up/Down is a page turn (or a row step). Home fires
+                // [UiOneShot.VitaPageNavigate] / [UiOneShot.Cursor] so the generic click does not
+                // stack on top of the page sample.
+                if (gamepadDispatcher.vitaBubbleLaunchSfx &&
+                    (action == NavAction.Up || action == NavAction.Down)
+                ) {
+                    return
+                }
                 if (shouldSuppressDuplicateCursor(action)) return
                 vibrateCursor()
                 cursorId
@@ -418,6 +434,7 @@ class UiSoundController @Inject constructor(
                     bootXmbId = created.loadQuietly(R.raw.boot_3)
                     peelMidId = created.loadQuietly(R.raw.peel_mid)
                     peelFastId = created.loadQuietly(R.raw.peel_fast)
+                    vitaPageId = created.loadQuietly(R.raw.vita_page_navigate)
                 }
         }.getOrNull()
         soundPool = pool

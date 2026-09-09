@@ -24,6 +24,13 @@ enum class UiOneShot {
     PeelFast,
     /** Stop the peel loop and its haptic when the finger lifts. */
     PeelStop,
+    /**
+     * Cursor tick without a directional [NavAction] — used when Home swallows Up/Down on the
+     * Vita tray so a page turn can play [VitaPageNavigate] instead of the generic click.
+     */
+    Cursor,
+    /** Vita shortcut tray page turn (`vita_page_navigate.wav`, GitHub tag `vita-page-navigate`). */
+    VitaPageNavigate,
 }
 
 fun interface UiOneShotPlayer {
