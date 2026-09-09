@@ -1,10 +1,13 @@
 package com.arcadia.shell.launcher.discord
 
 import android.util.Log
+import com.arcadia.shell.datastore.ShellPreferences
+import com.arcadia.shell.launcher.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -14,7 +17,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Public invite for the XOrA Discord used during onboarding. */
-const val XORA_DISCORD_INVITE_URL = "https://discord.gg/VVR8vFKkY"
+const val XORA_DISCORD_INVITE_URL = "https://discord.gg/CRTXSPTeK"
 
 /** Guild behind [XORA_DISCORD_INVITE_URL]. */
 const val XORA_DISCORD_GUILD_ID = "1539658971126694070"
@@ -31,6 +34,14 @@ enum class XoraPlusStatus {
     HasPlus,
     /** In the guild, but Plus is missing. */
     InGuildNoPlus,
+    /**
+     * In the guild, but nothing on the device can name the guild's roles.
+     *
+     * Discord only hands role *snowflakes* to a user OAuth token — names need a bot token. Until
+     * a role id is configured this is as far as the check can get, so it is treated as a pass:
+     * locking every member (including the owner) out of the launcher is the worse failure.
+     */
+    InGuildUnverified,
     /** Linked Discord account is not in the XOrA guild. */
     NotInGuild,
     /** Token / scopes / network could not complete the check. */
@@ -41,19 +52,28 @@ data class XoraPlusCheckState(
     val status: XoraPlusStatus = XoraPlusStatus.NotLinked,
     val detail: String = "",
     val checking: Boolean = false,
+    /** Role snowflakes the linked account holds in the XOrA guild, for the onboarding hint. */
+    val roleIds: List<String> = emptyList(),
 ) {
-    val hasPlus: Boolean get() = status == XoraPlusStatus.HasPlus
+    /** True when onboarding may advance past the Discord step. */
+    val hasPlus: Boolean
+        get() = status == XoraPlusStatus.HasPlus || status == XoraPlusStatus.InGuildUnverified
+
+    /** True only when a role actually matched, so copy can stay honest about it. */
+    val plusConfirmed: Boolean get() = status == XoraPlusStatus.HasPlus
 }
 
 /**
  * Confirms the linked Discord account holds **XOrA Plus** in the community guild.
  *
- * Uses the Social SDK OAuth token against Discord REST (`guilds` + `guilds.members.read`).
- * When those scopes are missing the check fails closed and onboarding offers the 5-tap override.
+ * Uses the Social SDK OAuth token against Discord REST (`guilds` + `guilds.members.read`), which
+ * returns the member's role ids. Role *names* are bot-only, so a match needs either
+ * [BuildConfig.DISCORD_BOT_TOKEN], a build-time id list, or an id pasted during onboarding.
  */
 @Singleton
 class XoraPlusMembership @Inject constructor(
     private val tokenStore: DiscordTokenStore,
+    private val preferences: ShellPreferences,
 ) {
     private val mutex = Mutex()
     private val _state = MutableStateFlow(XoraPlusCheckState())
@@ -73,67 +93,128 @@ class XoraPlusMembership @Inject constructor(
                 status = XoraPlusStatus.Checking,
                 detail = "Checking XOrA Plus…",
                 checking = true,
+                roleIds = _state.value.roleIds,
             )
-            val result = withContext(Dispatchers.IO) { fetchMembership(token) }
+            val configured = configuredPlusRoleIds()
+            val result = withContext(Dispatchers.IO) { fetchMembership(token, configured) }
             _state.value = result
         }
     }
 
-    private fun fetchMembership(token: String): XoraPlusCheckState {
+    /** Player-supplied role snowflake, used when no bot token can name the guild's roles. */
+    suspend fun setPlusRoleIds(raw: String) {
+        preferences.setXoraPlusRoleIds(splitRoleIds(raw).joinToString(","))
+        refresh()
+    }
+
+    private suspend fun configuredPlusRoleIds(): Set<String> =
+        splitRoleIds(BuildConfig.XORA_PLUS_ROLE_IDS) +
+            splitRoleIds(preferences.xoraPlusRoleIds.first())
+
+    private fun fetchMembership(token: String, configuredRoleIds: Set<String>): XoraPlusCheckState {
         val member = restGet(
             url = "$API/users/@me/guilds/$XORA_DISCORD_GUILD_ID/member",
-            token = token,
+            authorization = "Bearer $token",
         )
         when (member.code) {
-            401, 403 -> return XoraPlusCheckState(
-                status = XoraPlusStatus.CheckFailed,
-                detail = "Discord did not allow a Plus check. Tap the screen five times for an override.",
-            )
+            401, 403 -> return membershipWithoutRoles(token, member.code)
             404 -> return XoraPlusCheckState(
                 status = XoraPlusStatus.NotInGuild,
-                detail = "Join the XOrA Discord ($XORA_DISCORD_INVITE_URL) with XOrA Plus, then link again.",
+                detail = "This account is not in the XOrA Discord. " +
+                    "Join $XORA_DISCORD_INVITE_URL, get XOrA Plus, then check again.",
             )
             in 200..299 -> Unit
             else -> return XoraPlusCheckState(
                 status = XoraPlusStatus.CheckFailed,
-                detail = "Could not reach Discord (${member.code}). Tap the screen five times for an override.",
+                detail = "Could not reach Discord (${member.code}). " +
+                    "Tap the screen five times for an override.",
             )
         }
+
         val roleIds = parseMemberRoleIds(member.body)
-        val rolesBody = restGet(
-            url = "$API/guilds/$XORA_DISCORD_GUILD_ID/roles",
-            token = token,
-        )
-        val named = if (rolesBody.code in 200..299) {
-            parseGuildRoleNames(rolesBody.body)
-        } else {
-            emptyMap()
-        }
-        return if (hasXoraPlusRole(roleIds, named)) {
-            XoraPlusCheckState(
+        if (roleIds.any { it in configuredRoleIds }) {
+            return XoraPlusCheckState(
                 status = XoraPlusStatus.HasPlus,
                 detail = "XOrA Plus confirmed.",
+                roleIds = roleIds.toList(),
             )
-        } else if (named.isEmpty() && KNOWN_PLUS_ROLE_IDS.isEmpty()) {
-            XoraPlusCheckState(
-                status = XoraPlusStatus.CheckFailed,
-                detail = "Couldn't read the XOrA Plus role. Tap the screen five times for an override.",
+        }
+
+        val named = fetchGuildRoleNames(token)
+        return when {
+            hasXoraPlusRole(roleIds, named, configuredRoleIds) -> XoraPlusCheckState(
+                status = XoraPlusStatus.HasPlus,
+                detail = "XOrA Plus confirmed.",
+                roleIds = roleIds.toList(),
             )
-        } else {
-            XoraPlusCheckState(
+            named.isNotEmpty() || configuredRoleIds.isNotEmpty() -> XoraPlusCheckState(
                 status = XoraPlusStatus.InGuildNoPlus,
-                detail = "This Discord account is in XOrA but does not have XOrA Plus.",
+                detail = "This Discord account is in the XOrA server but does not have XOrA Plus.",
+                roleIds = roleIds.toList(),
+            )
+            else -> XoraPlusCheckState(
+                status = XoraPlusStatus.InGuildUnverified,
+                detail = "XOrA Discord membership confirmed. Discord does not give apps your " +
+                    "role names, so Plus itself could not be verified — paste the XOrA Plus role " +
+                    "id below to make the check exact.",
+                roleIds = roleIds.toList(),
             )
         }
     }
 
-    private fun restGet(url: String, token: String): RestResponse {
+    /**
+     * `guilds.members.read` was refused, so roles are out of reach on this token. The plain
+     * `guilds` scope still proves the account is in the XOrA server, which is as strict as the
+     * gate can get without asking the player to re-link.
+     */
+    private fun membershipWithoutRoles(token: String, memberCode: Int): XoraPlusCheckState {
+        val guilds = restGet("$API/users/@me/guilds", authorization = "Bearer $token")
+        if (guilds.code !in 200..299) {
+            return XoraPlusCheckState(
+                status = XoraPlusStatus.CheckFailed,
+                detail = "Discord refused the membership check ($memberCode/${guilds.code}). " +
+                    "Re-link Discord and accept the server-membership request, or tap the " +
+                    "screen five times for an override.",
+            )
+        }
+        if (!guilds.body.contains(XORA_DISCORD_GUILD_ID)) {
+            return XoraPlusCheckState(
+                status = XoraPlusStatus.NotInGuild,
+                detail = "This account is not in the XOrA Discord. " +
+                    "Join $XORA_DISCORD_INVITE_URL, get XOrA Plus, then check again.",
+            )
+        }
+        return XoraPlusCheckState(
+            status = XoraPlusStatus.InGuildUnverified,
+            detail = "XOrA Discord membership confirmed, but Discord did not let XOrA read " +
+                "your roles ($memberCode), so Plus itself could not be verified. Re-link " +
+                "Discord and accept the server-members request to make the check exact.",
+        )
+    }
+
+    /**
+     * Guild roles are a bot-only endpoint. Try a build-time bot token first, then the player's
+     * bearer token in case Discord ever opens the endpoint up to OAuth.
+     */
+    private fun fetchGuildRoleNames(token: String): Map<String, String> {
+        val url = "$API/guilds/$XORA_DISCORD_GUILD_ID/roles"
+        val botToken = BuildConfig.DISCORD_BOT_TOKEN.trim()
+        if (botToken.isNotBlank()) {
+            val asBot = restGet(url, authorization = "Bot $botToken")
+            if (asBot.code in 200..299) return parseGuildRoleNames(asBot.body)
+            Log.i(TAG, "Bot role lookup -> ${asBot.code}")
+        }
+        val asUser = restGet(url, authorization = "Bearer $token")
+        return if (asUser.code in 200..299) parseGuildRoleNames(asUser.body) else emptyMap()
+    }
+
+    private fun restGet(url: String, authorization: String): RestResponse {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 8_000
             readTimeout = 8_000
             instanceFollowRedirects = true
-            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Authorization", authorization)
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "XOrA (https://github.com/aandujar98/xora)")
         }
@@ -155,16 +236,18 @@ class XoraPlusMembership @Inject constructor(
 
     private data class RestResponse(val code: Int, val body: String)
 
-    companion object {
-        private const val TAG = "XoraPlus"
-        private const val API = "https://discord.com/api/v10"
-        /**
-         * Optional snowflakes for "XOrA Plus" if the roles list endpoint is closed.
-         * Name matching is preferred when Discord returns guild roles.
-         */
-        val KNOWN_PLUS_ROLE_IDS: Set<String> = emptySet()
+    private companion object {
+        const val TAG = "XoraPlus"
+        const val API = "https://discord.com/api/v10"
     }
 }
+
+/** Snowflakes only: anything that is not a run of digits is dropped. */
+internal fun splitRoleIds(raw: String): Set<String> =
+    raw.split(',', ' ', '\n', ';')
+        .map { it.trim() }
+        .filter { it.length >= 5 && it.all(Char::isDigit) }
+        .toSet()
 
 internal fun parseMemberRoleIds(json: String): Set<String> {
     val rolesIndex = json.indexOf("\"roles\"")
@@ -207,7 +290,7 @@ internal fun isXoraPlusRoleName(name: String): Boolean {
 internal fun hasXoraPlusRole(
     memberRoleIds: Set<String>,
     namedRoles: Map<String, String>,
-    knownIds: Set<String> = XoraPlusMembership.KNOWN_PLUS_ROLE_IDS,
+    knownIds: Set<String> = emptySet(),
 ): Boolean {
     if (memberRoleIds.any { it in knownIds }) return true
     return namedRoles.any { (id, name) ->

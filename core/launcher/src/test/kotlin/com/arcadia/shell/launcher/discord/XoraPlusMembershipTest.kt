@@ -53,6 +53,36 @@ class XoraPlusMembershipTest {
     }
 
     @Test
+    fun roleIdListDropsAnythingThatIsNotASnowflake() {
+        assertEquals(
+            setOf("1539658971126694071", "1539658971126694072"),
+            splitRoleIds(" 1539658971126694071, 1539658971126694072 , XOrA Plus, 12 "),
+        )
+        assertEquals(emptySet<String>(), splitRoleIds(""))
+    }
+
+    @Test
+    fun unverifiedMembershipStillOpensTheGateButIsNotConfirmed() {
+        val unverified = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified)
+        assertTrue(unverified.hasPlus)
+        assertFalse(unverified.plusConfirmed)
+
+        val confirmed = XoraPlusCheckState(status = XoraPlusStatus.HasPlus)
+        assertTrue(confirmed.hasPlus)
+        assertTrue(confirmed.plusConfirmed)
+
+        for (blocked in listOf(
+            XoraPlusStatus.NotLinked,
+            XoraPlusStatus.Checking,
+            XoraPlusStatus.InGuildNoPlus,
+            XoraPlusStatus.NotInGuild,
+            XoraPlusStatus.CheckFailed,
+        )) {
+            assertFalse(blocked.name, XoraPlusCheckState(status = blocked).hasPlus)
+        }
+    }
+
+    @Test
     fun linkedDiscordIncludesConnectedAndUserId() {
         assertFalse(discordAccountLinked(DiscordPresenceUiState()))
         assertTrue(

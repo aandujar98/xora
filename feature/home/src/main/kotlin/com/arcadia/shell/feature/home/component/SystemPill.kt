@@ -83,6 +83,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -114,15 +115,23 @@ import com.arcadia.shell.designsystem.XoraOutlinedText
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.rememberShellResumed
+import com.arcadia.shell.designsystem.rememberThrottledAmbientUnit
 import com.arcadia.shell.designsystem.supportsGlassBlurEffect
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.designsystem.xoraTextScale
+import com.arcadia.shell.feature.home.ACCOUNT_PILL_CAMERA_DISTANCE
+import com.arcadia.shell.feature.home.ACCOUNT_PILL_IDLE_TILT_DEGREES
+import com.arcadia.shell.feature.home.ACCOUNT_PILL_MAX_TILT_DEGREES
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.feature.home.SystemFavoriteGame
 import com.arcadia.shell.feature.home.SystemPanelRow
 import com.arcadia.shell.feature.home.SystemProfileCardState
+import com.arcadia.shell.feature.home.VITA_BUBBLE_ROCK_CYCLE_MS
+import com.arcadia.shell.feature.home.accountPillIdleLean
 import com.arcadia.shell.feature.home.buildSystemPanelRows
+import com.arcadia.shell.feature.home.rememberAccountPillGyro
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.retroachievements.RaRecentUnlock
 import com.arcadia.shell.xoranetwork.xoraAppearanceLabel
@@ -234,7 +243,8 @@ private val ProfileBubbleEchoInk = Color.White
 /** Slim bubble depth as a fraction of diameter — keeps the flip from collapsing to a line. */
 private const val ProfileBubbleThickness = 0.24f
 private const val ProfileBubbleAnimCamera = 8f
-private const val ProfileBubbleRestCamera = 16f
+/** Short perspective at rest so the gyro lean bulges the near edge instead of shearing it. */
+private const val ProfileBubbleRestCamera = ACCOUNT_PILL_CAMERA_DISTANCE
 
 /**
  * Figma Make top-right bubble: inner 188.044 over Ellipse56 182.495, rotated 165°,
@@ -521,6 +531,10 @@ private fun ProfileSelectBubble(
     val userBubbleGlass = ImageBitmap.imageResource(R.drawable.vita_bubble_glass)
     val moving = !reduceMotion && progress > 0.02f && progress < 0.98f
     val canBlurTrail = supportsGlassBlurEffect()
+    // The collapsed bubble turns with the device like the LiveArea bubbles. Physical movement is
+    // not shell decoration, so only a backgrounded shell stops it — not lite visuals.
+    val gyro = rememberAccountPillGyro(enabled = !expanded && rememberShellResumed())
+    val idleRock = rememberThrottledAmbientUnit(cycleMs = VITA_BUBBLE_ROCK_CYCLE_MS)
     val spinDeg = ProfileBubbleFlipDeg * progress
     val spinRad = Math.toRadians(spinDeg.toDouble())
     val spinSin = sin(spinRad).toFloat()
@@ -597,7 +611,14 @@ private fun ProfileSelectBubble(
                         blur = shadow.dp,
                     )
                     .graphicsLayer {
-                        rotationY = spinDeg
+                        // The flip owns the rotation once it starts; the gyro fades out under it.
+                        val settle = 1f - progress
+                        val pose = gyro.value
+                        val idle = accountPillIdleLean(idleRock.floatValue)
+                        rotationY = spinDeg +
+                            ((pose.rotationY + (idle.x * ACCOUNT_PILL_IDLE_TILT_DEGREES)) * settle)
+                        rotationX =
+                            (pose.rotationX + (idle.y * ACCOUNT_PILL_IDLE_TILT_DEGREES)) * settle
                         cameraDistance = (if (moving) {
                             ProfileBubbleAnimCamera
                         } else {
@@ -609,6 +630,14 @@ private fun ProfileSelectBubble(
                     }
                     .drawWithContent {
                         drawContent()
+                        if (!moving) {
+                            profileBubbleSheen(
+                                unitX = (gyro.value.rotationY / ACCOUNT_PILL_MAX_TILT_DEGREES) +
+                                    (accountPillIdleLean(idleRock.floatValue).x * 0.35f),
+                                unitY = (gyro.value.rotationX / ACCOUNT_PILL_MAX_TILT_DEGREES) +
+                                    (accountPillIdleLean(idleRock.floatValue).y * 0.35f),
+                            )
+                        }
                         if (moving) {
                             val w = size.width
                             val h = size.height
@@ -653,6 +682,35 @@ private fun ProfileSelectBubble(
             )
         }
     }
+}
+
+/** How far the highlight slides against the tilt, as a fraction of the bubble. */
+private const val ProfileBubbleSheenTravel = 0.18f
+
+/**
+ * Specular highlight for the collapsed profile bubble. A fixed light source that travels as the
+ * bubble turns is what sells the dome; the rotation alone reads as a flat disc being skewed.
+ */
+private fun DrawScope.profileBubbleSheen(unitX: Float, unitY: Float) {
+    val x = unitX.coerceIn(-1f, 1f)
+    val y = unitY.coerceIn(-1f, 1f)
+    val center = Offset(
+        x = size.width * (0.32f - (x * ProfileBubbleSheenTravel)),
+        y = size.height * (0.26f - (y * ProfileBubbleSheenTravel)),
+    )
+    val radius = size.minDimension * 0.62f
+    drawCircle(
+        brush = Brush.radialGradient(
+            0.00f to Color.White.copy(alpha = 0.26f),
+            0.55f to Color.White.copy(alpha = 0.07f),
+            1.00f to Color.Transparent,
+            center = center,
+            radius = radius,
+        ),
+        radius = radius,
+        center = center,
+        blendMode = BlendMode.Screen,
+    )
 }
 
 @Composable

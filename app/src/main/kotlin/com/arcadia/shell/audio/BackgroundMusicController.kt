@@ -62,8 +62,17 @@ class BackgroundMusicController @Inject constructor(
     private var onboardingActive: Boolean = false
     /** When true, shell BGM stays paused so Music / Now Playing owns the soundtrack. */
     private var libraryMusicActive: Boolean = false
-    /** When true, shell BGM stays paused so the boot clip can own the soundtrack. */
-    private var bootIntroActive: Boolean = false
+    /**
+     * When true, shell BGM stays paused so the boot clip can own the soundtrack.
+     *
+     * Starts held: on a cold start the shell is composed before [HomeViewModel] has decided
+     * whether a boot clip is due, and BGM stabbing in for a frame before the clip starts is worse
+     * than the [POST_BOOT_SILENCE_MS] beat every launch now waits out.
+     */
+    private var bootIntroActive: Boolean = true
+
+    /** Pending release of [bootIntroActive] once the XMB has had a moment to land. */
+    private var postBootJob: Job? = null
     /** When true, a ROM sound bite owns the speakers; BGM fades out then pauses. */
     private var soundBiteActive: Boolean = false
     /** When true, a game-launch boot one-shot owns the speakers; BGM fades out then pauses. */
@@ -143,11 +152,29 @@ class BackgroundMusicController @Inject constructor(
         syncPlayback()
     }
 
-    /** Pause shell BGM while the cold-start boot clip is playing (it has its own audio). */
+    /**
+     * Pause shell BGM while the cold-start boot clip owns the screen (it has its own audio).
+     *
+     * Clearing it is deliberately late: the XMB soundtrack fades in [POST_BOOT_SILENCE_MS] after
+     * the clip ends — or after A skips it — so the music arrives with the XMB rather than under
+     * the clip's own tail.
+     */
     fun setBootIntroActive(active: Boolean) {
-        if (bootIntroActive == active) return
-        bootIntroActive = active
-        syncPlayback()
+        if (active) {
+            postBootJob?.cancel()
+            postBootJob = null
+            if (bootIntroActive) return
+            bootIntroActive = true
+            syncPlayback()
+            return
+        }
+        if (!bootIntroActive || postBootJob != null) return
+        postBootJob = scope.launch {
+            delay(POST_BOOT_SILENCE_MS)
+            postBootJob = null
+            bootIntroActive = false
+            syncPlayback()
+        }
     }
 
     /**
@@ -487,5 +514,8 @@ class BackgroundMusicController @Inject constructor(
         const val CROSSFADE_STEPS = 24
         const val OVERLAY_FADE_MS = 240L
         const val OVERLAY_FADE_STEPS = 16
+
+        /** Beat between the boot clip leaving the screen and the XMB soundtrack coming in. */
+        const val POST_BOOT_SILENCE_MS = 2_000L
     }
 }

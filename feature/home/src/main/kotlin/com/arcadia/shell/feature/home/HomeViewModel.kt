@@ -290,6 +290,10 @@ class HomeViewModel @Inject constructor(
     private val vitaShortcutDepartingIndex = MutableStateFlow<Int?>(null)
     /** A / plate tap asked for the start gate to peel itself; the page runs the animation. */
     private val vitaShortcutPeelRequested = MutableStateFlow(false)
+    /** Bubble held for repositioning in the Vita tray. */
+    private val vitaShortcutMoveIndex = MutableStateFlow<Int?>(null)
+    /** Shortcut order as it was when the move started, so B can put it back. */
+    private var vitaShortcutMoveSnapshot: List<HomeShortcut>? = null
     /** Filled Vita bubble whose icon sheet is open (edit mode). */
     private val vitaShortcutIconEditId = MutableStateFlow<String?>(null)
     /** XMB volume mix overlay — face X (and Options outside ROM folders). */
@@ -729,9 +733,19 @@ class HomeViewModel @Inject constructor(
                 vitaShortcutPinMode,
                 vitaShortcutLaunch,
                 vitaShortcutDepartingIndex,
-                vitaShortcutPeelRequested,
-            ) { open, pin, launch, departing, peel ->
-                VitaTrayChrome(open, pin, launch, departing, peel)
+                combine(
+                    vitaShortcutPeelRequested,
+                    vitaShortcutMoveIndex,
+                ) { peel, move -> peel to move },
+            ) { open, pin, launch, departing, peelMove ->
+                VitaTrayChrome(
+                    open = open,
+                    pin = pin,
+                    launch = launch,
+                    departingIndex = departing,
+                    peelRequested = peelMove.first,
+                    moveIndex = peelMove.second,
+                )
             },
         ) { columns, rows, chrome, tray ->
             HomeHubLayout(
@@ -743,6 +757,7 @@ class HomeViewModel @Inject constructor(
                 vitaShortcutLaunch = tray.launch,
                 vitaShortcutDepartingIndex = tray.departingIndex,
                 vitaShortcutPeelRequested = tray.peelRequested,
+                vitaShortcutMoveIndex = tray.moveIndex,
             )
         },
     ) { core, layout ->
@@ -759,6 +774,7 @@ class HomeViewModel @Inject constructor(
             vitaShortcutLaunch = layout.vitaShortcutLaunch,
             vitaShortcutDepartingIndex = layout.vitaShortcutDepartingIndex,
             vitaShortcutPeelRequested = layout.vitaShortcutPeelRequested,
+            vitaShortcutMoveIndex = layout.vitaShortcutMoveIndex,
         )
     }
 
@@ -778,6 +794,7 @@ class HomeViewModel @Inject constructor(
         val vitaShortcutLaunch: VitaShortcutLaunchUi?,
         val vitaShortcutDepartingIndex: Int?,
         val vitaShortcutPeelRequested: Boolean,
+        val vitaShortcutMoveIndex: Int?,
     )
 
     private data class VitaTrayChrome(
@@ -786,6 +803,7 @@ class HomeViewModel @Inject constructor(
         val launch: VitaShortcutLaunchUi?,
         val departingIndex: Int?,
         val peelRequested: Boolean,
+        val moveIndex: Int?,
     )
 
     private data class HomeHubNav(
@@ -801,6 +819,7 @@ class HomeViewModel @Inject constructor(
         val vitaShortcutLaunch: VitaShortcutLaunchUi?,
         val vitaShortcutDepartingIndex: Int?,
         val vitaShortcutPeelRequested: Boolean,
+        val vitaShortcutMoveIndex: Int?,
     )
 
     private val addShortcutChromeFlow = combine(
@@ -2400,6 +2419,7 @@ class HomeViewModel @Inject constructor(
                 vitaShortcutLaunch = theme.nav.vitaShortcutLaunch,
                 vitaShortcutDepartingIndex = theme.nav.vitaShortcutDepartingIndex,
                 vitaShortcutPeelRequested = theme.nav.vitaShortcutPeelRequested,
+                vitaShortcutMoveIndex = theme.nav.vitaShortcutMoveIndex,
                 wallpaperPath = theme.wallpaperPath,
                 wallpaperAlignX = theme.wallpaperAlignX,
                 wallpaperAlignY = theme.wallpaperAlignY,
@@ -3255,6 +3275,7 @@ class HomeViewModel @Inject constructor(
 
     fun closeVitaShortcutTray() {
         noteUserActivity()
+        dropVitaShortcutMove(announce = false)
         clearVitaShortcutPeel()
         vitaShortcutLaunch.value = null
         vitaShortcutDepartingIndex.value = null
@@ -3384,8 +3405,97 @@ class HomeViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Pick a bubble up for repositioning. Reached by holding a bubble, or by A in edit mode.
+     * The tray then reflows under the finger / stick until A drops it or B puts it back.
+     */
+    fun beginVitaShortcutMove(index: Int? = null) {
+        noteUserActivity()
+        val hub = uiState.value.homeHub
+        if (!hub.vitaShortcutTrayOpen || hub.vitaLaunchPageOpen) return
+        val target = (index ?: hub.shortcutIndex).coerceAtLeast(0)
+        if (target >= hub.shortcuts.size) return
+        homeShortcutIndex.value = target
+        if (vitaShortcutMoveIndex.value == target) return
+        vitaShortcutMoveSnapshot = homeShortcuts.value
+        vitaShortcutMoveIndex.value = target
+        emit(HomeEvent.ShowMessage("Move ${hub.shortcuts[target].title} — A places it, B cancels."))
+    }
+
+    /** Drop the held bubble into [target], pushing the other bubbles along. */
+    fun moveVitaShortcutTo(target: Int) {
+        val from = vitaShortcutMoveIndex.value ?: return
+        val current = homeShortcuts.value
+        if (from !in current.indices) return
+        val to = target.coerceIn(0, current.lastIndex)
+        if (to == from) return
+        val next = current.toMutableList().apply { add(to, removeAt(from)) }
+        homeShortcuts.value = next
+        vitaShortcutMoveIndex.value = to
+        homeShortcutIndex.value = to
+    }
+
+    /** Nudge the held bubble one slot in [action]'s direction. */
+    private fun nudgeVitaShortcutMove(action: NavAction, hub: HomeHubUiState) {
+        noteUserActivity()
+        val from = hub.vitaShortcutMoveIndex ?: return
+        val (dx, dy) = when (action) {
+            NavAction.Left -> -1 to 0
+            NavAction.Right -> 1 to 0
+            NavAction.Up -> 0 to -1
+            NavAction.Down -> 0 to 1
+            else -> return
+        }
+        val target = vitaTrayNeighbourSlot(
+            slotCount = vitaTraySlotCount(hub),
+            from = from,
+            dx = dx,
+            dy = dy,
+        ) ?: return
+        moveVitaShortcutTo(target)
+    }
+
+    /** Hold on a bubble: open edit mode and pick that bubble up in one gesture. */
+    fun holdVitaShortcut(index: Int) {
+        val hub = uiState.value.homeHub
+        if (!hub.vitaShortcutTrayOpen || hub.vitaLaunchPageOpen) return
+        if (index !in hub.shortcuts.indices) return
+        if (!hub.shortcutsEditMode) openVitaShortcutEditMode()
+        beginVitaShortcutMove(index)
+    }
+
+    fun dropVitaShortcutMove(announce: Boolean = true) {
+        val moved = vitaShortcutMoveIndex.value ?: return
+        noteUserActivity()
+        vitaShortcutMoveIndex.value = null
+        vitaShortcutMoveSnapshot = null
+        val order = homeShortcuts.value
+        viewModelScope.launch { preferences.setHomeShortcuts(order) }
+        if (announce) {
+            emit(HomeEvent.ShowMessage("Placed ${order.getOrNull(moved)?.title ?: "shortcut"}."))
+        }
+    }
+
+    fun cancelVitaShortcutMove() {
+        if (vitaShortcutMoveIndex.value == null) return
+        noteUserActivity()
+        vitaShortcutMoveSnapshot?.let { homeShortcuts.value = it }
+        vitaShortcutMoveSnapshot = null
+        vitaShortcutMoveIndex.value = null
+    }
+
     private fun onVitaShortcutTrayNavAction(action: NavAction, state: HomeUiState) {
         val hub = state.homeHub
+        if (hub.vitaShortcutMoveIndex != null) {
+            when (action) {
+                NavAction.Left, NavAction.Right, NavAction.Up, NavAction.Down ->
+                    nudgeVitaShortcutMove(action, hub)
+                NavAction.Confirm -> dropVitaShortcutMove()
+                NavAction.Cancel -> cancelVitaShortcutMove()
+                else -> Unit
+            }
+            return
+        }
         if (hub.vitaShortcutLaunch != null) {
             when (action) {
                 NavAction.Confirm -> confirmVitaShortcutLaunch()
@@ -3412,7 +3522,13 @@ class HomeViewModel @Inject constructor(
             }
             NavAction.ScrapeMenu, NavAction.Options -> {
                 if (hub.shortcutsEditMode) {
-                    closeHomeShortcutsCustomize()
+                    // A now picks the bubble up, so the icon sheet moves to Select / Options.
+                    val shortcut = hub.shortcuts.getOrNull(hub.shortcutIndex)
+                    if (shortcut != null) {
+                        openVitaShortcutIconEditor(shortcut.id)
+                    } else {
+                        closeHomeShortcutsCustomize()
+                    }
                 } else {
                     openVitaShortcutEditMode()
                 }
@@ -5362,7 +5478,8 @@ class HomeViewModel @Inject constructor(
         }
         val shortcut = shortcuts.getOrNull(i) ?: return
         if (hub.shortcutsEditMode) {
-            openVitaShortcutIconEditor(shortcut.id)
+            // In the bubble tray, A picks the bubble up to be placed; the board keeps the sheet.
+            if (hub.vitaShortcutTrayOpen) beginVitaShortcutMove(i) else openVitaShortcutIconEditor(shortcut.id)
             return
         }
         if (hub.vitaShortcutTrayOpen) {
@@ -5640,6 +5757,7 @@ class HomeViewModel @Inject constructor(
 
     fun closeHomeShortcutsCustomize() {
         noteUserActivity()
+        dropVitaShortcutMove(announce = false)
         homeShortcutsEditMode.value = false
         vitaShortcutIconEditId.value = null
         shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles

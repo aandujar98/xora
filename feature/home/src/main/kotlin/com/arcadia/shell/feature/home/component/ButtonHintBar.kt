@@ -92,6 +92,8 @@ fun hintsForPage(
     HomePage.Home -> when {
         homeHub?.vitaShortcutTrayOpen == true && homeHub.vitaShortcutLaunch != null ->
             VitaShortcutLaunchHints
+        homeHub?.vitaShortcutTrayOpen == true && homeHub.vitaShortcutMoveIndex != null ->
+            VitaShortcutTrayMoveHints
         homeHub?.vitaShortcutTrayOpen == true && homeHub.shortcutsEditMode ->
             VitaShortcutTrayEditHints
         homeHub?.vitaShortcutTrayOpen == true -> VitaShortcutTrayHints
@@ -224,6 +226,7 @@ val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
     "L/R" to "Shortcut",
     "U/D" to "Page",
     "A" to "Open",
+    "Hold" to "Move bubble",
     "Select" to "Edit",
     "Y" to "Close",
     "B" to "Close",
@@ -235,11 +238,20 @@ val VitaShortcutTrayHints: List<Pair<String, String>> = listOf(
 val VitaShortcutTrayEditHints: List<Pair<String, String>> = listOf(
     "L/R" to "Shortcut",
     "U/D" to "Page",
-    "A" to "Icon / Add",
-    "Select" to "Done",
+    "A" to "Move / Add",
+    "Hold" to "Move bubble",
+    "Select" to "Icon",
     "Y" to "Close",
     "B" to "Done",
     "Start+Select" to "Guide",
+)
+
+/** A bubble is lifted and waiting for a new slot. */
+val VitaShortcutTrayMoveHints: List<Pair<String, String>> = listOf(
+    "L/R/U/D" to "Place",
+    "Drag" to "Place",
+    "A" to "Drop here",
+    "B" to "Cancel",
 )
 
 val HomeHubHints: List<Pair<String, String>> = XoraXmbHints

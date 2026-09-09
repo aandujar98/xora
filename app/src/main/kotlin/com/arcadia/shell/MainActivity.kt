@@ -94,7 +94,9 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(homeState.bootIntroOpen, homeState.homeIntroReveal) {
                 val bootPlaying = homeState.bootIntroOpen && !homeState.homeIntroReveal
-                backgroundMusic.setBootIntroActive(bootPlaying)
+                // BGM keys off the overlay itself, not the mid-fade XMB reveal, and the controller
+                // holds it for a beat after — the soundtrack should arrive with the XMB.
+                backgroundMusic.setBootIntroActive(homeState.bootIntroOpen)
                 uiSounds.setBootIntroActive(bootPlaying)
             }
             LaunchedEffect(homeState.isLaunching) {

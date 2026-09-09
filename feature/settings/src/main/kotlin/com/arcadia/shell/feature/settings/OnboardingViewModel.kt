@@ -70,7 +70,8 @@ enum class OnboardingStep {
     AndroidApps,
     Emulators,
     Scrapers,
-    Social,
+    Discord,
+    Steam,
     RetroAchievements,
     Audio,
     Done,
@@ -117,6 +118,8 @@ data class OnboardingUiState(
     val message: String? = null,
     val xoraPlus: XoraPlusCheckState = XoraPlusCheckState(),
     val xoraPlusBypass: Boolean = false,
+    /** Comma-separated Plus role snowflakes the player (or the build) supplied. */
+    val xoraPlusRoleIds: String = "",
 ) {
     val stepIndex: Int get() = OnboardingStep.entries.indexOf(step)
     val stepCount: Int get() = OnboardingStep.entries.size
@@ -125,7 +128,7 @@ data class OnboardingUiState(
     val discordLinked: Boolean get() = discordAccountLinked(discordPresence)
     val canAdvance: Boolean get() = when (step) {
         OnboardingStep.Emulators -> !scanRunning
-        OnboardingStep.Social -> xoraPlusBypass || (discordLinked && xoraPlus.hasPlus)
+        OnboardingStep.Discord -> xoraPlusBypass || (discordLinked && xoraPlus.hasPlus)
         else -> true
     }
 }
@@ -195,10 +198,11 @@ class OnboardingViewModel @Inject constructor(
             xoraPlusMembership.state,
             preferences.xoraPlusBypass,
             plusBypassOverride,
-        ) { plus, stored, override ->
-            plus to (stored || override)
+            preferences.xoraPlusRoleIds,
+        ) { plus, stored, override, roleIds ->
+            PlusBundle(plus, stored || override, roleIds)
         },
-    ) { ra, steam, discord, raAuth, plusPair ->
+    ) { ra, steam, discord, raAuth, plus ->
         SocialBundle(
             retroAchievements = ra,
             steamWebApi = steam,
@@ -206,10 +210,17 @@ class OnboardingViewModel @Inject constructor(
             raBusy = raAuth.first,
             raError = raAuth.second,
             raPendingWebApiUser = raAuth.third,
-            xoraPlus = plusPair.first,
-            xoraPlusBypass = plusPair.second,
+            xoraPlus = plus.state,
+            xoraPlusBypass = plus.bypass,
+            xoraPlusRoleIds = plus.roleIds,
         )
     }
+
+    private data class PlusBundle(
+        val state: XoraPlusCheckState,
+        val bypass: Boolean,
+        val roleIds: String,
+    )
 
     private data class SocialBundle(
         val retroAchievements: RetroAchievementsCredentials,
@@ -220,6 +231,7 @@ class OnboardingViewModel @Inject constructor(
         val raPendingWebApiUser: String?,
         val xoraPlus: XoraPlusCheckState,
         val xoraPlusBypass: Boolean,
+        val xoraPlusRoleIds: String,
     )
 
     private val identityFlow = combine(
@@ -348,6 +360,7 @@ class OnboardingViewModel @Inject constructor(
             message = base.message,
             xoraPlus = social.xoraPlus,
             xoraPlusBypass = social.xoraPlusBypass,
+            xoraPlusRoleIds = social.xoraPlusRoleIds,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OnboardingUiState())
 
@@ -378,7 +391,7 @@ class OnboardingViewModel @Inject constructor(
 
     fun next() {
         if (step.value == OnboardingStep.Emulators && scanRunning.value) return
-        if (step.value == OnboardingStep.Social) {
+        if (step.value == OnboardingStep.Discord) {
             val plus = xoraPlusMembership.state.value
             val bypass = plusBypassOverride.value || uiState.value.xoraPlusBypass
             val linked = discordAccountLinked(discordRichPresence.state.value)
@@ -700,6 +713,29 @@ class OnboardingViewModel @Inject constructor(
     fun requestLinkDiscord() {
         viewModelScope.launch {
             runCatching { externalAuthRequests.send(OnboardingExternalAuthRequest.LinkDiscord) }
+        }
+    }
+
+    /** Re-run the guild / role lookup, e.g. after the player is granted Plus in Discord. */
+    fun refreshXoraPlus() {
+        viewModelScope.launch {
+            xoraPlusMembership.refresh()
+            message.value = "Re-checking XOrA Plus…"
+        }
+    }
+
+    /**
+     * Store the XOrA Plus role snowflake. Discord never gives apps role names, so this is what
+     * turns "in the server" into an exact Plus check.
+     */
+    fun setPlusRoleIds(raw: String) {
+        viewModelScope.launch {
+            xoraPlusMembership.setPlusRoleIds(raw)
+            message.value = if (raw.isBlank()) {
+                "Plus role id cleared."
+            } else {
+                "Plus role id saved."
+            }
         }
     }
 

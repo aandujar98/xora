@@ -36,10 +36,22 @@ import kotlin.math.sqrt
 private const val TILT_FULL_SCALE_RADIANS = 0.42f
 
 /** How far the profile pill may rock, in degrees — large enough to read on a handheld. */
-internal const val ACCOUNT_PILL_MAX_TILT_DEGREES = 22f
+internal const val ACCOUNT_PILL_MAX_TILT_DEGREES = 26f
+
+/**
+ * Visual degrees per degree of physical tilt. The pill is a 48dp disc, so a 1:1 mapping barely
+ * reads; this reaches full deflection at about 12° of wrist movement.
+ */
+internal const val ACCOUNT_PILL_TILT_GAIN = 2.2f
 
 /** Pixel parallax at full pill tilt. */
-private const val ACCOUNT_PILL_PARALLAX_PX = 12f
+private const val ACCOUNT_PILL_PARALLAX_PX = 20f
+
+/** Perspective for the pill layer, in density units. Matches the Vita bubble dome. */
+internal const val ACCOUNT_PILL_CAMERA_DISTANCE = 6f
+
+/** Degrees the pill rocks on its own so it still reads as glass on a device that never moves. */
+internal const val ACCOUNT_PILL_IDLE_TILT_DEGREES = 6f
 
 /** Average this many samples before freezing the pill's rest pose. */
 private const val ACCOUNT_PILL_CALIBRATION_SAMPLES = 8
@@ -119,9 +131,12 @@ internal fun accountPillGyroFromDelta(
     deltaPitchRad: Float,
     maxDegrees: Float = ACCOUNT_PILL_MAX_TILT_DEGREES,
     parallaxPx: Float = ACCOUNT_PILL_PARALLAX_PX,
+    gain: Float = ACCOUNT_PILL_TILT_GAIN,
 ): AccountPillGyro {
-    val rotY = Math.toDegrees(deltaRollRad.toDouble()).toFloat().coerceIn(-maxDegrees, maxDegrees)
-    val rotX = (-Math.toDegrees(deltaPitchRad.toDouble()).toFloat()).coerceIn(-maxDegrees, maxDegrees)
+    val rotY = (Math.toDegrees(deltaRollRad.toDouble()).toFloat() * gain)
+        .coerceIn(-maxDegrees, maxDegrees)
+    val rotX = (-Math.toDegrees(deltaPitchRad.toDouble()).toFloat() * gain)
+        .coerceIn(-maxDegrees, maxDegrees)
     val unitX = if (maxDegrees == 0f) 0f else rotY / maxDegrees
     val unitY = if (maxDegrees == 0f) 0f else rotX / maxDegrees
     return AccountPillGyro(
@@ -596,6 +611,17 @@ private const val BUBBLE_IDLE_ROCK_LEAN = 0.34f
 fun vitaBubbleIdleLean(index: Int, cycleUnit: Float): Float {
     val phase = (cycleUnit + (index * 0.6180339f)) % 1f
     return sin(phase * 2f * PI.toFloat()) * BUBBLE_IDLE_ROCK_LEAN
+}
+
+/**
+ * Figure-of-eight rock for the collapsed profile pill, each component `-1..1`.
+ *
+ * Runs on top of the gyro pose so the pill still turns like a glass dome on hardware without a
+ * usable rotation sensor — a TV box, or a handheld with the gyro disabled.
+ */
+fun accountPillIdleLean(cycleUnit: Float): Offset {
+    val phase = (cycleUnit % 1f) * 2f * PI.toFloat()
+    return Offset(x = sin(phase), y = sin(phase * 2f) * 0.5f)
 }
 
 /** How long a page-turn wobble takes to die out. */

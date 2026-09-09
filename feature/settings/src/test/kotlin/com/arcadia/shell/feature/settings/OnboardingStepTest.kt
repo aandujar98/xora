@@ -28,6 +28,14 @@ class OnboardingStepTest {
     }
 
     @Test
+    fun `discord and steam are separate steps in that order`() {
+        val steps = OnboardingStep.entries
+        assertEquals(OnboardingStep.Discord, steps[8])
+        assertEquals(OnboardingStep.Steam, steps[9])
+        assertEquals(OnboardingStep.RetroAchievements, steps[10])
+    }
+
+    @Test
     fun performanceStepOffersAutoPerformanceAndQuality() {
         assertEquals(
             listOf(
@@ -65,20 +73,21 @@ class OnboardingStepTest {
     }
 
     @Test
-    fun socialNextRequiresPlusOrBypass() {
-        val blocked = OnboardingUiState(step = OnboardingStep.Social)
+    fun discordNextRequiresPlusOrBypass() {
+        val blocked = OnboardingUiState(step = OnboardingStep.Discord)
         assertFalse(blocked.canAdvance)
 
         val linkedNoPlus = OnboardingUiState(
-            step = OnboardingStep.Social,
+            step = OnboardingStep.Discord,
             discordPresence = DiscordPresenceUiState(
                 capability = DiscordPresenceCapability.Connected,
             ),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.InGuildNoPlus),
         )
         assertFalse(linkedNoPlus.canAdvance)
 
         val plus = OnboardingUiState(
-            step = OnboardingStep.Social,
+            step = OnboardingStep.Discord,
             discordPresence = DiscordPresenceUiState(
                 capability = DiscordPresenceCapability.Connected,
             ),
@@ -86,11 +95,26 @@ class OnboardingStepTest {
         )
         assertTrue(plus.canAdvance)
 
+        // Discord never names guild roles for a user token; membership alone still opens the gate.
+        val unverified = OnboardingUiState(
+            step = OnboardingStep.Discord,
+            discordPresence = DiscordPresenceUiState(
+                capability = DiscordPresenceCapability.Connected,
+            ),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
+        )
+        assertTrue(unverified.canAdvance)
+
         val bypass = OnboardingUiState(
-            step = OnboardingStep.Social,
+            step = OnboardingStep.Discord,
             xoraPlusBypass = true,
         )
         assertTrue(bypass.canAdvance)
+    }
+
+    @Test
+    fun steamStepNeverBlocksTheFlow() {
+        assertTrue(OnboardingUiState(step = OnboardingStep.Steam).canAdvance)
     }
 
     @Test
