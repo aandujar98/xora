@@ -1189,6 +1189,19 @@ class ShellPreferences @Inject constructor(
         it[Keys.HOME_TUTORIAL_COMPLETE] = false
     }
 
+    /**
+     * Wizard step name to resume onboarding on, so a backgrounded process kill (or plain
+     * activity recreation) doesn't drop the player back to Welcome. Cleared on Finish and on a
+     * Settings redo so a fresh run always starts over.
+     */
+    val onboardingStep: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.ONBOARDING_STEP].orEmpty()
+    }
+
+    suspend fun setOnboardingStep(step: String) = edit {
+        it[Keys.ONBOARDING_STEP] = step
+    }
+
     val xoraPlusBypass: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[Keys.XORA_PLUS_BYPASS] ?: false
     }
@@ -1576,6 +1589,7 @@ class ShellPreferences @Inject constructor(
         val HOME_SHORTCUT_GRID_COLUMNS = intPreferencesKey("home_shortcut_grid_columns")
         val HOME_SHORTCUT_GRID_ROWS = intPreferencesKey("home_shortcut_grid_rows")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+        val ONBOARDING_STEP = stringPreferencesKey("onboarding_step")
         val HOME_TUTORIAL_COMPLETE = booleanPreferencesKey("home_tutorial_complete")
         val XORA_PLUS_BYPASS = booleanPreferencesKey("xora_plus_bypass")
         val XORA_PLUS_ROLE_IDS = stringPreferencesKey("xora_plus_role_ids")

@@ -64,6 +64,7 @@ import javax.inject.Inject
 
 enum class OnboardingStep {
     Welcome,
+    Discord,
     Profile,
     DisplayMode,
     Performance,
@@ -71,7 +72,6 @@ enum class OnboardingStep {
     AndroidApps,
     Emulators,
     Scrapers,
-    Discord,
     Steam,
     RetroAchievements,
     Audio,
@@ -374,6 +374,10 @@ class OnboardingViewModel @Inject constructor(
     init {
         loadLaunchableAndroidApps()
         viewModelScope.launch {
+            val saved = preferences.onboardingStep.first()
+            OnboardingStep.entries.firstOrNull { it.name == saved }?.let { step.value = it }
+        }
+        viewModelScope.launch {
             discordRichPresence.state
                 .map { it.currentUserId to it.capability }
                 .distinctUntilChanged()
@@ -411,7 +415,7 @@ class OnboardingViewModel @Inject constructor(
         val entries = OnboardingStep.entries
         val index = entries.indexOf(step.value)
         if (index > 0) {
-            step.value = entries[index - 1]
+            setStep(entries[index - 1])
         }
     }
 
@@ -444,11 +448,17 @@ class OnboardingViewModel @Inject constructor(
         val entries = OnboardingStep.entries
         val index = entries.indexOf(step.value)
         if (index < entries.lastIndex) {
-            step.value = entries[index + 1]
+            setStep(entries[index + 1])
         }
         if (step.value == OnboardingStep.Emulators) {
             ensureLibraryScanned()
         }
+    }
+
+    /** Updates the in-memory step and persists it so a killed process resumes here. */
+    private fun setStep(newStep: OnboardingStep) {
+        step.value = newStep
+        viewModelScope.launch { preferences.setOnboardingStep(newStep.name) }
     }
 
     private fun persistAndroidAppSelection() {
@@ -763,6 +773,7 @@ class OnboardingViewModel @Inject constructor(
     fun finish(onFinished: () -> Unit) {
         viewModelScope.launch {
             preferences.setOnboardingComplete(true)
+            preferences.setOnboardingStep("")
             onFinished()
         }
     }

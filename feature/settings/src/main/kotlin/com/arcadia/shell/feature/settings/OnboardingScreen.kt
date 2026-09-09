@@ -1615,7 +1615,7 @@ private fun DiscordStep(
         )
 
         SettingsPadTarget(id = "social_discord_recheck", onActivate = onRecheckPlus) {
-            OutlinedButton(onClick = onRecheckPlus, enabled = !xoraPlus.checking) {
+            OutlinedButton(onClick = onRecheckPlus, enabled = !xoraPlus.checking && !xoraPlus.hasPlus) {
                 Text("Check XOrA Plus again")
             }
         }
