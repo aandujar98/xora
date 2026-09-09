@@ -948,17 +948,30 @@ class HomeViewModel @Inject constructor(
     /** Debounce for layer-changing photo actions so one press cannot fire through two layers. */
     private var lastPhotoLayerActionMs = 0L
 
-    private val musicFlow = combine(
-        musicUi,
-        nowPlayingController.state,
-    ) { music, nowPlaying -> music.copy(nowPlaying = nowPlaying) }
+    private val customMediaEpoch = MutableStateFlow(0)
+    private val emulatorChoiceEpoch = MutableStateFlow(0)
 
     /** Systems the built-in emulator ships a core for — the tick on a console card. */
     private val xoraEmulatedPlatformIds: Set<String> =
         xoraCoreCatalog.all.mapTo(mutableSetOf()) { it.platformId }
 
-    private val customMediaEpoch = MutableStateFlow(0)
-    private val emulatorChoiceEpoch = MutableStateFlow(0)
+    private val musicFlow = combine(
+        musicUi,
+        nowPlayingController.state,
+        customMediaEpoch,
+        preferences.settings.map { it.bgmVolume }.distinctUntilChanged(),
+    ) { music, nowPlaying, _, bgmVolume ->
+        val track = nowPlaying.track
+        val backdrop = track?.let { playing ->
+            gameCustomMediaStore.findBackground("track_${playing.id}")
+                ?: playing.albumId?.let { gameCustomMediaStore.findBackground("album_$it") }
+        }
+        music.copy(
+            nowPlaying = nowPlaying,
+            nowPlayingBackdropPath = backdrop,
+            backdropAudioVolume = bgmVolume,
+        )
+    }
 
     private val platformChromeFlow = combine(
         combine(
@@ -3936,6 +3949,7 @@ class HomeViewModel @Inject constructor(
                 contentUri = track.uri,
                 source = MusicSource.Spotify,
                 contextUri = contextUri,
+                albumId = playlistId,
             )
         }
     }
@@ -9365,14 +9379,49 @@ class HomeViewModel @Inject constructor(
     private fun overlayMusicCustomMedia(items: List<XoraXmbItem>, epoch: Int): List<XoraXmbItem> {
         if (epoch < 0) return items
         return items.map { item ->
-            val mediaId = item.musicCustomMediaId() ?: return@map item
-            val cover = gameCustomMediaStore.findBoxArt(mediaId)
-            val wallpaper = gameCustomMediaStore.findBackground(mediaId)
+            val trackId = item.musicCustomMediaId()
+            val albumId = item.musicAlbumCustomMediaId()
+            if (trackId == null && albumId == null) return@map item
+            val cover = trackId?.let { gameCustomMediaStore.findBoxArt(it) }
+                ?: albumId?.let { gameCustomMediaStore.findBoxArt(it) }
+            val wallpaper = trackId?.let { gameCustomMediaStore.findBackground(it) }
+                ?: albumId?.let { gameCustomMediaStore.findBackground(it) }
             if (cover == null && wallpaper == null) item
             else item.copy(
                 artPath = cover ?: item.artPath,
-                heroPath = wallpaper,
+                heroPath = wallpaper ?: item.heroPath,
             )
+        }
+    }
+
+    private fun openMusicCustomizeIfFocused(xmb: XoraXmbUiState): Boolean {
+        val item = xmb.selectedItem ?: return false
+        when (val action = item.action) {
+            is XoraXmbAction.DrillMusicAlbum -> {
+                emit(
+                    HomeEvent.OpenMusicEditor(
+                        mediaId = "album_${action.albumId}",
+                        title = item.title,
+                        kind = MusicEditorKind.Album,
+                        albumId = action.albumId,
+                        subtitle = item.subtitle,
+                    ),
+                )
+                return true
+            }
+            is XoraXmbAction.PlayMusicTrack -> {
+                emit(
+                    HomeEvent.OpenMusicEditor(
+                        mediaId = "track_${action.trackId}",
+                        title = item.title,
+                        kind = MusicEditorKind.Track,
+                        albumId = action.albumId,
+                        subtitle = item.subtitle,
+                    ),
+                )
+                return true
+            }
+            else -> return false
         }
     }
 
@@ -9394,13 +9443,6 @@ class HomeViewModel @Inject constructor(
             val alignment = alignments[gameId] ?: return@map item
             item.copy(artAlignX = alignment.x, artAlignY = alignment.y)
         }
-    }
-
-    private fun openMusicCustomizeIfFocused(xmb: XoraXmbUiState): Boolean {
-        val item = xmb.selectedItem ?: return false
-        val id = item.musicCustomMediaId() ?: return false
-        emit(HomeEvent.OpenMusicCustomize(id, item.title))
-        return true
     }
 
     fun previewGameSoundBite(gameId: String) {

@@ -64,7 +64,9 @@ import com.arcadia.shell.feature.home.HomePageContent
 import com.arcadia.shell.feature.home.HomeScreen
 import com.arcadia.shell.feature.home.HomeUiState
 import com.arcadia.shell.feature.home.HomeViewModel
-import com.arcadia.shell.feature.home.MusicCustomizeSheet
+import com.arcadia.shell.feature.home.MusicEditorActions
+import com.arcadia.shell.feature.home.MusicEditorKind
+import com.arcadia.shell.feature.home.MusicEditorPane
 import com.arcadia.shell.feature.home.ArtPickerUiState
 import com.arcadia.shell.feature.home.PlatformEditorActions
 import com.arcadia.shell.feature.home.PlatformEditorPane
@@ -128,8 +130,11 @@ fun ArcadiaShell(
     var optionsGameId by rememberSaveable { mutableStateOf<String?>(null) }
     var scrapeMenuGameId by rememberSaveable { mutableStateOf<String?>(null) }
     var platformEditorId by rememberSaveable { mutableStateOf<String?>(null) }
-    var musicCustomizeId by rememberSaveable { mutableStateOf<String?>(null) }
-    var musicCustomizeTitle by rememberSaveable { mutableStateOf("") }
+    var musicEditorId by rememberSaveable { mutableStateOf<String?>(null) }
+    var musicEditorTitle by rememberSaveable { mutableStateOf("") }
+    var musicEditorKind by rememberSaveable { mutableStateOf(MusicEditorKind.Album.name) }
+    var musicEditorAlbumId by rememberSaveable { mutableStateOf<String?>(null) }
+    var musicEditorSubtitle by rememberSaveable { mutableStateOf<String?>(null) }
     var chooseEmulatorPlatformId by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val routeTween = arcadiaTween<Float>(ArcadiaMotion.Medium)
@@ -138,7 +143,7 @@ fun ArcadiaShell(
     val sheetOverlayOpen = scrapeMenuGameId != null ||
         platformEditorId != null ||
         chooseEmulatorPlatformId != null ||
-        musicCustomizeId != null
+        musicEditorId != null
     val overlayOpen = dialogOverlayOpen || sheetOverlayOpen
     val notificationBanner = remember(homeViewModel) {
         ShellNotificationBannerHandle(
@@ -192,7 +197,7 @@ fun ArcadiaShell(
         if (uri != null) homeViewModel.setLocalAvatar(uri)
     }
     val platformBannerPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
+        contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         val platformId = pendingPlatformBannerId
         pendingPlatformBannerId = null
@@ -225,14 +230,14 @@ fun ArcadiaShell(
         homeViewModel.onPhotoDeleteResult(result.resultCode == Activity.RESULT_OK)
     }
     val gameBoxArtPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
+        contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         val gameId = pendingGameMediaId
         pendingGameMediaId = null
         if (uri != null && gameId != null) homeViewModel.setGameBoxArt(gameId, uri)
     }
     val gameShortcutIconPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
+        contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         val gameId = pendingGameMediaId
         pendingGameMediaId = null
@@ -276,7 +281,7 @@ fun ArcadiaShell(
         if (uri != null && shortcutId != null) homeViewModel.setShortcutIcon(shortcutId, uri)
     }
     val musicCoverPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
+        contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         val mediaId = pendingMusicMediaId
         pendingMusicMediaId = null
@@ -313,23 +318,15 @@ fun ArcadiaShell(
                         discordAttachmentPicker.launch("image/*")
                     is HomeMediaPickerRequest.PlatformBanner -> {
                         pendingPlatformBannerId = request.platformId
-                        platformBannerPicker.launch(
-                            PickVisualMediaRequest(
-                                ActivityResultContracts.PickVisualMedia.ImageOnly,
-                            ),
-                        )
+                        platformBannerPicker.launch(arrayOf("image/*"))
                     }
                     is HomeMediaPickerRequest.GameBoxArt -> {
                         pendingGameMediaId = request.gameId
-                        gameBoxArtPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
+                        gameBoxArtPicker.launch(arrayOf("image/*"))
                     }
                     is HomeMediaPickerRequest.GameShortcutIcon -> {
                         pendingGameMediaId = request.gameId
-                        gameShortcutIconPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
+                        gameShortcutIconPicker.launch(arrayOf("image/*"))
                     }
                     is HomeMediaPickerRequest.GameBackground -> {
                         pendingGameMediaId = request.gameId
@@ -357,9 +354,7 @@ fun ArcadiaShell(
                     }
                     is HomeMediaPickerRequest.MusicCover -> {
                         pendingMusicMediaId = request.mediaId
-                        musicCoverPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
+                        musicCoverPicker.launch(arrayOf("image/*"))
                     }
                     is HomeMediaPickerRequest.MusicWallpaper -> {
                         pendingMusicMediaId = request.mediaId
@@ -475,9 +470,12 @@ fun ArcadiaShell(
                 is HomeEvent.OpenGameOptions -> optionsGameId = event.gameId
                 is HomeEvent.OpenScrapeMenu -> scrapeMenuGameId = event.gameId
                 is HomeEvent.OpenPlatformEditor -> platformEditorId = event.platformId
-                is HomeEvent.OpenMusicCustomize -> {
-                    musicCustomizeId = event.mediaId
-                    musicCustomizeTitle = event.title
+                is HomeEvent.OpenMusicEditor -> {
+                    musicEditorId = event.mediaId
+                    musicEditorTitle = event.title
+                    musicEditorKind = event.kind.name
+                    musicEditorAlbumId = event.albumId
+                    musicEditorSubtitle = event.subtitle
                 }
                 HomeEvent.BringShellToFront -> bringShellToFront(context)
                 HomeEvent.RequestUnknownAppSources -> {
@@ -1090,12 +1088,27 @@ fun ArcadiaShell(
         }
     }
 
-    musicCustomizeId?.let { mediaId ->
+    musicEditorId?.let { mediaId ->
+        val kind = runCatching { MusicEditorKind.valueOf(musicEditorKind) }
+            .getOrDefault(MusicEditorKind.Album)
+        val albumMediaId = musicEditorAlbumId?.let { "album_$it" }
         val mediaEpoch by homeViewModel.customMediaEpochFlow.collectAsStateWithLifecycle()
-        val coverPath by produceState(homeViewModel.musicCoverPath(mediaId), mediaId, mediaEpoch) {
-            value = homeViewModel.musicCoverPath(mediaId)
+        val albumCoverPath by produceState(
+            albumMediaId?.let { homeViewModel.musicCoverPath(it) },
+            albumMediaId,
+            mediaEpoch,
+        ) {
+            value = albumMediaId?.let { homeViewModel.musicCoverPath(it) }
         }
-        val wallpaperPath by produceState(
+        val trackCoverPath by produceState(
+            if (kind == MusicEditorKind.Track) homeViewModel.musicCoverPath(mediaId) else null,
+            mediaId,
+            kind,
+            mediaEpoch,
+        ) {
+            value = if (kind == MusicEditorKind.Track) homeViewModel.musicCoverPath(mediaId) else null
+        }
+        val backgroundPath by produceState(
             homeViewModel.musicWallpaperPath(mediaId),
             mediaId,
             mediaEpoch,
@@ -1103,16 +1116,27 @@ fun ArcadiaShell(
             value = homeViewModel.musicWallpaperPath(mediaId)
         }
         SheetNavCapture(homeViewModel)
-        MusicCustomizeSheet(
-            title = musicCustomizeTitle,
-            coverPath = coverPath,
-            wallpaperPath = wallpaperPath,
+        MusicEditorPane(
+            title = musicEditorTitle,
+            subtitle = musicEditorSubtitle,
+            kind = kind,
+            albumCoverPath = albumCoverPath,
+            trackCoverPath = trackCoverPath,
+            backgroundPath = backgroundPath,
             navActions = homeViewModel.sheetNavActionFlow,
-            onDismiss = { musicCustomizeId = null },
-            onPickCover = { homeViewModel.pickMusicCover(mediaId) },
-            onPickWallpaper = { homeViewModel.pickMusicWallpaper(mediaId) },
-            onClearCover = { homeViewModel.clearMusicCover(mediaId) },
-            onClearWallpaper = { homeViewModel.clearMusicWallpaper(mediaId) },
+            actions = MusicEditorActions(
+                onDismiss = { musicEditorId = null },
+                onPickAlbumCover = {
+                    homeViewModel.pickMusicCover(albumMediaId ?: mediaId)
+                },
+                onClearAlbumCover = {
+                    homeViewModel.clearMusicCover(albumMediaId ?: mediaId)
+                },
+                onPickTrackCover = { homeViewModel.pickMusicCover(mediaId) },
+                onClearTrackCover = { homeViewModel.clearMusicCover(mediaId) },
+                onPickBackground = { homeViewModel.pickMusicWallpaper(mediaId) },
+                onClearBackground = { homeViewModel.clearMusicWallpaper(mediaId) },
+            ),
         )
     }
 

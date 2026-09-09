@@ -30,6 +30,23 @@ class PlatformEditorRowsTest {
     }
 
     @Test
+    fun vitaEmulatorsSectionExplainsTitleIdLaunch() {
+        val rows = emulatorRows(
+            platform = GamePlatform(
+                id = "psvita",
+                displayName = "PlayStation Vita",
+                shortName = "Vita",
+                extensions = setOf("vpk"),
+                folderAliases = setOf("vita"),
+            ),
+            currentEmulatorLabel = "Vita3K",
+            actions = actions(),
+        )
+        assertTrue(rows.any { it.key == "vita_titleid" })
+        assertTrue(rows.any { it.key == "emulator_choose" })
+    }
+
+    @Test
     fun automaticEmulatorOmitsResetRow() {
         val rows = emulatorRows(samplePlatform(), currentEmulatorLabel = null, actions())
         assertEquals(listOf("emulator", "emulator_choose"), rows.map { it.key })

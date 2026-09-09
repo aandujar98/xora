@@ -17,4 +17,4 @@ app/src/main/assets/themes/default/bgm.mp3
 If `bgm.mp3` is missing at runtime, BGM falls back to `raw/background`.
 If the wallpaper asset is missing, the flowing-wave backdrop is used.
 
-`bgm.mp3` is encoded from the `xora-bgm` release (`XOrA.Menu.Theme.wav`, 14:48 loop).
+`bgm.mp3` is encoded from the `XOrA-Default-Music` release (`XOrA.-.Home.m4a`).

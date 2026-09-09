@@ -164,8 +164,12 @@ fun XoraHomeXmbPane(
             xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
             xmb.selectedItem?.action is XoraXmbAction.LaunchGame
     }
-    // Browsing music paints the focused album / song art; Now Playing paints the playing cover.
-    val musicArtPath = when (xmb.depth) {
+    // Playing-track wallpaper follows the user around the XMB. Music browse still paints the
+    // focused album / song when nothing is playing.
+    val playingBackdrop = state.music.nowPlayingBackdropPath?.takeIf {
+        state.music.nowPlaying.hasTrack
+    }
+    val musicArtPath = playingBackdrop ?: when (xmb.depth) {
         XoraXmbDepth.MusicAlbums, XoraXmbDepth.MusicTracks ->
             xmb.selectedItem?.heroPath ?: xmb.selectedItem?.artPath
         XoraXmbDepth.NowPlaying -> state.music.nowPlaying.track?.albumArtUri
@@ -252,6 +256,11 @@ fun XoraHomeXmbPane(
                     XMB_FOCUS_SETTLE_MS
                 },
                 scrimAlpha = chromeAlpha,
+                audioVolume = if (playingBackdrop != null) {
+                    state.music.backdropAudioVolume
+                } else {
+                    0f
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .then(backdropMotion)
@@ -509,6 +518,9 @@ fun XoraXmbHeroDetail(
 ) {
     val xmb = state.xoraXmb
     val heroGame = xmb.focusGame
+    val playingBackdrop = state.music.nowPlayingBackdropPath?.takeIf {
+        state.music.nowPlaying.hasTrack
+    }
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
     val reduceMotion = rememberReduceMotion()
@@ -561,7 +573,8 @@ fun XoraXmbHeroDetail(
                     .then(backdropMotion),
             )
             XoraRomHeroBackdrop(
-                artPath = xmb.selectedItem?.heroPath
+                artPath = playingBackdrop
+                    ?: xmb.selectedItem?.heroPath
                     ?: xmb.selectedItem?.artPath?.takeIf {
                         xmb.depth == XoraXmbDepth.MusicAlbums ||
                             xmb.depth == XoraXmbDepth.MusicTracks
@@ -579,6 +592,11 @@ fun XoraXmbHeroDetail(
                     XMB_FOCUS_SETTLE_MS
                 },
                 scrimAlpha = chromeAlpha,
+                audioVolume = if (playingBackdrop != null) {
+                    state.music.backdropAudioVolume
+                } else {
+                    0f
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .then(backdropMotion)
@@ -812,6 +830,7 @@ private fun XoraRomHeroBackdrop(
     modifier: Modifier = Modifier,
     settleMs: Long = XMB_FOCUS_SETTLE_MS,
     scrimAlpha: Float = 1f,
+    audioVolume: Float = 0f,
 ) {
     val reduceMotion = rememberReduceMotion()
     // Wait out the focus settle so a held d-pad does not strobe every ROM's hero.
@@ -859,6 +878,7 @@ private fun XoraRomHeroBackdrop(
                             } else {
                                 "file://$path"
                             },
+                            audioVolume = audioVolume,
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {

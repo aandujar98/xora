@@ -44,6 +44,7 @@ fun XoraLoopingVideo(
     speed: Float = 1f,
     alignment: Alignment = Alignment.Center,
     pan: Boolean = false,
+    audioVolume: Float = 0f,
 ) {
     if (LocalLiteVisuals.current) {
         LiteStaticWallpaper(modifier = modifier)
@@ -55,7 +56,7 @@ fun XoraLoopingVideo(
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(uri))
             repeatMode = Player.REPEAT_MODE_ONE
-            volume = 0f
+            volume = audioVolume.coerceIn(0f, 1f)
             setPlaybackSpeed(speed.coerceIn(0.25f, 2f))
             prepare()
             playWhenReady = true
@@ -65,6 +66,9 @@ fun XoraLoopingVideo(
     // Speed is applied outside the player factory so a rate change never restarts the loop.
     LaunchedEffect(player, speed) {
         player.setPlaybackSpeed(speed.coerceIn(0.25f, 2f))
+    }
+    LaunchedEffect(player, audioVolume) {
+        player.volume = audioVolume.coerceIn(0f, 1f)
     }
 
     DisposableEffect(player, lifecycleOwner) {

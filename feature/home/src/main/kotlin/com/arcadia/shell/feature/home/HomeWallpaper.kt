@@ -242,6 +242,7 @@ internal fun LoopingWallpaperVideo(
     speed: Float = 1f,
     alignment: Alignment = Alignment.Center,
     pan: Boolean = false,
+    audioVolume: Float = 0f,
 ) {
     XoraLoopingVideo(
         uri = uri,
@@ -249,6 +250,7 @@ internal fun LoopingWallpaperVideo(
         speed = speed,
         alignment = alignment,
         pan = pan,
+        audioVolume = audioVolume,
     )
 }
 

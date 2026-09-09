@@ -251,6 +251,11 @@ data class ShellSettings(
     val lastScanAt: Long = 0,
     /** Looping shell soundtrack volume in the range 0f–1f. Zero mutes. */
     val bgmVolume: Float = DEFAULT_BGM_VOLUME,
+    /**
+     * Library / Now Playing mix in the range 0f–1f. Independent of [bgmVolume], which also
+     * drives track background-video audio while a song is playing.
+     */
+    val musicVolume: Float = DEFAULT_MUSIC_VOLUME,
     /** Navigation / UI one-shot SFX volume in the range 0f–1f. Zero mutes. Independent of BGM. */
     val uiSfxVolume: Float = DEFAULT_UI_SFX_VOLUME,
     /** Light / dark appearance. Defaults to dark to match the classic SORA shell. */
@@ -483,6 +488,7 @@ class ShellPreferences @Inject constructor(
             androidAppAllowlist = decodeStringIdSet(prefs[Keys.ANDROID_APP_ALLOWLIST].orEmpty()),
             lastScanAt = prefs[Keys.LAST_SCAN_AT] ?: 0,
             bgmVolume = prefs[Keys.BGM_VOLUME] ?: DEFAULT_BGM_VOLUME,
+            musicVolume = prefs[Keys.MUSIC_VOLUME] ?: DEFAULT_MUSIC_VOLUME,
             uiSfxVolume = prefs[Keys.UI_SFX_VOLUME] ?: DEFAULT_UI_SFX_VOLUME,
             themeMode = prefs[Keys.THEME_MODE]
                 ?.let { name -> runCatching { ThemeMode.valueOf(name) }.getOrNull() }
@@ -836,6 +842,10 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setBgmVolume(volume: Float) = edit {
         it[Keys.BGM_VOLUME] = volume.coerceIn(0f, 1f)
+    }
+
+    suspend fun setMusicVolume(volume: Float) = edit {
+        it[Keys.MUSIC_VOLUME] = volume.coerceIn(0f, 1f)
     }
 
     suspend fun setUiSfxVolume(volume: Float) = edit {
@@ -1439,6 +1449,7 @@ class ShellPreferences @Inject constructor(
         val ANDROID_APP_ALLOWLIST = stringPreferencesKey("android_app_allowlist")
         val LAST_SCAN_AT = longPreferencesKey("last_scan_at")
         val BGM_VOLUME = floatPreferencesKey("bgm_volume")
+        val MUSIC_VOLUME = floatPreferencesKey("music_volume")
         val UI_SFX_VOLUME = floatPreferencesKey("ui_sfx_volume")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val TRAILER_ENABLED = booleanPreferencesKey("trailer_enabled")
@@ -1797,6 +1808,7 @@ internal fun decodeCirclePins(raw: String): List<CirclePin> {
 }
 
 const val DEFAULT_BGM_VOLUME = 0.35f
+const val DEFAULT_MUSIC_VOLUME = 1f
 
 /** Default UI navigation SFX level — audible even when BGM is turned down. */
 const val DEFAULT_UI_SFX_VOLUME = 0.7f

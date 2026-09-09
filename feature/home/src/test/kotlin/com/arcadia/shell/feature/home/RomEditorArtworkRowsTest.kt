@@ -21,6 +21,8 @@ class RomEditorArtworkRowsTest {
             actions = actions(),
         )
         val keys = rows.map { it.key }
+        assertTrue(keys.contains("boxart_files"))
+        assertEquals(keys.indexOf("boxart") + 1, keys.indexOf("boxart_files"))
         assertTrue(keys.contains("shortcuticon"))
         assertEquals(keys.indexOf("logo") + 1, keys.indexOf("shortcuticon"))
         val row = rows.single { it.key == "shortcuticon" }
