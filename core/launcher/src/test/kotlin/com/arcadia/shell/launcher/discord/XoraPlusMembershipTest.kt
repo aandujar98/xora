@@ -96,4 +96,51 @@ class XoraPlusMembershipTest {
             ),
         )
     }
+
+    @Test
+    fun signOutIsOfferedWhileLinkedOrConnecting() {
+        assertFalse(discordCanSignOut(DiscordPresenceUiState()))
+        assertTrue(
+            discordCanSignOut(
+                DiscordPresenceUiState(capability = DiscordPresenceCapability.Connected),
+            ),
+        )
+        assertTrue(
+            discordCanSignOut(
+                DiscordPresenceUiState(
+                    capability = DiscordPresenceCapability.NeedsAccountLink,
+                    connecting = true,
+                ),
+            ),
+        )
+        assertFalse(
+            discordCanSignOut(
+                DiscordPresenceUiState(capability = DiscordPresenceCapability.NeedsAccountLink),
+            ),
+        )
+    }
+
+    @Test
+    fun settingsSignInLabelFollowsSession() {
+        assertEquals(
+            "Sign in with Discord",
+            discordSettingsSignInLabel(DiscordPresenceUiState()),
+        )
+        assertEquals(
+            "Connecting Discord…",
+            discordSettingsSignInLabel(DiscordPresenceUiState(connecting = true)),
+        )
+        assertEquals(
+            "Re-link Discord",
+            discordSettingsSignInLabel(
+                DiscordPresenceUiState(capability = DiscordPresenceCapability.Connected),
+            ),
+        )
+        assertEquals(
+            "Retry Discord sign-in",
+            discordSettingsSignInLabel(
+                DiscordPresenceUiState(capability = DiscordPresenceCapability.Failed),
+            ),
+        )
+    }
 }

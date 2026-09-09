@@ -303,6 +303,12 @@ interface DiscordRichPresence {
     /** Starts Discord account linking when the Social SDK is present. */
     fun startAccountLinking(activity: Activity)
 
+    /**
+     * Drops the stored OAuth tokens and disconnects the Social SDK so the player can sign in
+     * with a different Discord account. Does not clear the Application ID.
+     */
+    fun signOutAccount()
+
     /** Opens an in-launcher DM with a Discord friend (Social SDK messaging). */
     fun openDm(userId: String, displayName: String, avatarUrl: String?)
 
