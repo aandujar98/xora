@@ -189,7 +189,7 @@ object PlatformCatalog {
             id = "psvita",
             displayName = "PlayStation Vita",
             shortName = "Vita",
-            extensions = setOf("vpk", "psvita", "nps"),
+            extensions = setOf("vpk", "psvita", "nps", "zip", "7z"),
             folderAliases = setOf("vita", "psvita", "playstationvita", "vita3k"),
             screenScraperSystemId = 62,
         ),

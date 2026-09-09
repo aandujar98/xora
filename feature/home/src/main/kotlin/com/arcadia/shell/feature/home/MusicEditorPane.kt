@@ -48,47 +48,44 @@ import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.input.NavAction
-import com.arcadia.shell.model.GamePlatform
-import com.arcadia.shell.scraper.ScraperPreference
 import kotlinx.coroutines.flow.Flow
 
-enum class PlatformEditorSection(val label: String) {
+enum class MusicEditorKind { Album, Track }
+
+enum class MusicEditorSection(val label: String) {
     Details("Details"),
     Artwork("Artwork"),
-    Emulators("Emulators"),
-    Library("Library"),
 }
 
-data class PlatformEditorActions(
+data class MusicEditorActions(
     val onDismiss: () -> Unit,
-    val onUploadBanner: () -> Unit,
-    val onClearBanner: () -> Unit,
-    val onRefreshArt: () -> Unit,
-    val onSetPlatformPreference: (ScraperPreference) -> Unit,
-    val onChooseEmulator: () -> Unit,
-    val onClearEmulator: () -> Unit,
-    val onRescrapePlatform: () -> Unit,
+    val onPickAlbumCover: () -> Unit,
+    val onClearAlbumCover: () -> Unit,
+    val onPickTrackCover: () -> Unit,
+    val onClearTrackCover: () -> Unit,
+    val onPickBackground: () -> Unit,
+    val onClearBackground: () -> Unit,
 )
 
-private enum class PlatformEditorColumn { Rail, Rows }
+private enum class MusicEditorColumn { Rail, Rows }
 
-private val PLATFORM_RAIL_WIDTH = 216.dp
-private val PLATFORM_HEADER_ART_W = 212.dp
-private val PLATFORM_HEADER_ART_H = 132.dp
+private val MUSIC_RAIL_WIDTH = 216.dp
+private val MUSIC_HEADER_ART = 132.dp
 
 /**
- * Full-screen console editor matching [RomEditorPane]: left rail, focusable rows, A to act, B back.
+ * Full-screen music editor matching [RomEditorPane] / [PlatformEditorPane]: left rail, focusable
+ * rows, A to act, B back.
  */
 @Composable
-fun PlatformEditorPane(
-    platform: GamePlatform,
-    gameCount: Int,
-    bannerPath: String?,
-    hasCustomBanner: Boolean,
-    platformPreference: ScraperPreference,
-    currentEmulatorLabel: String?,
+fun MusicEditorPane(
+    title: String,
+    subtitle: String?,
+    kind: MusicEditorKind,
+    albumCoverPath: String?,
+    trackCoverPath: String?,
+    backgroundPath: String?,
     navActions: Flow<NavAction>,
-    actions: PlatformEditorActions,
+    actions: MusicEditorActions,
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.Surface)
@@ -98,22 +95,28 @@ fun PlatformEditorPane(
     }
     val requestDismiss = { transition.targetState = false }
 
-    var column by remember { mutableStateOf(PlatformEditorColumn.Rail) }
+    var column by remember { mutableStateOf(MusicEditorColumn.Rail) }
     var sectionIndex by remember { mutableIntStateOf(0) }
     var rowIndex by remember { mutableIntStateOf(0) }
 
-    val sections = PlatformEditorSection.entries
+    val sections = MusicEditorSection.entries
     val section = sections[sectionIndex.coerceIn(0, sections.lastIndex)]
-    val rows = rememberPlatformEditorRows(
-        section = section,
-        platform = platform,
-        gameCount = gameCount,
-        bannerPath = bannerPath,
-        hasCustomBanner = hasCustomBanner,
-        platformPreference = platformPreference,
-        currentEmulatorLabel = currentEmulatorLabel,
-        actions = actions,
-    )
+    val rows = remember(
+        section,
+        kind,
+        albumCoverPath,
+        trackCoverPath,
+        backgroundPath,
+    ) {
+        musicEditorRows(
+            section = section,
+            kind = kind,
+            albumCoverPath = albumCoverPath,
+            trackCoverPath = trackCoverPath,
+            backgroundPath = backgroundPath,
+            actions = actions,
+        )
+    }
 
     LaunchedEffect(section, rows.size) {
         if (rowIndex > rows.lastIndex) rowIndex = rows.lastIndex.coerceAtLeast(0)
@@ -129,46 +132,43 @@ fun PlatformEditorPane(
     LaunchedEffect(navActions, section, rows) {
         navActions.collect { action ->
             when (action) {
-                NavAction.Up -> if (column == PlatformEditorColumn.Rail) {
+                NavAction.Up -> if (column == MusicEditorColumn.Rail) {
                     sectionIndex = (sectionIndex - 1 + sections.size) % sections.size
                     rowIndex = 0
                 } else if (rows.isNotEmpty()) {
                     rowIndex = (rowIndex - 1 + rows.size) % rows.size
                 }
 
-                NavAction.Down -> if (column == PlatformEditorColumn.Rail) {
+                NavAction.Down -> if (column == MusicEditorColumn.Rail) {
                     sectionIndex = (sectionIndex + 1) % sections.size
                     rowIndex = 0
                 } else if (rows.isNotEmpty()) {
                     rowIndex = (rowIndex + 1) % rows.size
                 }
 
-                NavAction.Right -> if (column == PlatformEditorColumn.Rail) {
-                    if (rows.isNotEmpty()) column = PlatformEditorColumn.Rows
-                } else {
-                    rows.getOrNull(rowIndex)?.onAdjust?.invoke(1)
+                NavAction.Right -> if (column == MusicEditorColumn.Rail && rows.isNotEmpty()) {
+                    column = MusicEditorColumn.Rows
                 }
 
-                NavAction.Left -> if (column == PlatformEditorColumn.Rows) {
-                    val adjust = rows.getOrNull(rowIndex)?.onAdjust
-                    if (adjust != null) adjust(-1) else column = PlatformEditorColumn.Rail
+                NavAction.Left -> if (column == MusicEditorColumn.Rows) {
+                    column = MusicEditorColumn.Rail
                 }
 
-                NavAction.Confirm -> if (column == PlatformEditorColumn.Rail) {
-                    if (rows.isNotEmpty()) column = PlatformEditorColumn.Rows
+                NavAction.Confirm -> if (column == MusicEditorColumn.Rail) {
+                    if (rows.isNotEmpty()) column = MusicEditorColumn.Rows
                 } else {
                     rows.getOrNull(rowIndex)?.onActivate?.invoke()
                 }
 
-                NavAction.Cancel -> if (column == PlatformEditorColumn.Rows) {
-                    column = PlatformEditorColumn.Rail
+                NavAction.Cancel -> if (column == MusicEditorColumn.Rows) {
+                    column = MusicEditorColumn.Rail
                 } else {
                     requestDismiss()
                 }
 
                 NavAction.ScrapeMenu -> requestDismiss()
 
-                NavAction.Options -> if (column == PlatformEditorColumn.Rows) {
+                NavAction.Options -> if (column == MusicEditorColumn.Rows) {
                     rows.getOrNull(rowIndex)?.onClear?.invoke()
                 }
 
@@ -199,10 +199,10 @@ fun PlatformEditorPane(
                 .background(Color(0xFA05070C)),
         ) {
             Column(modifier = Modifier.fillMaxSize().padding(28.dp)) {
-                PlatformEditorHeader(
-                    platform = platform,
-                    gameCount = gameCount,
-                    bannerPath = bannerPath,
+                MusicEditorHeader(
+                    title = title,
+                    subtitle = subtitle,
+                    coverPath = trackCoverPath ?: albumCoverPath,
                 )
                 Spacer(modifier = Modifier.height(18.dp))
 
@@ -210,7 +210,7 @@ fun PlatformEditorPane(
                     LazyColumn(
                         state = railState,
                         modifier = Modifier
-                            .width(PLATFORM_RAIL_WIDTH)
+                            .width(MUSIC_RAIL_WIDTH)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(14.dp))
                             .background(Color.White.copy(alpha = 0.07f))
@@ -221,7 +221,7 @@ fun PlatformEditorPane(
                             EditorRailRow(
                                 label = entry.label,
                                 selected = index == sectionIndex,
-                                active = column == PlatformEditorColumn.Rail && index == sectionIndex,
+                                active = column == MusicEditorColumn.Rail && index == sectionIndex,
                             )
                         }
                     }
@@ -237,7 +237,7 @@ fun PlatformEditorPane(
                             itemsIndexed(rows, key = { _, it -> it.key }) { index, row ->
                                 EditorRowItem(
                                     row = row,
-                                    active = column == PlatformEditorColumn.Rows && index == rowIndex,
+                                    active = column == MusicEditorColumn.Rows && index == rowIndex,
                                 )
                             }
                         }
@@ -256,179 +256,81 @@ fun PlatformEditorPane(
     }
 }
 
-@Composable
-private fun rememberPlatformEditorRows(
-    section: PlatformEditorSection,
-    platform: GamePlatform,
-    gameCount: Int,
-    bannerPath: String?,
-    hasCustomBanner: Boolean,
-    platformPreference: ScraperPreference,
-    currentEmulatorLabel: String?,
-    actions: PlatformEditorActions,
-): List<RomEditorRow> = remember(
-    section,
-    platform,
-    gameCount,
-    bannerPath,
-    hasCustomBanner,
-    platformPreference,
-    currentEmulatorLabel,
-) {
-    platformEditorRows(
-        section = section,
-        platform = platform,
-        gameCount = gameCount,
-        bannerPath = bannerPath,
-        hasCustomBanner = hasCustomBanner,
-        platformPreference = platformPreference,
-        currentEmulatorLabel = currentEmulatorLabel,
-        actions = actions,
-    )
-}
-
-internal fun platformEditorRows(
-    section: PlatformEditorSection,
-    platform: GamePlatform,
-    gameCount: Int,
-    bannerPath: String?,
-    hasCustomBanner: Boolean,
-    platformPreference: ScraperPreference,
-    currentEmulatorLabel: String?,
-    actions: PlatformEditorActions,
+internal fun musicEditorRows(
+    section: MusicEditorSection,
+    kind: MusicEditorKind,
+    albumCoverPath: String?,
+    trackCoverPath: String?,
+    backgroundPath: String?,
+    actions: MusicEditorActions,
 ): List<RomEditorRow> = when (section) {
-    PlatformEditorSection.Details -> listOf(
+    MusicEditorSection.Details -> listOf(
         RomEditorRow(
-            key = "name",
-            label = "Name",
-            value = platform.displayName,
+            key = "kind",
+            label = "Type",
+            value = if (kind == MusicEditorKind.Album) "Album" else "Track",
         ),
         RomEditorRow(
-            key = "short",
-            label = "Short name",
-            value = platform.shortName,
-        ),
-        RomEditorRow(
-            key = "count",
-            label = "Games",
-            value = gameCount.toString(),
-            hint = if (gameCount == 1) "1 title on this system" else "$gameCount titles on this system",
+            key = "hint",
+            label = "Select",
+            hint = "A changes the focused row. X clears custom art. B closes.",
         ),
     )
-    PlatformEditorSection.Artwork -> buildList {
+    MusicEditorSection.Artwork -> buildList {
         add(
             RomEditorRow(
-                key = "banner",
-                label = "Console banner",
-                value = when {
-                    hasCustomBanner -> "Your image"
-                    !bannerPath.isNullOrBlank() -> "Scraped"
-                    else -> "None"
+                key = "album_cover",
+                label = "Album cover art",
+                value = mediaLabel(albumCoverPath),
+                hint = "Opens the Files app. Shown on the album card and as a fallback for tracks.",
+                onActivate = actions.onPickAlbumCover,
+                onClear = actions.onClearAlbumCover.takeIf { !albumCoverPath.isNullOrBlank() },
+            ),
+        )
+        if (kind == MusicEditorKind.Track) {
+            add(
+                RomEditorRow(
+                    key = "track_cover",
+                    label = "Track cover art",
+                    value = mediaLabel(trackCoverPath),
+                    hint = "Opens the Files app. Overrides the album cover on this song.",
+                    onActivate = actions.onPickTrackCover,
+                    onClear = actions.onClearTrackCover.takeIf { !trackCoverPath.isNullOrBlank() },
+                ),
+            )
+        }
+        add(
+            RomEditorRow(
+                key = "background",
+                label = if (kind == MusicEditorKind.Track) {
+                    "Track background media"
+                } else {
+                    "Album background media"
                 },
-                hint = "Shown on the system card. Opens the Files app — not Photos.",
-                onActivate = actions.onUploadBanner,
-                onClear = actions.onClearBanner.takeIf { hasCustomBanner },
-            ),
-        )
-        add(
-            RomEditorRow(
-                key = "upload",
-                label = "Upload my own banner",
-                hint = "Opens the Files app for any local jpg / png / webp / gif.",
-                onActivate = actions.onUploadBanner,
-            ),
-        )
-        add(
-            RomEditorRow(
-                key = "refresh",
-                label = "Refresh scraped art",
-                hint = "Looks up ScreenScraper system media again.",
-                onActivate = actions.onRefreshArt,
-            ),
-        )
-    }
-    PlatformEditorSection.Emulators -> emulatorRows(platform, currentEmulatorLabel, actions)
-    PlatformEditorSection.Library -> {
-        val options = ScraperPreference.entries
-        listOf(
-            RomEditorRow(
-                key = "scraperplatform",
-                label = "Scraper for ${platform.shortName}",
-                hint = "Applies to every game on this system.",
-                value = platformPreference.label,
-                onAdjust = { direction ->
-                    val next = options[(options.indexOf(platformPreference) + direction +
-                        options.size) % options.size]
-                    actions.onSetPlatformPreference(next)
-                },
-            ),
-            RomEditorRow(
-                key = "rescrapeplatform",
-                label = "Re-scrape all ${platform.shortName} games",
-                onActivate = actions.onRescrapePlatform,
-                destructive = true,
+                value = mediaLabel(backgroundPath),
+                hint = "Still, GIF, or looping video. Plays behind the XMB while this music plays. " +
+                    "Opens the Files app.",
+                onActivate = actions.onPickBackground,
+                onClear = actions.onClearBackground.takeIf { !backgroundPath.isNullOrBlank() },
             ),
         )
     }
 }
 
-internal fun emulatorRows(
-    platform: GamePlatform,
-    currentEmulatorLabel: String?,
-    actions: PlatformEditorActions,
-): List<RomEditorRow> = buildList {
-    val label = currentEmulatorLabel?.takeIf { it.isNotBlank() }
-    add(
-        RomEditorRow(
-            key = "emulator",
-            label = "Default emulator",
-            value = label ?: "Automatic",
-            hint = "Used when you start a ${platform.shortName} game. A opens the installed list.",
-            onActivate = actions.onChooseEmulator,
-            onClear = actions.onClearEmulator.takeIf { label != null },
-        ),
-    )
-    add(
-        RomEditorRow(
-            key = "emulator_choose",
-            label = "Change emulator",
-            hint = "Pick which emulator launches ${platform.shortName} titles.",
-            onActivate = actions.onChooseEmulator,
-        ),
-    )
-    if (platform.id == "psvita") {
-        add(
-            RomEditorRow(
-                key = "vita_titleid",
-                label = "Vita3K Title ID",
-                hint = "Vita3K boots installed titles by ID (PCSE#####). Put the ID in the dump " +
-                    "name or folder, then pick Vita3K above.",
-            ),
-        )
-    }
-    if (label != null) {
-        add(
-            RomEditorRow(
-                key = "emulator_auto",
-                label = "Use automatic",
-                hint = "First installed emulator for this system.",
-                onActivate = actions.onClearEmulator,
-            ),
-        )
-    }
-}
+private fun mediaLabel(path: String?): String =
+    if (path.isNullOrBlank()) "Not set" else "Your file"
 
 @Composable
-private fun PlatformEditorHeader(
-    platform: GamePlatform,
-    gameCount: Int,
-    bannerPath: String?,
+private fun MusicEditorHeader(
+    title: String,
+    subtitle: String?,
+    coverPath: String?,
 ) {
     val glass = rememberGlassTokens(GlassTone.Surface)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = platform.displayName,
+                text = title,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -437,11 +339,7 @@ private fun PlatformEditorHeader(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = buildString {
-                    append(platform.shortName)
-                    append("  ·  ")
-                    append(if (gameCount == 1) "1 game" else "$gameCount games")
-                },
+                text = subtitle?.takeIf { it.isNotBlank() } ?: "Music",
                 style = MaterialTheme.typography.titleSmall,
                 color = glass.contentMuted,
                 maxLines = 1,
@@ -450,13 +348,13 @@ private fun PlatformEditorHeader(
         }
         Spacer(modifier = Modifier.width(20.dp))
         ArtworkImage(
-            path = bannerPath,
+            path = coverPath,
             contentDescription = null,
-            fallbackText = platform.shortName.take(3).uppercase(),
+            fallbackText = title.take(2).uppercase(),
             contentScale = ContentScale.Crop,
             decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
             modifier = Modifier
-                .size(width = PLATFORM_HEADER_ART_W, height = PLATFORM_HEADER_ART_H)
+                .size(MUSIC_HEADER_ART)
                 .clip(RoundedCornerShape(10.dp))
                 .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(10.dp)),
         )

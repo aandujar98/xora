@@ -120,6 +120,7 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <package android:name="org.vita3k.emulator" />
         <package android:name="com.discord" />
         <package android:name="com.discord.android" />
     </queries>

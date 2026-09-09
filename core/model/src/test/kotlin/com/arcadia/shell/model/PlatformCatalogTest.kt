@@ -43,6 +43,9 @@ class PlatformCatalogTest {
                 "zip" in platform.extensions && "7z" in platform.extensions,
             )
         }
+        val vita = PlatformCatalog.byId("psvita")!!
+        assertTrue("zip" in vita.extensions && "7z" in vita.extensions)
+        assertTrue("vpk" in vita.extensions)
     }
 
     @Test

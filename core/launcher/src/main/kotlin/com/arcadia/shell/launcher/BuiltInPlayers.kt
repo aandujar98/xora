@@ -232,7 +232,7 @@ object BuiltInPlayers {
             platformIds = setOf("psvita"),
             template = "-n org.vita3k.emulator/.Emulator " +
                 "-a android.intent.action.VIEW " +
-                "-e AmStartPath {file.path}",
+                "--esa AppStartParameters -r,{vita.titleId}",
         ),
         // Eden (yuzu lineage). Mainline / Play / sideload applicationId.
         player(

@@ -121,6 +121,12 @@ fun XoraXmbItem.musicCustomMediaId(): String? = when (val action = action) {
     else -> null
 }
 
+fun XoraXmbItem.musicAlbumCustomMediaId(): String? = when (val action = action) {
+    is XoraXmbAction.DrillMusicAlbum -> "album_${action.albumId}"
+    is XoraXmbAction.PlayMusicTrack -> action.albumId?.let { "album_$it" }
+    else -> null
+}
+
 sealed interface XoraXmbAction {
     data object OpenProfile : XoraXmbAction
     data object GuestModeStub : XoraXmbAction
@@ -157,7 +163,7 @@ sealed interface XoraXmbAction {
     /** An album card → its songs. */
     data class DrillMusicAlbum(val albumId: String) : XoraXmbAction
     /** A song card → becomes Now Playing. */
-    data class PlayMusicTrack(val trackId: String) : XoraXmbAction
+    data class PlayMusicTrack(val trackId: String, val albumId: String? = null) : XoraXmbAction
     /** Music → Link DSP Accounts card rung. */
     data object DrillDspAccounts : XoraXmbAction
     /** DSP provider card — start OAuth / show linked state. */
@@ -573,7 +579,7 @@ fun buildXoraMusicTrackItems(tracks: List<MusicTrack>): List<XoraXmbItem> =
             id = "track_${track.id}",
             title = track.title,
             subtitle = track.artist,
-            action = XoraXmbAction.PlayMusicTrack(track.id),
+            action = XoraXmbAction.PlayMusicTrack(track.id, track.albumId),
             artPath = track.albumArtUri,
             playTimeMs = track.durationMs,
             platformLabel = track.albumTitle.takeIf { it.isNotBlank() },

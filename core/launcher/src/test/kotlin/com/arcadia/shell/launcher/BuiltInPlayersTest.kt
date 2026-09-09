@@ -156,6 +156,15 @@ class BuiltInPlayersTest {
     }
 
     @Test
+    fun `Vita3K launches by Title ID rather than a ROM path`() {
+        val vita = BuiltInPlayers.all.first { it.uniqueId == "vita3k.psvita" }
+        assertEquals("org.vita3k.emulator", vita.packageName)
+        assertTrue(vita.amStartArguments.contains("--esa AppStartParameters"))
+        assertTrue(vita.amStartArguments.contains("{vita.titleId}"))
+        assertTrue(!vita.amStartArguments.contains("AmStartPath"))
+    }
+
+    @Test
     fun `player ids are unique`() {
         val duplicates = BuiltInPlayers.all
             .groupBy { it.uniqueId }
@@ -203,6 +212,7 @@ class BuiltInPlayersTest {
             "{file.uri}",
             "{file.documenturi}",
             "{file.bootpath}",
+            "{vita.titleId}",
         )
 
         BuiltInPlayers.all.forEach { player ->

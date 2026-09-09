@@ -7,6 +7,7 @@ import android.provider.DocumentsContract
 import androidx.core.net.toUri
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.model.StorageDocumentIds
+import com.arcadia.shell.model.VitaGameFolder
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -58,11 +59,14 @@ class SafRomWalker @Inject constructor(
 
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
         val directories = mutableListOf<Pair<String, String>>()
+        val files = mutableListOf<ScannedFile>()
+        val childNames = mutableListOf<String>()
 
         queryChildren(childrenUri) { cursor ->
             val id = cursor.getString(COLUMN_ID) ?: return@queryChildren
             val name = cursor.getString(COLUMN_NAME) ?: return@queryChildren
             val mimeType = cursor.getString(COLUMN_MIME)
+            childNames += name
 
             if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
                 if (recursive && !WalkRules.shouldSkipDirectory(name)) {
@@ -78,18 +82,42 @@ class SafRomWalker @Inject constructor(
                 } else {
                     null
                 }
-                yield(
-                    ScannedFile(
-                        name = name,
-                        filePath = filePath,
-                        documentUri = documentUri,
-                        sizeBytes = cursor.getLong(COLUMN_SIZE),
-                        lastModified = cursor.getLong(COLUMN_MODIFIED),
-                        folderChain = folderChain,
-                    ),
+                files += ScannedFile(
+                    name = name,
+                    filePath = filePath,
+                    documentUri = documentUri,
+                    sizeBytes = cursor.getLong(COLUMN_SIZE),
+                    lastModified = cursor.getLong(COLUMN_MODIFIED),
+                    folderChain = folderChain,
                 )
             }
         }
+
+        val currentName = folderChain.lastOrNull()
+        val isVitaDump = VitaGameFolder.looksLikeDump(childNames) ||
+            (currentName != null && VitaGameFolder.isTitleIdName(currentName) && childNames.isNotEmpty())
+        if (isVitaDump && currentName != null) {
+            val dirPath = if (resolvePaths) {
+                StorageDocumentIds.pathForDocumentId(documentId)?.takeIf { File(it).isDirectory }
+            } else {
+                null
+            }
+            yield(
+                ScannedFile(
+                    name = "$currentName.psvita",
+                    filePath = dirPath,
+                    documentUri = DocumentsContract
+                        .buildDocumentUriUsingTree(treeUri, documentId)
+                        .toString(),
+                    sizeBytes = 0L,
+                    lastModified = 0L,
+                    folderChain = folderChain.dropLast(1),
+                ),
+            )
+            return@sequence
+        }
+
+        files.forEach { yield(it) }
 
         // Subdirectories are visited only after this cursor is closed, so deep trees never hold
         // dozens of cursors open at once.

@@ -56,6 +56,8 @@ data class MusicTrack(
     val source: MusicSource = MusicSource.Device,
     /** Playback context this track belongs to, so Spotify can keep queue order. */
     val contextUri: String? = null,
+    /** Album / playlist id used for custom album art and editor rows. */
+    val albumId: String? = null,
 )
 
 /**
@@ -307,6 +309,7 @@ class MusicLibrary @Inject constructor(
                 albumArtUri = embedded ?: folderCover,
                 durationMs = duration,
                 contentUri = Uri.fromFile(file).toString(),
+                albumId = "folder:${album.lowercase().trim()}",
             )
         } catch (_: Exception) {
             null
@@ -360,6 +363,7 @@ class MusicLibrary @Inject constructor(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 id,
             ).toString(),
+            albumId = getLong(albumIdCol).toString(),
         )
     }
 

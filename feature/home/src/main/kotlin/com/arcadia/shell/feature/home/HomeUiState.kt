@@ -391,8 +391,14 @@ sealed interface HomeEvent {
     data class OpenScrapeMenu(val gameId: String) : HomeEvent
     /** Select on a system card: same editor chrome as a ROM, for that console. */
     data class OpenPlatformEditor(val platformId: String) : HomeEvent
-    /** Select / Options on an album or track: custom cover and wallpaper. */
-    data class OpenMusicCustomize(val mediaId: String, val title: String) : HomeEvent
+    /** Select / Options on an album or track: cover art and background media. */
+    data class OpenMusicEditor(
+        val mediaId: String,
+        val title: String,
+        val kind: MusicEditorKind,
+        val albumId: String? = null,
+        val subtitle: String? = null,
+    ) : HomeEvent
     /** Best-effort: reorder the shell task to the front when Guide opens. */
     data object BringShellToFront : HomeEvent
     /** Open system settings so XOrA can install the downloaded APK. */
@@ -452,6 +458,10 @@ data class MusicUiState(
     /** False until the user grants audio access; the browse rungs stay empty until then. */
     val hasAudioAccess: Boolean = true,
     val nowPlaying: NowPlayingState = NowPlayingState(),
+    /** Custom still / GIF / video behind the XMB while [nowPlaying] has a track. */
+    val nowPlayingBackdropPath: String? = null,
+    /** Volume for track background video audio; the song itself uses Now Playing volume. */
+    val backdropAudioVolume: Float = 0f,
 ) {
     /** Cover art for whichever music rung is focused, used as the XMB backdrop. */
     val nowPlayingArtPath: String? get() = nowPlaying.track?.albumArtUri

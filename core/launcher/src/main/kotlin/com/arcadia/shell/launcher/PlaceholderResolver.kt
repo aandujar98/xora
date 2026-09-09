@@ -3,6 +3,7 @@ package com.arcadia.shell.launcher
 import android.content.Context
 import androidx.core.content.FileProvider
 import com.arcadia.shell.model.Game
+import com.arcadia.shell.model.VitaTitleId
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -40,6 +41,16 @@ class PlaceholderResolver @Inject constructor(
 
         if (value.contains(LaunchBootPath.PLACEHOLDER)) {
             value = value.replace(LaunchBootPath.PLACEHOLDER, LaunchBootPath.resolve(game))
+        }
+
+        if (value.contains(VitaTitleId.PLACEHOLDER)) {
+            val titleId = VitaTitleId.resolve(game) ?: throw MissingPlaceholderException(
+                VitaTitleId.PLACEHOLDER,
+                "${game.title} needs a Vita Title ID so Vita3K can start it. Rename the dump " +
+                    "with the ID in the name (for example [PCSE00546]) or install the title in " +
+                    "Vita3K first.",
+            )
+            value = value.replace(VitaTitleId.PLACEHOLDER, titleId)
         }
 
         if (value.contains(PATH)) {

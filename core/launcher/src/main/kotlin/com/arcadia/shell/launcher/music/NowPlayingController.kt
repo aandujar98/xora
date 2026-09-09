@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
+import com.arcadia.shell.datastore.ShellPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -54,6 +56,7 @@ data class NowPlayingState(
 @Singleton
 class NowPlayingController @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val preferences: ShellPreferences,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -84,6 +87,14 @@ class NowPlayingController @Inject constructor(
     private var bootIntroActive: Boolean = false
     private var bootIntroPausedDevice: Boolean = false
     private var ducked: Boolean = false
+
+    init {
+        scope.launch {
+            val volume = preferences.settings.first().musicVolume
+            stateFlow.update { it.copy(volume = NowPlayingVolume.coerce(volume)) }
+            applyPlayerVolume()
+        }
+    }
 
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
@@ -178,6 +189,7 @@ class NowPlayingController @Inject constructor(
         val next = NowPlayingVolume.coerce(volume)
         stateFlow.update { it.copy(volume = next) }
         applyPlayerVolume()
+        scope.launch { preferences.setMusicVolume(next) }
     }
 
     fun nudgeVolume(delta: Float) {

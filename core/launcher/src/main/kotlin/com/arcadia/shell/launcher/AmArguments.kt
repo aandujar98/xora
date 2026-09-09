@@ -4,6 +4,7 @@ sealed interface AmExtra {
     val key: String
 
     data class StringValue(override val key: String, val value: String) : AmExtra
+    data class StringArrayValue(override val key: String, val values: List<String>) : AmExtra
     data class BooleanValue(override val key: String, val value: Boolean) : AmExtra
     data class IntValue(override val key: String, val value: Int) : AmExtra
     data class LongValue(override val key: String, val value: Long) : AmExtra
@@ -40,7 +41,7 @@ object AmArgumentParser {
 
     private val KNOWN_FLAGS = setOf(
         "-n", "-a", "-d", "-t", "-c", "-f",
-        "-e", "--es", "--ez", "--ei", "--el", "--ef",
+        "-e", "--es", "--esa", "--ez", "--ei", "--el", "--ef",
         "--activity-clear-task", "--activity-clear-top",
     )
 
@@ -75,6 +76,12 @@ object AmArgumentParser {
 
                 "-e", "--es" -> if (first == null || second == null) 0 else {
                     result = result.addExtra(AmExtra.StringValue(first, second))
+                    2
+                }
+
+                "--esa" -> if (first == null || second == null) 0 else {
+                    val values = second.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                    result = result.addExtra(AmExtra.StringArrayValue(first, values))
                     2
                 }
 

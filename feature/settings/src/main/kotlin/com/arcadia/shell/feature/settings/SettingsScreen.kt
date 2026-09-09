@@ -641,6 +641,43 @@ fun SettingsScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
+                SettingsFieldLabel("Library music")
+                Text(
+                    text = "Songs you play from Music / Now Playing. Independent of the theme " +
+                        "soundtrack. Background videos use Background music volume.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                var draftMusic by remember(state.settings.musicVolume) {
+                    mutableFloatStateOf(state.settings.musicVolume)
+                }
+                val musicPercent = (draftMusic * 100f).roundToInt()
+
+                Text(
+                    text = "Volume: $musicPercent%",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                SettingsPadTarget(
+                    id = "audio_music",
+                    onActivate = { },
+                    onAdjust = { delta ->
+                        val next = (draftMusic + delta * 0.05f).coerceIn(0f, 1f)
+                        draftMusic = next
+                        viewModel.setMusicVolume(next)
+                    },
+                ) {
+                    Slider(
+                        value = draftMusic,
+                        onValueChange = { draftMusic = it },
+                        onValueChangeFinished = { viewModel.setMusicVolume(draftMusic) },
+                        valueRange = 0f..1f,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
                 SettingsFieldLabel("UI sounds")
                 Text(
                     text = "Cursor, confirm, and cancel clicks. Independent of soundtrack volume. " +

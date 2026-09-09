@@ -131,11 +131,19 @@ internal fun artworkRows(
             key = "boxart",
             label = "Box art",
             value = mediaStatus(game.boxArtPath),
-            hint = "Browse every scraper, or use your own image.",
+            hint = "Browse every scraper, or upload from the Files app (Y on the picker).",
             onActivate = { onOpenArtPicker(ArtSlot.BoxArt) },
             onClear = { actions.onClearArt(ArtSlot.BoxArt) }.takeIf {
                 !game.boxArtPath.isNullOrBlank()
             },
+        ),
+    )
+    add(
+        RomEditorRow(
+            key = "boxart_files",
+            label = "Upload box art from Files",
+            hint = "Opens the Files app — not Photos.",
+            onActivate = { actions.onUploadArt(ArtSlot.BoxArt) },
         ),
     )
     add(

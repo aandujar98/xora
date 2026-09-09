@@ -43,13 +43,16 @@ import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.rememberAmbientMotionActive
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.AccountPanelRow
 import com.arcadia.shell.feature.home.CircleMemberUi
 import com.arcadia.shell.feature.home.SocialMenuTab
 import com.arcadia.shell.feature.home.SocialMenuUiState
 import com.arcadia.shell.feature.home.SocialPresence
+import com.arcadia.shell.feature.home.rememberDeviceTilt
 
 private val NotificationRed = Color(0xFFFF3B30)
 
@@ -137,9 +140,20 @@ fun AccountPill(
                     transformOrigin = TransformOrigin(0.1f, 0f),
                 ),
             ) {
+                val tiltActive = !expanded &&
+                    !hideCollapsedChrome &&
+                    rememberAmbientMotionActive() &&
+                    !rememberReduceMotion()
+                val tilt = rememberDeviceTilt(active = tiltActive)
+                val density = LocalDensity.current.density
                 Box {
                     Row(
                         modifier = Modifier
+                            .graphicsLayer {
+                                cameraDistance = 12f * density
+                                rotationY = tilt.value.x * 6f
+                                rotationX = -tilt.value.y * 6f
+                            }
                             .xoraForegroundShadow(ArcadiaGlass.PillShape)
                             .liquidGlass(
                                 shape = ArcadiaGlass.PillShape,

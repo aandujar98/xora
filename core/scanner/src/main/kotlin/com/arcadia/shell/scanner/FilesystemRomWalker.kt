@@ -3,6 +3,7 @@ package com.arcadia.shell.scanner
 import android.provider.DocumentsContract
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.model.StorageDocumentIds
+import com.arcadia.shell.model.VitaGameFolder
 import java.io.File
 import javax.inject.Inject
 
@@ -36,6 +37,25 @@ class FilesystemRomWalker @Inject constructor() : RomWalker {
         for (entry in entries) {
             if (entry.isDirectory) {
                 if (!recursive || WalkRules.shouldSkipDirectory(entry.name)) continue
+                if (VitaGameFolder.isGameDirectory(entry)) {
+                    yield(
+                        ScannedFile(
+                            name = "${entry.name}.psvita",
+                            filePath = entry.absolutePath,
+                            documentUri = StorageDocumentIds.documentIdForPath(entry.absolutePath)
+                                ?.let {
+                                    DocumentsContract.buildDocumentUri(
+                                        EXTERNAL_STORAGE_AUTHORITY,
+                                        it,
+                                    ).toString()
+                                },
+                            sizeBytes = 0L,
+                            lastModified = entry.lastModified(),
+                            folderChain = folderChain,
+                        ),
+                    )
+                    continue
+                }
                 yieldAll(
                     walkDirectory(
                         directory = entry,
