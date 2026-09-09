@@ -16,9 +16,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -32,17 +33,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.rememberGlassTokens
-import com.arcadia.shell.feature.home.component.ArtworkImage
-import com.arcadia.shell.launcher.InstalledAppSync
-import com.arcadia.shell.model.Game
+import com.arcadia.shell.feature.home.component.GameCard
 import com.arcadia.shell.model.ShortcutSpan
+
+/** Columns in the Choose a game / Choose an app grid — see [HomeViewModel.onAddShortcutNavAction]. */
+internal const val ADD_SHORTCUT_GRID_COLUMNS = 4
 
 /**
  * Chooser for pinning a Home hub shortcut.
@@ -319,7 +319,7 @@ private fun ShortcutTargetPickerPanel(
     onCancelTargetPicker: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
     val title = when (picker.kind) {
         ShortcutPinTargetKind.LibraryGame -> "Choose a game"
         ShortcutPinTargetKind.AndroidApp -> "Choose an app"
@@ -327,7 +327,7 @@ private fun ShortcutTargetPickerPanel(
 
     LaunchedEffect(picker.selectedIndex, picker.candidates.size) {
         if (picker.candidates.isEmpty()) return@LaunchedEffect
-        listState.animateScrollToItem(
+        gridState.animateScrollToItem(
             picker.selectedIndex.coerceIn(0, picker.candidates.lastIndex),
         )
     }
@@ -349,27 +349,28 @@ private fun ShortcutTargetPickerPanel(
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            text = "U/D move · A pin · B back",
+            text = "D-pad move · A pin · B back",
             style = MaterialTheme.typography.labelMedium,
             color = glassMuted,
             modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
         )
-        LazyColumn(
-            state = listState,
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(ADD_SHORTCUT_GRID_COLUMNS),
+            state = gridState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 8.dp),
         ) {
             itemsIndexed(
                 items = picker.candidates,
                 key = { _, game -> game.id },
             ) { index, game ->
-                ShortcutTargetRow(
+                GameCard(
                     game = game,
-                    kind = picker.kind,
-                    selected = index == picker.selectedIndex,
+                    isSelected = index == picker.selectedIndex,
                     onClick = {
                         onSelectTarget(index)
                         onConfirmTarget()
@@ -382,84 +383,6 @@ private fun ShortcutTargetPickerPanel(
             modifier = Modifier.align(Alignment.End),
         ) {
             Text(text = "Back", color = glassContent)
-        }
-    }
-}
-
-@Composable
-private fun ShortcutTargetRow(
-    game: Game,
-    kind: ShortcutPinTargetKind,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val glass = rememberGlassTokens(GlassTone.Surface)
-    val artPath = when (kind) {
-        ShortcutPinTargetKind.LibraryGame -> game.shortcutIcon
-        ShortcutPinTargetKind.AndroidApp -> InstalledAppSync.iconPathFor(game.fileName)
-    }
-    val subtitle = when (kind) {
-        ShortcutPinTargetKind.LibraryGame -> game.platform.displayName
-        ShortcutPinTargetKind.AndroidApp -> game.fileName
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .then(
-                if (selected) {
-                    Modifier
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
-                        .border(
-                            width = 1.5.dp,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                            shape = RoundedCornerShape(12.dp),
-                        )
-                } else {
-                    Modifier.background(glass.tintSubtle.copy(alpha = 0.35f))
-                },
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ArtworkImage(
-            path = artPath,
-            contentDescription = null,
-            fallbackText = game.title.take(1),
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .width(40.dp)
-                .height(52.dp)
-                .clip(RoundedCornerShape(6.dp)),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = game.title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = glass.content,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = glass.contentMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (selected) {
-            Text(
-                text = "A",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(MaterialTheme.colorScheme.primary)
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-            )
         }
     }
 }

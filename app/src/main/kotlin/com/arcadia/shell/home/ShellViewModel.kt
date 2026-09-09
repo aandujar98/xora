@@ -156,6 +156,7 @@ class ShellViewModel @Inject constructor(
     fun restartOnboarding() {
         viewModelScope.launch {
             preferences.setOnboardingComplete(false)
+            preferences.setOnboardingStep("")
             forceOnboarding.value = true
         }
     }

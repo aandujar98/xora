@@ -3,6 +3,7 @@ package com.arcadia.shell
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -24,7 +25,10 @@ import com.arcadia.shell.launcher.music.NowPlayingController
 import com.arcadia.shell.music.MusicPlaybackService
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.AppForegroundTracker
+import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
+import com.arcadia.shell.launcher.notifications.isFriendPresenceBanner
+import com.arcadia.shell.notifications.FriendBannerOverlayService
 import com.arcadia.shell.scanner.LibraryAutoScanner
 import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scraper.LibraryHashScheduler
@@ -56,6 +60,7 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var appForegroundTracker: AppForegroundTracker
     @Inject lateinit var shellSystemNotifier: ShellSystemNotifier
     @Inject lateinit var gameCompanionController: GameCompanionController
+    @Inject lateinit var shellNotificationCenter: ShellNotificationCenter
     @Inject lateinit var xoraNetworkAuthCookies: XoraNetworkAuthCookies
     @Inject lateinit var libraryAutoScanner: LibraryAutoScanner
     @Inject lateinit var libraryScanner: LibraryScanner
@@ -102,6 +107,19 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
         ) { session, displayId -> session != null && displayId != null }
             .distinctUntilChanged()
             .onEach { active -> CompanionOverlayService.setActive(this, active) }
+            .launchIn(applicationScope)
+
+        // Same idea for the friend-online / friend-playing banner over other apps: the service
+        // only needs to be alive while there is something eligible to show and XOrA is not it.
+        combine(
+            shellNotificationCenter.active,
+            appForegroundTracker.isForeground,
+        ) { notification, foreground -> !foreground && notification?.isFriendPresenceBanner() == true }
+            .distinctUntilChanged()
+            .onEach { active ->
+                Log.i("ArcadiaApplication", "FriendBannerOverlayService.setActive($active)")
+                FriendBannerOverlayService.setActive(this, active)
+            }
             .launchIn(applicationScope)
 
         nowPlayingController.state

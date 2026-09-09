@@ -49,6 +49,7 @@ import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.datastore.next
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.display.OverlayPermission
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.isReduceMotionPreferred
 import com.arcadia.shell.designsystem.readDeviceVisualBudget
@@ -977,9 +978,18 @@ class HomeViewModel @Inject constructor(
     private val xoraEmulatedPlatformIds: Set<String> =
         xoraCoreCatalog.all.mapTo(mutableSetOf()) { it.platformId }
 
+    /**
+     * [nowPlayingController.state] without its 250ms position tick, so track/transport changes
+     * still flow into [buildState] normally but a bare progress-bar frame does not — that tick
+     * used to re-run the whole library grouping and platform chrome pipeline 4x/sec while music
+     * played. Live position is merged back into [uiState] separately, below.
+     */
+    private val nowPlayingStable = nowPlayingController.state
+        .distinctUntilChanged { old, new -> old.copy(positionMs = 0) == new.copy(positionMs = 0) }
+
     private val musicFlow = combine(
         musicUi,
-        nowPlayingController.state,
+        nowPlayingStable,
         customMediaEpoch,
         preferences.settings.map { it.bgmVolume }.distinctUntilChanged(),
     ) { music, nowPlaying, _, bgmVolume ->
@@ -1210,6 +1220,20 @@ class HomeViewModel @Inject constructor(
         initialValue = HomeUiState(),
     )
 
+    /**
+     * Live playback position, ticking every ~250ms while music plays. Kept out of [uiState]
+     * entirely (unlike [nowPlayingStable]) so the Now Playing pane / mini pill can animate
+     * smoothly without the rest of the XMB recomposing 4x/sec — [HomeUiState] is a large,
+     * Compose-unstable type, so any change to its identity forces every consumer that reads
+     * `state` to recompose, not just the one that actually needs the live tick.
+     */
+    val nowPlayingPositionMs: StateFlow<Long> =
+        nowPlayingController.state.map { it.positionMs }.distinctUntilChanged().stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = 0L,
+        )
+
     init {
         refreshInstalledApps()
         // Warm the feed in the background; Home must not wait on network at startup.
@@ -1385,6 +1409,20 @@ class HomeViewModel @Inject constructor(
         }
             .distinctUntilChanged()
             .onEach { gamepadDispatcher.vitaBubbleLaunchSfx = it }
+            .launchIn(viewModelScope)
+
+        // Mirrors the top-level Cancel branch in onVitaShortcutTrayNavAction: B closes the tray
+        // (not a launch page, edit mode, or bubble move) straight back to the XMB.
+        combine(
+            vitaShortcutTrayOpen,
+            vitaShortcutLaunch,
+            vitaShortcutMoveIndex,
+            homeShortcutsEditMode,
+        ) { open, launch, moveIndex, editMode ->
+            open && launch == null && moveIndex == null && !editMode
+        }
+            .distinctUntilChanged()
+            .onEach { gamepadDispatcher.vitaTrayClosesOnCancel = it }
             .launchIn(viewModelScope)
 
         observeIdleTrailer()
@@ -2277,6 +2315,7 @@ class HomeViewModel @Inject constructor(
                 raSettings = raSettings,
                 deviceSuggestsLite = deviceVisualBudget.suggestsLiteVisuals,
                 deviceRamLabel = deviceVisualBudget.usableRamLabel,
+                friendBannerOverlayGranted = OverlayPermission.isGranted(appContext),
             )
         } else {
             buildStartSettingsCategoryRows()
@@ -3263,6 +3302,7 @@ class HomeViewModel @Inject constructor(
 
     fun openVitaShortcutTray(edit: Boolean = false) {
         noteUserActivity()
+        val alreadyOpen = vitaShortcutTrayOpen.value
         collapseHeroPanels()
         homePage.value = HomePage.Home
         vitaShortcutTrayOpen.value = true
@@ -3271,10 +3311,12 @@ class HomeViewModel @Inject constructor(
         shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
         val count = homeShortcuts.value.size + if (edit || homeShortcuts.value.isEmpty()) 1 else 0
         homeShortcutIndex.value = homeShortcutIndex.value.coerceIn(0, (count - 1).coerceAtLeast(0))
+        vitaTrayOpenOneShot(alreadyOpen)?.let(::playUiOneShot)
     }
 
     fun closeVitaShortcutTray() {
         noteUserActivity()
+        if (vitaShortcutTrayOpen.value) playUiOneShot(UiOneShot.VitaMenuClose)
         dropVitaShortcutMove(announce = false)
         clearVitaShortcutPeel()
         vitaShortcutLaunch.value = null
@@ -6089,8 +6131,10 @@ class HomeViewModel @Inject constructor(
         val picker = state.homeHub.shortcutTargetPicker
         if (picker != null) {
             when (action) {
-                NavAction.Up -> selectShortcutTarget(picker.selectedIndex - 1)
-                NavAction.Down -> selectShortcutTarget(picker.selectedIndex + 1)
+                NavAction.Up -> selectShortcutTarget(picker.selectedIndex - ADD_SHORTCUT_GRID_COLUMNS)
+                NavAction.Down -> selectShortcutTarget(picker.selectedIndex + ADD_SHORTCUT_GRID_COLUMNS)
+                NavAction.Left -> selectShortcutTarget(picker.selectedIndex - 1)
+                NavAction.Right -> selectShortcutTarget(picker.selectedIndex + 1)
                 NavAction.Confirm -> confirmShortcutTarget()
                 NavAction.Cancel -> cancelShortcutTargetPicker()
                 else -> Unit
@@ -7029,6 +7073,11 @@ class HomeViewModel @Inject constructor(
         emit(HomeEvent.ShowError("Could not open Discord conversation."))
     }
 
+    private fun openFriendBannerOverlaySettings() {
+        runCatching { appContext.startActivity(OverlayPermission.settingsIntent(appContext)) }
+            .onFailure { emit(HomeEvent.ShowError("Could not open \"Display over other apps\" settings.")) }
+    }
+
     private fun openNotificationListenerSettings() {
         conversationRepository.refreshListenerEnabled()
         val intent = conversationRepository.notificationListenerSettingsIntent()
@@ -7450,6 +7499,7 @@ class HomeViewModel @Inject constructor(
                 preferences.setUiFitMode(next)
             }
             is StartSettingsAction.OpenCategory -> selectStartSettingsCategory(action.category)
+            StartSettingsAction.OpenFriendBannerOverlaySettings -> openFriendBannerOverlaySettings()
             StartSettingsAction.OpenSystemDisplay -> {
                 closeStartSettings()
                 openSystemSettings(Settings.ACTION_DISPLAY_SETTINGS)

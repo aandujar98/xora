@@ -292,9 +292,12 @@ class MusicLibrary @Inject constructor(
             val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                 ?.takeIf { it.isNotBlank() }
                 ?: "Unknown artist"
-            val album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
-                ?.takeIf { it.isNotBlank() }
-                ?: file.parentFile?.name
+            // Folder membership decides the album, not the embedded tag: dropping already-tagged
+            // singles from different releases into one folder is how a user builds a custom
+            // album, and each file's own ID3 album would otherwise keep them apart.
+            val album = file.parentFile?.name?.takeIf { it.isNotBlank() }
+                ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                    ?.takeIf { it.isNotBlank() }
                 ?: "Unknown album"
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
