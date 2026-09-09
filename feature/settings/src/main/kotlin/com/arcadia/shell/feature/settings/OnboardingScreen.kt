@@ -156,15 +156,18 @@ fun OnboardingScreen(
     }
 }
 
-private fun onboardingWhiteInk(base: ColorScheme): ColorScheme = base.copy(
+/** Every ink role Material can pick for text or an icon during onboarding, forced to white. */
+internal fun onboardingWhiteInk(base: ColorScheme): ColorScheme = base.copy(
     onSurface = Color.White,
     onSurfaceVariant = Color.White,
     onBackground = Color.White,
     onPrimary = Color.White,
+    onPrimaryContainer = Color.White,
     onSecondary = Color.White,
     onSecondaryContainer = Color.White,
     onTertiary = Color.White,
     onTertiaryContainer = Color.White,
+    inverseOnSurface = Color.White,
     error = Color.White,
     onError = Color.White,
     onErrorContainer = Color.White,
