@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.supportsGlassBlurEffect
+import com.arcadia.shell.input.UiOneShot
 import kotlin.math.exp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -848,6 +849,10 @@ internal fun vitaTrayNeighbourSlot(slotCount: Int, from: Int, dx: Int, dy: Int):
 
 internal fun vitaTrayPageCount(slotCount: Int): Int =
     if (slotCount <= 0) 1 else ((slotCount + VITA_TRAY_PAGE_SIZE - 1) / VITA_TRAY_PAGE_SIZE)
+
+/** Page turns play the GitHub `vita-page-navigate` sample; same-page row steps stay on the cursor tick. */
+internal fun vitaTrayVerticalOneShot(crossedPage: Boolean): UiOneShot =
+    if (crossedPage) UiOneShot.VitaPageNavigate else UiOneShot.Cursor
 
 /**
  * Slot indices for [page], grouped into the staggered rows the design uses. Indices are absolute

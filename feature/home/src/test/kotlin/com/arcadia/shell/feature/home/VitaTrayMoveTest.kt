@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home
 
+import com.arcadia.shell.input.UiOneShot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -37,5 +38,11 @@ class VitaTrayMoveTest {
         assertNull(vitaTrayNeighbourSlot(slotCount = 0, from = 0, dx = 1, dy = 0))
         assertNull(vitaTrayNeighbourSlot(slotCount = 4, from = 9, dx = 1, dy = 0))
         assertNull(vitaTrayNeighbourSlot(slotCount = 4, from = 1, dx = 0, dy = 0))
+    }
+
+    @Test
+    fun verticalPageTurnsUseThePageSample() {
+        assertEquals(UiOneShot.VitaPageNavigate, vitaTrayVerticalOneShot(crossedPage = true))
+        assertEquals(UiOneShot.Cursor, vitaTrayVerticalOneShot(crossedPage = false))
     }
 }
