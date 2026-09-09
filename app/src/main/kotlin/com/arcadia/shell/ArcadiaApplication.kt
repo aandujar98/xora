@@ -119,11 +119,14 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
             .distinctUntilChanged()
             .onEach { active ->
                 Log.i("ArcadiaApplication", "FriendBannerOverlayService.setActive($active)")
-                android.widget.Toast.makeText(
-                    this,
-                    "FriendBannerOverlayService.setActive($active)",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
+                // applicationScope runs on Dispatchers.IO — Toast needs the main looper.
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(
+                        this,
+                        "FriendBannerOverlayService.setActive($active)",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
                 FriendBannerOverlayService.setActive(this, active)
             }
             .launchIn(applicationScope)
