@@ -121,6 +121,49 @@ class XoraPlusMembershipTest {
     }
 
     @Test
+    fun onboardingLineReportsWhetherPlusWasDetected() {
+        assertEquals(
+            "Link Discord so XOrA can detect whether you have the XOrA Plus role.",
+            xoraPlusOnboardingLine(bypass = false, plus = XoraPlusCheckState()),
+        )
+        assertEquals(
+            "XOrA detected the XOrA Plus role on this Discord account.",
+            xoraPlusOnboardingLine(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.HasPlus),
+            ),
+        )
+        assertEquals(
+            "XOrA did not detect the XOrA Plus role on this Discord account.",
+            xoraPlusOnboardingLine(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.InGuildNoPlus),
+            ),
+        )
+        assertEquals(
+            "You're in the XOrA Discord. XOrA could not confirm the XOrA Plus role.",
+            xoraPlusOnboardingLine(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
+            ),
+        )
+        assertEquals(
+            "Access override accepted.",
+            xoraPlusOnboardingLine(bypass = true, plus = XoraPlusCheckState()),
+        )
+        val failed = xoraPlusOnboardingLine(
+            bypass = false,
+            plus = XoraPlusCheckState(
+                status = XoraPlusStatus.CheckFailed,
+                detail = "Could not reach Discord (500). Link Discord again, then check XOrA Plus.",
+            ),
+        )
+        assertFalse(failed.contains("five times"))
+        assertFalse(failed.contains("role id"))
+        assertFalse(failed.contains("0825"))
+    }
+
+    @Test
     fun settingsSignInLabelFollowsSession() {
         assertEquals(
             "Sign in with Discord",

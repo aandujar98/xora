@@ -3263,6 +3263,7 @@ class HomeViewModel @Inject constructor(
 
     fun openVitaShortcutTray(edit: Boolean = false) {
         noteUserActivity()
+        val alreadyOpen = vitaShortcutTrayOpen.value
         collapseHeroPanels()
         homePage.value = HomePage.Home
         vitaShortcutTrayOpen.value = true
@@ -3271,6 +3272,7 @@ class HomeViewModel @Inject constructor(
         shortcutCustomizeChrome.value = ShortcutCustomizeChrome.Tiles
         val count = homeShortcuts.value.size + if (edit || homeShortcuts.value.isEmpty()) 1 else 0
         homeShortcutIndex.value = homeShortcutIndex.value.coerceIn(0, (count - 1).coerceAtLeast(0))
+        vitaTrayOpenOneShot(alreadyOpen)?.let(::playUiOneShot)
     }
 
     fun closeVitaShortcutTray() {

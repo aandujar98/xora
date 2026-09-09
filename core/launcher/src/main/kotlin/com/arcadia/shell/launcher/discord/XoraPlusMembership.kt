@@ -127,7 +127,7 @@ class XoraPlusMembership @Inject constructor(
             else -> return XoraPlusCheckState(
                 status = XoraPlusStatus.CheckFailed,
                 detail = "Could not reach Discord (${member.code}). " +
-                    "Tap the screen five times for an override.",
+                    "Link Discord again, then check XOrA Plus.",
             )
         }
 
@@ -135,7 +135,7 @@ class XoraPlusMembership @Inject constructor(
         if (roleIds.any { it in configuredRoleIds }) {
             return XoraPlusCheckState(
                 status = XoraPlusStatus.HasPlus,
-                detail = "XOrA Plus confirmed.",
+                detail = "XOrA detected the XOrA Plus role.",
                 roleIds = roleIds.toList(),
             )
         }
@@ -144,19 +144,17 @@ class XoraPlusMembership @Inject constructor(
         return when {
             hasXoraPlusRole(roleIds, named, configuredRoleIds) -> XoraPlusCheckState(
                 status = XoraPlusStatus.HasPlus,
-                detail = "XOrA Plus confirmed.",
+                detail = "XOrA detected the XOrA Plus role.",
                 roleIds = roleIds.toList(),
             )
             named.isNotEmpty() || configuredRoleIds.isNotEmpty() -> XoraPlusCheckState(
                 status = XoraPlusStatus.InGuildNoPlus,
-                detail = "This Discord account is in the XOrA server but does not have XOrA Plus.",
+                detail = "XOrA did not detect the XOrA Plus role on this Discord account.",
                 roleIds = roleIds.toList(),
             )
             else -> XoraPlusCheckState(
                 status = XoraPlusStatus.InGuildUnverified,
-                detail = "XOrA Discord membership confirmed. Discord does not give apps your " +
-                    "role names, so Plus itself could not be verified — paste the XOrA Plus role " +
-                    "id below to make the check exact.",
+                detail = "You're in the XOrA Discord. XOrA could not confirm the XOrA Plus role.",
                 roleIds = roleIds.toList(),
             )
         }
@@ -173,8 +171,7 @@ class XoraPlusMembership @Inject constructor(
             return XoraPlusCheckState(
                 status = XoraPlusStatus.CheckFailed,
                 detail = "Discord refused the membership check ($memberCode/${guilds.code}). " +
-                    "Re-link Discord and accept the server-membership request, or tap the " +
-                    "screen five times for an override.",
+                    "Re-link Discord and accept the server-membership request.",
             )
         }
         if (!guilds.body.contains(XORA_DISCORD_GUILD_ID)) {
@@ -186,9 +183,9 @@ class XoraPlusMembership @Inject constructor(
         }
         return XoraPlusCheckState(
             status = XoraPlusStatus.InGuildUnverified,
-            detail = "XOrA Discord membership confirmed, but Discord did not let XOrA read " +
-                "your roles ($memberCode), so Plus itself could not be verified. Re-link " +
-                "Discord and accept the server-members request to make the check exact.",
+            detail = "You're in the XOrA Discord. XOrA could not confirm the XOrA Plus role " +
+                "because Discord did not share your roles ($memberCode). Re-link Discord and " +
+                "accept the server-members request.",
         )
     }
 
@@ -296,6 +293,36 @@ internal fun hasXoraPlusRole(
     return namedRoles.any { (id, name) ->
         id in memberRoleIds && isXoraPlusRoleName(name)
     }
+}
+
+/**
+ * Onboarding Discord-step copy: whether XOrA detected the XOrA Plus role.
+ *
+ * The five-tap override stays a hidden emergency path; this line never asks for a role id or pin.
+ */
+fun xoraPlusOnboardingLine(
+    bypass: Boolean,
+    plus: XoraPlusCheckState,
+): String = when {
+    bypass -> "Access override accepted."
+    plus.checking || plus.status == XoraPlusStatus.Checking -> "Checking XOrA Plus…"
+    plus.status == XoraPlusStatus.HasPlus ->
+        "XOrA detected the XOrA Plus role on this Discord account."
+    plus.status == XoraPlusStatus.InGuildNoPlus ->
+        "XOrA did not detect the XOrA Plus role on this Discord account."
+    plus.status == XoraPlusStatus.InGuildUnverified ->
+        "You're in the XOrA Discord. XOrA could not confirm the XOrA Plus role."
+    plus.status == XoraPlusStatus.NotInGuild ->
+        "This account is not in the XOrA Discord. Join $XORA_DISCORD_INVITE_URL, get XOrA Plus, " +
+            "then check again."
+    plus.status == XoraPlusStatus.CheckFailed ->
+        plus.detail.ifBlank {
+            "XOrA could not check the XOrA Plus role. Link Discord again, then check XOrA Plus."
+        }
+    plus.status == XoraPlusStatus.NotLinked ->
+        "Link Discord so XOrA can detect whether you have the XOrA Plus role."
+    plus.detail.isNotBlank() -> plus.detail
+    else -> "Link Discord so XOrA can detect whether you have the XOrA Plus role."
 }
 
 fun discordAccountLinked(state: DiscordPresenceUiState): Boolean =

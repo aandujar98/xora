@@ -69,6 +69,8 @@ class UiSoundController @Inject constructor(
     private var peelFastId: Int = 0
     /** Vita shortcut tray page turn (`vita_page_navigate.wav`). */
     private var vitaPageId: Int = 0
+    /** Vita shortcut tray opening (`vita_open.wav`). */
+    private var vitaOpenId: Int = 0
     /** Active looping peel stream so speed changes replace rather than stack. */
     private var peelStreamId: Int = 0
     private var peelSoundId: Int = 0
@@ -187,6 +189,7 @@ class UiSoundController @Inject constructor(
                         play(cursorId)
                     }
                     UiOneShot.VitaPageNavigate -> play(vitaPageId)
+                    UiOneShot.VitaOpen -> play(vitaOpenId)
                 }
             }
         }
@@ -235,6 +238,7 @@ class UiSoundController @Inject constructor(
         peelMidId = 0
         peelFastId = 0
         vitaPageId = 0
+        vitaOpenId = 0
         peelStreamId = 0
         peelSoundId = 0
     }
@@ -435,6 +439,7 @@ class UiSoundController @Inject constructor(
                     peelMidId = created.loadQuietly(R.raw.peel_mid)
                     peelFastId = created.loadQuietly(R.raw.peel_fast)
                     vitaPageId = created.loadQuietly(R.raw.vita_page_navigate)
+                    vitaOpenId = created.loadQuietly(R.raw.vita_open)
                 }
         }.getOrNull()
         soundPool = pool

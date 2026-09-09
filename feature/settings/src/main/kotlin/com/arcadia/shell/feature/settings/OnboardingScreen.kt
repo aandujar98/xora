@@ -114,7 +114,7 @@ import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import com.arcadia.shell.launcher.discord.XORA_DISCORD_INVITE_URL
 import com.arcadia.shell.launcher.discord.XoraPlusCheckState
-import com.arcadia.shell.launcher.discord.XoraPlusStatus
+import com.arcadia.shell.launcher.discord.xoraPlusOnboardingLine
 import kotlin.math.roundToInt
 
 private val AccentInk = Color(0xFF7EC8E8)
@@ -612,10 +612,8 @@ private fun OnboardingSteps(
                                 discordPresence = state.discordPresence,
                                 xoraPlus = state.xoraPlus,
                                 xoraPlusBypass = state.xoraPlusBypass,
-                                plusRoleIds = state.xoraPlusRoleIds,
                                 onLinkDiscord = viewModel::requestLinkDiscord,
                                 onRecheckPlus = viewModel::refreshXoraPlus,
-                                onPlusRoleIds = viewModel::setPlusRoleIds,
                             )
                             OnboardingStep.Steam -> SteamStep(
                                 steam = state.steamWebApi,
@@ -1557,10 +1555,8 @@ private fun DiscordStep(
     discordPresence: DiscordPresenceUiState,
     xoraPlus: XoraPlusCheckState,
     xoraPlusBypass: Boolean,
-    plusRoleIds: String,
     onLinkDiscord: () -> Unit,
     onRecheckPlus: () -> Unit,
-    onPlusRoleIds: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1623,15 +1619,8 @@ private fun DiscordStep(
             )
         }
 
-        val plusLine = when {
-            xoraPlusBypass -> "Access override accepted."
-            xoraPlus.checking -> "Checking XOrA Plus…"
-            xoraPlus.detail.isNotBlank() -> xoraPlus.detail
-            xoraPlus.plusConfirmed -> "XOrA Plus confirmed."
-            else -> "Next stays locked until XOrA Plus is confirmed."
-        }
         Text(
-            text = plusLine,
+            text = xoraPlusOnboardingLine(xoraPlusBypass, xoraPlus),
             style = MaterialTheme.typography.bodySmall,
             color = Color.White,
         )
@@ -1639,28 +1628,6 @@ private fun DiscordStep(
         SettingsPadTarget(id = "social_discord_recheck", onActivate = onRecheckPlus) {
             OutlinedButton(onClick = onRecheckPlus, enabled = !xoraPlus.checking) {
                 Text("Check XOrA Plus again")
-            }
-        }
-
-        // Role *names* are bot-only on Discord's API, so an exact check needs the snowflake.
-        // Shown with the account's own role ids to copy from when the owner sets it up.
-        val roleHintVisible = plusRoleIds.isNotBlank() ||
-            xoraPlus.status == XoraPlusStatus.InGuildUnverified ||
-            xoraPlus.status == XoraPlusStatus.InGuildNoPlus
-        if (roleHintVisible) {
-            OnboardingSecretField(
-                id = "social_plus_role",
-                label = "XOrA Plus role ID (optional)",
-                value = plusRoleIds,
-                onCommit = onPlusRoleIds,
-            )
-            if (xoraPlus.roleIds.isNotEmpty()) {
-                Text(
-                    text = "Your roles on the XOrA server: " +
-                        xoraPlus.roleIds.joinToString(", "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White,
-                )
             }
         }
     }

@@ -7,6 +7,7 @@ import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import com.arcadia.shell.launcher.discord.XoraPlusCheckState
 import com.arcadia.shell.launcher.discord.XoraPlusStatus
+import com.arcadia.shell.launcher.discord.xoraPlusOnboardingLine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -110,6 +111,24 @@ class OnboardingStepTest {
             xoraPlusBypass = true,
         )
         assertTrue(bypass.canAdvance)
+    }
+
+    @Test
+    fun discordStepTellsThePlayerWhetherPlusWasDetected() {
+        assertEquals(
+            "XOrA detected the XOrA Plus role on this Discord account.",
+            xoraPlusOnboardingLine(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.HasPlus),
+            ),
+        )
+        assertEquals(
+            "XOrA did not detect the XOrA Plus role on this Discord account.",
+            xoraPlusOnboardingLine(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.InGuildNoPlus),
+            ),
+        )
     }
 
     @Test

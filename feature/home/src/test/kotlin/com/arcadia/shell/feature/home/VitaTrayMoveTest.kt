@@ -45,4 +45,10 @@ class VitaTrayMoveTest {
         assertEquals(UiOneShot.VitaPageNavigate, vitaTrayVerticalOneShot(crossedPage = true))
         assertEquals(UiOneShot.Cursor, vitaTrayVerticalOneShot(crossedPage = false))
     }
+
+    @Test
+    fun openingTheTrayPlaysVitaOpenOnce() {
+        assertEquals(UiOneShot.VitaOpen, vitaTrayOpenOneShot(alreadyOpen = false))
+        assertNull(vitaTrayOpenOneShot(alreadyOpen = true))
+    }
 }
