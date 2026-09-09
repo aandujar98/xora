@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -52,8 +55,9 @@ private val ButtonShape = RoundedCornerShape(percent = 50)
 private val BarShape = RoundedCornerShape(3.dp)
 
 /**
- * Settings → Update window: checks GitHub Releases, then downloads and hands the APK to the
- * package installer.
+ * Settings → About XOrA window: a plain-language summary, ownership/content disclaimer, the
+ * GitHub Releases check → download → install flow (still driven by [SystemUpdateUiState]), and
+ * open-source credits for the Libretro cores XOrA can download at runtime.
  *
  * Overlay rather than Dialog for the same reason as Start settings — dual-screen
  * [android.app.Presentation] panes cannot host a nested window.
@@ -104,8 +108,9 @@ fun SystemUpdatePanel(
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .widthIn(max = 460.dp)
-                    .fillMaxWidth(0.7f)
+                    .widthIn(max = 520.dp)
+                    .fillMaxWidth(0.8f)
+                    .fillMaxHeight(0.82f)
                     .liquidGlass(
                         shape = PanelShape,
                         tone = GlassTone.OverMedia,
@@ -116,53 +121,118 @@ fun SystemUpdatePanel(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
-                    text = "System Update",
+                    text = "About XOrA",
                     style = MaterialTheme.typography.labelLarge,
                     color = glass.contentMuted,
                 )
                 Text(
-                    text = state.headline,
+                    text = if (state.installedVersion.isBlank()) {
+                        "XOrA"
+                    } else {
+                        "XOrA ${state.installedVersion}"
+                    },
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = glass.content,
                 )
-                Text(
-                    text = state.detail,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = glass.contentMuted,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
 
-                if (state.busy) {
-                    val fraction = state.progress
-                    if (fraction != null) {
-                        LinearProgressIndicator(
-                            progress = { fraction },
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = ABOUT_XORA_SUMMARY,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = glass.content,
+                    )
+                    Text(
+                        text = ABOUT_XORA_DISCLAIMER,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = glass.contentMuted,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                    )
+
+                    AboutSectionHeader(text = "Updates", color = glass.contentMuted)
+                    Text(
+                        text = state.headline,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = glass.content,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Text(
+                        text = state.detail,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = glass.contentMuted,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                    if (state.busy) {
+                        val fraction = state.progress
+                        if (fraction != null) {
+                            LinearProgressIndicator(
+                                progress = { fraction },
+                                modifier = Modifier
+                                    .padding(top = 14.dp)
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(BarShape),
+                                color = LocalShellTheme.current.colors.focusEnd,
+                                trackColor = glass.content.copy(alpha = 0.14f),
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .padding(top = 14.dp)
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(BarShape),
+                                color = LocalShellTheme.current.colors.focusEnd,
+                                trackColor = glass.content.copy(alpha = 0.14f),
+                            )
+                        }
+                    }
+
+                    AboutSectionHeader(
+                        text = "Open source",
+                        color = glass.contentMuted,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                    Text(
+                        text = "XOrA can download optional Libretro emulator cores at runtime, " +
+                            "each under its own upstream license:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = glass.contentMuted,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+                    )
+                    XORA_OPEN_SOURCE_CREDITS.forEach { credit ->
+                        Row(
                             modifier = Modifier
-                                .padding(top = 14.dp)
                                 .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(BarShape),
-                            color = LocalShellTheme.current.colors.focusEnd,
-                            trackColor = glass.content.copy(alpha = 0.14f),
-                        )
-                    } else {
-                        LinearProgressIndicator(
-                            modifier = Modifier
-                                .padding(top = 14.dp)
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(BarShape),
-                            color = LocalShellTheme.current.colors.focusEnd,
-                            trackColor = glass.content.copy(alpha = 0.14f),
-                        )
+                                .padding(vertical = 3.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = credit.name,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = glass.content,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = credit.license,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = glass.contentMuted,
+                            )
+                        }
                     }
                 }
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 20.dp),
+                        .padding(top = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     val primaryLabel = state.primaryLabel
@@ -198,6 +268,17 @@ fun SystemUpdatePanel(
             }
         }
     }
+}
+
+@Composable
+private fun AboutSectionHeader(text: String, color: Color, modifier: Modifier = Modifier) {
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = color,
+        modifier = modifier,
+    )
 }
 
 @Composable
