@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import android.view.Display
+import android.widget.Toast
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.collectAsState
@@ -64,6 +65,7 @@ class FriendBannerOverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "onCreate")
+        Toast.makeText(this, "Friend banner service started", Toast.LENGTH_SHORT).show()
         promoteToForeground()
 
         combine(notificationCenter.active, foregroundTracker.isForeground) { active, foreground ->
@@ -73,6 +75,7 @@ class FriendBannerOverlayService : Service() {
             .distinctUntilChanged()
             .onEach { eligible ->
                 Log.i(TAG, "eligible=$eligible (id=${eligible?.id})")
+                Toast.makeText(this, "overlay eligible=${eligible != null}", Toast.LENGTH_SHORT).show()
                 if (eligible == null) {
                     hideOverlay()
                     stopSelf()
@@ -116,8 +119,10 @@ class FriendBannerOverlayService : Service() {
         }
         if (shown) {
             overlay = window
+            Toast.makeText(this, "Friend banner overlay window shown", Toast.LENGTH_SHORT).show()
         } else {
             Log.i(TAG, "Friend banner overlay refused")
+            Toast.makeText(this, "Friend banner overlay REFUSED", Toast.LENGTH_LONG).show()
             stopSelf()
         }
     }

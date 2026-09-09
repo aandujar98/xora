@@ -16,7 +16,10 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.display.OverlayPermission
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -130,12 +133,10 @@ class ShellNotificationCenter @Inject constructor(
 
         val eligibleForOverlay = notification.isFriendPresenceBanner()
         val overlayGranted = eligibleForOverlay && OverlayPermission.isGranted(context)
-        Log.i(
-            TAG,
-            "emit ${notification::class.simpleName} id=${notification.id} " +
-                "foreground=${foregroundTracker.isForegroundNow} " +
-                "eligibleForOverlay=$eligibleForOverlay overlayGranted=$overlayGranted",
-        )
+        val debugLine = "emit ${notification::class.simpleName} " +
+            "fg=${foregroundTracker.isForegroundNow} elig=$eligibleForOverlay granted=$overlayGranted"
+        Log.i(TAG, "$debugLine id=${notification.id}")
+        if (eligibleForOverlay) toast(debugLine)
         if (foregroundTracker.isForegroundNow) {
             inbound.trySend(notification)
         } else if (eligibleForOverlay && overlayGranted) {
@@ -274,6 +275,13 @@ class ShellNotificationCenter @Inject constructor(
     private fun clearIfCurrent(id: String) {
         if (_active.value?.id == id) {
             _active.value = null
+        }
+    }
+
+    /** Temporary on-screen diagnostic for the friend-banner overlay pipeline — no adb needed. */
+    private fun toast(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         }
     }
 
