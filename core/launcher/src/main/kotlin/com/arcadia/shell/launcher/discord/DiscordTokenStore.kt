@@ -76,8 +76,8 @@ class DiscordTokenStore @Inject constructor(
         private const val KEY_REFRESH = "refresh_token"
         private const val KEY_EXPIRES_AT = "expires_at_ms"
         private const val KEY_SCOPES_VERSION = "scopes_version"
-        /** 2 = communication scopes (presence + in-launcher DMs). */
-        const val SCOPES_VERSION = 2
+        /** 3 = communication + guild membership (XOrA Plus gate). */
+        const val SCOPES_VERSION = 3
         /** Refresh a minute early so Connect does not race expiry. */
         private const val EXPIRY_SKEW_MS = 60_000L
     }

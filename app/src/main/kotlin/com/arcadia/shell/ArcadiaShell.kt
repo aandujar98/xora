@@ -79,6 +79,7 @@ import com.arcadia.shell.scraper.ArtSlot
 import com.arcadia.shell.feature.home.ThemesSheet
 import com.arcadia.shell.feature.home.VitaShortcutIconSheet
 import com.arcadia.shell.libretro.GameSaveEntry
+import com.arcadia.shell.feature.home.XmbVolumeMixer
 import com.arcadia.shell.feature.home.XoraXmbHeroDetail
 import com.arcadia.shell.feature.home.component.GuidePanel
 import com.arcadia.shell.feature.home.component.HomeSlotNotificationBanner
@@ -1141,6 +1142,13 @@ fun ArcadiaShell(
     }
 
     val vitaIconEditId by homeViewModel.vitaShortcutIconEditIdFlow.collectAsStateWithLifecycle()
+    val volumeMixer by homeViewModel.volumeMixerUi.collectAsStateWithLifecycle()
+    XmbVolumeMixer(
+        state = volumeMixer,
+        onMusicVolume = homeViewModel::setMixerMusicVolume,
+        onBgmVolume = homeViewModel::setMixerBgmVolume,
+        onDismiss = homeViewModel::closeVolumeMixer,
+    )
     vitaIconEditId?.let { shortcutId ->
         val shortcut = state.homeHub.shortcuts.firstOrNull { it.id == shortcutId }
         if (shortcut == null) {

@@ -292,6 +292,9 @@ class HomeViewModel @Inject constructor(
     private val vitaShortcutPeelRequested = MutableStateFlow(false)
     /** Filled Vita bubble whose icon sheet is open (edit mode). */
     private val vitaShortcutIconEditId = MutableStateFlow<String?>(null)
+    /** XMB volume mix overlay — face X (and Options outside ROM folders). */
+    private val volumeMixerOpen = MutableStateFlow(false)
+    private val volumeMixerFocus = MutableStateFlow(VOLUME_MIXER_MUSIC)
     /** Watches the launch that a peeled gate started, so the page knows when to stand down. */
     private var vitaLaunchHandoff: Job? = null
     private val themesOpen = MutableStateFlow(false)
@@ -1088,6 +1091,23 @@ class HomeViewModel @Inject constructor(
         val photos: PhotosUiState,
         val dashboard: XoraDashboardUiState,
         val systemUpdate: SystemUpdateUiState,
+    )
+
+    val volumeMixerUi: StateFlow<VolumeMixerUiState> = combine(
+        volumeMixerOpen,
+        volumeMixerFocus,
+        preferences.settings.map { it.musicVolume to it.bgmVolume }.distinctUntilChanged(),
+    ) { open, focus, volumes ->
+        VolumeMixerUiState(
+            open = open,
+            focusedIndex = focus,
+            musicVolume = volumes.first,
+            bgmVolume = volumes.second,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = VolumeMixerUiState(),
     )
 
     val uiState: StateFlow<HomeUiState> = combine(
@@ -2992,6 +3012,12 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        if (volumeMixerOpen.value) {
+            noteUserActivity()
+            onVolumeMixerNav(action)
+            return
+        }
+
         if (action == NavAction.ToggleGuide) {
             if (startSettingsOpen.value) closeStartSettings()
             toggleGuide()
@@ -3163,11 +3189,12 @@ class HomeViewModel @Inject constructor(
             }
             NavAction.Cancel -> drillOutXora()
             NavAction.Options -> {
-                if (openMusicCustomizeIfFocused(xmb)) return
                 if (xmb.depth == XoraXmbDepth.Roms) {
                     xmb.focusGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
                         ?: state.selectedGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
+                    return
                 }
+                toggleVolumeMixer()
             }
             NavAction.ScrapeMenu -> {
                 if (openMusicCustomizeIfFocused(xmb)) return
@@ -3199,7 +3226,7 @@ class HomeViewModel @Inject constructor(
             NavAction.SwapScreens -> toggleVitaShortcutTray()
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             NavAction.ToggleSystemPanel -> toggleSystemPanel()
-            NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+            NavAction.ToggleAchievementsPanel -> toggleVolumeMixer()
             else -> Unit
         }
     }
@@ -8367,6 +8394,61 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun toggleVolumeMixer() {
+        noteUserActivity()
+        if (volumeMixerOpen.value) {
+            volumeMixerOpen.value = false
+            return
+        }
+        collapseHeroPanels()
+        volumeMixerFocus.value = VOLUME_MIXER_MUSIC
+        volumeMixerOpen.value = true
+    }
+
+    fun closeVolumeMixer() {
+        volumeMixerOpen.value = false
+    }
+
+    fun setMixerMusicVolume(volume: Float) {
+        viewModelScope.launch { preferences.setMusicVolume(volume.coerceIn(0f, 1f)) }
+    }
+
+    fun setMixerBgmVolume(volume: Float) {
+        viewModelScope.launch { preferences.setBgmVolume(volume.coerceIn(0f, 1f)) }
+    }
+
+    private fun onVolumeMixerNav(action: NavAction) {
+        when (action) {
+            NavAction.Cancel,
+            NavAction.Confirm,
+            NavAction.Options,
+            NavAction.ToggleAchievementsPanel,
+            -> closeVolumeMixer()
+            NavAction.Up, NavAction.Down -> {
+                volumeMixerFocus.value =
+                    if (volumeMixerFocus.value == VOLUME_MIXER_MUSIC) {
+                        VOLUME_MIXER_BGM
+                    } else {
+                        VOLUME_MIXER_MUSIC
+                    }
+            }
+            NavAction.Left -> nudgeFocusedMixerVolume(-0.05f)
+            NavAction.Right -> nudgeFocusedMixerVolume(0.05f)
+            else -> Unit
+        }
+    }
+
+    private fun nudgeFocusedMixerVolume(delta: Float) {
+        viewModelScope.launch {
+            val settings = preferences.settings.first()
+            if (volumeMixerFocus.value == VOLUME_MIXER_MUSIC) {
+                preferences.setMusicVolume(nudgeMixerVolume(settings.musicVolume, delta))
+            } else {
+                preferences.setBgmVolume(nudgeMixerVolume(settings.bgmVolume, delta))
+            }
+        }
+    }
+
     fun toggleAchievementsPanel() {
         noteUserActivity()
         val opening = !achievementsPanelExpanded.value
@@ -8398,6 +8480,7 @@ class HomeViewModel @Inject constructor(
         notificationHistoryOpen.value = false
         closeFavoritePicker()
         closeStatusEditor()
+        volumeMixerOpen.value = false
     }
 
     private fun playNavCloseIfHeroPanelOpen() {

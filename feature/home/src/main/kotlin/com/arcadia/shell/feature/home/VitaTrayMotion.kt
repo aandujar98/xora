@@ -35,6 +35,15 @@ import kotlin.math.sqrt
 /** Beyond this much tilt (radians) the bubbles are already at full deflection. */
 private const val TILT_FULL_SCALE_RADIANS = 0.42f
 
+/** How far the profile pill may rock, in degrees — large enough to read on a handheld. */
+internal const val ACCOUNT_PILL_MAX_TILT_DEGREES = 22f
+
+/** Pixel parallax at full pill tilt. */
+private const val ACCOUNT_PILL_PARALLAX_PX = 12f
+
+/** Average this many samples before freezing the pill's rest pose. */
+private const val ACCOUNT_PILL_CALIBRATION_SAMPLES = 8
+
 /**
  * How fast the neutral pose chases the current pose, in units of "fraction per second".
  * Holding the device at an angle drifts back to rest; only fresh motion deflects the bubbles.
@@ -85,6 +94,187 @@ fun rememberDeviceTilt(active: Boolean): State<Offset> {
         }
     }
     return tilt
+}
+
+/**
+ * 3D pose for the collapsed profile pill.
+ *
+ * Unlike [rememberDeviceTilt], this is **absolute to a frozen rest pose** — a slow lean does not
+ * get absorbed as the new neutral, which is why the pill previously looked flat.
+ */
+@Stable
+data class AccountPillGyro(
+    val rotationX: Float = 0f,
+    val rotationY: Float = 0f,
+    val translationX: Float = 0f,
+    val translationY: Float = 0f,
+)
+
+/**
+ * Maps screen-space roll / pitch deltas (radians from a frozen rest pose) onto the pill layer.
+ * Roll rocks left/right ([rotationY]); pitch rocks toward/away ([rotationX]).
+ */
+internal fun accountPillGyroFromDelta(
+    deltaRollRad: Float,
+    deltaPitchRad: Float,
+    maxDegrees: Float = ACCOUNT_PILL_MAX_TILT_DEGREES,
+    parallaxPx: Float = ACCOUNT_PILL_PARALLAX_PX,
+): AccountPillGyro {
+    val rotY = Math.toDegrees(deltaRollRad.toDouble()).toFloat().coerceIn(-maxDegrees, maxDegrees)
+    val rotX = (-Math.toDegrees(deltaPitchRad.toDouble()).toFloat()).coerceIn(-maxDegrees, maxDegrees)
+    val unitX = if (maxDegrees == 0f) 0f else rotY / maxDegrees
+    val unitY = if (maxDegrees == 0f) 0f else rotX / maxDegrees
+    return AccountPillGyro(
+        rotationX = rotX,
+        rotationY = rotY,
+        translationX = unitX * parallaxPx,
+        translationY = unitY * parallaxPx * 0.7f,
+    )
+}
+
+/**
+ * Gyro for the LT profile pill. Gated only by [enabled] (typically reduce-motion / not resumed) —
+ * Performance / lite visuals and battery saver must not freeze it, or the bubble never moves.
+ */
+@Composable
+fun rememberAccountPillGyro(enabled: Boolean): State<AccountPillGyro> {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val gyro = remember { mutableStateOf(AccountPillGyro()) }
+
+    DisposableEffect(enabled, context, view) {
+        if (!enabled) {
+            gyro.value = AccountPillGyro()
+            return@DisposableEffect onDispose { }
+        }
+        val manager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        val rotationSensor = manager?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+            ?: manager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        val sensor = rotationSensor ?: manager?.getDefaultSensor(Sensor.TYPE_GRAVITY)
+            ?: manager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        if (manager == null || sensor == null) {
+            gyro.value = AccountPillGyro()
+            return@DisposableEffect onDispose { }
+        }
+
+        val displayRotation = view.display?.rotation ?: Surface.ROTATION_0
+        val listener = PillGyroListener(
+            usesRotationVector = rotationSensor != null,
+            displayRotation = displayRotation,
+            output = gyro,
+        )
+        manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME)
+        onDispose {
+            manager.unregisterListener(listener)
+            gyro.value = AccountPillGyro()
+        }
+    }
+    return gyro
+}
+
+private class PillGyroListener(
+    private val usesRotationVector: Boolean,
+    displayRotation: Int,
+    private val output: MutableState<AccountPillGyro>,
+) : SensorEventListener {
+
+    private val rotationMatrix = FloatArray(9)
+    private val remappedMatrix = FloatArray(9)
+    private val orientation = FloatArray(3)
+    private val gravity = FloatArray(3)
+
+    private val axisX: Int
+    private val axisY: Int
+    private val swapAxes: Boolean
+    private val signX: Float
+    private val signY: Float
+
+    private var restRoll = Float.NaN
+    private var restPitch = Float.NaN
+    private var calCount = 0
+    private var calRollSum = 0f
+    private var calPitchSum = 0f
+
+    init {
+        when (displayRotation) {
+            Surface.ROTATION_90 -> {
+                axisX = SensorManager.AXIS_Y
+                axisY = SensorManager.AXIS_MINUS_X
+                swapAxes = true
+                signX = 1f
+                signY = -1f
+            }
+            Surface.ROTATION_180 -> {
+                axisX = SensorManager.AXIS_MINUS_X
+                axisY = SensorManager.AXIS_MINUS_Y
+                swapAxes = false
+                signX = -1f
+                signY = -1f
+            }
+            Surface.ROTATION_270 -> {
+                axisX = SensorManager.AXIS_MINUS_Y
+                axisY = SensorManager.AXIS_X
+                swapAxes = true
+                signX = -1f
+                signY = 1f
+            }
+            else -> {
+                axisX = SensorManager.AXIS_X
+                axisY = SensorManager.AXIS_Y
+                swapAxes = false
+                signX = 1f
+                signY = 1f
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event == null) return
+        val pose = when {
+            usesRotationVector -> poseFromRotationVector(event)
+            else -> poseFromGravity(event) ?: return
+        }
+        if (restRoll.isNaN() || restPitch.isNaN()) {
+            calRollSum += pose.x
+            calPitchSum += pose.y
+            calCount += 1
+            if (calCount < ACCOUNT_PILL_CALIBRATION_SAMPLES) return
+            restRoll = calRollSum / calCount
+            restPitch = calPitchSum / calCount
+        }
+        output.value = accountPillGyroFromDelta(
+            deltaRollRad = pose.x - restRoll,
+            deltaPitchRad = pose.y - restPitch,
+        )
+    }
+
+    private fun poseFromRotationVector(event: SensorEvent): Offset {
+        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+        SensorManager.remapCoordinateSystem(rotationMatrix, axisX, axisY, remappedMatrix)
+        SensorManager.getOrientation(remappedMatrix, orientation)
+        return Offset(x = orientation[2], y = orientation[1])
+    }
+
+    private fun poseFromGravity(event: SensorEvent): Offset? {
+        if (event.values.size < 3) return null
+        for (i in 0..2) {
+            gravity[i] += (event.values[i] - gravity[i]) * 0.22f
+        }
+        val magnitude = sqrt(
+            gravity[0] * gravity[0] + gravity[1] * gravity[1] + gravity[2] * gravity[2],
+        )
+        if (magnitude < 1e-3f) return null
+        val deviceX = (gravity[0] / magnitude).coerceIn(-1f, 1f)
+        val deviceY = (gravity[1] / magnitude).coerceIn(-1f, 1f)
+        val screenX = if (swapAxes) deviceY else deviceX
+        val screenY = if (swapAxes) deviceX else deviceY
+        return Offset(
+            x = -screenX * signX * TILT_FULL_SCALE_RADIANS,
+            y = screenY * signY * TILT_FULL_SCALE_RADIANS,
+        )
+    }
 }
 
 private class TiltListener(

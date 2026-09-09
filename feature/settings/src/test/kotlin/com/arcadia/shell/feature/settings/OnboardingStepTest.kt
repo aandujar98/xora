@@ -3,6 +3,10 @@ package com.arcadia.shell.feature.settings
 import com.arcadia.shell.datastore.VisualPerformanceChoices
 import com.arcadia.shell.datastore.VisualPerformanceMode
 import com.arcadia.shell.datastore.visualPerformanceModeLabel
+import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
+import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
+import com.arcadia.shell.launcher.discord.XoraPlusCheckState
+import com.arcadia.shell.launcher.discord.XoraPlusStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -58,6 +62,35 @@ class OnboardingStepTest {
 
         val library = OnboardingUiState(step = OnboardingStep.Library, scanRunning = true)
         assertTrue(library.canAdvance)
+    }
+
+    @Test
+    fun socialNextRequiresPlusOrBypass() {
+        val blocked = OnboardingUiState(step = OnboardingStep.Social)
+        assertFalse(blocked.canAdvance)
+
+        val linkedNoPlus = OnboardingUiState(
+            step = OnboardingStep.Social,
+            discordPresence = DiscordPresenceUiState(
+                capability = DiscordPresenceCapability.Connected,
+            ),
+        )
+        assertFalse(linkedNoPlus.canAdvance)
+
+        val plus = OnboardingUiState(
+            step = OnboardingStep.Social,
+            discordPresence = DiscordPresenceUiState(
+                capability = DiscordPresenceCapability.Connected,
+            ),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.HasPlus),
+        )
+        assertTrue(plus.canAdvance)
+
+        val bypass = OnboardingUiState(
+            step = OnboardingStep.Social,
+            xoraPlusBypass = true,
+        )
+        assertTrue(bypass.canAdvance)
     }
 
     @Test

@@ -104,8 +104,15 @@ import com.arcadia.shell.designsystem.xoraSwipeNavigate
 import com.arcadia.shell.input.NavAction
 import kotlinx.coroutines.flow.Flow
 import com.arcadia.shell.designsystem.XoraSwipeDirection
+import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerInput
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
+import com.arcadia.shell.launcher.discord.XORA_DISCORD_INVITE_URL
+import com.arcadia.shell.launcher.discord.XoraPlusCheckState
+import com.arcadia.shell.launcher.discord.XoraPlusStatus
 import kotlin.math.roundToInt
 
 private val AccentInk = Color(0xFF7EC8E8)
@@ -131,6 +138,9 @@ fun OnboardingScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showFolderPicker by remember { mutableStateOf(false) }
+    var showPlusPasscode by remember { mutableStateOf(false) }
+    var plusPasscode by remember { mutableStateOf("") }
+    var plusPasscodeError by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val padRegistry = remember { SettingsPadRegistry() }
     var pad by remember {
@@ -292,9 +302,77 @@ fun OnboardingScreen(
         )
     }
 
+    if (showPlusPasscode) {
+        AlertDialog(
+            onDismissRequest = { showPlusPasscode = false },
+            title = { Text("Override") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter the access code to continue without XOrA Plus.")
+                    OutlinedTextField(
+                        value = plusPasscode,
+                        onValueChange = {
+                            plusPasscode = it.filter { ch -> ch.isDigit() }.take(8)
+                            plusPasscodeError = false
+                        },
+                        label = { Text("Passcode") },
+                        singleLine = true,
+                        isError = plusPasscodeError,
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    if (plusPasscodeError) {
+                        Text(
+                            text = "That code is not valid.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (viewModel.submitPlusBypass(plusPasscode)) {
+                            showPlusPasscode = false
+                            plusPasscode = ""
+                        } else {
+                            plusPasscodeError = true
+                        }
+                    },
+                ) { Text("Unlock") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPlusPasscode = false }) { Text("Cancel") }
+            },
+        )
+    }
+
         Box(
             modifier = modifier
                 .fillMaxSize()
+                .pointerInput(Unit) {
+                    var taps = 0
+                    var windowStart = 0L
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Final)
+                            val up = event.changes.any { it.changedToUpIgnoreConsumed() }
+                            if (!up) continue
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (now - windowStart > 2_500L) {
+                                taps = 0
+                                windowStart = now
+                            }
+                            taps += 1
+                            if (taps >= 5) {
+                                taps = 0
+                                showPlusPasscode = true
+                                plusPasscode = ""
+                                plusPasscodeError = false
+                            }
+                        }
+                    }
+                }
                 .xoraSwipeNavigate(
                     vertical = false,
                     onSwipe = { direction ->
@@ -487,6 +565,8 @@ fun OnboardingScreen(
                             OnboardingStep.Social -> SocialStep(
                                 steam = state.steamWebApi,
                                 discordPresence = state.discordPresence,
+                                xoraPlus = state.xoraPlus,
+                                xoraPlusBypass = state.xoraPlusBypass,
                                 notificationListenerEnabled = state.notificationListenerEnabled,
                                 onSignInSteam = viewModel::requestSteamOpenId,
                                 onSteamApiKey = viewModel::setSteamWebApiKey,
@@ -660,11 +740,10 @@ private fun stepLabel(step: OnboardingStep): String = when (step) {
     OnboardingStep.Done -> "Finish"
 }
 
-/** Steps that only link external accounts, so they can be skipped without breaking setup. */
+/** Steps that only link optional accounts, so they can be skipped without breaking setup. */
 private fun isOptional(step: OnboardingStep): Boolean =
     step == OnboardingStep.AndroidApps ||
         step == OnboardingStep.Scrapers ||
-        step == OnboardingStep.Social ||
         step == OnboardingStep.RetroAchievements
 
 @Composable
@@ -1427,6 +1506,8 @@ private fun ScraperServiceSheet(
 private fun SocialStep(
     steam: SteamWebApiCredentials,
     discordPresence: DiscordPresenceUiState,
+    xoraPlus: XoraPlusCheckState,
+    xoraPlusBypass: Boolean,
     notificationListenerEnabled: Boolean,
     onSignInSteam: () -> Unit,
     onSteamApiKey: (String) -> Unit,
@@ -1437,10 +1518,11 @@ private fun SocialStep(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        StepTitle("Social")
+        StepTitle("Discord · XOrA Plus")
         Text(
-            text = "Sign in with Steam for your SteamID64, paste a Web API key once, and link " +
-                "Discord for Rich Presence. Notification access lets XOrA mirror chat previews.",
+            text = "XOrA is limited to XOrA Plus members. Link Discord (required), then we check " +
+                "the Plus role on the XOrA server. Join at $XORA_DISCORD_INVITE_URL if you are " +
+                "not in the community yet. Steam and notification access stay optional.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1513,11 +1595,27 @@ private fun SocialStep(
             )
         } else if (discordPresence.capability == DiscordPresenceCapability.SdkMissing) {
             Text(
-                text = "Discord Social SDK is not in this build — link later from Social when available.",
+                text = "Discord Social SDK is not in this build — use the emergency override if you cannot link.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+
+        val plusLine = when {
+            xoraPlusBypass -> "Access override accepted."
+            xoraPlus.checking -> "Checking XOrA Plus…"
+            xoraPlus.detail.isNotBlank() -> xoraPlus.detail
+            xoraPlus.status == XoraPlusStatus.HasPlus -> "XOrA Plus confirmed."
+            else -> "Next stays locked until XOrA Plus is confirmed."
+        }
+        Text(
+            text = plusLine,
+            style = MaterialTheme.typography.bodySmall,
+            color = when {
+                xoraPlusBypass || xoraPlus.hasPlus -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
 
         if (!notificationListenerEnabled) {
             SettingsPadTarget(id = "social_notifications", onActivate = onOpenNotificationAccess) {

@@ -1189,6 +1189,14 @@ class ShellPreferences @Inject constructor(
         it[Keys.HOME_TUTORIAL_COMPLETE] = false
     }
 
+    val xoraPlusBypass: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.XORA_PLUS_BYPASS] ?: false
+    }
+
+    suspend fun setXoraPlusBypass(enabled: Boolean) = edit {
+        it[Keys.XORA_PLUS_BYPASS] = enabled
+    }
+
     suspend fun setHomeTutorialComplete(done: Boolean) = edit {
         it[Keys.HOME_TUTORIAL_COMPLETE] = done
     }
@@ -1555,6 +1563,7 @@ class ShellPreferences @Inject constructor(
         val HOME_SHORTCUT_GRID_ROWS = intPreferencesKey("home_shortcut_grid_rows")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
         val HOME_TUTORIAL_COMPLETE = booleanPreferencesKey("home_tutorial_complete")
+        val XORA_PLUS_BYPASS = booleanPreferencesKey("xora_plus_bypass")
         val LAST_UPDATE_CHECK_AT = longPreferencesKey("last_update_check_at")
         val ANNOUNCED_UPDATE_VERSION = stringPreferencesKey("announced_update_version")
     }
