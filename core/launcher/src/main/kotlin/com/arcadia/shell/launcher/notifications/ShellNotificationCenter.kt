@@ -15,14 +15,7 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
-import android.content.Context
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
-import android.widget.Toast
 import com.arcadia.shell.datastore.ShellPreferences
-import com.arcadia.shell.display.OverlayPermission
-import dagger.hilt.android.qualifiers.ApplicationContext
 
 /**
  * One history entry for the RT notification center (newest first).
@@ -46,7 +39,6 @@ data class ShellNotificationHistoryItem(
  */
 @Singleton
 class ShellNotificationCenter @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val foregroundTracker: AppForegroundTracker,
     private val systemNotifier: ShellSystemNotifier,
     private val preferences: ShellPreferences,
@@ -131,18 +123,7 @@ class ShellNotificationCenter @Inject constructor(
 
         recordHistory(notification)
 
-        val eligibleForOverlay = notification.isFriendPresenceBanner()
-        val overlayGranted = eligibleForOverlay && OverlayPermission.isGranted(context)
-        val debugLine = "emit ${notification::class.simpleName} " +
-            "fg=${foregroundTracker.isForegroundNow} elig=$eligibleForOverlay granted=$overlayGranted"
-        Log.i(TAG, "$debugLine id=${notification.id}")
-        if (eligibleForOverlay) toast(debugLine)
         if (foregroundTracker.isForegroundNow) {
-            inbound.trySend(notification)
-        } else if (eligibleForOverlay && overlayGranted) {
-            // FriendBannerOverlayService renders this from the same queue as the in-app banner —
-            // it is the only other collector of [active] while XOrA is not in front.
-            Log.i(TAG, "routing ${notification.id} to overlay queue")
             inbound.trySend(notification)
         } else if (force && !systemNotifier.notificationsEnabled) {
             // Test preview while master toggle is off: briefly allow the system post.
@@ -278,13 +259,6 @@ class ShellNotificationCenter @Inject constructor(
         }
     }
 
-    /** Temporary on-screen diagnostic for the friend-banner overlay pipeline — no adb needed. */
-    private fun toast(message: String) {
-        Handler(Looper.getMainLooper()).post {
-            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-        }
-    }
-
     companion object {
         /** Visible hold before slide-out (~PS toast timing). */
         const val HOLD_MS = 4_500L
@@ -292,6 +266,5 @@ class ShellNotificationCenter @Inject constructor(
         const val GAP_MS = 220L
         private const val MAX_RECENT_IDS = 120
         private const val MAX_HISTORY = 80
-        private const val TAG = "ShellNotifCenter"
     }
 }

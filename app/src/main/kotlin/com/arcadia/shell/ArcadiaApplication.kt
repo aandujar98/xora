@@ -25,10 +25,7 @@ import com.arcadia.shell.launcher.music.NowPlayingController
 import com.arcadia.shell.music.MusicPlaybackService
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.AppForegroundTracker
-import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
-import com.arcadia.shell.launcher.notifications.isFriendPresenceBanner
-import com.arcadia.shell.notifications.FriendBannerOverlayService
 import com.arcadia.shell.scanner.LibraryAutoScanner
 import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scraper.LibraryHashScheduler
@@ -60,7 +57,6 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var appForegroundTracker: AppForegroundTracker
     @Inject lateinit var shellSystemNotifier: ShellSystemNotifier
     @Inject lateinit var gameCompanionController: GameCompanionController
-    @Inject lateinit var shellNotificationCenter: ShellNotificationCenter
     @Inject lateinit var xoraNetworkAuthCookies: XoraNetworkAuthCookies
     @Inject lateinit var libraryAutoScanner: LibraryAutoScanner
     @Inject lateinit var libraryScanner: LibraryScanner
@@ -108,27 +104,6 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
         ) { session, displayId -> session != null && displayId != null }
             .distinctUntilChanged()
             .onEach { active -> CompanionOverlayService.setActive(this, active) }
-            .launchIn(applicationScope)
-
-        // Same idea for the friend-online / friend-playing banner over other apps: the service
-        // only needs to be alive while there is something eligible to show and XOrA is not it.
-        combine(
-            shellNotificationCenter.active,
-            appForegroundTracker.isForeground,
-        ) { notification, foreground -> !foreground && notification?.isFriendPresenceBanner() == true }
-            .distinctUntilChanged()
-            .onEach { active ->
-                Log.i("ArcadiaApplication", "FriendBannerOverlayService.setActive($active)")
-                // applicationScope runs on Dispatchers.IO — Toast needs the main looper.
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    android.widget.Toast.makeText(
-                        this,
-                        "FriendBannerOverlayService.setActive($active)",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
-                }
-                FriendBannerOverlayService.setActive(this, active)
-            }
             .launchIn(applicationScope)
 
         nowPlayingController.state
