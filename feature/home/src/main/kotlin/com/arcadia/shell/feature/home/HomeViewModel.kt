@@ -7584,7 +7584,15 @@ class HomeViewModel @Inject constructor(
                 }
                 preferences.setUiFitMode(next)
             }
-            is StartSettingsAction.OpenCategory -> selectStartSettingsCategory(action.category)
+            // Customize has no flat row list of its own — A on the category opens the sheet.
+            is StartSettingsAction.OpenCategory -> if (
+                action.category == StartSettingsCategory.Themes
+            ) {
+                closeStartSettings()
+                openThemesSheet(CustomizeSection.PresetThemes)
+            } else {
+                selectStartSettingsCategory(action.category)
+            }
             StartSettingsAction.OpenSystemDisplay -> {
                 closeStartSettings()
                 openSystemSettings(Settings.ACTION_DISPLAY_SETTINGS)
