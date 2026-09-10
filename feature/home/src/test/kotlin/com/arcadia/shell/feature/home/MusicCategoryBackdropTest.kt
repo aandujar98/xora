@@ -12,6 +12,7 @@ class MusicCategoryBackdropTest {
     fun playingOnMusicShowsCoverAndWaveWhenEnabled() {
         val backdrop = musicCategoryBackdrop(
             category = XoraXmbCategory.Music,
+            depth = XoraXmbDepth.Category,
             playing = true,
             enabled = true,
             coverPath = "/sdcard/cover.jpg",
@@ -25,6 +26,7 @@ class MusicCategoryBackdropTest {
     fun otherCategoriesKeepTheThemeWallpaper() {
         val backdrop = musicCategoryBackdrop(
             category = XoraXmbCategory.Games,
+            depth = XoraXmbDepth.Category,
             playing = true,
             enabled = true,
             coverPath = "/sdcard/cover.jpg",
@@ -38,6 +40,7 @@ class MusicCategoryBackdropTest {
     fun toggleOffLeavesMusicOnTheThemeWallpaper() {
         val backdrop = musicCategoryBackdrop(
             category = XoraXmbCategory.Music,
+            depth = XoraXmbDepth.Category,
             playing = true,
             enabled = false,
             coverPath = "/sdcard/cover.jpg",
@@ -50,6 +53,7 @@ class MusicCategoryBackdropTest {
     fun nothingPlayingDoesNotForceCoverArt() {
         val backdrop = musicCategoryBackdrop(
             category = XoraXmbCategory.Music,
+            depth = XoraXmbDepth.Category,
             playing = false,
             enabled = true,
             coverPath = "/sdcard/cover.jpg",
@@ -62,6 +66,7 @@ class MusicCategoryBackdropTest {
     fun blankCoverStillTurnsTheWaveOn() {
         val backdrop = musicCategoryBackdrop(
             category = XoraXmbCategory.Music,
+            depth = XoraXmbDepth.Category,
             playing = true,
             enabled = true,
             coverPath = "  ",
@@ -69,5 +74,37 @@ class MusicCategoryBackdropTest {
         assertTrue(backdrop.showCover)
         assertTrue(backdrop.showWaveMask)
         assertNull(backdrop.coverPath)
+    }
+
+    @Test
+    fun nowPlayingKeepsTheCoverButDropsTheWave() {
+        val backdrop = musicCategoryBackdrop(
+            category = XoraXmbCategory.Music,
+            depth = XoraXmbDepth.NowPlaying,
+            playing = true,
+            enabled = true,
+            coverPath = "/sdcard/cover.jpg",
+        )
+        assertTrue(backdrop.showCover)
+        assertFalse(backdrop.showWaveMask)
+        assertEquals("/sdcard/cover.jpg", backdrop.coverPath)
+    }
+
+    @Test
+    fun musicSubPagesOtherThanNowPlayingKeepTheWave() {
+        listOf(
+            XoraXmbDepth.MusicAlbums,
+            XoraXmbDepth.MusicTracks,
+            XoraXmbDepth.DspAccounts,
+        ).forEach { depth ->
+            val backdrop = musicCategoryBackdrop(
+                category = XoraXmbCategory.Music,
+                depth = depth,
+                playing = true,
+                enabled = true,
+                coverPath = "/sdcard/cover.jpg",
+            )
+            assertTrue("wave should survive $depth", backdrop.showWaveMask)
+        }
     }
 }

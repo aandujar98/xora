@@ -17,6 +17,7 @@ internal data class MusicCategoryBackdrop(
 
 internal fun musicCategoryBackdrop(
     category: XoraXmbCategory,
+    depth: XoraXmbDepth,
     playing: Boolean,
     enabled: Boolean,
     coverPath: String?,
@@ -25,6 +26,8 @@ internal fun musicCategoryBackdrop(
     return MusicCategoryBackdrop(
         showCover = show,
         coverPath = coverPath?.takeIf { show && it.isNotBlank() },
-        showWaveMask = show,
+        // Now Playing is the cover's own page — the wave belongs to the column behind it, and
+        // reading a tracklist through a moving mask is what it is there to decorate.
+        showWaveMask = show && depth != XoraXmbDepth.NowPlaying,
     )
 }

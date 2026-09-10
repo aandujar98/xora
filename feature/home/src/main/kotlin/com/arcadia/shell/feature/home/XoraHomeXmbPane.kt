@@ -16,6 +16,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -173,6 +174,7 @@ fun XoraHomeXmbPane(
     // focused album / song when nothing is playing.
     val musicBackdrop = musicCategoryBackdrop(
         category = xmb.category,
+        depth = xmb.depth,
         playing = state.music.nowPlaying.hasTrack,
         enabled = state.music.categoryArtBackdropEnabled,
         coverPath = state.music.nowPlayingArtPath,
@@ -260,48 +262,19 @@ fun XoraHomeXmbPane(
             )
 
             // Keep mounted so focus / back / cancel always crossfade (never unmount-snap).
-            Box(
+            XmbHeroWaveBackdrop(
+                artPath = backdropArtPath,
+                showWaveMask = musicBackdrop.showWaveMask,
+                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                    XMB_GAME_SELECT_SETTLE_MS
+                } else {
+                    XMB_FOCUS_SETTLE_MS
+                },
+                alpha = recedeAlpha,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(backdropMotion)
-                    .graphicsLayer {
-                        alpha = recedeAlpha
-                        // Unconditional (not gated on showWaveMask): the wave mask's Multiply
-                        // blend keeps rendering through its fade-out after showWaveMask flips
-                        // false, and without Offscreen grouping for that whole window it
-                        // composites straight onto the render target instead of just the art
-                        // layer underneath — the black-flash bug this fixes.
-                        compositingStrategy = CompositingStrategy.Offscreen
-                    },
-            ) {
-                XoraRomHeroBackdrop(
-                    artPath = backdropArtPath,
-                    settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
-                        XMB_GAME_SELECT_SETTLE_MS
-                    } else {
-                        XMB_FOCUS_SETTLE_MS
-                    },
-                    audioVolume = 0f,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                AnimatedVisibility(
-                    visible = musicBackdrop.showWaveMask,
-                    enter = fadeIn(
-                        tween(
-                            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
-                            easing = FastOutSlowInEasing,
-                        ),
-                    ),
-                    exit = fadeOut(
-                        tween(
-                            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
-                            easing = FastOutSlowInEasing,
-                        ),
-                    ),
-                ) {
-                    MusicWaveMaskLayer(Modifier.fillMaxSize())
-                }
-            }
+                    .then(backdropMotion),
+            )
 
             HeroTrailerLayer(
                 state = state.trailer,
@@ -559,6 +532,7 @@ fun XoraXmbHeroDetail(
     val heroGame = xmb.focusGame
     val musicBackdrop = musicCategoryBackdrop(
         category = xmb.category,
+        depth = xmb.depth,
         playing = state.music.nowPlaying.hasTrack,
         enabled = state.music.categoryArtBackdropEnabled,
         coverPath = state.music.nowPlayingArtPath,
@@ -614,63 +588,34 @@ fun XoraXmbHeroDetail(
                     .fillMaxSize()
                     .then(backdropMotion),
             )
-            Box(
+            XmbHeroWaveBackdrop(
+                artPath = if (musicBackdrop.showCover) {
+                    musicBackdrop.coverPath
+                } else {
+                    xmb.selectedItem?.heroPath
+                        ?: xmb.selectedItem?.artPath?.takeIf {
+                            xmb.depth == XoraXmbDepth.MusicAlbums ||
+                                xmb.depth == XoraXmbDepth.MusicTracks
+                        }
+                        ?: xmbGameSelectWallpaperPath(
+                            heroGame?.takeIf {
+                                xmb.depth == XoraXmbDepth.Roms ||
+                                    xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
+                                    xmb.selectedItem?.action is XoraXmbAction.LaunchGame
+                            },
+                        )
+                },
+                showWaveMask = musicBackdrop.showWaveMask,
+                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                    XMB_GAME_SELECT_SETTLE_MS
+                } else {
+                    XMB_FOCUS_SETTLE_MS
+                },
+                alpha = recedeAlpha,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(backdropMotion)
-                    .graphicsLayer {
-                        alpha = recedeAlpha
-                        // Unconditional (not gated on showWaveMask): the wave mask's Multiply
-                        // blend keeps rendering through its fade-out after showWaveMask flips
-                        // false, and without Offscreen grouping for that whole window it
-                        // composites straight onto the render target instead of just the art
-                        // layer underneath — the black-flash bug this fixes.
-                        compositingStrategy = CompositingStrategy.Offscreen
-                    },
-            ) {
-                XoraRomHeroBackdrop(
-                    artPath = if (musicBackdrop.showCover) {
-                        musicBackdrop.coverPath
-                    } else {
-                        xmb.selectedItem?.heroPath
-                            ?: xmb.selectedItem?.artPath?.takeIf {
-                                xmb.depth == XoraXmbDepth.MusicAlbums ||
-                                    xmb.depth == XoraXmbDepth.MusicTracks
-                            }
-                            ?: xmbGameSelectWallpaperPath(
-                                heroGame?.takeIf {
-                                    xmb.depth == XoraXmbDepth.Roms ||
-                                        xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
-                                        xmb.selectedItem?.action is XoraXmbAction.LaunchGame
-                                },
-                            )
-                    },
-                    settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
-                        XMB_GAME_SELECT_SETTLE_MS
-                    } else {
-                        XMB_FOCUS_SETTLE_MS
-                    },
-                    audioVolume = 0f,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                AnimatedVisibility(
-                    visible = musicBackdrop.showWaveMask,
-                    enter = fadeIn(
-                        tween(
-                            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
-                            easing = FastOutSlowInEasing,
-                        ),
-                    ),
-                    exit = fadeOut(
-                        tween(
-                            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
-                            easing = FastOutSlowInEasing,
-                        ),
-                    ),
-                ) {
-                    MusicWaveMaskLayer(Modifier.fillMaxSize())
-                }
-            }
+                    .then(backdropMotion),
+            )
             HeroTrailerLayer(
                 state = state.trailer,
                 modifier = Modifier
@@ -904,11 +849,63 @@ internal fun formatXmbPlaytime(millis: Long): String {
 
 @Composable
 private fun MusicWaveMaskLayer(modifier: Modifier = Modifier) {
-    if (LocalLiteVisuals.current) return
     LoopingWallpaperVideo(
         uri = MUSIC_WAVE_MASK_URI,
         modifier = modifier.graphicsLayer { blendMode = BlendMode.Multiply },
     )
+}
+
+/**
+ * Hero art with the Music wave mask over it, shared by the single- and dual-screen XMB panes.
+ *
+ * The mask blends Multiply, so the pair must be grouped offscreen for the blend to land on the
+ * art instead of the render target — but only while the mask is actually composed, which
+ * includes its fade-out after [showWaveMask] flips false. Gating on the transition rather than
+ * leaving the group on spares every wave-less surface a full-screen buffer and blit per frame.
+ */
+@Composable
+private fun XmbHeroWaveBackdrop(
+    artPath: String?,
+    showWaveMask: Boolean,
+    settleMs: Long,
+    alpha: Float,
+    modifier: Modifier = Modifier,
+) {
+    val reduceMotion = rememberReduceMotion()
+    // Lite devices skip the video entirely, so they must not pay for the group either.
+    val waveVisible = showWaveMask && !LocalLiteVisuals.current
+    val wave = remember { MutableTransitionState(waveVisible) }
+    wave.targetState = waveVisible
+    val grouped = wave.currentState || wave.targetState
+    Box(
+        modifier = modifier.graphicsLayer {
+            this.alpha = alpha
+            if (grouped) compositingStrategy = CompositingStrategy.Offscreen
+        },
+    ) {
+        XoraRomHeroBackdrop(
+            artPath = artPath,
+            settleMs = settleMs,
+            modifier = Modifier.fillMaxSize(),
+        )
+        AnimatedVisibility(
+            visibleState = wave,
+            enter = fadeIn(
+                tween(
+                    durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                    easing = FastOutSlowInEasing,
+                ),
+            ),
+            exit = fadeOut(
+                tween(
+                    durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                    easing = FastOutSlowInEasing,
+                ),
+            ),
+        ) {
+            MusicWaveMaskLayer(Modifier.fillMaxSize())
+        }
+    }
 }
 
 @Composable
@@ -916,7 +913,6 @@ private fun XoraRomHeroBackdrop(
     artPath: String?,
     modifier: Modifier = Modifier,
     settleMs: Long = XMB_FOCUS_SETTLE_MS,
-    audioVolume: Float = 0f,
 ) {
     val reduceMotion = rememberReduceMotion()
     // Wait out the focus settle so a held d-pad does not strobe every ROM's hero.
@@ -964,7 +960,7 @@ private fun XoraRomHeroBackdrop(
                             } else {
                                 "file://$path"
                             },
-                            audioVolume = audioVolume,
+                            audioVolume = 0f,
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
