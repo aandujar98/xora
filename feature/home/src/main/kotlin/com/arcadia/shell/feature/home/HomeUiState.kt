@@ -1,5 +1,7 @@
 package com.arcadia.shell.feature.home
 
+import com.arcadia.shell.datastore.CustomTheme
+import com.arcadia.shell.datastore.DEFAULT_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
@@ -129,10 +131,14 @@ data class HomeHubUiState(
     val customBgmPath: String? = null,
     /** Most recently played non-app game for the Continue shard. */
     val continueGame: Game? = null,
-    /** True while the Themes editor sheet is open (always hosted on the Activity window). */
+    /** True while the Customize sheet is open (always hosted on the Activity window). */
     val themesOpen: Boolean = false,
-    /** Tab shown when [themesOpen] is true — Customize for wallpaper/BGM, Presets for packs. */
-    val themesSheetTab: ThemesSheetTab = ThemesSheetTab.Customize,
+    /** Left-nav section shown when [themesOpen] is true. */
+    val themesSheetTab: CustomizeSection = CustomizeSection.PresetThemes,
+    /** Saved wallpaper + BGM combos for Customize → Custom Themes. */
+    val customThemes: List<CustomTheme> = emptyList(),
+    /** Selected boot animation id for Customize → Boot Animations. */
+    val bootAnimationId: String = DEFAULT_BOOT_ANIMATION_ID,
     /** True while the add-shortcut chooser is open (always hosted on the Activity window). */
     val addShortcutOpen: Boolean = false,
     /** Non-null while choosing tile size after a pin type was selected. */

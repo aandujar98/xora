@@ -16,6 +16,8 @@ import com.arcadia.shell.datastore.AvatarSource
 import com.arcadia.shell.datastore.CIRCLE_FRIEND_LIMIT
 import com.arcadia.shell.datastore.CirclePin
 import com.arcadia.shell.datastore.CirclePinSource
+import com.arcadia.shell.datastore.CustomTheme
+import com.arcadia.shell.datastore.DEFAULT_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
@@ -305,7 +307,7 @@ class HomeViewModel @Inject constructor(
     private var vitaLaunchHandoff: Job? = null
     private val themesOpen = MutableStateFlow(false)
     /** Which Themes sheet tab to show when [themesOpen] becomes true. */
-    private val themesSheetTab = MutableStateFlow(ThemesSheetTab.Customize)
+    private val themesSheetTab = MutableStateFlow(CustomizeSection.PresetThemes)
     private val addShortcutOpen = MutableStateFlow(false)
     private val pendingShortcutKind = MutableStateFlow<PendingShortcutKind?>(null)
     private val pendingShortcutSpan = MutableStateFlow(ShortcutSpan.Default)
@@ -898,7 +900,9 @@ class HomeViewModel @Inject constructor(
             themesSheetTab = themes.second,
             xora = themesAndXora.second,
         )
-    }
+    }.combine(
+        combine(preferences.customThemes, preferences.bootAnimationId, ::Pair),
+    ) { chrome, custom -> chrome.copy(customThemes = custom.first, bootAnimationId = custom.second) }
 
     private data class HomeThemeChrome(
         val wallpaperPath: String?,
@@ -912,8 +916,10 @@ class HomeViewModel @Inject constructor(
         val pendingShortcutKind: PendingShortcutKind?,
         val pendingShortcutSpan: ShortcutSpan,
         val themesOpen: Boolean,
-        val themesSheetTab: ThemesSheetTab,
+        val themesSheetTab: CustomizeSection,
         val xora: XoraNavChrome,
+        val customThemes: List<CustomTheme> = emptyList(),
+        val bootAnimationId: String = DEFAULT_BOOT_ANIMATION_ID,
     )
 
     private data class OverlayChrome(
@@ -2468,6 +2474,8 @@ class HomeViewModel @Inject constructor(
                 continueGame = continueGame,
                 themesOpen = theme.themesOpen,
                 themesSheetTab = theme.themesSheetTab,
+                customThemes = theme.customThemes,
+                bootAnimationId = theme.bootAnimationId,
                 addShortcutOpen = theme.addShortcutOpen,
                 pendingShortcutKind = theme.pendingShortcutKind,
                 pendingShortcutSpan = theme.pendingShortcutSpan,
@@ -5658,7 +5666,7 @@ class HomeViewModel @Inject constructor(
         pendingShortcutSpan.value = ShortcutSpan.Default
     }
 
-    fun openThemesSheet(tab: ThemesSheetTab = ThemesSheetTab.Customize) {
+    fun openThemesSheet(tab: CustomizeSection = CustomizeSection.PresetThemes) {
         noteUserActivity()
         themesSheetTab.value = tab
         // Always land on Home so dual-screen Grid/Hero roles and page content stay coherent while
@@ -5674,6 +5682,41 @@ class HomeViewModel @Inject constructor(
     fun selectShellTheme(themeId: String) {
         noteUserActivity()
         performStartSettingsAction(StartSettingsAction.SelectShellTheme(themeId))
+    }
+
+    /** Snapshots the current wallpaper + BGM as a new named entry under Custom Themes. */
+    fun saveCurrentAsCustomTheme(name: String) {
+        noteUserActivity()
+        viewModelScope.launch {
+            val settings = preferences.settings.first()
+            val saved = preferences.addCustomTheme(
+                name = name,
+                wallpaperPath = settings.homeWallpaperPath,
+                bgmPath = settings.customBgmPath,
+            )
+            emit(HomeEvent.ShowMessage("Saved custom theme: ${saved.name}"))
+        }
+    }
+
+    /** Applies a saved custom theme's wallpaper + BGM — same setters the pickers use. */
+    fun applyCustomTheme(id: String) {
+        noteUserActivity()
+        viewModelScope.launch {
+            val theme = preferences.customThemes.first().firstOrNull { it.id == id } ?: return@launch
+            preferences.setHomeWallpaperPath(theme.wallpaperPath)
+            preferences.setCustomBgmPath(theme.bgmPath)
+            emit(HomeEvent.ShowMessage("Applied: ${theme.name}"))
+        }
+    }
+
+    fun deleteCustomTheme(id: String) {
+        noteUserActivity()
+        viewModelScope.launch { preferences.removeCustomTheme(id) }
+    }
+
+    fun selectBootAnimation(id: String) {
+        noteUserActivity()
+        viewModelScope.launch { preferences.setBootAnimationId(id) }
     }
 
     fun notifyShopThemesComingSoon() {
@@ -7553,7 +7596,7 @@ class HomeViewModel @Inject constructor(
             }
             StartSettingsAction.OpenThemeCustomize -> {
                 closeStartSettings()
-                openThemesSheet(ThemesSheetTab.Customize)
+                openThemesSheet(CustomizeSection.PresetThemes)
             }
             StartSettingsAction.ShopThemesComingSoon -> {
                 emit(HomeEvent.ShowMessage("XOrA Store themes are coming soon"))
@@ -7700,7 +7743,7 @@ class HomeViewModel @Inject constructor(
             }
             StartSettingsAction.EditHome -> {
                 closeStartSettings()
-                openThemesSheet(ThemesSheetTab.Customize)
+                openThemesSheet(CustomizeSection.CustomThemes)
             }
             StartSettingsAction.EditProfile -> {
                 closeStartSettings()

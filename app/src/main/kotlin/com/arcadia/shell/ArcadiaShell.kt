@@ -1266,24 +1266,25 @@ private fun ThemesCustomizeOverlay(
     Box(modifier = modifier) {
         ThemesSheet(
             activeThemeId = LocalShellTheme.current.id.id,
-            shopThemeIds = emptyList(),
+            customThemes = state.homeHub.customThemes,
             hasCustomWallpaper = !state.homeHub.wallpaperPath.isNullOrBlank(),
             customWallpaperLabel = state.homeHub.wallpaperPath
                 ?.substringAfterLast('/')
                 ?.takeIf { it.isNotBlank() }
                 ?: "Custom wallpaper",
             hasCustomBgm = !state.homeHub.customBgmPath.isNullOrBlank(),
-            shortcutCount = state.homeHub.shortcuts.size,
-            initialTab = state.homeHub.themesSheetTab,
+            bootAnimationId = state.homeHub.bootAnimationId,
+            initialSection = state.homeHub.themesSheetTab,
             onDismiss = homeViewModel::dismissThemesSheet,
             onSelectTheme = homeViewModel::selectShellTheme,
-            onShopComingSoon = homeViewModel::notifyShopThemesComingSoon,
-            onUploadComingSoon = homeViewModel::notifyThemeUploadComingSoon,
             onRequestWallpaper = homeViewModel::requestWallpaperPicker,
             onClearWallpaper = homeViewModel::clearHomeWallpaper,
             onRequestBgm = homeViewModel::requestBgmPicker,
             onClearBgm = homeViewModel::clearCustomBgm,
-            onManageShortcuts = homeViewModel::openShortcutEditorFromThemes,
+            onSaveCustomTheme = homeViewModel::saveCurrentAsCustomTheme,
+            onApplyCustomTheme = homeViewModel::applyCustomTheme,
+            onDeleteCustomTheme = homeViewModel::deleteCustomTheme,
+            onSelectBootAnimation = homeViewModel::selectBootAnimation,
             wallpaperAlignX = state.homeHub.wallpaperAlignX,
             wallpaperAlignY = state.homeHub.wallpaperAlignY,
             onNudgeWallpaper = homeViewModel::nudgeWallpaperAlignment,

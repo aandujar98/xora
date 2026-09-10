@@ -10,8 +10,6 @@ import com.arcadia.shell.datastore.UiFitMode
 import com.arcadia.shell.datastore.VisualPerformanceMode
 import com.arcadia.shell.datastore.uiTextScaleLabel
 import com.arcadia.shell.datastore.visualPerformanceModeSubtitle
-import com.arcadia.shell.designsystem.ShellThemeCatalog
-import com.arcadia.shell.designsystem.ShellThemeId
 
 /**
  * Start-button app config popup: a category list that drills into each page.
@@ -170,7 +168,7 @@ fun startSettingsDismissClosesOverlay(inCategory: Boolean): Boolean = when {
 
 fun startSettingsCategoryTitle(category: StartSettingsCategory): String = when (category) {
     StartSettingsCategory.Display -> "Display"
-    StartSettingsCategory.Themes -> "Themes"
+    StartSettingsCategory.Themes -> "Customize"
     StartSettingsCategory.Sound -> "Sound"
     StartSettingsCategory.Scrape -> "Scrape"
     StartSettingsCategory.Social -> "Social"
@@ -180,7 +178,7 @@ fun startSettingsCategoryTitle(category: StartSettingsCategory): String = when (
 
 fun startSettingsCategorySubtitle(category: StartSettingsCategory): String = when (category) {
     StartSettingsCategory.Display -> "Screen, trailers & text"
-    StartSettingsCategory.Themes -> "Presets, wallpaper & shop"
+    StartSettingsCategory.Themes -> "Preset themes, custom themes & boot animation"
     StartSettingsCategory.Sound -> "Music & UI volume"
     StartSettingsCategory.Scrape -> "Artwork, trailers & RetroAchievements"
     StartSettingsCategory.Social -> "Friends, Steam & Discord"
@@ -292,90 +290,15 @@ fun buildStartSettingsRows(
         ),
     )
 
-    StartSettingsCategory.Themes -> buildList {
-        val active = ShellThemeId.fromId(settings.shellThemeId)
-        add(
-            StartSettingsRow.Header(
-                id = "hdr_presets",
-                title = "Presets",
-                subtitle = "Launcher theme packs",
-            ),
-        )
-        ShellThemeCatalog.all.forEach { theme ->
-            val selected = theme.id == active
-            add(
-                StartSettingsRow.Action(
-                    id = "theme_${theme.id.id}",
-                    title = theme.id.displayName,
-                    subtitle = buildString {
-                        append(theme.description)
-                        if (selected) append(" · Active")
-                        theme.bgm?.let { bgm ->
-                            append(" · BGM: ")
-                            append(bgm.displayHint)
-                        }
-                    },
-                    action = StartSettingsAction.SelectShellTheme(theme.id.id),
-                ),
-            )
-        }
-        add(
-            StartSettingsRow.Header(
-                id = "hdr_shop",
-                title = "From XOrA Store",
-                subtitle = "Downloaded theme packs",
-            ),
-        )
-        if (shopThemeIds.isEmpty()) {
-            add(
-                StartSettingsRow.Action(
-                    id = "shop_themes_empty",
-                    title = "Coming from XOrA Store",
-                    subtitle = "Downloadable themes will appear here",
-                    action = StartSettingsAction.ShopThemesComingSoon,
-                ),
-            )
-        } else {
-            shopThemeIds.forEach { themeId ->
-                add(
-                    StartSettingsRow.Action(
-                        id = "shop_theme_$themeId",
-                        title = themeId,
-                        subtitle = "Installed from XOrA Store",
-                        action = StartSettingsAction.SelectShellTheme(themeId),
-                    ),
-                )
-            }
-        }
-        add(
-            StartSettingsRow.Header(
-                id = "hdr_customize",
-                title = "Customize",
-                subtitle = "Your wallpaper & soundtrack",
-            ),
-        )
-        add(
-            StartSettingsRow.Action(
-                id = "theme_customize",
-                title = "Customize…",
-                subtitle = buildString {
-                    append(if (hasCustomWallpaper) customWallpaperLabel else "Theme backdrop")
-                    append(" · ")
-                    append(if (hasCustomBgm) "Custom BGM" else "Theme / default BGM")
-                },
-                trailingIcon = StartSettingsTrailingIcon.Edit,
-                action = StartSettingsAction.OpenThemeCustomize,
-            ),
-        )
-        add(
-            StartSettingsRow.Action(
-                id = "upload_theme_shop",
-                title = "Upload theme to XOrA Store",
-                subtitle = "Coming soon",
-                action = StartSettingsAction.UploadThemeToShopComingSoon,
-            ),
-        )
-    }
+    StartSettingsCategory.Themes -> listOf(
+        StartSettingsRow.Action(
+            id = "open_customize",
+            title = "Customize",
+            subtitle = "Preset themes, custom themes & boot animation",
+            trailingIcon = StartSettingsTrailingIcon.Edit,
+            action = StartSettingsAction.OpenThemeCustomize,
+        ),
+    )
 
     StartSettingsCategory.Sound -> buildList {
         add(

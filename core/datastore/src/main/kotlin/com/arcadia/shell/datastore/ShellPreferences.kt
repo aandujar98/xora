@@ -702,6 +702,16 @@ class ShellPreferences @Inject constructor(
      * Prefers [Keys.CIRCLE_PINS] JSON; falls back to legacy Steam-only
      * [Keys.CIRCLE_FRIEND_IDS] comma list.
      */
+    /** User-saved wallpaper + BGM combos, named and reusable from Customize → Custom Themes. */
+    val customThemes: Flow<List<CustomTheme>> = dataStore.data.map { prefs ->
+        decodeCustomThemes(prefs[Keys.CUSTOM_THEMES].orEmpty())
+    }
+
+    /** Selected boot animation id — [DEFAULT_BOOT_ANIMATION_ID] until more are offered. */
+    val bootAnimationId: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.BOOT_ANIMATION_ID]?.trim()?.ifBlank { null } ?: DEFAULT_BOOT_ANIMATION_ID
+    }
+
     val circlePins: Flow<List<CirclePin>> = dataStore.data.map { prefs ->
         val encoded = prefs[Keys.CIRCLE_PINS].orEmpty()
         if (encoded.isNotBlank()) {
@@ -1437,6 +1447,29 @@ class ShellPreferences @Inject constructor(
         setCirclePins(circlePins.first().filterNot { it.key == normalized.key })
     }
 
+    /** Snapshots the current wallpaper/BGM as a new named [CustomTheme]. */
+    suspend fun addCustomTheme(name: String, wallpaperPath: String?, bgmPath: String?): CustomTheme {
+        val theme = CustomTheme(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name.trim().take(CUSTOM_THEME_NAME_MAX_LENGTH).ifBlank { "Custom theme" },
+            wallpaperPath = wallpaperPath,
+            bgmPath = bgmPath,
+        )
+        val current = customThemes.first()
+        edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(current + theme) }
+        return theme
+    }
+
+    suspend fun removeCustomTheme(id: String) {
+        if (id.isBlank()) return
+        val current = customThemes.first()
+        edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(current.filterNot { theme -> theme.id == id }) }
+    }
+
+    suspend fun setBootAnimationId(id: String) = edit {
+        it[Keys.BOOT_ANIMATION_ID] = id.trim().ifBlank { DEFAULT_BOOT_ANIMATION_ID }
+    }
+
     /**
      * Preferred scraper for a single ROM. Empty / missing means inherit platform (or Auto).
      * Stored as the [com.arcadia.shell.scraper.ScraperPreference] enum name.
@@ -1529,6 +1562,8 @@ class ShellPreferences @Inject constructor(
         val CIRCLE_FRIEND_IDS = stringPreferencesKey("circle_friend_ids")
         /** JSON array of `{source,id}` Circle pins (Steam + Discord). */
         val CIRCLE_PINS = stringPreferencesKey("circle_pins")
+        val CUSTOM_THEMES = stringPreferencesKey("custom_themes")
+        val BOOT_ANIMATION_ID = stringPreferencesKey("boot_animation_id")
         /** JSON array of MediaStore photo ids favourited in the Photo Viewer. */
         val FAVORITE_PHOTO_IDS = stringPreferencesKey("favorite_photo_ids")
         val HIDDEN_GAME_IDS = stringPreferencesKey("hidden_game_ids")
@@ -1856,6 +1891,56 @@ internal fun decodeCirclePins(raw: String): List<CirclePin> {
     }.getOrDefault(emptyList())
 }
 
+/** A named wallpaper + BGM combo the player saved from Customize → Custom Themes. */
+data class CustomTheme(
+    val id: String,
+    val name: String,
+    /** Stable imported path (see [ThemeMediaStore]), same as [ShellSettings.homeWallpaperPath]. */
+    val wallpaperPath: String?,
+    /** Stable imported path, same as [ShellSettings.customBgmPath]. */
+    val bgmPath: String?,
+)
+
+/** Longer than any real theme name, short enough a pasted essay cannot bloat the store. */
+const val CUSTOM_THEME_NAME_MAX_LENGTH = 60
+
+internal fun encodeCustomThemes(themes: List<CustomTheme>): String {
+    val array = JSONArray()
+    themes.forEach { theme ->
+        if (theme.id.isBlank() || theme.name.isBlank()) return@forEach
+        val obj = JSONObject()
+            .put("id", theme.id)
+            .put("name", theme.name)
+        theme.wallpaperPath?.let { obj.put("wallpaperPath", it) }
+        theme.bgmPath?.let { obj.put("bgmPath", it) }
+        array.put(obj)
+    }
+    return array.toString()
+}
+
+internal fun decodeCustomThemes(raw: String): List<CustomTheme> {
+    if (raw.isBlank()) return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optString("id").trim()
+                val name = obj.optString("name").trim()
+                if (id.isEmpty() || name.isEmpty()) continue
+                add(
+                    CustomTheme(
+                        id = id,
+                        name = name,
+                        wallpaperPath = obj.optString("wallpaperPath").trim().takeIf { it.isNotEmpty() },
+                        bgmPath = obj.optString("bgmPath").trim().takeIf { it.isNotEmpty() },
+                    ),
+                )
+            }
+        }.distinctBy { it.id }
+    }.getOrDefault(emptyList())
+}
+
 const val DEFAULT_BGM_VOLUME = 0.35f
 const val DEFAULT_MUSIC_VOLUME = 1f
 
@@ -1866,6 +1951,9 @@ const val DEFAULT_TRAILER_IDLE_SECONDS = 5
 
 /** Matches [com.arcadia.shell.designsystem.ShellThemeId.Default.id]. */
 const val DEFAULT_SHELL_THEME_ID = "default"
+
+/** The bundled boot clip — the only option today, but a stable id for when more are added. */
+const val DEFAULT_BOOT_ANIMATION_ID = "default"
 
 /** Default shell text size — slightly under 1× so XMB titles stay compact. */
 const val DEFAULT_UI_TEXT_SCALE = 0.85f
