@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Transparent shutter, not black: this view also backs the Music wave mask, which draws with
+  BlendMode.Multiply. Whenever the shutter is up (before the first frame, on surface recreation
+  after resume, on any re-prepare) an opaque black shutter multiplies the whole XMB backdrop to
+  black. Transparent lets the plate underneath show through for that window instead.
+-->
 <androidx.media3.ui.PlayerView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -6,4 +12,4 @@
     app:surface_type="texture_view"
     app:use_controller="false"
     app:resize_mode="zoom"
-    app:shutter_background_color="@android:color/black" />
+    app:shutter_background_color="@android:color/transparent" />

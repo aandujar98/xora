@@ -3289,7 +3289,13 @@ class HomeViewModel @Inject constructor(
             NavAction.SwapScreens -> toggleVitaShortcutTray()
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             NavAction.ToggleSystemPanel -> toggleSystemPanel()
-            NavAction.ToggleAchievementsPanel -> toggleVolumeMixer()
+            // X is the achievements key everywhere except the Music column, where the mixer
+            // owns it — the shell-wide mixer binding left no way to open cheevos from the XMB.
+            NavAction.ToggleAchievementsPanel -> if (xmb.category == XoraXmbCategory.Music) {
+                toggleVolumeMixer()
+            } else {
+                toggleAchievementsPanel()
+            }
             else -> Unit
         }
     }
@@ -3437,23 +3443,20 @@ class HomeViewModel @Inject constructor(
      * and the peel zoom died the moment the Activity started. Hold the cinematic first.
      */
     private fun beginVitaNonGameLaunch(shortcut: HomeShortcut) {
-        when (shortcut.kind) {
-            HomeShortcutKind.Game, HomeShortcutKind.AndroidApp -> openHomeShortcut(shortcut)
-            HomeShortcutKind.Picture, HomeShortcutKind.Gif -> {
-                isLaunching.value = true
-                viewModelScope.launch {
-                    val waitMs = if (appContext.isReduceMotionPreferred()) {
-                        0L
-                    } else {
-                        ArcadiaMotion.LaunchHold.toLong()
-                    }
-                    if (waitMs > 0L) delay(waitMs)
-                    try {
-                        openHomeShortcut(shortcut)
-                    } finally {
-                        isLaunching.value = false
-                    }
-                }
+        // Reached only when the shortcut resolved to no Game, so openHomeShortcut cannot re-enter
+        // launchGame and trip its isLaunching guard.
+        isLaunching.value = true
+        viewModelScope.launch {
+            val waitMs = if (appContext.isReduceMotionPreferred()) {
+                0L
+            } else {
+                ArcadiaMotion.LaunchHold.toLong()
+            }
+            if (waitMs > 0L) delay(waitMs)
+            try {
+                openHomeShortcut(shortcut)
+            } finally {
+                isLaunching.value = false
             }
         }
     }
