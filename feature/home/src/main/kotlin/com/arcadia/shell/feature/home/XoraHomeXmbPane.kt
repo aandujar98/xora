@@ -96,7 +96,7 @@ import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.NowPlayingPill
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
-import com.arcadia.shell.feature.home.component.XmbStarFieldLayer
+import com.arcadia.shell.feature.home.component.XmbParticleFieldLayer
 import com.arcadia.shell.launcher.music.NowPlayingState
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
@@ -253,11 +253,14 @@ fun XoraHomeXmbPane(
             .background(Color.Black),
     ) {
         // Theme / custom wallpaper must remain the base plate — it zooms, then fades to black.
+        // Grouped offscreen so the particle matte's Screen blend lands on the wallpaper under it
+        // rather than on the window's render target.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .blur(trayBlur)
                 .clipToBounds()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .arcadiaHazeSource(zIndex = 0f),
         ) {
             HomeWallpaper(
@@ -293,6 +296,16 @@ fun XoraHomeXmbPane(
                     .graphicsLayer { alpha = recedeAlpha },
             )
 
+            if (!fullTrailer) {
+                // PS5-style ambient dust between the wallpaper and the menu chrome.
+                XmbParticleFieldLayer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .xoraDesignCanvas()
+                        .clipToBounds(),
+                )
+            }
+
             if (fullTrailer) {
                 Box(
                     modifier = Modifier
@@ -325,16 +338,6 @@ fun XoraHomeXmbPane(
                         .fillMaxSize()
                         .arcadiaHazeSource(zIndex = 1f),
                 ) {
-                if (!fullTrailer) {
-                    // PS5-style ambient dust between the wallpaper and the menu chrome.
-                    XmbStarFieldLayer(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .xoraDesignCanvas()
-                            .clipToBounds(),
-                    )
-                }
-
                 // System and ROM browsing are card rungs of the same menu, so drilling slides sideways
                 // between them the way the PSP / PS3 shells do rather than cutting.
                 val depthSlideMs = motionMillis(XMB_DEPTH_SLIDE_MS)
@@ -592,7 +595,8 @@ fun XoraXmbHeroDetail(
             modifier = Modifier
                 .fillMaxSize()
                 .blur(trayBlur)
-                .clipToBounds(),
+                .clipToBounds()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
         ) {
             HomeWallpaper(
                 customPath = state.homeHub.wallpaperPath,
@@ -638,6 +642,14 @@ fun XoraXmbHeroDetail(
                     .then(backdropMotion)
                     .graphicsLayer { alpha = recedeAlpha },
             )
+            if (!fullTrailer) {
+                XmbParticleFieldLayer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .xoraDesignCanvas()
+                        .clipToBounds(),
+                )
+            }
             if (fullTrailer) {
                 Box(
                     modifier = Modifier
