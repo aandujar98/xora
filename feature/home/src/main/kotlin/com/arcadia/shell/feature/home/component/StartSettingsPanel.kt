@@ -101,7 +101,12 @@ fun StartSettingsPanel(
 
     BackHandler(enabled = state.open, onBack = onBack)
 
-    AnimatedVisibility(
+    // The scrim is a sibling of the panel's transition, never inside it: the panel scales up
+    // from 0.88, and anything sharing that layer scales with it — which is what made the tint
+    // look welded to the window instead of dimming the room behind it.
+    Box(modifier = modifier.fillMaxSize()) {
+        XoraSheetScrim(visible = state.open, onClick = onDismiss)
+        AnimatedVisibility(
         visible = state.open,
         enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
             animationSpec = if (enterMs == 0) arcadiaTween(0) else enterSpring,
@@ -111,10 +116,9 @@ fun StartSettingsPanel(
             animationSpec = arcadiaTween(ArcadiaMotion.Fast),
             targetScale = 0.94f,
         ),
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            XoraSheetScrim(visible = state.open, onClick = onDismiss)
             // One panel: categories ride a compact strip in the header rather than a
             // full-height capsule down the side.
             Column(
@@ -180,6 +184,7 @@ fun StartSettingsPanel(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -193,16 +198,7 @@ private fun VisualPerformancePickerOverlay(
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.42f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-        )
+        XoraSheetScrim(visible = true, onClick = onDismiss)
         Column(
             modifier = Modifier
                 .align(Alignment.Center)

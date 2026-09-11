@@ -83,19 +83,23 @@ fun NotificationHistoryPanel(
         listState.animateScrollToItem(selectedIndex.coerceIn(0, rowCount - 1))
     }
 
-    AnimatedVisibility(
+    // Sibling of the panel's transition, never inside it: the panel scales up, and
+    // anything sharing that layer scales with it — which is what welded the tint to
+    // the window instead of dimming the room behind it.
+    Box(modifier = modifier.fillMaxSize()) {
+        XoraSheetScrim(visible = open, onClick = onDismiss)
+        AnimatedVisibility(
         visible = open,
         enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) +
             scaleIn(arcadiaTween(ArcadiaMotion.Medium), initialScale = 0.96f),
         exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) +
             scaleOut(arcadiaTween(ArcadiaMotion.Fast), targetScale = 0.98f),
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
-            XoraSheetScrim(visible = true, onClick = onDismiss)
             Column(
                 modifier = Modifier
                     .fillMaxWidth(0.72f)
@@ -204,6 +208,7 @@ fun NotificationHistoryPanel(
                 }
             }
         }
+    }
     }
 }
 

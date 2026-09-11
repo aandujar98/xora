@@ -80,7 +80,17 @@ fun SystemUpdatePanel(
 
     BackHandler(enabled = state.open, onBack = onDismiss)
 
-    AnimatedVisibility(
+    // Sibling of the panel's transition, never inside it: the panel scales up, and
+    // anything sharing that layer scales with it — which is what welded the tint to
+    // the window instead of dimming the room behind it.
+    Box(modifier = modifier.fillMaxSize()) {
+        // A download keeps running in the background, but do not let a stray scrim tap
+        // wipe the only progress readout.
+        XoraSheetScrim(
+            visible = state.open,
+            onClick = onDismiss.takeIf { !state.busy },
+        )
+        AnimatedVisibility(
         visible = state.open,
         enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
             animationSpec = if (enterMs == 0) arcadiaTween(0) else enterSpring,
@@ -90,15 +100,9 @@ fun SystemUpdatePanel(
             animationSpec = arcadiaTween(ArcadiaMotion.Fast),
             targetScale = 0.95f,
         ),
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // A download keeps running in the background, but do not let a stray scrim tap
-            // wipe the only progress readout.
-            XoraSheetScrim(
-                visible = true,
-                onClick = onDismiss.takeIf { !state.busy },
-            )
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -261,6 +265,7 @@ fun SystemUpdatePanel(
                 }
             }
         }
+    }
     }
 }
 

@@ -163,7 +163,8 @@ fun RaLibraryPane(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight(),
+                    .fillMaxHeight()
+                    .xoraSettingsPanelSurface(),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 when {
@@ -283,6 +284,8 @@ fun RaLibraryPane(
             }
         }
 
+        // Outside the transition so the dim does not scale with the window it is dimming for.
+        XoraSheetScrim(visible = ra.gameDetailOpen, onClick = onCloseGameDetail)
         AnimatedVisibility(
             visible = ra.gameDetailOpen,
             enter = fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
@@ -754,7 +757,10 @@ private fun RaLibraryGameRowCard(
         )
     } else {
         Brush.linearGradient(
-            colors = listOf(Color.Transparent, Color.Transparent),
+            colors = listOf(
+                Color.White.copy(alpha = 0.55f),
+                Color.White.copy(alpha = 0.22f),
+            ),
         )
     }
     val reduceMotion = rememberReduceMotion()
@@ -785,12 +791,13 @@ private fun RaLibraryGameRowCard(
                 shape = shape,
                 alpha = if (selected) XoraForegroundShadow.Alpha else XoraForegroundShadow.TitleAlpha,
             )
-            .liquidGlass(
+            .clip(shape)
+            .background(RaRowFill, shape)
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                brush = borderBrush,
                 shape = shape,
-                tone = GlassTone.OverMedia,
-                intensity = if (selected) GlassIntensity.Strong else GlassIntensity.Standard,
             )
-            .border(width = if (selected) 2.dp else 0.dp, brush = borderBrush, shape = shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -805,75 +812,94 @@ private fun RaLibraryGameRowCard(
             contentDescription = row.game.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color.White.copy(alpha = 0.12f)),
+                .size(48.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(Color.White.copy(alpha = 0.12f))
+                .border(1.5.dp, Color.White.copy(alpha = 0.75f), RoundedCornerShape(9.dp)),
         )
 
-        Column(
+        // Title gets its own column and two lines — a long name wrapping is the design, not
+        // an ellipsis, and the badges sit beside it rather than under it.
+        Text(
+            text = row.game.title,
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontFamily = XoraFonts.XmbLabel,
+            ),
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = row.game.title,
-                style = MaterialTheme.typography.titleSmall.copy(
-                    fontFamily = XoraFonts.XmbLabel,
-                ),
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (row.recentBadgeUrls.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    row.recentBadgeUrls.take(8).forEachIndexed { badgeIndex, url ->
-                        CheevoBadge(
-                            url = url,
-                            populate = populateCheevos,
-                            index = badgeIndex,
-                        )
-                    }
+        )
+
+        if (row.recentBadgeUrls.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                row.recentBadgeUrls.take(RA_ROW_BADGE_CAP).forEachIndexed { badgeIndex, url ->
+                    CheevoBadge(
+                        url = url,
+                        populate = populateCheevos,
+                        index = badgeIndex,
+                    )
                 }
-            } else {
-                Text(
-                    text = row.game.consoleName,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = XoraFonts.Secondary,
-                    ),
-                    color = Color.White.copy(alpha = 0.55f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
 
         Column(
             horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.width(88.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+            modifier = Modifier.width(132.dp),
         ) {
-            Text(
-                text = row.game.progressLabel,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontFamily = XoraFonts.Secondary,
-                ),
-                fontWeight = FontWeight.SemiBold,
-                color = if (row.game.isMastered) {
-                    MaterialTheme.colorScheme.tertiary
-                } else {
-                    Color.White.copy(alpha = 0.88f)
-                },
+            RaProgressCount(
+                awarded = row.game.numAwarded,
+                total = row.game.maxPossible,
+                mastered = row.game.isMastered,
             )
             RaProgressBar(
                 fraction = row.game.completionFraction,
                 mastered = row.game.isMastered,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(5.dp),
+                    .height(9.dp),
             )
         }
     }
 }
+
+/** Badges per row. More than this and the strip crowds the title out on a handheld. */
+private const val RA_ROW_BADGE_CAP = 7
+
+/**
+ * "31/237" with the earned half carrying the emphasis, then the trophy — the count reads as a
+ * score at a glance, which a single flat string does not.
+ */
+@Composable
+private fun RaProgressCount(awarded: Int, total: Int, mastered: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        XoraOutlinedText(
+            text = awarded.toString(),
+            fontFamily = XoraFonts.Secondary,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 17.sp,
+            outlineWidth = 1.5.dp,
+            fillColor = if (mastered) RaMasteredGold else RaPointsAmber,
+        )
+        XoraOutlinedText(
+            text = "/$total",
+            fontFamily = XoraFonts.Secondary,
+            fontSize = 12.sp,
+            outlineWidth = 1.dp,
+            fillColor = Color.White.copy(alpha = 0.80f),
+        )
+        XmbVectorIcon(
+            icon = XmbIcon.Trophy,
+            tint = Color.White.copy(alpha = 0.9f),
+            size = 15.dp,
+            modifier = Modifier.padding(start = 4.dp),
+        )
+    }
+}
+
+private val RaMasteredGold = Color(0xFFFFD968)
 
 @Composable
 private fun CheevoBadge(
@@ -908,15 +934,17 @@ private fun CheevoBadge(
         contentDescription = null,
         contentScale = ContentScale.Fit,
         modifier = Modifier
-            .size(28.dp)
+            .size(30.dp)
             .graphicsLayer {
                 val t = appear.value
                 alpha = t
                 scaleX = 0.55f + 0.45f * t
                 scaleY = 0.55f + 0.45f * t
             }
-            .clip(RoundedCornerShape(5.dp))
-            .background(Color.White.copy(alpha = 0.10f)),
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.White.copy(alpha = 0.92f))
+            .border(1.5.dp, RaBadgeRim, RoundedCornerShape(6.dp))
+            .padding(1.5.dp),
     )
 }
 
@@ -926,21 +954,17 @@ private fun RaProgressBar(
     mastered: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val track = Color.White.copy(alpha = 0.18f)
-    val fill = if (mastered) {
-        MaterialTheme.colorScheme.tertiary
-    } else {
-        MaterialTheme.colorScheme.primary
-    }
+    val fill = if (mastered) RaMasteredGold else RaPointsAmber
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(50))
-            .background(track),
+            .background(Color.White.copy(alpha = 0.72f))
+            .border(1.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(50)),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                .height(5.dp)
+                .fillMaxHeight()
                 .clip(RoundedCornerShape(50))
                 .background(fill),
         )
@@ -1032,6 +1056,12 @@ private fun PlatformChip(
     }
 }
 
+private val RaBadgeRim = Color(0xFFE0A94B)
+
+/** Row plate: the same slate family as the panels, a shade lighter so rows read off the ground. */
+private val RaRowFill = Brush.verticalGradient(
+    listOf(Color(0xFF11161F), Color(0xFF1A2431), Color(0xFF10151D)),
+)
 private val CheevoEarnedEdge = Color(0xFFEFBD17)
 private val CheevoHardcoreEdge = Color(0xFFFFC95E)
 
@@ -1045,16 +1075,12 @@ private fun RaGameCheevoWindow(
 ) {
     val shape = RoundedCornerShape(24.dp)
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(onClick = onClose)
+            .padding(horizontal = 48.dp, vertical = 32.dp),
         contentAlignment = Alignment.Center,
     ) {
-        XoraSheetScrim(visible = true, onClick = onClose)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 48.dp, vertical = 32.dp),
-            contentAlignment = Alignment.Center,
-        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1265,7 +1291,6 @@ private fun RaGameCheevoWindow(
                     )
                 }
             }
-        }
         }
     }
 }
