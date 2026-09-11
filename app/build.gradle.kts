@@ -41,8 +41,8 @@ android {
         // 0.3.18 = 392; 0.3.19 = 393; 0.3.20 = 394; 0.3.21 = 395; 0.3.22 = 396; 0.3.23 = 397;
         // 0.3.24 = 398; 0.3.25 = 399; 0.3.26 = 400; 0.3.27 = 401; 0.3.28 = 402; 0.3.29 = 403;
         // 0.3.30 = 404; 0.3.31 = 405).
-        versionCode = 412
-        versionName = "0.3.38"
+        versionCode = 413
+        versionName = "0.3.39"
         // Deep-link scheme for Discord Social SDK AuthenticationActivity.
         manifestPlaceholders["discordApplicationId"] = "1531690290526683176"
     }

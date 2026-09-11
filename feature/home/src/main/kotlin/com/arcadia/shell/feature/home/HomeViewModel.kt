@@ -7612,32 +7612,69 @@ class HomeViewModel @Inject constructor(
     private fun onRaLibraryNavAction(action: NavAction) {
         val ra = raLibraryUi.value
         val detailOpen = ra.gameDetailOpen
+
+        // The expanded sort dropdown owns the pad outright — it is a list over the panel, and
+        // letting Up/Down leak to the columns behind it would move two things at once.
+        if (ra.sortMenuOpen && !detailOpen) {
+            val options = RaLibraryTab.entries
+            when (action) {
+                NavAction.Up -> raLibraryUi.update {
+                    it.copy(sortMenuIndex = (it.sortMenuIndex - 1).coerceAtLeast(0))
+                }
+                NavAction.Down -> raLibraryUi.update {
+                    it.copy(sortMenuIndex = (it.sortMenuIndex + 1).coerceAtMost(options.lastIndex))
+                }
+                NavAction.Confirm -> {
+                    selectRaLibraryTab(options[ra.sortMenuIndex.coerceIn(0, options.lastIndex)])
+                    raLibraryUi.update { it.copy(sortMenuOpen = false) }
+                }
+                NavAction.Cancel -> raLibraryUi.update { it.copy(sortMenuOpen = false) }
+                else -> Unit
+            }
+            return
+        }
+
         when (action) {
             NavAction.Up -> when {
                 detailOpen -> moveRaCheevoSelection(0, -1)
+                ra.focusColumn == RaLibraryFocusColumn.Sort -> Unit
+                // Top of the Following list steps up onto the dropdown above it.
+                ra.focusColumn == RaLibraryFocusColumn.Following && ra.followingIndex == 0 ->
+                    raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Sort) }
                 ra.focusColumn == RaLibraryFocusColumn.Following -> moveRaFollowingSelection(-1)
                 else -> moveRaLibrarySelection(-1)
             }
             NavAction.Down -> when {
                 detailOpen -> moveRaCheevoSelection(0, 1)
+                ra.focusColumn == RaLibraryFocusColumn.Sort -> raLibraryUi.update {
+                    it.copy(
+                        focusColumn = if (it.following.isEmpty()) {
+                            RaLibraryFocusColumn.Games
+                        } else {
+                            RaLibraryFocusColumn.Following
+                        },
+                    )
+                }
                 ra.focusColumn == RaLibraryFocusColumn.Following -> moveRaFollowingSelection(1)
                 else -> moveRaLibrarySelection(1)
             }
             NavAction.Left -> when {
                 detailOpen -> moveRaCheevoSelection(-1, 0)
-                ra.following.isNotEmpty() ->
-                    raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Following) }
-                else -> cycleRaLibraryTab(-1)
+                ra.focusColumn == RaLibraryFocusColumn.Games ->
+                    raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Sort) }
+                else -> Unit
             }
             NavAction.Right -> when {
                 detailOpen -> moveRaCheevoSelection(1, 0)
-                ra.following.isNotEmpty() ->
-                    raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Games) }
-                else -> cycleRaLibraryTab(1)
+                else -> raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Games) }
             }
             NavAction.PreviousPlatform -> cycleRaLibraryPlatform(-1)
             NavAction.NextPlatform -> cycleRaLibraryPlatform(1)
-            NavAction.Confirm -> activateRaLibrarySelection()
+            NavAction.Confirm -> if (ra.focusColumn == RaLibraryFocusColumn.Sort) {
+                openRaSortMenu()
+            } else {
+                activateRaLibrarySelection()
+            }
             NavAction.Cancel -> when {
                 detailOpen -> closeRaGameDetail()
                 ra.viewingFollower -> closeFollowedUser()
@@ -8555,7 +8592,27 @@ class HomeViewModel @Inject constructor(
     fun selectRaLibraryTab(tab: RaLibraryTab) {
         noteUserActivity()
         closeRaGameDetail()
-        raLibraryUi.update { it.copy(tab = tab, selectedIndex = 0) }
+        raLibraryUi.update { it.copy(tab = tab, selectedIndex = 0, sortMenuOpen = false) }
+    }
+
+    fun openRaSortMenu() {
+        noteUserActivity()
+        raLibraryUi.update {
+            it.copy(
+                sortMenuOpen = true,
+                sortMenuIndex = RaLibraryTab.entries.indexOf(it.tab).coerceAtLeast(0),
+                focusColumn = RaLibraryFocusColumn.Sort,
+            )
+        }
+    }
+
+    fun closeRaSortMenu() {
+        raLibraryUi.update { it.copy(sortMenuOpen = false) }
+    }
+
+    /** Tap / A on the dropdown pill. */
+    fun toggleRaSortMenu() {
+        if (raLibraryUi.value.sortMenuOpen) closeRaSortMenu() else openRaSortMenu()
     }
 
     fun selectRaPlatformFilter(platform: String?) {

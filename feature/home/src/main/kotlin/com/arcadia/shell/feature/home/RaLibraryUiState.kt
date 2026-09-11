@@ -8,17 +8,21 @@ import com.arcadia.shell.retroachievements.RaGameProgress
 /** Columns in the per-game cheevo window — keep pad navigation in lockstep with the grid. */
 internal const val RA_CHEEVO_GRID_COLUMNS = 8
 
-/** Sort / filter modes for the RetroAchievements library page. */
-enum class RaLibraryTab {
-    ByPlatform,
-    RecentlyEarned,
-    Completion,
+/**
+ * Sort modes for the RetroAchievements library, shown as the dropdown under the profile.
+ * Platform filtering is the chip row along the bottom, not a sort.
+ */
+enum class RaLibraryTab(val label: String) {
+    RecentlyEarned("Recently Earned"),
+    Completion("Completion"),
+    ByName("By Name"),
 }
 
-/** Pad focus: your (or a friend's) game list vs the Following leaderboard. */
+/** Pad focus: the sort dropdown, the Following leaderboard, or the game list. */
 enum class RaLibraryFocusColumn {
     Games,
     Following,
+    Sort,
 }
 
 /**
@@ -34,7 +38,11 @@ data class RaLibraryUiState(
     val isLoading: Boolean = false,
     val games: List<RaLibraryGameRow> = emptyList(),
     val selectedIndex: Int = 0,
-    val tab: RaLibraryTab = RaLibraryTab.ByPlatform,
+    val tab: RaLibraryTab = RaLibraryTab.RecentlyEarned,
+    /** True while the sort dropdown is expanded over the panel. */
+    val sortMenuOpen: Boolean = false,
+    /** Highlighted option while [sortMenuOpen]; meaningless otherwise. */
+    val sortMenuIndex: Int = 0,
     /** Null = all platforms; otherwise match [RaCompletionGame.consoleName]. */
     val platformFilter: String? = null,
     val error: String? = null,
@@ -75,10 +83,7 @@ data class RaLibraryUiState(
                 libraryGames.filter { it.game.consoleName == platformFilter }
             }
             return when (tab) {
-                RaLibraryTab.ByPlatform -> filtered.sortedWith(
-                    compareBy<RaLibraryGameRow> { it.game.consoleName.lowercase() }
-                        .thenBy { it.game.title.lowercase() },
-                )
+                RaLibraryTab.ByName -> filtered.sortedBy { it.game.title.lowercase() }
                 RaLibraryTab.RecentlyEarned -> filtered.sortedByDescending {
                     it.game.mostRecentAwardedDate.orEmpty()
                 }

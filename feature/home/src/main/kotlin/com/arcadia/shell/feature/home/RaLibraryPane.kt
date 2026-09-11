@@ -82,6 +82,12 @@ import com.arcadia.shell.retroachievements.RaAchievement
 import com.arcadia.shell.retroachievements.RaFollowedUser
 import com.arcadia.shell.retroachievements.RaProfile
 import kotlinx.coroutines.delay
+import com.arcadia.shell.designsystem.XoraSettingsPanelDefaults
+import com.arcadia.shell.designsystem.XoraSettingsPanelRule
+import com.arcadia.shell.designsystem.xoraFocusHighlight
+import com.arcadia.shell.designsystem.xoraSettingsPanelSurface
+import com.arcadia.shell.feature.home.component.rememberAvatarAccentColor
+import androidx.compose.foundation.Canvas
 
 /**
  * RetroAchievements library over the shell wallpaper. The XMB recedes underneath;
@@ -92,6 +98,7 @@ fun RaLibraryPane(
     state: HomeUiState,
     onSelectIndex: (Int) -> Unit,
     onSelectTab: (RaLibraryTab) -> Unit,
+    onToggleSortMenu: () -> Unit = {},
     onSelectPlatformFilter: (String?) -> Unit,
     onActivate: () -> Unit,
     onRetry: () -> Unit,
@@ -145,6 +152,7 @@ fun RaLibraryPane(
                     onSelectFollowingIndex(index)
                     onActivate()
                 },
+                onToggleSortMenu = onToggleSortMenu,
                 onToggleCompare = onToggleCompare,
                 modifier = Modifier
                     .widthIn(min = 260.dp, max = 320.dp)
@@ -306,27 +314,20 @@ private fun RaLibrarySidePanel(
     raProfile: RaProfile?,
     ra: RaLibraryUiState,
     onSelectTab: (RaLibraryTab) -> Unit,
+    onToggleSortMenu: () -> Unit,
     onSelectFollowingIndex: (Int) -> Unit,
     onToggleCompare: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(30.dp)
     Column(
         modifier = modifier
             .xmbAssetShadow(
                 unit = 1f,
-                shape = shape,
+                shape = XoraSettingsPanelDefaults.Shape,
                 alpha = XoraForegroundShadow.Alpha,
             )
-            .liquidGlass(
-                shape = shape,
-                tone = GlassTone.OverMedia,
-                intensity = GlassIntensity.Strong,
-                shimmer = true,
-            )
-            .border(1.5.dp, Color.White.copy(alpha = 0.25f), shape)
-            .padding(horizontal = 22.dp, vertical = 22.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .xoraSettingsPanelSurface(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Image(
             painter = painterResource(id = R.drawable.ra_logo),
@@ -334,8 +335,9 @@ private fun RaLibrarySidePanel(
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 128.dp),
+                .heightIn(max = 96.dp),
         )
+        XoraSettingsPanelRule()
 
         val viewedFollower = if (ra.viewingFollower) ra.comparePeer else null
         val headerName = viewedFollower?.username
@@ -354,54 +356,53 @@ private fun RaLibrarySidePanel(
                 imageModel = headerPic,
             )
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // Same rule as the profile card: the name wears the avatar's own colour.
+                val nameAccent = rememberAvatarAccentColor(
+                    imageModel = headerPic,
+                    fallback = Color.White,
+                )
                 XoraOutlinedText(
                     text = headerName,
                     fontFamily = XoraFonts.XmbLabel,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
                     outlineWidth = 2.dp,
+                    fillColor = nameAccent,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 headerPoints?.let { points ->
-                    XoraOutlinedText(
-                        text = "$points pts",
-                        fontFamily = XoraFonts.Secondary,
-                        fontSize = 13.sp,
-                        outlineWidth = 1.5.dp,
-                        fillColor = Color.White.copy(alpha = 0.82f),
-                    )
+                    RaPointsLine(points = points, fontSize = 13.sp)
                 }
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            RaTabChip(
-                label = "By Platform",
-                selected = ra.tab == RaLibraryTab.ByPlatform,
-                onClick = { onSelectTab(RaLibraryTab.ByPlatform) },
-            )
-            RaTabChip(
-                label = "Recently Earned",
-                selected = ra.tab == RaLibraryTab.RecentlyEarned,
-                onClick = { onSelectTab(RaLibraryTab.RecentlyEarned) },
-            )
-            RaTabChip(
-                label = "Completion",
-                selected = ra.tab == RaLibraryTab.Completion,
-                onClick = { onSelectTab(RaLibraryTab.Completion) },
-            )
-            RaTabChip(
-                label = if (ra.compareEnabled) {
-                    val peer = ra.comparePeer?.username ?: ra.viewedUser
-                    if (peer.isNullOrBlank()) "Compare cheevos · On" else "Compare vs $peer"
-                } else {
-                    "Compare cheevos"
-                },
-                selected = ra.compareEnabled,
-                onClick = onToggleCompare,
+        RaSortDropdown(
+            tab = ra.tab,
+            expanded = ra.sortMenuOpen,
+            highlightedIndex = ra.sortMenuIndex,
+            focused = ra.focusColumn == RaLibraryFocusColumn.Sort,
+            onToggle = onToggleSortMenu,
+            onSelect = onSelectTab,
+        )
+
+        // Compare no longer has a chip of its own in the design; Options still toggles it, so
+        // the state stays visible as a line rather than disappearing silently.
+        if (ra.compareEnabled) {
+            val peer = ra.comparePeer?.username ?: ra.viewedUser
+            XoraOutlinedText(
+                text = if (peer.isNullOrBlank()) "Comparing cheevos" else "Comparing vs $peer",
+                fontFamily = XoraFonts.Secondary,
+                fontSize = 12.sp,
+                outlineWidth = 1.5.dp,
+                fillColor = Color(0xFFFFC24A),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable(onClick = onToggleCompare),
             )
         }
+
+        XoraSettingsPanelRule()
 
         RaFollowingLeaderboard(
             ra = ra,
@@ -441,7 +442,7 @@ private fun RaFollowingLeaderboard(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         XoraOutlinedText(
-            text = "Following",
+            text = "FOLLOWING",
             fontFamily = XoraFonts.XmbLabel,
             fontWeight = FontWeight.SemiBold,
             fontSize = 15.sp,
@@ -534,24 +535,151 @@ private fun RaFollowedUserRow(
             imageModel = user.userPicUrl.takeIf { it.isNotBlank() },
         )
         Column(modifier = Modifier.weight(1f)) {
+            val nameAccent = rememberAvatarAccentColor(
+                imageModel = user.userPicUrl.takeIf { it.isNotBlank() },
+                fallback = Color.White,
+            )
             Text(
                 text = user.username,
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontFamily = XoraFonts.XmbLabel,
                 ),
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+                color = nameAccent,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            RaPointsLine(points = user.points, fontSize = 11.sp)
+        }
+    }
+}
+
+/** Trophy + POINTS + amber value — the score line shared by the profile and every follower. */
+@Composable
+private fun RaPointsLine(points: Int, fontSize: androidx.compose.ui.unit.TextUnit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        XmbVectorIcon(
+            icon = XmbIcon.Trophy,
+            tint = Color.White.copy(alpha = 0.85f),
+            size = fontSize.value.dp + 3.dp,
+        )
+        XoraOutlinedText(
+            text = "POINTS",
+            fontFamily = XoraFonts.Secondary,
+            fontSize = fontSize,
+            outlineWidth = 1.dp,
+            fillColor = Color.White.copy(alpha = 0.85f),
+        )
+        XoraOutlinedText(
+            text = formatRaPoints(points),
+            fontFamily = XoraFonts.Secondary,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = fontSize,
+            outlineWidth = 1.dp,
+            fillColor = RaPointsAmber,
+        )
+    }
+}
+
+private val RaPointsAmber = Color(0xFFFFA92E)
+
+/** Solid ▼, drawn rather than pulled from an icon font the module does not ship. */
+@Composable
+private fun RaDropdownCaret() {
+    Canvas(modifier = Modifier.size(14.dp)) {
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(size.width * 0.15f, size.height * 0.34f)
+            lineTo(size.width * 0.85f, size.height * 0.34f)
+            lineTo(size.width * 0.5f, size.height * 0.72f)
+            close()
+        }
+        drawPath(path, Color.White)
+    }
+}
+
+private fun formatRaPoints(points: Int): String =
+    java.text.NumberFormat.getIntegerInstance(java.util.Locale.US).format(points)
+
+/**
+ * The sort control from the design: a pill showing the current mode, expanding into the three
+ * options. Collapsed it is one focus stop for the pad; expanded it takes the pad outright (see
+ * [HomeViewModel.onRaLibraryNavAction]) so Up/Down cannot move the lists behind it.
+ */
+@Composable
+private fun RaSortDropdown(
+    tab: RaLibraryTab,
+    expanded: Boolean,
+    highlightedIndex: Int,
+    focused: Boolean,
+    onToggle: () -> Unit,
+    onSelect: (RaLibraryTab) -> Unit,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.30f),
+                            Color.White.copy(alpha = 0.16f),
+                        ),
+                    ),
+                    shape,
+                )
+                .border(
+                    width = if (focused) 2.dp else 1.dp,
+                    color = if (focused) Color.White else Color.White.copy(alpha = 0.32f),
+                    shape = shape,
+                )
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                text = "${user.points} pts",
-                style = MaterialTheme.typography.labelSmall.copy(
+                text = tab.label,
+                style = MaterialTheme.typography.labelMedium.copy(
                     fontFamily = XoraFonts.Secondary,
                 ),
-                color = Color.White.copy(alpha = 0.7f),
+                color = Color.White,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
+            RaDropdownCaret()
+        }
+        if (!expanded) return@Column
+        Column(
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .fillMaxWidth()
+                .clip(shape)
+                .background(Color(0xFF0C1017), shape)
+                .border(1.dp, Color.White.copy(alpha = 0.28f), shape)
+                .padding(4.dp),
+        ) {
+            RaLibraryTab.entries.forEachIndexed { index, option ->
+                val highlighted = index == highlightedIndex
+                Text(
+                    text = option.label,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontFamily = XoraFonts.Secondary,
+                    ),
+                    fontWeight = if (option == tab) FontWeight.SemiBold else FontWeight.Normal,
+                    color = Color.White,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .xoraFocusHighlight(highlighted, shape = RoundedCornerShape(10.dp))
+                        .clickable { onSelect(option) }
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                )
+            }
         }
     }
 }
