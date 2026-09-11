@@ -9,23 +9,24 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -41,31 +42,38 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.arcadia.shell.datastore.CustomTheme
 import com.arcadia.shell.datastore.DEFAULT_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.GAME_ART_ALIGN_STEP
-import com.arcadia.shell.designsystem.ArcadiaGlass
-import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.ShellTheme
 import com.arcadia.shell.designsystem.ShellThemeCatalog
-import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.XoraSecondaryText
+import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import java.util.Locale
 
 /** Narrow left-nav sections of the Customize window. */
-enum class CustomizeSection { PresetThemes, CustomThemes, BootAnimations }
+enum class CustomizeSection(val label: String) {
+    PresetThemes("Preset Themes"),
+    CustomThemes("Custom Themes"),
+    CustomIcons("Custom Icons"),
+    BootAnimation("Boot Animation"),
+}
 
 private const val GRID_COLUMNS = 3
+private val PanelShape = RoundedCornerShape(20.dp)
+private val ThumbShape = RoundedCornerShape(8.dp)
 
 /**
- * Customize window: preset theme packs, saved custom (wallpaper + BGM) themes, boot animation.
+ * Customize window: two panels — a narrow section list on the left, the selected section's
+ * contents on the right. Every section lays its options out the same way, as a grid of framed
+ * preview + name cards.
  *
- * Narrow left nav + wide right content, same split for every section — each renders its options
- * as a grid of preview + name cards. Hosted only on the primary Activity window (same rule as
- * Start settings). Wallpaper / BGM pickers are requested by the parent; Activity Result launchers
- * live in the Activity-rooted shell.
+ * Hosted only on the primary Activity window (same rule as Start settings). Wallpaper / BGM
+ * pickers are requested by the parent; Activity Result launchers live in the Activity-rooted shell.
  */
 @Composable
 fun ThemesSheet(
@@ -91,7 +99,6 @@ fun ThemesSheet(
     onResetWallpaper: () -> Unit = {},
     initialSection: CustomizeSection = CustomizeSection.PresetThemes,
 ) {
-    val glass = rememberGlassTokens(GlassTone.Surface)
     var section by remember(initialSection) { mutableStateOf(initialSection) }
     var creatingCustomTheme by remember { mutableStateOf(false) }
     BackHandler(onBack = { if (creatingCustomTheme) creatingCustomTheme = false else onDismiss() })
@@ -108,154 +115,154 @@ fun ThemesSheet(
                 ),
         )
         Row(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier
                 .align(Alignment.Center)
-                .fillMaxWidth(0.88f)
-                .heightIn(max = 580.dp)
-                .clip(ArcadiaGlass.CardShape)
-                .background(glass.tintStrong)
+                .fillMaxWidth(0.92f)
+                .heightIn(max = 560.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = {},
-                )
-                .padding(vertical = 18.dp),
+                ),
         ) {
-            CustomizeNav(
-                selected = section,
-                content = glass.content,
-                onSelect = {
-                    section = it
-                    creatingCustomTheme = false
-                },
-                onDismiss = onDismiss,
-                modifier = Modifier
-                    .width(176.dp)
-                    .fillMaxHeight()
-                    .padding(start = 18.dp, end = 12.dp),
-            )
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .fillMaxHeight()
-                    .background(Color.White.copy(alpha = 0.10f)),
-            )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .padding(start = 18.dp, end = 20.dp),
-            ) {
-                when (section) {
-                    CustomizeSection.PresetThemes -> PresetThemesGrid(
-                        activeThemeId = activeThemeId,
-                        content = glass.content,
-                        onSelectTheme = onSelectTheme,
-                    )
-                    CustomizeSection.CustomThemes -> if (creatingCustomTheme) {
-                        CreateCustomThemeContent(
-                            hasCustomWallpaper = hasCustomWallpaper,
-                            customWallpaperLabel = customWallpaperLabel,
-                            hasCustomBgm = hasCustomBgm,
-                            content = glass.content,
-                            onRequestWallpaper = onRequestWallpaper,
-                            onClearWallpaper = onClearWallpaper,
-                            onRequestBgm = onRequestBgm,
-                            onClearBgm = onClearBgm,
-                            wallpaperAlignX = wallpaperAlignX,
-                            wallpaperAlignY = wallpaperAlignY,
-                            onNudgeWallpaper = onNudgeWallpaper,
-                            onResetWallpaper = onResetWallpaper,
-                            onCancel = { creatingCustomTheme = false },
-                            onSave = { name ->
-                                onSaveCustomTheme(name)
+            CustomizePanel(modifier = Modifier.width(208.dp).fillMaxHeight()) {
+                PanelHeader("Customize")
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.padding(top = 16.dp),
+                ) {
+                    CustomizeSection.entries.forEach { entry ->
+                        CustomizeNavRow(
+                            label = entry.label,
+                            selected = entry == section,
+                            onClick = {
+                                section = entry
                                 creatingCustomTheme = false
                             },
                         )
-                    } else {
-                        CustomThemesGrid(
-                            themes = customThemes,
-                            content = glass.content,
-                            onNewTheme = { creatingCustomTheme = true },
-                            onApply = onApplyCustomTheme,
-                            onDelete = onDeleteCustomTheme,
+                    }
+                }
+            }
+
+            CustomizePanel(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                PanelHeader(section.label)
+                Box(modifier = Modifier.fillMaxSize().padding(top = 18.dp)) {
+                    when (section) {
+                        CustomizeSection.PresetThemes -> PresetThemesGrid(
+                            activeThemeId = activeThemeId,
+                            onSelectTheme = onSelectTheme,
+                        )
+                        CustomizeSection.CustomThemes -> if (creatingCustomTheme) {
+                            CreateCustomThemeContent(
+                                hasCustomWallpaper = hasCustomWallpaper,
+                                customWallpaperLabel = customWallpaperLabel,
+                                hasCustomBgm = hasCustomBgm,
+                                onRequestWallpaper = onRequestWallpaper,
+                                onClearWallpaper = onClearWallpaper,
+                                onRequestBgm = onRequestBgm,
+                                onClearBgm = onClearBgm,
+                                wallpaperAlignX = wallpaperAlignX,
+                                wallpaperAlignY = wallpaperAlignY,
+                                onNudgeWallpaper = onNudgeWallpaper,
+                                onResetWallpaper = onResetWallpaper,
+                                onCancel = { creatingCustomTheme = false },
+                                onSave = { name ->
+                                    onSaveCustomTheme(name)
+                                    creatingCustomTheme = false
+                                },
+                            )
+                        } else {
+                            CustomThemesGrid(
+                                themes = customThemes,
+                                onNewTheme = { creatingCustomTheme = true },
+                                onApply = onApplyCustomTheme,
+                                onDelete = onDeleteCustomTheme,
+                            )
+                        }
+                        CustomizeSection.CustomIcons -> SectionPlaceholder("Coming soon")
+                        CustomizeSection.BootAnimation -> BootAnimationGrid(
+                            selectedId = bootAnimationId,
+                            onSelect = onSelectBootAnimation,
                         )
                     }
-                    CustomizeSection.BootAnimations -> BootAnimationsGrid(
-                        selectedId = bootAnimationId,
-                        content = glass.content,
-                        onSelect = onSelectBootAnimation,
-                    )
                 }
             }
         }
     }
 }
 
+/** Dark glass plate with the thin light edge both panels share. */
 @Composable
-private fun CustomizeNav(
-    selected: CustomizeSection,
-    content: Color,
-    onSelect: (CustomizeSection) -> Unit,
-    onDismiss: () -> Unit,
+private fun CustomizePanel(
     modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(modifier = modifier) {
-        Text(
-            text = "Customize",
-            color = content,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(bottom = 14.dp),
-        )
-        CustomizeNavRow("Preset Themes", CustomizeSection.PresetThemes == selected, content) {
-            onSelect(CustomizeSection.PresetThemes)
-        }
-        CustomizeNavRow("Custom Themes", CustomizeSection.CustomThemes == selected, content) {
-            onSelect(CustomizeSection.CustomThemes)
-        }
-        CustomizeNavRow("Boot Animations", CustomizeSection.BootAnimations == selected, content) {
-            onSelect(CustomizeSection.BootAnimations)
-        }
-        Spacer(modifier = Modifier.weight(1f))
-        TextButton(onClick = onDismiss) {
-            Text(text = "Done", color = content)
-        }
-    }
+    Column(
+        modifier = modifier
+            .clip(PanelShape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF0B0D12),
+                        Color(0xFF10141C),
+                        Color(0xFF151B26),
+                    ),
+                ),
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.35f), PanelShape)
+            .padding(horizontal = 20.dp, vertical = 18.dp),
+        content = content,
+    )
+}
+
+/** XOIREQE caps with the hairline rule under it, as in the Customize mock. */
+@Composable
+private fun PanelHeader(text: String) {
+    XoraTitleText(
+        text = text.uppercase(Locale.US),
+        fontSize = 20.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Box(
+        modifier = Modifier
+            .padding(top = 8.dp)
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(Color.White.copy(alpha = 0.55f)),
+    )
 }
 
 @Composable
 private fun CustomizeNavRow(
     label: String,
     selected: Boolean,
-    content: Color,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(10.dp)
-    Text(
+    XoraSecondaryText(
         text = label,
-        color = if (selected) content else content.copy(alpha = 0.6f),
-        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(if (selected) content.copy(alpha = 0.14f) else Color.Transparent)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+        fontSize = 15.sp,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        fillColor = if (selected) Color.White else Color.White.copy(alpha = 0.62f),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    )
+}
+
+@Composable
+private fun SectionPlaceholder(text: String) {
+    XoraSecondaryText(
+        text = text,
+        fontSize = 14.sp,
+        fillColor = Color.White.copy(alpha = 0.55f),
     )
 }
 
 @Composable
 private fun PresetThemesGrid(
     activeThemeId: String,
-    content: Color,
     onSelectTheme: (String) -> Unit,
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(GRID_COLUMNS),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
-    ) {
+    CustomizeGrid {
         itemsIndexed(
             items = ShellThemeCatalog.all,
             key = { _, theme -> theme.id.id },
@@ -263,7 +270,6 @@ private fun PresetThemesGrid(
             CustomizeGridCard(
                 name = theme.id.displayName,
                 selected = theme.id.id.equals(activeThemeId, ignoreCase = true),
-                content = content,
                 onClick = { onSelectTheme(theme.id.id) },
             ) {
                 ThemeSwatchPreview(theme)
@@ -288,19 +294,24 @@ private fun ThemeSwatchPreview(theme: ShellTheme) {
 @Composable
 private fun CustomThemesGrid(
     themes: List<CustomTheme>,
-    content: Color,
     onNewTheme: () -> Unit,
     onApply: (String) -> Unit,
     onDelete: (String) -> Unit,
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(GRID_COLUMNS),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
-    ) {
+    CustomizeGrid {
         item(key = "__new_custom_theme") {
-            NewCustomThemeCard(content = content, onClick = onNewTheme)
+            CustomizeGridCard(
+                name = "Save current as…",
+                selected = false,
+                onClick = onNewTheme,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.06f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    XoraSecondaryText(text = "+ New", fontSize = 15.sp)
+                }
+            }
         }
         itemsIndexed(
             items = themes,
@@ -310,13 +321,11 @@ private fun CustomThemesGrid(
             CustomizeGridCard(
                 name = theme.name,
                 selected = false,
-                content = content,
                 onClick = { if (confirmingDelete) confirmingDelete = false else onApply(theme.id) },
                 onLongClick = { confirmingDelete = true },
             ) {
                 if (confirmingDelete) {
                     DeleteConfirmOverlay(
-                        content = content,
                         onConfirm = { onDelete(theme.id) },
                         onCancel = { confirmingDelete = false },
                     )
@@ -324,7 +333,7 @@ private fun CustomThemesGrid(
                     ArtworkImage(
                         path = theme.wallpaperPath,
                         contentDescription = theme.name,
-                        fallbackText = theme.name.take(1).uppercase(),
+                        fallbackText = theme.name.take(1).uppercase(Locale.US),
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -334,66 +343,31 @@ private fun CustomThemesGrid(
 }
 
 @Composable
-private fun DeleteConfirmOverlay(content: Color, onConfirm: () -> Unit, onCancel: () -> Unit) {
+private fun DeleteConfirmOverlay(onConfirm: () -> Unit, onCancel: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.72f))
-            .padding(6.dp),
+        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.74f)).padding(6.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text = "Delete?", color = content, fontWeight = FontWeight.SemiBold)
+        XoraSecondaryText(text = "Delete?", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TextButton(onClick = onConfirm) { Text("Yes", color = content) }
-            TextButton(onClick = onCancel) { Text("No", color = content) }
+            TextButton(onClick = onConfirm) { Text("Yes", color = Color.White) }
+            TextButton(onClick = onCancel) { Text("No", color = Color.White) }
         }
     }
 }
 
 @Composable
-private fun NewCustomThemeCard(content: Color, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(10.dp)
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(4f / 3f)
-                .clip(shape)
-                .border(1.dp, content.copy(alpha = 0.35f), shape)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(text = "+ New", color = content, fontWeight = FontWeight.SemiBold)
-        }
-        Text(
-            text = "Save current as…",
-            color = content.copy(alpha = 0.6f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-    }
-}
-
-@Composable
-private fun BootAnimationsGrid(
+private fun BootAnimationGrid(
     selectedId: String,
-    content: Color,
     onSelect: (String) -> Unit,
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(GRID_COLUMNS),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
-    ) {
+    CustomizeGrid {
         item(key = DEFAULT_BOOT_ANIMATION_ID) {
             CustomizeGridCard(
                 name = "Default",
-                selected = selectedId.equals(DEFAULT_BOOT_ANIMATION_ID, ignoreCase = true) ||
-                    selectedId.isBlank(),
-                content = content,
+                selected = selectedId.isBlank() ||
+                    selectedId.equals(DEFAULT_BOOT_ANIMATION_ID, ignoreCase = true),
                 onClick = { onSelect(DEFAULT_BOOT_ANIMATION_ID) },
             ) {
                 ArtworkImage(
@@ -408,39 +382,55 @@ private fun BootAnimationsGrid(
 }
 
 @Composable
+private fun CustomizeGrid(content: LazyGridScope.() -> Unit) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(GRID_COLUMNS),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+        modifier = Modifier.fillMaxSize(),
+        content = content,
+    )
+}
+
+/**
+ * Square thumbnail in a light frame with a centred caption — the one card shape every
+ * Customize section uses.
+ */
+@Composable
 private fun CustomizeGridCard(
     name: String,
     selected: Boolean,
-    content: Color,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     preview: @Composable () -> Unit,
 ) {
-    val shape = RoundedCornerShape(10.dp)
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(4f / 3f)
-                .clip(shape)
-                .then(
-                    if (selected) {
-                        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
-                    } else {
-                        Modifier.border(1.dp, Color.White.copy(alpha = 0.12f), shape)
-                    },
+                .aspectRatio(1f)
+                .clip(ThumbShape)
+                .background(
+                    if (selected) Color(0xFF8ED6FF) else Color.White.copy(alpha = 0.92f),
+                    ThumbShape,
                 )
+                .padding(3.dp)
                 .combinedClickable(onLongClick = onLongClick, onClick = onClick),
         ) {
-            preview()
+            Box(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp))) {
+                preview()
+            }
         }
-        Text(
-            text = name + if (selected) " · Active" else "",
-            color = if (selected) content else content.copy(alpha = 0.75f),
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+        XoraSecondaryText(
+            text = name,
+            fontSize = 15.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            textAlign = TextAlign.Center,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
     }
 }
@@ -450,7 +440,6 @@ private fun CreateCustomThemeContent(
     hasCustomWallpaper: Boolean,
     customWallpaperLabel: String,
     hasCustomBgm: Boolean,
-    content: Color,
     onRequestWallpaper: () -> Unit,
     onClearWallpaper: () -> Unit,
     onRequestBgm: () -> Unit,
@@ -464,21 +453,18 @@ private fun CreateCustomThemeContent(
 ) {
     var name by remember { mutableStateOf("") }
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        SectionLabel("New custom theme", content)
-
-        SectionLabel("Wallpaper", content, topPad = true)
-        Text(
+        XoraSecondaryText(text = "Wallpaper", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        XoraSecondaryText(
             text = if (hasCustomWallpaper) {
                 "$customWallpaperLabel (still, GIF, or MP4)"
             } else {
                 "Theme backdrop (image / GIF / MP4)"
             },
-            color = Color.White.copy(alpha = 0.55f),
+            fontSize = 13.sp,
+            fillColor = Color.White.copy(alpha = 0.55f),
         )
         Button(onClick = { runCatching { onRequestWallpaper() } }, modifier = Modifier.fillMaxWidth()) {
             Text(text = "Choose wallpaper")
@@ -493,33 +479,40 @@ private fun CreateCustomThemeContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = { onNudgeWallpaper(-GAME_ART_ALIGN_STEP, 0f) }) {
-                Text("Left", color = content)
+                Text("Left", color = Color.White)
             }
             TextButton(onClick = { onNudgeWallpaper(0f, -GAME_ART_ALIGN_STEP) }) {
-                Text("Up", color = content)
+                Text("Up", color = Color.White)
             }
             TextButton(onClick = { onNudgeWallpaper(0f, GAME_ART_ALIGN_STEP) }) {
-                Text("Down", color = content)
+                Text("Down", color = Color.White)
             }
             TextButton(onClick = { onNudgeWallpaper(GAME_ART_ALIGN_STEP, 0f) }) {
-                Text("Right", color = content)
+                Text("Right", color = Color.White)
             }
             TextButton(onClick = onResetWallpaper) {
-                Text("Reset", color = content)
+                Text("Reset", color = Color.White)
             }
         }
         if (wallpaperAlignX != 0f || wallpaperAlignY != 0f) {
-            Text(
+            XoraSecondaryText(
                 text = "Offset ${"%.2f".format(Locale.US, wallpaperAlignX)}, " +
                     "${"%.2f".format(Locale.US, wallpaperAlignY)}",
-                color = Color.White.copy(alpha = 0.45f),
+                fontSize = 12.sp,
+                fillColor = Color.White.copy(alpha = 0.45f),
             )
         }
 
-        SectionLabel("Background music", content, topPad = true)
-        Text(
+        XoraSecondaryText(
+            text = "Background music",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        XoraSecondaryText(
             text = if (hasCustomBgm) "Custom track (MP3 / WAV)" else "Theme or default soundtrack",
-            color = Color.White.copy(alpha = 0.55f),
+            fontSize = 13.sp,
+            fillColor = Color.White.copy(alpha = 0.55f),
         )
         Button(onClick = { runCatching { onRequestBgm() } }, modifier = Modifier.fillMaxWidth()) {
             Text(text = "Choose BGM")
@@ -530,7 +523,12 @@ private fun CreateCustomThemeContent(
             }
         }
 
-        SectionLabel("Name this theme", content, topPad = true)
+        XoraSecondaryText(
+            text = "Name this theme",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 8.dp),
+        )
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
@@ -543,7 +541,7 @@ private fun CreateCustomThemeContent(
             modifier = Modifier.padding(top = 4.dp),
         ) {
             TextButton(onClick = onCancel) {
-                Text("Cancel", color = content)
+                Text("Cancel", color = Color.White)
             }
             Button(
                 onClick = { onSave(name.trim().ifBlank { "My theme" }) },
@@ -553,14 +551,4 @@ private fun CreateCustomThemeContent(
             }
         }
     }
-}
-
-@Composable
-private fun SectionLabel(text: String, content: Color, topPad: Boolean = false) {
-    Text(
-        text = text,
-        color = content,
-        fontWeight = FontWeight.Medium,
-        modifier = Modifier.padding(top = if (topPad) 8.dp else 0.dp),
-    )
 }
