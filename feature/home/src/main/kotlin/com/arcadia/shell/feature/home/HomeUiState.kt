@@ -170,6 +170,8 @@ data class HomeHubUiState(
     val customThemes: List<CustomTheme> = emptyList(),
     /** Selected boot animation id for Customize → Boot Animations. */
     val bootAnimationId: String = DEFAULT_BOOT_ANIMATION_ID,
+    /** Absolute path to the player's own boot clip, when they added one. */
+    val bootAnimationPath: String? = null,
     /** True while the add-shortcut chooser is open (always hosted on the Activity window). */
     val addShortcutOpen: Boolean = false,
     /** Non-null while choosing tile size after a pin type was selected. */
@@ -466,6 +468,9 @@ sealed interface HomeMediaPickerRequest {
 
     /** Optional second track for the Vita shortcut tray. */
     data object TrayBgm : HomeMediaPickerRequest
+
+    /** User-supplied cold-start clip for Customize -> Boot Animation. */
+    data object BootAnimation : HomeMediaPickerRequest
 
     /** Local profile picture from the Photos picker or the Files app. */
     data class ProfileAvatar(val source: PhotoImportSource) : HomeMediaPickerRequest

@@ -1,6 +1,15 @@
 package com.arcadia.shell.feature.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,10 +65,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arcadia.shell.datastore.CustomTheme
+import com.arcadia.shell.datastore.CUSTOM_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.DEFAULT_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.GAME_ART_ALIGN_STEP
 import com.arcadia.shell.designsystem.ShellTheme
 import com.arcadia.shell.designsystem.ShellThemeCatalog
+import com.arcadia.shell.designsystem.arcadiaBackdropBlur
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.feature.home.component.ArtworkImage
@@ -119,6 +130,7 @@ fun ThemesSheet(
     hasCustomBgm: Boolean,
     hasTrayBgm: Boolean,
     bootAnimationId: String,
+    bootAnimationPath: String?,
     onDismiss: () -> Unit,
     onSelectTheme: (String) -> Unit,
     onRequestWallpaper: () -> Unit,
@@ -131,6 +143,8 @@ fun ThemesSheet(
     onApplyCustomTheme: (String) -> Unit,
     onDeleteCustomTheme: (String) -> Unit,
     onSelectBootAnimation: (String) -> Unit,
+    onRequestBootAnimation: () -> Unit,
+    onClearBootAnimation: () -> Unit,
     navActions: Flow<NavAction>,
     wallpaperAlignX: Float = 0f,
     wallpaperAlignY: Float = 0f,
@@ -159,6 +173,9 @@ fun ThemesSheet(
         activeThemeId = activeThemeId,
         customThemes = customThemes,
         bootAnimationId = bootAnimationId,
+        bootAnimationPath = bootAnimationPath,
+        onRequestBootAnimation = onRequestBootAnimation,
+        onClearBootAnimation = onClearBootAnimation,
         pendingDeleteId = pendingDeleteId,
         onSelectTheme = onSelectTheme,
         onNewTheme = {
@@ -185,7 +202,20 @@ fun ThemesSheet(
     val safeItemIndex = itemIndex.coerceIn(0, (entries.size - 1).coerceAtLeast(0))
     val safeFormIndex = formRowIndex.coerceIn(0, (formRows.size - 1).coerceAtLeast(0))
 
-    BackHandler(onBack = { if (creatingCustomTheme) leaveForm() else onDismiss() })
+    // Exit has to finish before the parent drops the sheet, so dismissal is deferred until the
+    // transition settles rather than flipping the flag straight away.
+    val transition = remember { MutableTransitionState(false).apply { targetState = true } }
+    LaunchedEffect(transition.currentState, transition.targetState) {
+        if (!transition.targetState && !transition.currentState) onDismiss()
+    }
+    val requestDismiss = { transition.targetState = false }
+    val backdropBlur by animateDpAsState(
+        targetValue = if (transition.targetState) SHEET_BACKDROP_BLUR else 0.dp,
+        animationSpec = tween(SHEET_ENTER_MS, easing = FastOutSlowInEasing),
+        label = "customizeBackdropBlur",
+    )
+
+    BackHandler(onBack = { if (creatingCustomTheme) leaveForm() else requestDismiss() })
 
     // Collected once, so a held direction is never dropped while the tree recomposes around it.
     val onNav by rememberUpdatedState<(NavAction) -> Unit> { action ->
@@ -241,7 +271,7 @@ fun ThemesSheet(
                     pane = CustomizePane.Content
                     itemIndex = 0
                 }
-                NavAction.Cancel -> onDismiss()
+                NavAction.Cancel -> requestDismiss()
                 else -> Unit
             }
 
@@ -274,20 +304,33 @@ fun ThemesSheet(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.58f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-        )
+        AnimatedVisibility(
+            visibleState = transition,
+            enter = fadeIn(tween(SHEET_ENTER_MS)),
+            exit = fadeOut(tween(SHEET_EXIT_MS)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .arcadiaBackdropBlur(backdropBlur, SheetScrimColor)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = requestDismiss,
+                    ),
+            )
+        }
+        AnimatedVisibility(
+            visibleState = transition,
+            enter = fadeIn(tween(SHEET_ENTER_MS)) +
+                scaleIn(tween(SHEET_ENTER_MS, easing = FastOutSlowInEasing), initialScale = 0.92f),
+            exit = fadeOut(tween(SHEET_EXIT_MS)) +
+                scaleOut(tween(SHEET_EXIT_MS), targetScale = 0.94f),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier
-                .align(Alignment.Center)
                 .fillMaxWidth(0.92f)
                 .heightIn(max = 560.dp)
                 .clickable(
@@ -366,8 +409,15 @@ fun ThemesSheet(
                 }
             }
         }
+        }
     }
 }
+
+/** How the Customize and pin-picker sheets arrive and leave. */
+internal val SHEET_BACKDROP_BLUR = 16.dp
+internal const val SHEET_ENTER_MS = 220
+internal const val SHEET_EXIT_MS = 160
+internal val SheetScrimColor = Color.Black.copy(alpha = 0.42f)
 
 /** Dark glass plate with the thin light edge both panels share. */
 @Composable
@@ -446,6 +496,9 @@ private fun customizeEntries(
     activeThemeId: String,
     customThemes: List<CustomTheme>,
     bootAnimationId: String,
+    bootAnimationPath: String?,
+    onRequestBootAnimation: () -> Unit,
+    onClearBootAnimation: () -> Unit,
     pendingDeleteId: String?,
     onSelectTheme: (String) -> Unit,
     onNewTheme: () -> Unit,
@@ -512,22 +565,59 @@ private fun customizeEntries(
 
     CustomizeSection.CustomIcons -> emptyList()
 
-    CustomizeSection.BootAnimation -> listOf(
-        CustomizeEntry(
-            key = DEFAULT_BOOT_ANIMATION_ID,
-            name = "Default",
-            selected = bootAnimationId.isBlank() ||
-                bootAnimationId.equals(DEFAULT_BOOT_ANIMATION_ID, ignoreCase = true),
-            onActivate = { onSelectBootAnimation(DEFAULT_BOOT_ANIMATION_ID) },
-        ) {
-            ArtworkImage(
-                path = null,
-                contentDescription = "Default boot animation",
-                fallbackText = "B",
-                modifier = Modifier.fillMaxSize(),
+    CustomizeSection.BootAnimation -> buildList {
+        val usingCustom = bootAnimationPath != null &&
+            bootAnimationId.equals(CUSTOM_BOOT_ANIMATION_ID, ignoreCase = true)
+        add(
+            CustomizeEntry(
+                key = DEFAULT_BOOT_ANIMATION_ID,
+                name = "Default",
+                selected = !usingCustom,
+                onActivate = { onSelectBootAnimation(DEFAULT_BOOT_ANIMATION_ID) },
+            ) {
+                ArtworkImage(
+                    path = null,
+                    contentDescription = "Default boot animation",
+                    fallbackText = "B",
+                    modifier = Modifier.fillMaxSize(),
+                )
+            },
+        )
+        if (bootAnimationPath != null) {
+            add(
+                CustomizeEntry(
+                    key = CUSTOM_BOOT_ANIMATION_ID,
+                    name = bootAnimationPath.substringAfterLast('/'),
+                    selected = usingCustom,
+                    onActivate = { onSelectBootAnimation(CUSTOM_BOOT_ANIMATION_ID) },
+                    // Select / long-press removes it, the same gesture custom themes use.
+                    onSecondary = onClearBootAnimation,
+                ) {
+                    ArtworkImage(
+                        path = bootAnimationPath,
+                        contentDescription = "Your boot animation",
+                        fallbackText = "\u25B6",
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                },
             )
-        },
-    )
+        }
+        add(
+            CustomizeEntry(
+                key = "__add_boot_animation",
+                name = if (bootAnimationPath == null) "Add your own" else "Replace",
+                selected = false,
+                onActivate = onRequestBootAnimation,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.06f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    XoraSecondaryText(text = "+ Video", fontSize = 15.sp)
+                }
+            },
+        )
+    }
 }
 
 /** Wallpaper still when the theme ships one; a palette swatch for the procedural backdrops. */

@@ -29,6 +29,9 @@ class HomeThemeMediaStore @Inject constructor(
     private val folderDir: File
         get() = File(context.filesDir, FOLDER_DIR).also { it.mkdirs() }
 
+    private val bootDir: File
+        get() = File(context.filesDir, BOOT_DIR).also { it.mkdirs() }
+
     /**
      * Import still image, animated GIF, or looping video (mp4/webm) as Home wallpaper.
      */
@@ -58,6 +61,16 @@ class HomeThemeMediaStore @Inject constructor(
         imageOnly = false,
     )
 
+    /** User-supplied cold-start clip for Customize -> Boot Animation. */
+    suspend fun importBootAnimation(uri: Uri): String = importNamed(
+        uri = uri,
+        dir = bootDir,
+        stem = BOOT_STEM,
+        defaultExt = "mp4",
+        imageOnly = false,
+        wallpaperMedia = true,
+    )
+
     suspend fun importShortcutArt(uri: Uri, id: String): String = importNamed(
         uri = uri,
         dir = shortcutArtDir,
@@ -78,6 +91,8 @@ class HomeThemeMediaStore @Inject constructor(
 
     fun resolveBgm(absoluteOrRelative: String?): File? = resolve(absoluteOrRelative, bgmDir)
 
+    fun resolveBootAnimation(absoluteOrRelative: String?): File? = resolve(absoluteOrRelative, bootDir)
+
     fun resolveShortcutArt(absoluteOrRelative: String?): File? =
         resolve(absoluteOrRelative, shortcutArtDir)
 
@@ -92,6 +107,10 @@ class HomeThemeMediaStore @Inject constructor(
 
     fun clearTrayBgm() {
         deleteStem(bgmDir, TRAY_BGM_STEM)
+    }
+
+    fun clearBootAnimation() {
+        deleteStem(bootDir, BOOT_STEM)
     }
 
     private fun deleteStem(dir: File, stem: String) {
@@ -182,10 +201,12 @@ class HomeThemeMediaStore @Inject constructor(
         const val BGM_DIR = "home_bgm"
         const val SHORTCUT_ART_DIR = "home_shortcut_art"
         const val FOLDER_DIR = "home_folder"
+        const val BOOT_DIR = "home_boot"
         private const val WALLPAPER_STEM = "wallpaper"
         private const val BGM_STEM = "bgm"
         private const val TRAY_BGM_STEM = "bgm_tray"
         private const val FOLDER_STEM = "folder"
+        private const val BOOT_STEM = "boot"
         private val WALLPAPER_IMAGE_EXTS = setOf("jpg", "jpeg", "png", "webp", "gif")
         private val WALLPAPER_VIDEO_EXTS = setOf("mp4", "webm", "mkv", "mov")
     }

@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.arcadia.shell.datastore.CUSTOM_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.resolveDarkTheme
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.ArcadiaTheme
@@ -193,6 +194,11 @@ fun ArcadiaShell(
     ) { uri ->
         if (uri != null) homeViewModel.setVitaTrayBgm(uri)
     }
+    val bootAnimationPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) homeViewModel.setBootAnimation(uri)
+    }
     val profileAvatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -315,6 +321,7 @@ fun ArcadiaShell(
                     )
                     HomeMediaPickerRequest.Bgm -> bgmPicker.launch("audio/*")
                     HomeMediaPickerRequest.TrayBgm -> trayBgmPicker.launch("audio/*")
+                    HomeMediaPickerRequest.BootAnimation -> bootAnimationPicker.launch("video/*")
                     is HomeMediaPickerRequest.ProfileAvatar -> when (request.source) {
                         PhotoImportSource.PhotosApp -> profileAvatarPicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
@@ -774,6 +781,8 @@ fun ArcadiaShell(
                 BootIntroOverlay(
                     visible = state.bootIntroOpen && !shellState.showOnboarding,
                     skip = state.bootIntroSkip,
+                    customClipPath = state.homeHub.bootAnimationPath
+                        ?.takeIf { state.homeHub.bootAnimationId == CUSTOM_BOOT_ANIMATION_ID },
                     onRevealHome = homeViewModel::revealHomeAfterBoot,
                     onFinished = homeViewModel::dismissBootIntro,
                     modifier = Modifier.fillMaxSize(),
@@ -1289,6 +1298,7 @@ private fun ThemesCustomizeOverlay(
             hasCustomBgm = !state.homeHub.customBgmPath.isNullOrBlank(),
             hasTrayBgm = !state.homeHub.vitaTrayBgmPath.isNullOrBlank(),
             bootAnimationId = state.homeHub.bootAnimationId,
+            bootAnimationPath = state.homeHub.bootAnimationPath,
             initialSection = state.homeHub.themesSheetTab,
             onDismiss = homeViewModel::dismissThemesSheet,
             onSelectTheme = homeViewModel::selectShellTheme,
@@ -1302,6 +1312,8 @@ private fun ThemesCustomizeOverlay(
             onApplyCustomTheme = homeViewModel::applyCustomTheme,
             onDeleteCustomTheme = homeViewModel::deleteCustomTheme,
             onSelectBootAnimation = homeViewModel::selectBootAnimation,
+            onRequestBootAnimation = homeViewModel::requestBootAnimationPicker,
+            onClearBootAnimation = homeViewModel::clearBootAnimation,
             navActions = homeViewModel.customizeNavActionFlow,
             wallpaperAlignX = state.homeHub.wallpaperAlignX,
             wallpaperAlignY = state.homeHub.wallpaperAlignY,

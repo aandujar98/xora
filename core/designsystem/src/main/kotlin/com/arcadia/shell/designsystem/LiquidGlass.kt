@@ -211,6 +211,34 @@ fun Modifier.arcadiaHazeSource(zIndex: Float = 0f): Modifier = composed {
 }
 
 /**
+ * Full-bleed backdrop blur for a modal's scrim — the shell behind a sheet going soft, with no
+ * plate chrome (no rim, no sheen) because the scrim is not a surface, it is the room dimming.
+ *
+ * Falls back to [tint] alone where no [LocalArcadiaHaze] source is registered (a pane that never
+ * marked a backdrop, or a display the haze state does not cover), which still reads correctly —
+ * just without the blur.
+ */
+fun Modifier.arcadiaBackdropBlur(
+    blurRadius: Dp,
+    tint: Color,
+): Modifier = composed {
+    val hazeState = LocalArcadiaHaze.current
+    if (hazeState == null || blurRadius <= 0.dp) {
+        return@composed this.background(tint)
+    }
+    val style = remember(blurRadius, tint) {
+        HazeStyle(
+            backgroundColor = Color.Unspecified,
+            tints = listOf(HazeTint(tint)),
+            blurRadius = blurRadius,
+            noiseFactor = 0f,
+            fallbackTint = HazeTint(tint),
+        )
+    }
+    hazeEffect(state = hazeState, style = style)
+}
+
+/**
  * Clear liquid-glass plate: backdrop blur (via Haze when sourced), near-clear neutral fill,
  * white specular rim, soft top highlight. No brand-color wash.
  *

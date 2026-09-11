@@ -1490,6 +1490,16 @@ class ShellPreferences @Inject constructor(
         edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(current.filterNot { theme -> theme.id == id }) }
     }
 
+    /** Absolute path to a user-supplied boot clip; null means only the bundled one exists. */
+    val bootAnimationPath: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[Keys.BOOT_ANIMATION_PATH]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setBootAnimationPath(path: String?) = edit {
+        if (path.isNullOrBlank()) it.remove(Keys.BOOT_ANIMATION_PATH)
+        else it[Keys.BOOT_ANIMATION_PATH] = path
+    }
+
     suspend fun setBootAnimationId(id: String) = edit {
         it[Keys.BOOT_ANIMATION_ID] = id.trim().ifBlank { DEFAULT_BOOT_ANIMATION_ID }
     }
@@ -1588,6 +1598,7 @@ class ShellPreferences @Inject constructor(
         val CIRCLE_PINS = stringPreferencesKey("circle_pins")
         val CUSTOM_THEMES = stringPreferencesKey("custom_themes")
         val BOOT_ANIMATION_ID = stringPreferencesKey("boot_animation_id")
+        val BOOT_ANIMATION_PATH = stringPreferencesKey("boot_animation_path")
         /** JSON array of MediaStore photo ids favourited in the Photo Viewer. */
         val FAVORITE_PHOTO_IDS = stringPreferencesKey("favorite_photo_ids")
         val HIDDEN_GAME_IDS = stringPreferencesKey("hidden_game_ids")
@@ -1984,6 +1995,9 @@ const val DEFAULT_SHELL_THEME_ID = "default"
 
 /** The bundled boot clip — the only option today, but a stable id for when more are added. */
 const val DEFAULT_BOOT_ANIMATION_ID = "default"
+
+/** [ShellPreferences.bootAnimationId] when the player's own clip is selected. */
+const val CUSTOM_BOOT_ANIMATION_ID = "custom"
 
 /** Default shell text size — slightly under 1× so XMB titles stay compact. */
 const val DEFAULT_UI_TEXT_SCALE = 0.85f

@@ -19,6 +19,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -826,11 +831,16 @@ fun HomePageContent(
                         },
                     )
                     val pinPicker = state.homeHub.shortcutPicker
-                    if (pinPicker != null) {
+                    // Keep the last picker so the sheet can animate out after the state clears.
+                    var lastPinPicker by remember { mutableStateOf(pinPicker) }
+                    SideEffect { if (pinPicker != null) lastPinPicker = pinPicker }
+                    val shownPinPicker = pinPicker ?: lastPinPicker
+                    if (shownPinPicker != null) {
                         // Vita bubbles use the platform / ROM browser; the type chooser below is
                         // still the Home board's path, which also pins pictures and GIFs.
                         ShortcutPinPickerSheet(
-                            picker = pinPicker,
+                            picker = shownPinPicker,
+                            visible = pinPicker != null,
                             onDismiss = onDismissShortcutPinPicker,
                             onSelectPlatform = onSelectShortcutPickerPlatform,
                             onSelectItem = onSelectShortcutPickerItem,
@@ -838,7 +848,8 @@ fun HomePageContent(
                             onQueryChange = onShortcutPickerQueryChange,
                             onFocusPane = onFocusShortcutPickerPane,
                         )
-                    } else if (state.homeHub.addShortcutOpen) {
+                    }
+                    if (pinPicker == null && state.homeHub.addShortcutOpen) {
                         AddShortcutSheet(
                             picker = state.homeHub.shortcutTargetPicker,
                             pendingKind = state.homeHub.pendingShortcutKind,

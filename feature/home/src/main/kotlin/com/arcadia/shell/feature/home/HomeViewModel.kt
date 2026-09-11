@@ -17,6 +17,7 @@ import com.arcadia.shell.datastore.CIRCLE_FRIEND_LIMIT
 import com.arcadia.shell.datastore.CirclePin
 import com.arcadia.shell.datastore.CirclePinSource
 import com.arcadia.shell.datastore.CustomTheme
+import com.arcadia.shell.datastore.CUSTOM_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.DEFAULT_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
@@ -936,7 +937,11 @@ class HomeViewModel @Inject constructor(
             preferences.customThemes,
             preferences.bootAnimationId,
             preferences.settings.map { it.vitaTrayBgmPath }.distinctUntilChanged(),
-            preferences.settings.map { it.xmbParticlesEnabled }.distinctUntilChanged(),
+            combine(
+                preferences.settings.map { it.xmbParticlesEnabled }.distinctUntilChanged(),
+                preferences.bootAnimationPath,
+                ::Pair,
+            ),
             ::CustomizeChrome,
         ),
     ) { chrome, custom ->
@@ -944,7 +949,8 @@ class HomeViewModel @Inject constructor(
             customThemes = custom.customThemes,
             bootAnimationId = custom.bootAnimationId,
             vitaTrayBgmPath = custom.vitaTrayBgmPath,
-            particlesEnabled = custom.particlesEnabled,
+            particlesEnabled = custom.particles.first,
+            bootAnimationPath = custom.particles.second,
         )
     }
 
@@ -953,7 +959,8 @@ class HomeViewModel @Inject constructor(
         val customThemes: List<CustomTheme>,
         val bootAnimationId: String,
         val vitaTrayBgmPath: String?,
-        val particlesEnabled: Boolean,
+        /** Particles-on plus the custom boot clip path, paired to stay inside combine's arity. */
+        val particles: Pair<Boolean, String?>,
     )
 
     private data class HomeThemeChrome(
@@ -975,6 +982,7 @@ class HomeViewModel @Inject constructor(
         val bootAnimationId: String = DEFAULT_BOOT_ANIMATION_ID,
         val vitaTrayBgmPath: String? = null,
         val particlesEnabled: Boolean = true,
+        val bootAnimationPath: String? = null,
     )
 
     private data class OverlayChrome(
@@ -2551,6 +2559,7 @@ class HomeViewModel @Inject constructor(
                 themesSheetTab = theme.themesSheetTab,
                 customThemes = theme.customThemes,
                 bootAnimationId = theme.bootAnimationId,
+                bootAnimationPath = theme.bootAnimationPath,
                 addShortcutOpen = theme.addShortcutOpen,
                 shortcutPicker = theme.shortcutPicker,
                 pendingShortcutKind = theme.pendingShortcutKind,
@@ -6003,6 +6012,13 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun requestBootAnimationPicker() {
+        noteUserActivity()
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.BootAnimation) }
+        }
+    }
+
     fun requestProfileAvatarPicker(source: PhotoImportSource) {
         noteUserActivity()
         viewModelScope.launch {
@@ -6355,6 +6371,28 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             themeMediaStore.clearTrayBgm()
             preferences.setVitaTrayBgmPath(null)
+        }
+    }
+
+    fun setBootAnimation(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = themeMediaStore.importBootAnimation(uri)
+                preferences.setBootAnimationPath(path)
+                // Adding a clip is the act of choosing it; nobody uploads one to leave it off.
+                preferences.setBootAnimationId(CUSTOM_BOOT_ANIMATION_ID)
+                emit(HomeEvent.ShowMessage("Boot animation set"))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import that clip."))
+            }
+        }
+    }
+
+    fun clearBootAnimation() {
+        viewModelScope.launch {
+            themeMediaStore.clearBootAnimation()
+            preferences.setBootAnimationPath(null)
+            preferences.setBootAnimationId(DEFAULT_BOOT_ANIMATION_ID)
         }
     }
 

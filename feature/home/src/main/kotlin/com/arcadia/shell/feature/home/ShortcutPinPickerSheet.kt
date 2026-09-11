@@ -1,6 +1,15 @@
 package com.arcadia.shell.feature.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.arcadia.shell.designsystem.arcadiaBackdropBlur
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.feature.home.component.ArtworkImage
@@ -68,6 +78,8 @@ private val FocusRingColor = Color(0xFF8ED6FF)
 @Composable
 fun ShortcutPinPickerSheet(
     picker: ShortcutPickerUiState,
+    /** Drives the exit animation; the parent keeps the sheet composed until it finishes. */
+    visible: Boolean,
     onDismiss: () -> Unit,
     onSelectPlatform: (Int) -> Unit,
     onSelectItem: (Int) -> Unit,
@@ -77,6 +89,13 @@ fun ShortcutPinPickerSheet(
 ) {
     val gridState = rememberLazyGridState()
     val searchFocus = remember { FocusRequester() }
+    val transition = remember { MutableTransitionState(false) }
+    transition.targetState = visible
+    val backdropBlur by animateDpAsState(
+        targetValue = if (visible) SHEET_BACKDROP_BLUR else 0.dp,
+        animationSpec = tween(SHEET_ENTER_MS, easing = FastOutSlowInEasing),
+        label = "pinPickerBackdropBlur",
+    )
 
     BackHandler(onBack = onDismiss)
 
@@ -93,20 +112,33 @@ fun ShortcutPinPickerSheet(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.58f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-        )
+        AnimatedVisibility(
+            visibleState = transition,
+            enter = fadeIn(tween(SHEET_ENTER_MS)),
+            exit = fadeOut(tween(SHEET_EXIT_MS)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .arcadiaBackdropBlur(backdropBlur, SheetScrimColor)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss,
+                    ),
+            )
+        }
+        AnimatedVisibility(
+            visibleState = transition,
+            enter = fadeIn(tween(SHEET_ENTER_MS)) +
+                scaleIn(tween(SHEET_ENTER_MS, easing = FastOutSlowInEasing), initialScale = 0.92f),
+            exit = fadeOut(tween(SHEET_EXIT_MS)) +
+                scaleOut(tween(SHEET_EXIT_MS), targetScale = 0.94f),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier
-                .align(Alignment.Center)
                 .fillMaxWidth(0.92f)
                 .heightIn(max = 560.dp)
                 .clickable(
@@ -213,6 +245,7 @@ fun ShortcutPinPickerSheet(
                     }
                 }
             }
+        }
         }
     }
 }
