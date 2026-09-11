@@ -296,7 +296,7 @@ fun XoraHomeXmbPane(
                     .graphicsLayer { alpha = recedeAlpha },
             )
 
-            if (!fullTrailer) {
+            if (!fullTrailer && state.homeHub.particlesEnabled) {
                 // PS5-style ambient dust between the wallpaper and the menu chrome.
                 XmbParticleFieldLayer(
                     modifier = Modifier
@@ -642,7 +642,7 @@ fun XoraXmbHeroDetail(
                     .then(backdropMotion)
                     .graphicsLayer { alpha = recedeAlpha },
             )
-            if (!fullTrailer) {
+            if (!fullTrailer && state.homeHub.particlesEnabled) {
                 XmbParticleFieldLayer(
                     modifier = Modifier
                         .fillMaxSize()

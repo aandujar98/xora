@@ -345,6 +345,8 @@ data class ShellSettings(
      * wave Multiply mask as the backdrop.
      */
     val musicCategoryArtBackdrop: Boolean = true,
+    /** When true, ambient particles drift over the XMB wallpaper. */
+    val xmbParticlesEnabled: Boolean = true,
 )
 
 /**
@@ -537,6 +539,7 @@ class ShellPreferences @Inject constructor(
                 ?.let { name -> runCatching { VisualPerformanceMode.valueOf(name) }.getOrNull() }
                 ?: VisualPerformanceMode.Auto,
             musicCategoryArtBackdrop = prefs[Keys.MUSIC_CATEGORY_ART_BACKDROP] ?: true,
+            xmbParticlesEnabled = prefs[Keys.XMB_PARTICLES_ENABLED] ?: true,
         )
     }
 
@@ -900,6 +903,10 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setGameIconIdleMedia(media: GameIconIdleMedia) = edit {
         it[Keys.GAME_ICON_IDLE_MEDIA] = media.name
+    }
+
+    suspend fun setXmbParticlesEnabled(enabled: Boolean) = edit {
+        it[Keys.XMB_PARTICLES_ENABLED] = enabled
     }
 
     suspend fun setMusicCategoryArtBackdrop(enabled: Boolean) = edit {
@@ -1589,6 +1596,7 @@ class ShellPreferences @Inject constructor(
         val SHOW_HIDDEN_GAMES = booleanPreferencesKey("show_hidden_games")
         val VISUAL_PERFORMANCE_MODE = stringPreferencesKey("visual_performance_mode")
         val MUSIC_CATEGORY_ART_BACKDROP = booleanPreferencesKey("music_category_art_backdrop")
+        val XMB_PARTICLES_ENABLED = booleanPreferencesKey("xmb_particles_enabled")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
         val WALLPAPER_ALIGN_X = floatPreferencesKey("wallpaper_align_x")
         val WALLPAPER_ALIGN_Y = floatPreferencesKey("wallpaper_align_y")

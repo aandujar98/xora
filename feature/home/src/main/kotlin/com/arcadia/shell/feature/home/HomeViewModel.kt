@@ -308,6 +308,12 @@ class HomeViewModel @Inject constructor(
     private val themesOpen = MutableStateFlow(false)
     /** Which Themes sheet tab to show when [themesOpen] becomes true. */
     private val themesSheetTab = MutableStateFlow(CustomizeSection.PresetThemes)
+    /**
+     * Stick / face buttons forwarded to the Customize window while it owns the screen.
+     * CONFLATED would drop a second press in the same frame; BUFFERED keeps held-direction
+     * repeats in order.
+     */
+    private val customizeNavActions = Channel<NavAction>(Channel.BUFFERED)
     private val addShortcutOpen = MutableStateFlow(false)
     private val pendingShortcutKind = MutableStateFlow<PendingShortcutKind?>(null)
     private val pendingShortcutSpan = MutableStateFlow(ShortcutSpan.Default)
@@ -315,6 +321,9 @@ class HomeViewModel @Inject constructor(
     private val mediaPickerRequests = Channel<HomeMediaPickerRequest>(Channel.BUFFERED)
     /** Observed from the primary Activity composition only — never under a Presentation. */
     val mediaPickerRequestFlow: Flow<HomeMediaPickerRequest> = mediaPickerRequests.receiveAsFlow()
+
+    /** D-pad / face buttons for the Customize window, which drives its own focus. */
+    val customizeNavActionFlow: Flow<NavAction> = customizeNavActions.receiveAsFlow()
 
     /** Bumps when ROM options should re-scan on-disk saves. */
     private val romSaveRefresh = MutableStateFlow(0)
@@ -905,15 +914,25 @@ class HomeViewModel @Inject constructor(
             preferences.customThemes,
             preferences.bootAnimationId,
             preferences.settings.map { it.vitaTrayBgmPath }.distinctUntilChanged(),
-            ::Triple,
+            preferences.settings.map { it.xmbParticlesEnabled }.distinctUntilChanged(),
+            ::CustomizeChrome,
         ),
     ) { chrome, custom ->
         chrome.copy(
-            customThemes = custom.first,
-            bootAnimationId = custom.second,
-            vitaTrayBgmPath = custom.third,
+            customThemes = custom.customThemes,
+            bootAnimationId = custom.bootAnimationId,
+            vitaTrayBgmPath = custom.vitaTrayBgmPath,
+            particlesEnabled = custom.particlesEnabled,
         )
     }
+
+    /** Customize-owned preferences, grouped so [homeThemeFlow] stays inside combine's arity. */
+    private data class CustomizeChrome(
+        val customThemes: List<CustomTheme>,
+        val bootAnimationId: String,
+        val vitaTrayBgmPath: String?,
+        val particlesEnabled: Boolean,
+    )
 
     private data class HomeThemeChrome(
         val wallpaperPath: String?,
@@ -932,6 +951,7 @@ class HomeViewModel @Inject constructor(
         val customThemes: List<CustomTheme> = emptyList(),
         val bootAnimationId: String = DEFAULT_BOOT_ANIMATION_ID,
         val vitaTrayBgmPath: String? = null,
+        val particlesEnabled: Boolean = true,
     )
 
     private data class OverlayChrome(
@@ -2484,6 +2504,7 @@ class HomeViewModel @Inject constructor(
                 wallpaperAlignY = theme.wallpaperAlignY,
                 customBgmPath = theme.customBgmPath,
                 vitaTrayBgmPath = theme.vitaTrayBgmPath,
+                particlesEnabled = theme.particlesEnabled,
                 continueGame = continueGame,
                 themesOpen = theme.themesOpen,
                 themesSheetTab = theme.themesSheetTab,
@@ -3106,9 +3127,15 @@ class HomeViewModel @Inject constructor(
             return
         }
 
-        // Themes customize sheet: B (and Start) close the window. Do not jump to Settings.
+        // Customize sheet: the window owns the stick and the face buttons while it is up — it
+        // knows its own focus, item counts and whether the create-theme form is showing, so it
+        // decides what B means. Start is the one hard escape kept here.
         if (state.homeHub.themesOpen) {
-            if (action == NavAction.Cancel || action == NavAction.Menu) dismissThemesSheet()
+            if (action == NavAction.Menu) {
+                dismissThemesSheet()
+            } else {
+                customizeNavActions.trySend(action)
+            }
             return
         }
 
@@ -7441,6 +7468,14 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         collapseHeroPanels()
         if (guideOpen.value) closeGuide()
+        // Customize is a sheet, not a row list. Every route in — the Settings category list, the
+        // XMB Settings column, the Options button — opens it directly rather than parking the
+        // player on a one-row page whose only entry is the sheet.
+        if (category == StartSettingsCategory.Themes) {
+            closeStartSettings()
+            openThemesSheet(CustomizeSection.PresetThemes)
+            return
+        }
         if (category != null) {
             startSettingsCategory.value = category
             startSettingsInCategory.value = true
@@ -7591,6 +7626,10 @@ class HomeViewModel @Inject constructor(
                 }
                 preferences.setGameIconIdleMedia(next)
             }
+            StartSettingsAction.ToggleXmbParticles -> viewModelScope.launch {
+                val current = preferences.settings.first().xmbParticlesEnabled
+                preferences.setXmbParticlesEnabled(!current)
+            }
             StartSettingsAction.ToggleMusicCategoryArt -> viewModelScope.launch {
                 val current = preferences.settings.first().musicCategoryArtBackdrop
                 preferences.setMusicCategoryArtBackdrop(!current)
@@ -7628,8 +7667,7 @@ class HomeViewModel @Inject constructor(
             is StartSettingsAction.OpenCategory -> if (
                 action.category == StartSettingsCategory.Themes
             ) {
-                closeStartSettings()
-                openThemesSheet(CustomizeSection.PresetThemes)
+                openStartSettings(StartSettingsCategory.Themes)
             } else {
                 selectStartSettingsCategory(action.category)
             }

@@ -69,6 +69,8 @@ sealed interface StartSettingsAction {
     data object CycleTrailerDisplay : StartSettingsAction
     data object CycleGameIconIdleMedia : StartSettingsAction
     data object ToggleMusicCategoryArt : StartSettingsAction
+
+    data object ToggleXmbParticles : StartSettingsAction
     data object CycleThemeMode : StartSettingsAction
     data object OpenVisualPerformance : StartSettingsAction
     data class SelectVisualPerformance(val mode: VisualPerformanceMode) : StartSettingsAction
@@ -250,6 +252,17 @@ fun buildStartSettingsRows(
             checked = settings.musicCategoryArtBackdrop,
             action = StartSettingsAction.ToggleMusicCategoryArt,
         ),
+        StartSettingsRow.Toggle(
+            id = "xmb_particles",
+            title = "Particle effects",
+            subtitle = if (settings.xmbParticlesEnabled) {
+                "On · ambient particles drift over the wallpaper"
+            } else {
+                "Off · plain wallpaper"
+            },
+            checked = settings.xmbParticlesEnabled,
+            action = StartSettingsAction.ToggleXmbParticles,
+        ),
         StartSettingsRow.Action(
             id = "visual_performance",
             title = "Performance",
@@ -290,6 +303,8 @@ fun buildStartSettingsRows(
         ),
     )
 
+    // Unreachable in normal use: every route to Customize opens the sheet instead of this page.
+    // Kept so the category `when` stays exhaustive and nothing dead-ends if a new caller appears.
     StartSettingsCategory.Themes -> listOf(
         StartSettingsRow.Action(
             id = "open_customize",

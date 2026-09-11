@@ -3,6 +3,7 @@ package com.arcadia.shell.feature.home.component
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import com.arcadia.shell.designsystem.LocalLiteVisuals
 import com.arcadia.shell.feature.home.LoopingWallpaperVideo
@@ -36,6 +37,18 @@ fun XmbParticleFieldLayer(
     }
     LoopingWallpaperVideo(
         uri = XMB_PARTICLE_URI,
-        modifier = modifier.graphicsLayer { blendMode = BlendMode.Screen },
+        speed = XMB_PARTICLE_SPEED,
+        modifier = modifier.graphicsLayer {
+            alpha = XMB_PARTICLE_ALPHA
+            blendMode = BlendMode.Screen
+            // Alpha must modulate the matte *before* it blends, not after.
+            compositingStrategy = CompositingStrategy.Offscreen
+        },
     )
 }
+
+/** Half strength — the matte at full brightness reads as weather, not ambience. */
+private const val XMB_PARTICLE_ALPHA = 0.5f
+
+/** Slower than the source render so the drift sits behind the menu rather than pulling focus. */
+private const val XMB_PARTICLE_SPEED = 0.75f

@@ -320,7 +320,7 @@ fun buildXoraCategoryItems(
         ),
         XoraXmbItem(
             id = "set_themes",
-            title = "Themes",
+            title = "Customize",
             subtitle = "Presets, wallpaper & BGM",
             action = XoraXmbAction.OpenSettingsCategory(StartSettingsCategory.Themes),
             icon = XmbIcon.Themes,

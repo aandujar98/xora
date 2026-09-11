@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,9 +22,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -33,13 +34,19 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -56,7 +63,9 @@ import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.feature.home.component.ArtworkImage
+import com.arcadia.shell.input.NavAction
 import java.util.Locale
+import kotlinx.coroutines.flow.Flow
 
 /** Narrow left-nav sections of the Customize window. */
 enum class CustomizeSection(val label: String) {
@@ -69,11 +78,34 @@ enum class CustomizeSection(val label: String) {
 private const val GRID_COLUMNS = 3
 private val PanelShape = RoundedCornerShape(20.dp)
 private val ThumbShape = RoundedCornerShape(8.dp)
+private val FocusRingColor = Color(0xFF8ED6FF)
+
+/** Which half of the window has the stick. */
+private enum class CustomizePane { Nav, Content }
+
+/**
+ * One selectable card in a section grid. Building these up front means the grid render and the
+ * controller focus model read from the same list, so they can never disagree about what is at
+ * index N.
+ */
+private class CustomizeEntry(
+    val key: String,
+    val name: String,
+    val selected: Boolean,
+    val onActivate: () -> Unit,
+    /** Select / long-press: the card's secondary action, currently only delete. */
+    val onSecondary: (() -> Unit)? = null,
+    val preview: @Composable () -> Unit,
+)
 
 /**
  * Customize window: two panels — a narrow section list on the left, the selected section's
  * contents on the right. Every section lays its options out the same way, as a grid of framed
  * preview + name cards.
+ *
+ * Fully controller-driven: the window owns the stick while it is up (see
+ * [HomeViewModel.customizeNavActionFlow]) rather than relying on Compose focus traversal, which
+ * cannot see across the two panels or into the create-theme form.
  *
  * Hosted only on the primary Activity window (same rule as Start settings). Wallpaper / BGM
  * pickers are requested by the parent; Activity Result launchers live in the Activity-rooted shell.
@@ -99,6 +131,7 @@ fun ThemesSheet(
     onApplyCustomTheme: (String) -> Unit,
     onDeleteCustomTheme: (String) -> Unit,
     onSelectBootAnimation: (String) -> Unit,
+    navActions: Flow<NavAction>,
     wallpaperAlignX: Float = 0f,
     wallpaperAlignY: Float = 0f,
     onNudgeWallpaper: (Float, Float) -> Unit = { _, _ -> },
@@ -107,7 +140,138 @@ fun ThemesSheet(
 ) {
     var section by remember(initialSection) { mutableStateOf(initialSection) }
     var creatingCustomTheme by remember { mutableStateOf(false) }
-    BackHandler(onBack = { if (creatingCustomTheme) creatingCustomTheme = false else onDismiss() })
+    var pane by remember { mutableStateOf(CustomizePane.Nav) }
+    var itemIndex by remember { mutableIntStateOf(0) }
+    var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+    var formRowIndex by remember { mutableIntStateOf(0) }
+    var themeName by remember { mutableStateOf("") }
+    val gridState = rememberLazyGridState()
+    val nameFocus = remember { FocusRequester() }
+
+    fun leaveForm() {
+        creatingCustomTheme = false
+        formRowIndex = 0
+        pane = CustomizePane.Content
+    }
+
+    val entries = customizeEntries(
+        section = section,
+        activeThemeId = activeThemeId,
+        customThemes = customThemes,
+        bootAnimationId = bootAnimationId,
+        pendingDeleteId = pendingDeleteId,
+        onSelectTheme = onSelectTheme,
+        onNewTheme = {
+            creatingCustomTheme = true
+            formRowIndex = 0
+        },
+        onApplyCustomTheme = onApplyCustomTheme,
+        onDeleteCustomTheme = {
+            onDeleteCustomTheme(it)
+            pendingDeleteId = null
+        },
+        onRequestDelete = { pendingDeleteId = it },
+        onCancelDelete = { pendingDeleteId = null },
+        onSelectBootAnimation = onSelectBootAnimation,
+    )
+
+    val formRows = createFormRows(
+        hasCustomWallpaper = hasCustomWallpaper,
+        hasCustomBgm = hasCustomBgm,
+        hasTrayBgm = hasTrayBgm,
+    )
+
+    // Keep focus inside the list as sections change size under it (a theme was just deleted).
+    val safeItemIndex = itemIndex.coerceIn(0, (entries.size - 1).coerceAtLeast(0))
+    val safeFormIndex = formRowIndex.coerceIn(0, (formRows.size - 1).coerceAtLeast(0))
+
+    BackHandler(onBack = { if (creatingCustomTheme) leaveForm() else onDismiss() })
+
+    // Collected once, so a held direction is never dropped while the tree recomposes around it.
+    val onNav by rememberUpdatedState<(NavAction) -> Unit> { action ->
+        when {
+            creatingCustomTheme -> when (action) {
+                NavAction.Up -> formRowIndex =
+                    (safeFormIndex - 1).coerceAtLeast(0)
+                NavAction.Down -> formRowIndex =
+                    (safeFormIndex + 1).coerceAtMost(formRows.size - 1)
+                NavAction.Left -> formRows.getOrNull(safeFormIndex)?.onLeft?.invoke()
+                NavAction.Right -> formRows.getOrNull(safeFormIndex)?.onRight?.invoke()
+                NavAction.Confirm -> when (val row = formRows.getOrNull(safeFormIndex)?.kind) {
+                    CreateFormKind.Wallpaper -> onRequestWallpaper()
+                    CreateFormKind.ClearWallpaper -> onClearWallpaper()
+                    CreateFormKind.Bgm -> onRequestBgm()
+                    CreateFormKind.ClearBgm -> onClearBgm()
+                    CreateFormKind.TrayBgm -> onRequestTrayBgm()
+                    CreateFormKind.ClearTrayBgm -> onClearTrayBgm()
+                    CreateFormKind.Name -> runCatching { nameFocus.requestFocus() }
+                    CreateFormKind.Save -> {
+                        onSaveCustomTheme(themeName.trim().ifBlank { "My theme" })
+                        themeName = ""
+                        leaveForm()
+                    }
+                    CreateFormKind.Align, null -> Unit
+                }
+                NavAction.Cancel -> leaveForm()
+                else -> Unit
+            }
+
+            pendingDeleteId != null -> when (action) {
+                NavAction.Confirm -> {
+                    pendingDeleteId?.let(onDeleteCustomTheme)
+                    pendingDeleteId = null
+                }
+                NavAction.Cancel -> pendingDeleteId = null
+                else -> Unit
+            }
+
+            pane == CustomizePane.Nav -> when (action) {
+                NavAction.Up -> {
+                    val next = (section.ordinal - 1).coerceAtLeast(0)
+                    section = CustomizeSection.entries[next]
+                    itemIndex = 0
+                }
+                NavAction.Down -> {
+                    val next = (section.ordinal + 1)
+                        .coerceAtMost(CustomizeSection.entries.size - 1)
+                    section = CustomizeSection.entries[next]
+                    itemIndex = 0
+                }
+                NavAction.Right, NavAction.Confirm -> if (entries.isNotEmpty()) {
+                    pane = CustomizePane.Content
+                    itemIndex = 0
+                }
+                NavAction.Cancel -> onDismiss()
+                else -> Unit
+            }
+
+            else -> when (action) {
+                NavAction.Left -> if (safeItemIndex % GRID_COLUMNS == 0) {
+                    pane = CustomizePane.Nav
+                } else {
+                    itemIndex = safeItemIndex - 1
+                }
+                NavAction.Right -> itemIndex =
+                    (safeItemIndex + 1).coerceAtMost(entries.size - 1)
+                NavAction.Up -> {
+                    val next = safeItemIndex - GRID_COLUMNS
+                    if (next < 0) pane = CustomizePane.Nav else itemIndex = next
+                }
+                NavAction.Down -> itemIndex =
+                    (safeItemIndex + GRID_COLUMNS).coerceAtMost(entries.size - 1)
+                NavAction.Confirm -> entries.getOrNull(safeItemIndex)?.onActivate?.invoke()
+                NavAction.ScrapeMenu -> entries.getOrNull(safeItemIndex)?.onSecondary?.invoke()
+                NavAction.Cancel -> pane = CustomizePane.Nav
+                else -> Unit
+            }
+        }
+    }
+    LaunchedEffect(Unit) { navActions.collect { onNav(it) } }
+
+    // Follow the focused card without snapping the grid to the top on every sideways step.
+    LaunchedEffect(safeItemIndex, pane, section) {
+        if (pane == CustomizePane.Content) gridState.scrollItemIntoView(safeItemIndex)
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
@@ -142,9 +306,12 @@ fun ThemesSheet(
                         CustomizeNavRow(
                             label = entry.label,
                             selected = entry == section,
+                            focused = entry == section && pane == CustomizePane.Nav,
                             onClick = {
                                 section = entry
                                 creatingCustomTheme = false
+                                itemIndex = 0
+                                pane = CustomizePane.Nav
                             },
                         )
                     }
@@ -154,45 +321,46 @@ fun ThemesSheet(
             CustomizePanel(modifier = Modifier.weight(1f).fillMaxHeight()) {
                 PanelHeader(section.label)
                 Box(modifier = Modifier.fillMaxSize().padding(top = 18.dp)) {
-                    when (section) {
-                        CustomizeSection.PresetThemes -> PresetThemesGrid(
-                            activeThemeId = activeThemeId,
-                            onSelectTheme = onSelectTheme,
+                    if (section == CustomizeSection.CustomThemes && creatingCustomTheme) {
+                        CreateCustomThemeContent(
+                            rows = formRows,
+                            focusedIndex = safeFormIndex,
+                            name = themeName,
+                            onNameChange = { themeName = it },
+                            nameFocus = nameFocus,
+                            hasCustomWallpaper = hasCustomWallpaper,
+                            customWallpaperLabel = customWallpaperLabel,
+                            hasCustomBgm = hasCustomBgm,
+                            hasTrayBgm = hasTrayBgm,
+                            onRequestWallpaper = onRequestWallpaper,
+                            onClearWallpaper = onClearWallpaper,
+                            onRequestBgm = onRequestBgm,
+                            onClearBgm = onClearBgm,
+                            onRequestTrayBgm = onRequestTrayBgm,
+                            onClearTrayBgm = onClearTrayBgm,
+                            wallpaperAlignX = wallpaperAlignX,
+                            wallpaperAlignY = wallpaperAlignY,
+                            onNudgeWallpaper = onNudgeWallpaper,
+                            onResetWallpaper = onResetWallpaper,
+                            onFocusRow = { formRowIndex = it },
+                            onCancel = { leaveForm() },
+                            onSave = { name ->
+                                onSaveCustomTheme(name)
+                                themeName = ""
+                                leaveForm()
+                            },
                         )
-                        CustomizeSection.CustomThemes -> if (creatingCustomTheme) {
-                            CreateCustomThemeContent(
-                                hasCustomWallpaper = hasCustomWallpaper,
-                                customWallpaperLabel = customWallpaperLabel,
-                                hasCustomBgm = hasCustomBgm,
-                                hasTrayBgm = hasTrayBgm,
-                                onRequestWallpaper = onRequestWallpaper,
-                                onClearWallpaper = onClearWallpaper,
-                                onRequestBgm = onRequestBgm,
-                                onClearBgm = onClearBgm,
-                                onRequestTrayBgm = onRequestTrayBgm,
-                                onClearTrayBgm = onClearTrayBgm,
-                                wallpaperAlignX = wallpaperAlignX,
-                                wallpaperAlignY = wallpaperAlignY,
-                                onNudgeWallpaper = onNudgeWallpaper,
-                                onResetWallpaper = onResetWallpaper,
-                                onCancel = { creatingCustomTheme = false },
-                                onSave = { name ->
-                                    onSaveCustomTheme(name)
-                                    creatingCustomTheme = false
-                                },
-                            )
-                        } else {
-                            CustomThemesGrid(
-                                themes = customThemes,
-                                onNewTheme = { creatingCustomTheme = true },
-                                onApply = onApplyCustomTheme,
-                                onDelete = onDeleteCustomTheme,
-                            )
-                        }
-                        CustomizeSection.CustomIcons -> SectionPlaceholder("Coming soon")
-                        CustomizeSection.BootAnimation -> BootAnimationGrid(
-                            selectedId = bootAnimationId,
-                            onSelect = onSelectBootAnimation,
+                    } else if (entries.isEmpty()) {
+                        SectionPlaceholder("Coming soon")
+                    } else {
+                        CustomizeGrid(
+                            state = gridState,
+                            entries = entries,
+                            focusedIndex = safeItemIndex.takeIf { pane == CustomizePane.Content },
+                            onFocus = {
+                                pane = CustomizePane.Content
+                                itemIndex = it
+                            },
                         )
                     }
                 }
@@ -246,13 +414,18 @@ private fun PanelHeader(text: String) {
 private fun CustomizeNavRow(
     label: String,
     selected: Boolean,
+    focused: Boolean,
     onClick: () -> Unit,
 ) {
     XoraSecondaryText(
         text = label,
         fontSize = 15.sp,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        fillColor = if (selected) Color.White else Color.White.copy(alpha = 0.62f),
+        fillColor = when {
+            focused -> FocusRingColor
+            selected -> Color.White
+            else -> Color.White.copy(alpha = 0.62f)
+        },
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     )
 }
@@ -266,25 +439,95 @@ private fun SectionPlaceholder(text: String) {
     )
 }
 
+/** The cards for one section, in the order the grid lays them out. */
 @Composable
-private fun PresetThemesGrid(
+private fun customizeEntries(
+    section: CustomizeSection,
     activeThemeId: String,
+    customThemes: List<CustomTheme>,
+    bootAnimationId: String,
+    pendingDeleteId: String?,
     onSelectTheme: (String) -> Unit,
-) {
-    CustomizeGrid {
-        itemsIndexed(
-            items = ShellThemeCatalog.all,
-            key = { _, theme -> theme.id.id },
-        ) { _, theme ->
-            CustomizeGridCard(
-                name = theme.id.displayName,
-                selected = theme.id.id.equals(activeThemeId, ignoreCase = true),
-                onClick = { onSelectTheme(theme.id.id) },
+    onNewTheme: () -> Unit,
+    onApplyCustomTheme: (String) -> Unit,
+    onDeleteCustomTheme: (String) -> Unit,
+    onRequestDelete: (String) -> Unit,
+    onCancelDelete: () -> Unit,
+    onSelectBootAnimation: (String) -> Unit,
+): List<CustomizeEntry> = when (section) {
+    CustomizeSection.PresetThemes -> ShellThemeCatalog.all.map { theme ->
+        CustomizeEntry(
+            key = theme.id.id,
+            name = theme.id.displayName,
+            selected = theme.id.id.equals(activeThemeId, ignoreCase = true),
+            onActivate = { onSelectTheme(theme.id.id) },
+        ) { ThemeSwatchPreview(theme) }
+    }
+
+    CustomizeSection.CustomThemes -> buildList {
+        add(
+            CustomizeEntry(
+                key = "__new_custom_theme",
+                name = "Save current as…",
+                selected = false,
+                onActivate = onNewTheme,
             ) {
-                ThemeSwatchPreview(theme)
-            }
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.06f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    XoraSecondaryText(text = "+ New", fontSize = 15.sp)
+                }
+            },
+        )
+        customThemes.forEach { theme ->
+            val confirming = pendingDeleteId == theme.id
+            add(
+                CustomizeEntry(
+                    key = theme.id,
+                    name = theme.name,
+                    selected = false,
+                    onActivate = {
+                        if (confirming) onCancelDelete() else onApplyCustomTheme(theme.id)
+                    },
+                    onSecondary = { onRequestDelete(theme.id) },
+                ) {
+                    if (confirming) {
+                        DeleteConfirmOverlay(
+                            onConfirm = { onDeleteCustomTheme(theme.id) },
+                            onCancel = onCancelDelete,
+                        )
+                    } else {
+                        ArtworkImage(
+                            path = theme.wallpaperPath,
+                            contentDescription = theme.name,
+                            fallbackText = theme.name.take(1).uppercase(Locale.US),
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                },
+            )
         }
     }
+
+    CustomizeSection.CustomIcons -> emptyList()
+
+    CustomizeSection.BootAnimation -> listOf(
+        CustomizeEntry(
+            key = DEFAULT_BOOT_ANIMATION_ID,
+            name = "Default",
+            selected = bootAnimationId.isBlank() ||
+                bootAnimationId.equals(DEFAULT_BOOT_ANIMATION_ID, ignoreCase = true),
+            onActivate = { onSelectBootAnimation(DEFAULT_BOOT_ANIMATION_ID) },
+        ) {
+            ArtworkImage(
+                path = null,
+                contentDescription = "Default boot animation",
+                fallbackText = "B",
+                modifier = Modifier.fillMaxSize(),
+            )
+        },
+    )
 }
 
 /** Wallpaper still when the theme ships one; a palette swatch for the procedural backdrops. */
@@ -312,57 +555,6 @@ private fun ThemeSwatchPreview(theme: ShellTheme) {
 }
 
 @Composable
-private fun CustomThemesGrid(
-    themes: List<CustomTheme>,
-    onNewTheme: () -> Unit,
-    onApply: (String) -> Unit,
-    onDelete: (String) -> Unit,
-) {
-    CustomizeGrid {
-        item(key = "__new_custom_theme") {
-            CustomizeGridCard(
-                name = "Save current as…",
-                selected = false,
-                onClick = onNewTheme,
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.06f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    XoraSecondaryText(text = "+ New", fontSize = 15.sp)
-                }
-            }
-        }
-        itemsIndexed(
-            items = themes,
-            key = { _, theme -> theme.id },
-        ) { _, theme ->
-            var confirmingDelete by remember(theme.id) { mutableStateOf(false) }
-            CustomizeGridCard(
-                name = theme.name,
-                selected = false,
-                onClick = { if (confirmingDelete) confirmingDelete = false else onApply(theme.id) },
-                onLongClick = { confirmingDelete = true },
-            ) {
-                if (confirmingDelete) {
-                    DeleteConfirmOverlay(
-                        onConfirm = { onDelete(theme.id) },
-                        onCancel = { confirmingDelete = false },
-                    )
-                } else {
-                    ArtworkImage(
-                        path = theme.wallpaperPath,
-                        contentDescription = theme.name,
-                        fallbackText = theme.name.take(1).uppercase(Locale.US),
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun DeleteConfirmOverlay(onConfirm: () -> Unit, onCancel: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.74f)).padding(6.dp),
@@ -378,38 +570,48 @@ private fun DeleteConfirmOverlay(onConfirm: () -> Unit, onCancel: () -> Unit) {
 }
 
 @Composable
-private fun BootAnimationGrid(
-    selectedId: String,
-    onSelect: (String) -> Unit,
+private fun CustomizeGrid(
+    state: LazyGridState,
+    entries: List<CustomizeEntry>,
+    focusedIndex: Int?,
+    onFocus: (Int) -> Unit,
 ) {
-    CustomizeGrid {
-        item(key = DEFAULT_BOOT_ANIMATION_ID) {
-            CustomizeGridCard(
-                name = "Default",
-                selected = selectedId.isBlank() ||
-                    selectedId.equals(DEFAULT_BOOT_ANIMATION_ID, ignoreCase = true),
-                onClick = { onSelect(DEFAULT_BOOT_ANIMATION_ID) },
-            ) {
-                ArtworkImage(
-                    path = null,
-                    contentDescription = "Default boot animation",
-                    fallbackText = "B",
-                    modifier = Modifier.fillMaxSize(),
+    Row(modifier = Modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(GRID_COLUMNS),
+            state = state,
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+        ) {
+            itemsIndexedKeyed(entries) { index, entry ->
+                CustomizeGridCard(
+                    name = entry.name,
+                    selected = entry.selected,
+                    focused = index == focusedIndex,
+                    onClick = {
+                        onFocus(index)
+                        entry.onActivate()
+                    },
+                    onLongClick = entry.onSecondary,
+                    preview = entry.preview,
                 )
             }
         }
+        CustomizeScrollbar(
+            state = state,
+            modifier = Modifier.padding(start = 10.dp).fillMaxHeight(),
+        )
     }
 }
 
-@Composable
-private fun CustomizeGrid(content: LazyGridScope.() -> Unit) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(GRID_COLUMNS),
-        horizontalArrangement = Arrangement.spacedBy(18.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-        modifier = Modifier.fillMaxSize(),
-        content = content,
-    )
+private fun androidx.compose.foundation.lazy.grid.LazyGridScope.itemsIndexedKeyed(
+    entries: List<CustomizeEntry>,
+    content: @Composable (Int, CustomizeEntry) -> Unit,
+) {
+    items(count = entries.size, key = { entries[it].key }) { index ->
+        content(index, entries[index])
+    }
 }
 
 /**
@@ -420,8 +622,9 @@ private fun CustomizeGrid(content: LazyGridScope.() -> Unit) {
 private fun CustomizeGridCard(
     name: String,
     selected: Boolean,
+    focused: Boolean,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)?,
     preview: @Composable () -> Unit,
 ) {
     Column(
@@ -434,8 +637,15 @@ private fun CustomizeGridCard(
                 .aspectRatio(1f)
                 .clip(ThumbShape)
                 .background(
-                    if (selected) Color(0xFF8ED6FF) else Color.White.copy(alpha = 0.92f),
+                    if (selected) FocusRingColor else Color.White.copy(alpha = 0.92f),
                     ThumbShape,
+                )
+                .then(
+                    if (focused) {
+                        Modifier.border(3.dp, FocusRingColor, ThumbShape)
+                    } else {
+                        Modifier
+                    },
                 )
                 .padding(3.dp)
                 .combinedClickable(onLongClick = onLongClick, onClick = onClick),
@@ -447,7 +657,8 @@ private fun CustomizeGridCard(
         XoraSecondaryText(
             text = name,
             fontSize = 15.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal,
+            fillColor = if (focused) FocusRingColor else Color.White,
             textAlign = TextAlign.Center,
             maxLines = 1,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -455,8 +666,120 @@ private fun CustomizeGridCard(
     }
 }
 
+/**
+ * Proportional bar down the right edge of the content pane. Hidden when everything already fits,
+ * so short sections do not grow a decorative stub.
+ */
+@Composable
+private fun CustomizeScrollbar(
+    state: LazyGridState,
+    modifier: Modifier = Modifier,
+) {
+    val metrics by remember(state) {
+        derivedStateOf {
+            val info = state.layoutInfo
+            val total = info.totalItemsCount
+            val visible = info.visibleItemsInfo
+            if (total == 0 || visible.isEmpty()) return@derivedStateOf null
+            val totalRows = ceilDiv(total, GRID_COLUMNS)
+            val visibleRows = ceilDiv(visible.size, GRID_COLUMNS)
+            if (visibleRows >= totalRows) return@derivedStateOf null
+            val firstRow = state.firstVisibleItemIndex / GRID_COLUMNS
+            val scrollable = (totalRows - visibleRows).toFloat()
+            ScrollbarMetrics(
+                thumbFraction = (visibleRows.toFloat() / totalRows).coerceIn(0.08f, 1f),
+                offsetFraction = (firstRow / scrollable).coerceIn(0f, 1f),
+            )
+        }
+    }
+    val bar = metrics ?: return
+    Box(
+        modifier = modifier
+            .width(4.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(Color.White.copy(alpha = 0.12f)),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight(bar.thumbFraction)
+                .fillMaxWidth()
+                .align(BiasAlignment(bar.offsetFraction))
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color.White.copy(alpha = 0.55f)),
+        )
+    }
+}
+
+private data class ScrollbarMetrics(val thumbFraction: Float, val offsetFraction: Float)
+
+/** 0 = pinned to the top of the track, 1 = pinned to the bottom. */
+private fun BiasAlignment(fraction: Float): Alignment =
+    androidx.compose.ui.BiasAlignment(
+        horizontalBias = 0f,
+        verticalBias = (fraction * 2f - 1f).coerceIn(-1f, 1f),
+    )
+
+private fun ceilDiv(value: Int, by: Int): Int = (value + by - 1) / by
+
+/** Scroll only far enough to reveal the card, so sideways steps do not jump the grid. */
+private suspend fun LazyGridState.scrollItemIntoView(index: Int) {
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+    if (item == null) {
+        animateScrollToItem(index)
+        return
+    }
+    val top = item.offset.y
+    val bottom = top + item.size.height
+    val viewportTop = layoutInfo.viewportStartOffset
+    val viewportBottom = layoutInfo.viewportEndOffset
+    when {
+        top < viewportTop -> animateScrollBy((top - viewportTop).toFloat())
+        bottom > viewportBottom -> animateScrollBy((bottom - viewportBottom).toFloat())
+    }
+}
+
+/** The controls in the create-theme form, in focus order. */
+private enum class CreateFormKind {
+    Wallpaper,
+    ClearWallpaper,
+    Align,
+    Bgm,
+    ClearBgm,
+    TrayBgm,
+    ClearTrayBgm,
+    Name,
+    Save,
+}
+
+private class CreateFormRow(
+    val kind: CreateFormKind,
+    val onLeft: (() -> Unit)? = null,
+    val onRight: (() -> Unit)? = null,
+)
+
+private fun createFormRows(
+    hasCustomWallpaper: Boolean,
+    hasCustomBgm: Boolean,
+    hasTrayBgm: Boolean,
+): List<CreateFormRow> = buildList {
+    add(CreateFormRow(CreateFormKind.Wallpaper))
+    if (hasCustomWallpaper) add(CreateFormRow(CreateFormKind.ClearWallpaper))
+    add(CreateFormRow(CreateFormKind.Align))
+    add(CreateFormRow(CreateFormKind.Bgm))
+    if (hasCustomBgm) add(CreateFormRow(CreateFormKind.ClearBgm))
+    add(CreateFormRow(CreateFormKind.TrayBgm))
+    if (hasTrayBgm) add(CreateFormRow(CreateFormKind.ClearTrayBgm))
+    add(CreateFormRow(CreateFormKind.Name))
+    add(CreateFormRow(CreateFormKind.Save))
+}
+
 @Composable
 private fun CreateCustomThemeContent(
+    rows: List<CreateFormRow>,
+    focusedIndex: Int,
+    name: String,
+    onNameChange: (String) -> Unit,
+    nameFocus: FocusRequester,
     hasCustomWallpaper: Boolean,
     customWallpaperLabel: String,
     hasCustomBgm: Boolean,
@@ -471,131 +794,238 @@ private fun CreateCustomThemeContent(
     wallpaperAlignY: Float,
     onNudgeWallpaper: (Float, Float) -> Unit,
     onResetWallpaper: () -> Unit,
+    onFocusRow: (Int) -> Unit,
     onCancel: () -> Unit,
     onSave: (String) -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        XoraSecondaryText(text = "Wallpaper", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        XoraSecondaryText(
-            text = if (hasCustomWallpaper) {
-                "$customWallpaperLabel (still, GIF, or MP4)"
-            } else {
-                "Theme backdrop (image / GIF / MP4)"
-            },
-            fontSize = 13.sp,
-            fillColor = Color.White.copy(alpha = 0.55f),
-        )
-        Button(onClick = { runCatching { onRequestWallpaper() } }, modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Choose wallpaper")
-        }
-        if (hasCustomWallpaper) {
-            OutlinedButton(onClick = onClearWallpaper, modifier = Modifier.fillMaxWidth()) {
-                Text(text = "Restore theme wallpaper")
-            }
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    val scroll = rememberScrollState()
+    val focusedKind = rows.getOrNull(focusedIndex)?.kind
+    fun rowIndexOf(kind: CreateFormKind) = rows.indexOfFirst { it.kind == kind }
+
+    Row(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(scroll),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            TextButton(onClick = { onNudgeWallpaper(-GAME_ART_ALIGN_STEP, 0f) }) {
-                Text("Left", color = Color.White)
+            XoraSecondaryText(text = "Wallpaper", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            XoraSecondaryText(
+                text = if (hasCustomWallpaper) {
+                    "$customWallpaperLabel (still, GIF, or MP4)"
+                } else {
+                    "Theme backdrop (image / GIF / MP4)"
+                },
+                fontSize = 13.sp,
+                fillColor = Color.White.copy(alpha = 0.55f),
+            )
+            FormButton(
+                text = "Choose wallpaper",
+                focused = focusedKind == CreateFormKind.Wallpaper,
+                onClick = {
+                    onFocusRow(rowIndexOf(CreateFormKind.Wallpaper))
+                    runCatching { onRequestWallpaper() }
+                },
+            )
+            if (hasCustomWallpaper) {
+                FormOutlinedButton(
+                    text = "Restore theme wallpaper",
+                    focused = focusedKind == CreateFormKind.ClearWallpaper,
+                    onClick = {
+                        onFocusRow(rowIndexOf(CreateFormKind.ClearWallpaper))
+                        onClearWallpaper()
+                    },
+                )
             }
-            TextButton(onClick = { onNudgeWallpaper(0f, -GAME_ART_ALIGN_STEP) }) {
-                Text("Up", color = Color.White)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.focusRing(focusedKind == CreateFormKind.Align),
+            ) {
+                TextButton(onClick = { onNudgeWallpaper(-GAME_ART_ALIGN_STEP, 0f) }) {
+                    Text("Left", color = Color.White)
+                }
+                TextButton(onClick = { onNudgeWallpaper(0f, -GAME_ART_ALIGN_STEP) }) {
+                    Text("Up", color = Color.White)
+                }
+                TextButton(onClick = { onNudgeWallpaper(0f, GAME_ART_ALIGN_STEP) }) {
+                    Text("Down", color = Color.White)
+                }
+                TextButton(onClick = { onNudgeWallpaper(GAME_ART_ALIGN_STEP, 0f) }) {
+                    Text("Right", color = Color.White)
+                }
+                TextButton(onClick = onResetWallpaper) {
+                    Text("Reset", color = Color.White)
+                }
             }
-            TextButton(onClick = { onNudgeWallpaper(0f, GAME_ART_ALIGN_STEP) }) {
-                Text("Down", color = Color.White)
+            if (focusedKind == CreateFormKind.Align) {
+                XoraSecondaryText(
+                    text = "Nudge with the stick · offset " +
+                        "${"%.2f".format(Locale.US, wallpaperAlignX)}, " +
+                        "${"%.2f".format(Locale.US, wallpaperAlignY)}",
+                    fontSize = 12.sp,
+                    fillColor = Color.White.copy(alpha = 0.45f),
+                )
+            } else if (wallpaperAlignX != 0f || wallpaperAlignY != 0f) {
+                XoraSecondaryText(
+                    text = "Offset ${"%.2f".format(Locale.US, wallpaperAlignX)}, " +
+                        "${"%.2f".format(Locale.US, wallpaperAlignY)}",
+                    fontSize = 12.sp,
+                    fillColor = Color.White.copy(alpha = 0.45f),
+                )
             }
-            TextButton(onClick = { onNudgeWallpaper(GAME_ART_ALIGN_STEP, 0f) }) {
-                Text("Right", color = Color.White)
+
+            XoraSecondaryText(
+                text = "Background music",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            XoraSecondaryText(
+                text = if (hasCustomBgm) "Custom track (MP3 / WAV)" else "Theme or default soundtrack",
+                fontSize = 13.sp,
+                fillColor = Color.White.copy(alpha = 0.55f),
+            )
+            FormButton(
+                text = "Choose BGM",
+                focused = focusedKind == CreateFormKind.Bgm,
+                onClick = {
+                    onFocusRow(rowIndexOf(CreateFormKind.Bgm))
+                    runCatching { onRequestBgm() }
+                },
+            )
+            if (hasCustomBgm) {
+                FormOutlinedButton(
+                    text = "Restore theme / default BGM",
+                    focused = focusedKind == CreateFormKind.ClearBgm,
+                    onClick = {
+                        onFocusRow(rowIndexOf(CreateFormKind.ClearBgm))
+                        onClearBgm()
+                    },
+                )
             }
-            TextButton(onClick = onResetWallpaper) {
-                Text("Reset", color = Color.White)
+
+            XoraSecondaryText(
+                text = "Shortcut menu music",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            XoraSecondaryText(
+                text = if (hasTrayBgm) {
+                    "Fades in when the shortcut menu opens"
+                } else {
+                    "Optional — the main BGM keeps playing"
+                },
+                fontSize = 13.sp,
+                fillColor = Color.White.copy(alpha = 0.55f),
+            )
+            FormButton(
+                text = "Choose shortcut menu BGM",
+                focused = focusedKind == CreateFormKind.TrayBgm,
+                onClick = {
+                    onFocusRow(rowIndexOf(CreateFormKind.TrayBgm))
+                    runCatching { onRequestTrayBgm() }
+                },
+            )
+            if (hasTrayBgm) {
+                FormOutlinedButton(
+                    text = "Remove shortcut menu BGM",
+                    focused = focusedKind == CreateFormKind.ClearTrayBgm,
+                    onClick = {
+                        onFocusRow(rowIndexOf(CreateFormKind.ClearTrayBgm))
+                        onClearTrayBgm()
+                    },
+                )
+            }
+
+            XoraSecondaryText(
+                text = "Name this theme",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            OutlinedTextField(
+                value = name,
+                onValueChange = onNameChange,
+                singleLine = true,
+                placeholder = { Text("My theme") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(nameFocus)
+                    .focusRing(focusedKind == CreateFormKind.Name),
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                TextButton(onClick = onCancel) {
+                    Text("Cancel", color = Color.White)
+                }
+                Button(
+                    onClick = { onSave(name.trim().ifBlank { "My theme" }) },
+                    enabled = hasCustomWallpaper || hasCustomBgm || hasTrayBgm,
+                    modifier = Modifier.focusRing(focusedKind == CreateFormKind.Save),
+                ) {
+                    Text("Save custom theme")
+                }
             }
         }
-        if (wallpaperAlignX != 0f || wallpaperAlignY != 0f) {
-            XoraSecondaryText(
-                text = "Offset ${"%.2f".format(Locale.US, wallpaperAlignX)}, " +
-                    "${"%.2f".format(Locale.US, wallpaperAlignY)}",
-                fontSize = 12.sp,
-                fillColor = Color.White.copy(alpha = 0.45f),
+        CustomizeFormScrollbar(
+            scroll = scroll,
+            modifier = Modifier.padding(start = 10.dp).fillMaxHeight(),
+        )
+    }
+}
+
+@Composable
+private fun FormButton(text: String, focused: Boolean, onClick: () -> Unit) {
+    Button(onClick = onClick, modifier = Modifier.fillMaxWidth().focusRing(focused)) {
+        Text(text = text)
+    }
+}
+
+@Composable
+private fun FormOutlinedButton(text: String, focused: Boolean, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth().focusRing(focused)) {
+        Text(text = text)
+    }
+}
+
+private fun Modifier.focusRing(focused: Boolean): Modifier =
+    if (focused) border(2.dp, FocusRingColor, RoundedCornerShape(10.dp)) else this
+
+/** Same bar as the grid's, driven by a plain scroll offset instead of item rows. */
+@Composable
+private fun CustomizeFormScrollbar(
+    scroll: androidx.compose.foundation.ScrollState,
+    modifier: Modifier = Modifier,
+) {
+    val metrics by remember(scroll) {
+        derivedStateOf {
+            val max = scroll.maxValue
+            if (max <= 0 || max == Int.MAX_VALUE) return@derivedStateOf null
+            val viewport = scroll.viewportSize
+            if (viewport <= 0) return@derivedStateOf null
+            val content = viewport + max
+            ScrollbarMetrics(
+                thumbFraction = (viewport.toFloat() / content).coerceIn(0.08f, 1f),
+                offsetFraction = (scroll.value.toFloat() / max).coerceIn(0f, 1f),
             )
         }
-
-        XoraSecondaryText(
-            text = "Background music",
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 8.dp),
+    }
+    val bar = metrics ?: return
+    Box(
+        modifier = modifier
+            .width(4.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(Color.White.copy(alpha = 0.12f)),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight(bar.thumbFraction)
+                .fillMaxWidth()
+                .align(BiasAlignment(bar.offsetFraction))
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color.White.copy(alpha = 0.55f)),
         )
-        XoraSecondaryText(
-            text = if (hasCustomBgm) "Custom track (MP3 / WAV)" else "Theme or default soundtrack",
-            fontSize = 13.sp,
-            fillColor = Color.White.copy(alpha = 0.55f),
-        )
-        Button(onClick = { runCatching { onRequestBgm() } }, modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Choose BGM")
-        }
-        if (hasCustomBgm) {
-            OutlinedButton(onClick = onClearBgm, modifier = Modifier.fillMaxWidth()) {
-                Text(text = "Restore theme / default BGM")
-            }
-        }
-
-        XoraSecondaryText(
-            text = "Shortcut menu music",
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        XoraSecondaryText(
-            text = if (hasTrayBgm) {
-                "Fades in when the shortcut menu opens"
-            } else {
-                "Optional — the main BGM keeps playing"
-            },
-            fontSize = 13.sp,
-            fillColor = Color.White.copy(alpha = 0.55f),
-        )
-        Button(onClick = { runCatching { onRequestTrayBgm() } }, modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Choose shortcut menu BGM")
-        }
-        if (hasTrayBgm) {
-            OutlinedButton(onClick = onClearTrayBgm, modifier = Modifier.fillMaxWidth()) {
-                Text(text = "Remove shortcut menu BGM")
-            }
-        }
-
-        XoraSecondaryText(
-            text = "Name this theme",
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            singleLine = true,
-            placeholder = { Text("My theme") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            TextButton(onClick = onCancel) {
-                Text("Cancel", color = Color.White)
-            }
-            Button(
-                onClick = { onSave(name.trim().ifBlank { "My theme" }) },
-                enabled = hasCustomWallpaper || hasCustomBgm || hasTrayBgm,
-            ) {
-                Text("Save custom theme")
-            }
-        }
     }
 }

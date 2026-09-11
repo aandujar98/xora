@@ -1294,6 +1294,7 @@ private fun ThemesCustomizeOverlay(
             onApplyCustomTheme = homeViewModel::applyCustomTheme,
             onDeleteCustomTheme = homeViewModel::deleteCustomTheme,
             onSelectBootAnimation = homeViewModel::selectBootAnimation,
+            navActions = homeViewModel.customizeNavActionFlow,
             wallpaperAlignX = state.homeHub.wallpaperAlignX,
             wallpaperAlignY = state.homeHub.wallpaperAlignY,
             onNudgeWallpaper = homeViewModel::nudgeWallpaperAlignment,

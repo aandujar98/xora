@@ -127,6 +127,8 @@ data class HomeHubUiState(
     val wallpaperPath: String? = null,
     val wallpaperAlignX: Float = 0f,
     val wallpaperAlignY: Float = 0f,
+    /** Display → Particle effects. When false the XMB backdrop is wallpaper only. */
+    val particlesEnabled: Boolean = true,
     /** Absolute path to custom BGM, or null for the bundled default. */
     val customBgmPath: String? = null,
     /** Optional second track that plays while the Vita shortcut tray is open. */
