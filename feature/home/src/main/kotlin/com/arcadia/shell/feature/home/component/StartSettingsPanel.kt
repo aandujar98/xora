@@ -58,6 +58,7 @@ import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.XoraSettingsPanelHeader
+import com.arcadia.shell.designsystem.XoraSheetScrim
 import com.arcadia.shell.designsystem.xoraFocusHighlight
 import com.arcadia.shell.designsystem.xoraSettingsPanelSurface
 import com.arcadia.shell.designsystem.motionMillis
@@ -113,16 +114,7 @@ fun StartSettingsPanel(
         modifier = modifier.fillMaxSize(),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.48f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onDismiss,
-                    ),
-            )
+            XoraSheetScrim(visible = state.open, onClick = onDismiss)
             // One panel: categories ride a compact strip in the header rather than a
             // full-height capsule down the side.
             Column(

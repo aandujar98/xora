@@ -88,6 +88,7 @@ import com.arcadia.shell.designsystem.xoraFocusHighlight
 import com.arcadia.shell.designsystem.xoraSettingsPanelSurface
 import com.arcadia.shell.feature.home.component.rememberAvatarAccentColor
 import androidx.compose.foundation.Canvas
+import com.arcadia.shell.designsystem.XoraSheetScrim
 
 /**
  * RetroAchievements library over the shell wallpaper. The XMB recedes underneath;
@@ -1044,13 +1045,16 @@ private fun RaGameCheevoWindow(
 ) {
     val shape = RoundedCornerShape(24.dp)
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.46f))
-            .clickable(onClick = onClose)
-            .padding(horizontal = 48.dp, vertical = 32.dp),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
+        XoraSheetScrim(visible = true, onClick = onClose)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 48.dp, vertical = 32.dp),
+            contentAlignment = Alignment.Center,
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1261,6 +1265,7 @@ private fun RaGameCheevoWindow(
                     )
                 }
             }
+        }
         }
     }
 }

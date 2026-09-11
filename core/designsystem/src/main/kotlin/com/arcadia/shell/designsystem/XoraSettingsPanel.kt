@@ -23,6 +23,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.remember
 
 /**
  * The one settings-window frame: a dark slate plate with a lit edge, a caps title, and a hairline
@@ -58,6 +64,64 @@ object XoraSettingsPanelDefaults {
 
     val EdgeWidth = 1.5.dp
     val RuleColor = Color.White.copy(alpha = 0.62f)
+}
+
+object XoraSheetScrimDefaults {
+    /** Kept modest because the blur, not the ink, is what separates the sheet from the shell. */
+    val Tint: Color = Color.Black.copy(alpha = 0.42f)
+    val Blur: Dp = 16.dp
+    const val EnterMs = 260
+    const val ExitMs = 180
+}
+
+/**
+ * The dim-and-defocus behind every settings window.
+ *
+ * Tint and blur ride one animation rather than two. Fading the ink with `AnimatedVisibility` while
+ * a separate `animateDpAsState` drove the radius meant two curves that only matched while their
+ * specs did — they drift the moment either is interrupted mid-flight, which reads as the grey
+ * arriving before the blur catches up.
+ */
+@Composable
+fun XoraSheetScrim(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    tint: Color = XoraSheetScrimDefaults.Tint,
+    blurRadius: Dp = XoraSheetScrimDefaults.Blur,
+    onClick: (() -> Unit)? = null,
+) {
+    val progress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (visible) {
+                XoraSheetScrimDefaults.EnterMs
+            } else {
+                XoraSheetScrimDefaults.ExitMs
+            },
+            easing = FastOutSlowInEasing,
+        ),
+        label = "xoraSheetScrim",
+    )
+    if (progress <= 0.001f) return
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .arcadiaBackdropBlur(
+                blurRadius = blurRadius * progress,
+                tint = tint.copy(alpha = tint.alpha * progress),
+            )
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClick,
+                    )
+                } else {
+                    Modifier
+                },
+            ),
+    )
 }
 
 /** Plate surface without the header, for callers that supply their own top row. */

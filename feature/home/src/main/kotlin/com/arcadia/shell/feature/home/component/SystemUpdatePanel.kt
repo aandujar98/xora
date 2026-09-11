@@ -49,6 +49,7 @@ import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.SystemUpdatePhase
 import com.arcadia.shell.feature.home.SystemUpdateUiState
+import com.arcadia.shell.designsystem.XoraSheetScrim
 
 private val PanelShape = RoundedCornerShape(22.dp)
 private val ButtonShape = RoundedCornerShape(percent = 50)
@@ -92,18 +93,11 @@ fun SystemUpdatePanel(
         modifier = modifier.fillMaxSize(),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.52f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        // A download keeps running in the background, but do not let a stray
-                        // scrim tap wipe the only progress readout.
-                        enabled = !state.busy,
-                        onClick = onDismiss,
-                    ),
+            // A download keeps running in the background, but do not let a stray scrim tap
+            // wipe the only progress readout.
+            XoraSheetScrim(
+                visible = true,
+                onClick = onDismiss.takeIf { !state.busy },
             )
             Column(
                 modifier = Modifier

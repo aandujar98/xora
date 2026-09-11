@@ -40,6 +40,7 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.component.GameCard
 import com.arcadia.shell.model.ShortcutSpan
+import com.arcadia.shell.designsystem.XoraSheetScrim
 
 /** Columns in the Choose a game / Choose an app grid — see [HomeViewModel.onAddShortcutNavAction]. */
 internal const val ADD_SHORTCUT_GRID_COLUMNS = 4
@@ -86,21 +87,15 @@ fun AddShortcutSheet(
     })
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.58f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {
-                        when {
-                            picker != null -> onCancelTargetPicker()
-                            pendingKind != null -> onCancelSpan()
-                            else -> onDismiss()
-                        }
-                    },
-                ),
+        XoraSheetScrim(
+            visible = true,
+            onClick = {
+                when {
+                    picker != null -> onCancelTargetPicker()
+                    pendingKind != null -> onCancelSpan()
+                    else -> onDismiss()
+                }
+            },
         )
         when {
             picker != null -> ShortcutTargetPickerPanel(

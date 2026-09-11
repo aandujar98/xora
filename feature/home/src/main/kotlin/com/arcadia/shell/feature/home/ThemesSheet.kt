@@ -70,7 +70,7 @@ import com.arcadia.shell.datastore.DEFAULT_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.GAME_ART_ALIGN_STEP
 import com.arcadia.shell.designsystem.ShellTheme
 import com.arcadia.shell.designsystem.ShellThemeCatalog
-import com.arcadia.shell.designsystem.arcadiaBackdropBlur
+import com.arcadia.shell.designsystem.XoraSheetScrim
 import com.arcadia.shell.designsystem.XoraSettingsPanelHeader
 import com.arcadia.shell.designsystem.xoraFocusHighlight
 import com.arcadia.shell.designsystem.xoraSettingsPanelSurface
@@ -212,12 +212,6 @@ fun ThemesSheet(
         if (!transition.targetState && !transition.currentState) onDismiss()
     }
     val requestDismiss = { transition.targetState = false }
-    val backdropBlur by animateDpAsState(
-        targetValue = if (transition.targetState) SHEET_BACKDROP_BLUR else 0.dp,
-        animationSpec = tween(SHEET_ENTER_MS, easing = FastOutSlowInEasing),
-        label = "customizeBackdropBlur",
-    )
-
     BackHandler(onBack = { if (creatingCustomTheme) leaveForm() else requestDismiss() })
 
     // Collected once, so a held direction is never dropped while the tree recomposes around it.
@@ -307,22 +301,7 @@ fun ThemesSheet(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedVisibility(
-            visibleState = transition,
-            enter = fadeIn(tween(SHEET_ENTER_MS)),
-            exit = fadeOut(tween(SHEET_EXIT_MS)),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .arcadiaBackdropBlur(backdropBlur, SheetScrimColor)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = requestDismiss,
-                    ),
-            )
-        }
+        XoraSheetScrim(visible = transition.targetState, onClick = requestDismiss)
         AnimatedVisibility(
             visibleState = transition,
             enter = fadeIn(tween(SHEET_ENTER_MS)) +

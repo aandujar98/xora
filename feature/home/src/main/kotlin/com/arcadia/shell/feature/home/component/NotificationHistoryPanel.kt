@@ -49,6 +49,7 @@ import com.arcadia.shell.launcher.notifications.toCopy
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import com.arcadia.shell.designsystem.XoraSheetScrim
 
 private val FocusRing = Color(0xFF4AE39A)
 private val BellAccent = Color(0xFFFFC857)
@@ -91,12 +92,10 @@ fun NotificationHistoryPanel(
         modifier = modifier.fillMaxSize(),
     ) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.55f))
-                .clickable(onClick = onDismiss),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
+            XoraSheetScrim(visible = true, onClick = onDismiss)
             Column(
                 modifier = Modifier
                     .fillMaxWidth(0.72f)

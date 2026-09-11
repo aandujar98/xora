@@ -50,6 +50,7 @@ import com.arcadia.shell.feature.home.AchievementsUiState
 import com.arcadia.shell.feature.home.GuideRow
 import com.arcadia.shell.feature.home.GuideUiState
 import com.arcadia.shell.model.Game
+import com.arcadia.shell.designsystem.XoraSheetScrim
 
 /**
  * Xbox-Guide-inspired overlay: profile, quick launch, friends, and shell shortcuts.
@@ -90,12 +91,10 @@ fun GuidePanel(
         modifier = modifier.fillMaxSize(),
     ) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.55f))
-                .clickable(onClick = onDismiss),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
+            XoraSheetScrim(visible = true, onClick = onDismiss)
             Column(
                 modifier = Modifier
                     .fillMaxWidth(0.72f)

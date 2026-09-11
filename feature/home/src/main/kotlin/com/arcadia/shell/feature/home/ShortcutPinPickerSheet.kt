@@ -53,7 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.arcadia.shell.designsystem.arcadiaBackdropBlur
+import com.arcadia.shell.designsystem.XoraSheetScrim
 import com.arcadia.shell.designsystem.XoraSettingsPanelHeader
 import com.arcadia.shell.designsystem.XoraSettingsPanelRule
 import com.arcadia.shell.designsystem.xoraFocusHighlight
@@ -95,12 +95,6 @@ fun ShortcutPinPickerSheet(
     val searchFocus = remember { FocusRequester() }
     val transition = remember { MutableTransitionState(false) }
     transition.targetState = visible
-    val backdropBlur by animateDpAsState(
-        targetValue = if (visible) SHEET_BACKDROP_BLUR else 0.dp,
-        animationSpec = tween(SHEET_ENTER_MS, easing = FastOutSlowInEasing),
-        label = "pinPickerBackdropBlur",
-    )
-
     BackHandler(onBack = onDismiss)
 
     // Keep the keyboard on the field only while the search pane actually holds focus.
@@ -116,22 +110,7 @@ fun ShortcutPinPickerSheet(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedVisibility(
-            visibleState = transition,
-            enter = fadeIn(tween(SHEET_ENTER_MS)),
-            exit = fadeOut(tween(SHEET_EXIT_MS)),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .arcadiaBackdropBlur(backdropBlur, SheetScrimColor)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onDismiss,
-                    ),
-            )
-        }
+        XoraSheetScrim(visible = visible, onClick = onDismiss)
         AnimatedVisibility(
             visibleState = transition,
             enter = fadeIn(tween(SHEET_ENTER_MS)) +

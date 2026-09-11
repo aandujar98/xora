@@ -226,15 +226,15 @@ fun Modifier.arcadiaBackdropBlur(
     if (hazeState == null || blurRadius <= 0.dp) {
         return@composed this.background(tint)
     }
-    val style = remember(blurRadius, tint) {
-        HazeStyle(
-            backgroundColor = Color.Unspecified,
-            tints = listOf(HazeTint(tint)),
-            blurRadius = blurRadius,
-            noiseFactor = 0f,
-            fallbackTint = HazeTint(tint),
-        )
-    }
+    // Not remembered: both arguments change every frame while the scrim animates, so a keyed
+    // remember would allocate the same object it does here and add lookup on top.
+    val style = HazeStyle(
+        backgroundColor = Color.Unspecified,
+        tints = listOf(HazeTint(tint)),
+        blurRadius = blurRadius,
+        noiseFactor = 0f,
+        fallbackTint = HazeTint(tint),
+    )
     hazeEffect(state = hazeState, style = style)
 }
 
