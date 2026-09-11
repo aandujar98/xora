@@ -1,5 +1,6 @@
 package com.arcadia.shell.designsystem
 
+import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -91,6 +92,12 @@ data class ShellTheme(
     val wallpaperPlaybackSpeed: Float = 1f,
     val bgm: ShellThemeBgm? = null,
     val description: String,
+    /**
+     * Square still for theme grids, cut from [wallpaperAssetPath] at build time — most theme
+     * wallpapers are video loops, which a thumbnail cannot draw. Null for the themes whose
+     * backdrop is a procedural [wallpaperStyle]; those fall back to a palette swatch.
+     */
+    @DrawableRes val previewRes: Int? = null,
 )
 
 object ShellThemeCatalog {
@@ -119,6 +126,7 @@ object ShellThemeCatalog {
             displayHint = "Home menu theme",
         ),
         description = "XOrA flowing blue wave",
+        previewRes = R.drawable.theme_preview_default,
     )
 
     val Persona3Reload: ShellTheme = ShellTheme(
@@ -145,6 +153,7 @@ object ShellThemeCatalog {
             displayHint = "Title screen theme",
         ),
         description = "Makoto underwater art, navy & gold shell",
+        previewRes = R.drawable.theme_preview_persona3_reload,
     )
 
     val Midnight: ShellTheme = ShellTheme(
@@ -237,6 +246,7 @@ object ShellThemeCatalog {
             displayHint = "System menu theme",
         ),
         description = "Usagi Reload motion field, glossy rose chrome",
+        previewRes = R.drawable.theme_preview_usagishade_pink,
     )
 
     val UsagiShadeDark: ShellTheme = ShellTheme(
@@ -263,6 +273,7 @@ object ShellThemeCatalog {
             displayHint = "System menu theme",
         ),
         description = "Dark motion field, magenta rim light",
+        previewRes = R.drawable.theme_preview_usagishade_dark,
     )
 
     val DreamOs: ShellTheme = ShellTheme(
@@ -289,6 +300,7 @@ object ShellThemeCatalog {
             displayHint = "Distant ocean",
         ),
         description = "Frutiger Aero sky, grass, and glass dew",
+        previewRes = R.drawable.theme_preview_dreamos,
     )
 
     val all: List<ShellTheme> = listOf(

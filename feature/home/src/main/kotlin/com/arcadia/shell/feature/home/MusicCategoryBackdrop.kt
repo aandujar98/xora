@@ -8,6 +8,9 @@ internal const val MUSIC_WAVE_MASK_URI = "asset:///$MUSIC_WAVE_MASK_ASSET"
 /**
  * When music is playing on the Music column, the XMB backdrop is the track's cover.
  * The wave mask is a separate Multiply layer so white in the video drops out.
+ *
+ * [playing] is "actively playing", not "has a track loaded": pausing fades the cover and the
+ * wave back out, and pressing play brings them back.
  */
 internal data class MusicCategoryBackdrop(
     val showCover: Boolean,

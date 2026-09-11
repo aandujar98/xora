@@ -1,6 +1,7 @@
 package com.arcadia.shell.feature.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,6 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -278,8 +281,19 @@ private fun PresetThemesGrid(
     }
 }
 
+/** Wallpaper still when the theme ships one; a palette swatch for the procedural backdrops. */
 @Composable
 private fun ThemeSwatchPreview(theme: ShellTheme) {
+    val preview = theme.previewRes
+    if (preview != null) {
+        Image(
+            painter = painterResource(preview),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        return
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()

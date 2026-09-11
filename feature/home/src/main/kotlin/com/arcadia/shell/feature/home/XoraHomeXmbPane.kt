@@ -175,7 +175,7 @@ fun XoraHomeXmbPane(
     val musicBackdrop = musicCategoryBackdrop(
         category = xmb.category,
         depth = xmb.depth,
-        playing = state.music.nowPlaying.hasTrack,
+        playing = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying,
         enabled = state.music.categoryArtBackdropEnabled,
         coverPath = state.music.nowPlayingArtPath,
     )
@@ -533,7 +533,7 @@ fun XoraXmbHeroDetail(
     val musicBackdrop = musicCategoryBackdrop(
         category = xmb.category,
         depth = xmb.depth,
-        playing = state.music.nowPlaying.hasTrack,
+        playing = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying,
         enabled = state.music.categoryArtBackdropEnabled,
         coverPath = state.music.nowPlayingArtPath,
     )
