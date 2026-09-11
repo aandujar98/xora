@@ -104,6 +104,7 @@ import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.HomeShortcutKind
 import com.arcadia.shell.model.LaunchDisplayPreference
 import com.arcadia.shell.model.LibraryRoot
+import com.arcadia.shell.model.PlatformCatalog
 import com.arcadia.shell.model.PlatformSummary
 import com.arcadia.shell.model.Player
 import com.arcadia.shell.model.ScanProgress
@@ -318,6 +319,12 @@ class HomeViewModel @Inject constructor(
     private val pendingShortcutKind = MutableStateFlow<PendingShortcutKind?>(null)
     private val pendingShortcutSpan = MutableStateFlow(ShortcutSpan.Default)
     private val shortcutTargetPicker = MutableStateFlow<ShortcutTargetPickerUiState?>(null)
+    private val shortcutPicker = MutableStateFlow<ShortcutPickerUiState?>(null)
+    /**
+     * Library snapshot taken when the pin picker opens. Filtering happens in memory from here so
+     * typing in the search field does not re-query the repository on every keystroke.
+     */
+    private var shortcutPickerGames: List<Game> = emptyList()
     private val mediaPickerRequests = Channel<HomeMediaPickerRequest>(Channel.BUFFERED)
     /** Observed from the primary Activity composition only — never under a Presentation. */
     val mediaPickerRequestFlow: Flow<HomeMediaPickerRequest> = mediaPickerRequests.receiveAsFlow()
@@ -840,12 +847,14 @@ class HomeViewModel @Inject constructor(
         shortcutTargetPicker,
         pendingShortcutKind,
         pendingShortcutSpan,
-    ) { open, picker, kind, span ->
+        shortcutPicker,
+    ) { open, picker, kind, span, pinPicker ->
         AddShortcutChrome(
             open = open,
             targetPicker = picker,
             pendingKind = kind,
             pendingSpan = span,
+            pinPicker = pinPicker,
         )
     }
 
@@ -854,6 +863,7 @@ class HomeViewModel @Inject constructor(
         val targetPicker: ShortcutTargetPickerUiState?,
         val pendingKind: PendingShortcutKind?,
         val pendingSpan: ShortcutSpan,
+        val pinPicker: ShortcutPickerUiState?,
     )
 
     private data class XoraNavChrome(
@@ -902,6 +912,7 @@ class HomeViewModel @Inject constructor(
             shortcuts = shortcuts,
             nav = nav,
             addShortcutOpen = addChrome.open,
+            shortcutPicker = addChrome.pinPicker,
             shortcutTargetPicker = addChrome.targetPicker,
             pendingShortcutKind = addChrome.pendingKind,
             pendingShortcutSpan = addChrome.pendingSpan,
@@ -943,6 +954,7 @@ class HomeViewModel @Inject constructor(
         val nav: HomeHubNav,
         val addShortcutOpen: Boolean,
         val shortcutTargetPicker: ShortcutTargetPickerUiState?,
+        val shortcutPicker: ShortcutPickerUiState?,
         val pendingShortcutKind: PendingShortcutKind?,
         val pendingShortcutSpan: ShortcutSpan,
         val themesOpen: Boolean,
@@ -2511,6 +2523,7 @@ class HomeViewModel @Inject constructor(
                 customThemes = theme.customThemes,
                 bootAnimationId = theme.bootAnimationId,
                 addShortcutOpen = theme.addShortcutOpen,
+                shortcutPicker = theme.shortcutPicker,
                 pendingShortcutKind = theme.pendingShortcutKind,
                 pendingShortcutSpan = theme.pendingShortcutSpan,
                 shortcutTargetPicker = theme.shortcutTargetPicker,
@@ -3191,6 +3204,13 @@ class HomeViewModel @Inject constructor(
         // Expanded system panel captures U/D/A/B (RT still toggles via ToggleSystemPanel).
         if (state.systemPanelExpanded) {
             onSystemPanelNavAction(action)
+            return
+        }
+
+        // Vita pin picker owns the pad outright — it has its own two-panel focus model.
+        val pinPicker = state.homeHub.shortcutPicker
+        if (pinPicker != null) {
+            onShortcutPinPickerNavAction(action, pinPicker)
             return
         }
 
@@ -5643,12 +5663,143 @@ class HomeViewModel @Inject constructor(
         pendingShortcutKind.value = null
         pendingShortcutSpan.value = ShortcutSpan.Default
         if (vitaShortcutTrayOpen.value) {
+            // Vita bubbles pin a ROM or an app and nothing else, so the type chooser was a step
+            // with one real outcome. Go straight to the platform / ROM browser instead.
             vitaShortcutPinMode.value = true
+            openShortcutPinPicker()
+            return
         }
         addShortcutOpen.value = true
     }
 
+    /** Platform + ROM/app browser for an empty Vita bubble. */
+    private fun openShortcutPinPicker() {
+        viewModelScope.launch {
+            val games = libraryRepository.observeGames().first()
+            if (games.isEmpty()) {
+                emit(HomeEvent.ShowMessage("Nothing to pin yet — scan a library or sync apps."))
+                return@launch
+            }
+            shortcutPickerGames = games
+            val platforms = games
+                .groupingBy { it.platformId }
+                .eachCount()
+                .mapNotNull { (id, count) ->
+                    val platform = runCatching { PlatformCatalog.requireById(id) }.getOrNull()
+                    platform?.let { PlatformSummary(platform = it, gameCount = count) }
+                }
+                .sortedBy { it.platform.displayName.lowercase() }
+            if (platforms.isEmpty()) {
+                emit(HomeEvent.ShowMessage("Nothing to pin yet — scan a library or sync apps."))
+                return@launch
+            }
+            shortcutPicker.value = ShortcutPickerUiState(
+                platforms = platforms,
+                platformIndex = 0,
+                results = pinPickerResults(platforms.first().platform.id, ""),
+                pane = ShortcutPickerPane.Platforms,
+            )
+            addShortcutOpen.value = true
+        }
+    }
+
+    /**
+     * A blank query lists the platform; a non-blank one searches the whole library, because
+     * hunting for a title you can name should not also require remembering its system.
+     */
+    private fun pinPickerResults(platformId: String, query: String): List<Game> {
+        val trimmed = query.trim()
+        val pool = if (trimmed.isEmpty()) {
+            shortcutPickerGames.filter { it.platformId == platformId }
+        } else {
+            shortcutPickerGames.filter { it.title.contains(trimmed, ignoreCase = true) }
+        }
+        return pool.sortedBy { it.title.lowercase() }
+    }
+
+    fun selectShortcutPickerPlatform(index: Int) {
+        noteUserActivity()
+        shortcutPicker.update { current ->
+            if (current == null) return@update current
+            val next = index.coerceIn(0, current.platforms.lastIndex)
+            val platformId = current.platforms[next].platform.id
+            current.copy(
+                platformIndex = next,
+                results = pinPickerResults(platformId, current.query),
+                itemIndex = 0,
+            )
+        }
+    }
+
+    fun selectShortcutPickerItem(index: Int) {
+        noteUserActivity()
+        shortcutPicker.update { current ->
+            if (current == null || current.results.isEmpty()) return@update current
+            current.copy(
+                itemIndex = index.coerceIn(0, current.results.lastIndex),
+                pane = ShortcutPickerPane.Content,
+            )
+        }
+    }
+
+    fun setShortcutPickerQuery(query: String) {
+        shortcutPicker.update { current ->
+            if (current == null) return@update current
+            val platformId = current.platform?.platform?.id ?: return@update current
+            current.copy(
+                query = query,
+                results = pinPickerResults(platformId, query),
+                itemIndex = 0,
+            )
+        }
+    }
+
+    fun focusShortcutPickerPane(pane: ShortcutPickerPane) {
+        shortcutPicker.update { it?.copy(pane = pane) }
+    }
+
+    fun confirmShortcutPickerSelection() {
+        val picker = shortcutPicker.value ?: return
+        val game = picker.selected ?: return
+        noteUserActivity()
+        viewModelScope.launch {
+            val shortcut = if (game.isAndroidApp) {
+                HomeShortcut(
+                    id = UUID.randomUUID().toString(),
+                    kind = HomeShortcutKind.AndroidApp,
+                    title = game.title,
+                    target = game.fileName,
+                    artPath = InstalledAppSync.iconPathFor(game.fileName),
+                    span = ShortcutSpan.Default,
+                )
+            } else {
+                HomeShortcut(
+                    id = UUID.randomUUID().toString(),
+                    kind = HomeShortcutKind.Game,
+                    title = game.title,
+                    target = game.id,
+                    artPath = game.shortcutIcon,
+                    span = ShortcutSpan.Default,
+                )
+            }
+            appendShortcut(shortcut)
+            dismissShortcutPinPicker()
+        }
+    }
+
+    fun dismissShortcutPinPicker() {
+        shortcutPicker.value = null
+        shortcutPickerGames = emptyList()
+        addShortcutOpen.value = false
+        if (!vitaShortcutTrayOpen.value) {
+            vitaShortcutPinMode.value = false
+        }
+    }
+
     fun dismissAddShortcutChooser() {
+        // Closing the tray routes here too, so the pin picker has to come down with it.
+        shortcutPicker.value = null
+        shortcutPickerGames = emptyList()
         shortcutTargetPicker.value = null
         pendingShortcutKind.value = null
         pendingShortcutSpan.value = ShortcutSpan.Default
@@ -6279,6 +6430,54 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         shortcutTargetPicker.value = null
         pendingShortcutKind.value = null
+    }
+
+    /**
+     * Two panels plus a search field, navigated like the Customize window: the platform list on
+     * the left, that platform's cards on the right, and the search bar reached by going up off
+     * the top row of the grid.
+     */
+    private fun onShortcutPinPickerNavAction(action: NavAction, picker: ShortcutPickerUiState) {
+        when (picker.pane) {
+            ShortcutPickerPane.Platforms -> when (action) {
+                NavAction.Up -> selectShortcutPickerPlatform(picker.platformIndex - 1)
+                NavAction.Down -> selectShortcutPickerPlatform(picker.platformIndex + 1)
+                NavAction.Right, NavAction.Confirm -> if (picker.results.isNotEmpty()) {
+                    focusShortcutPickerPane(ShortcutPickerPane.Content)
+                }
+                NavAction.Cancel -> dismissShortcutPinPicker()
+                else -> Unit
+            }
+
+            ShortcutPickerPane.Content -> when (action) {
+                NavAction.Left -> if (picker.itemIndex % PIN_PICKER_COLUMNS == 0) {
+                    focusShortcutPickerPane(ShortcutPickerPane.Platforms)
+                } else {
+                    selectShortcutPickerItem(picker.itemIndex - 1)
+                }
+                NavAction.Right -> selectShortcutPickerItem(picker.itemIndex + 1)
+                NavAction.Up -> {
+                    val next = picker.itemIndex - PIN_PICKER_COLUMNS
+                    if (next < 0) {
+                        focusShortcutPickerPane(ShortcutPickerPane.Search)
+                    } else {
+                        selectShortcutPickerItem(next)
+                    }
+                }
+                NavAction.Down -> selectShortcutPickerItem(picker.itemIndex + PIN_PICKER_COLUMNS)
+                NavAction.Confirm -> confirmShortcutPickerSelection()
+                NavAction.Cancel -> focusShortcutPickerPane(ShortcutPickerPane.Platforms)
+                else -> Unit
+            }
+
+            // A opens the keyboard; the sheet owns that, since the focus requester is its own.
+            ShortcutPickerPane.Search -> when (action) {
+                NavAction.Down -> focusShortcutPickerPane(ShortcutPickerPane.Content)
+                NavAction.Left -> focusShortcutPickerPane(ShortcutPickerPane.Platforms)
+                NavAction.Cancel -> focusShortcutPickerPane(ShortcutPickerPane.Content)
+                else -> Unit
+            }
+        }
     }
 
     private fun onAddShortcutNavAction(action: NavAction, state: HomeUiState) {
@@ -10191,3 +10390,6 @@ private data class SoundBiteFocus(
     val title: String,
     val fileName: String,
 )
+
+/** Columns in the Vita pin picker grid — the nav model and the sheet must agree on this. */
+internal const val PIN_PICKER_COLUMNS = 3

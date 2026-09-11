@@ -111,6 +111,12 @@ fun HomeScreen(
     onShopComingSoon: () -> Unit = {},
     onUploadComingSoon: () -> Unit = {},
     onDismissAddShortcut: () -> Unit = {},
+    onDismissShortcutPinPicker: () -> Unit = {},
+    onSelectShortcutPickerPlatform: (Int) -> Unit = {},
+    onSelectShortcutPickerItem: (Int) -> Unit = {},
+    onConfirmShortcutPicker: () -> Unit = {},
+    onShortcutPickerQueryChange: (String) -> Unit = {},
+    onFocusShortcutPickerPane: (ShortcutPickerPane) -> Unit = {},
     onPinRecentShortcut: () -> Unit = {},
     onPinAndroidShortcut: () -> Unit = {},
     onPinPictureShortcut: () -> Unit = {},
@@ -260,6 +266,12 @@ fun HomeScreen(
                                 onShopComingSoon = onShopComingSoon,
                                 onUploadComingSoon = onUploadComingSoon,
                                 onDismissAddShortcut = onDismissAddShortcut,
+                                onDismissShortcutPinPicker = onDismissShortcutPinPicker,
+                                onSelectShortcutPickerPlatform = onSelectShortcutPickerPlatform,
+                                onSelectShortcutPickerItem = onSelectShortcutPickerItem,
+                                onConfirmShortcutPicker = onConfirmShortcutPicker,
+                                onShortcutPickerQueryChange = onShortcutPickerQueryChange,
+                                onFocusShortcutPickerPane = onFocusShortcutPickerPane,
                                 onPinRecentShortcut = onPinRecentShortcut,
                                 onPinAndroidShortcut = onPinAndroidShortcut,
                                 onPinPictureShortcut = onPinPictureShortcut,
@@ -362,6 +374,12 @@ fun HomeScreen(
                                 onShopComingSoon = onShopComingSoon,
                                 onUploadComingSoon = onUploadComingSoon,
                                 onDismissAddShortcut = onDismissAddShortcut,
+                                onDismissShortcutPinPicker = onDismissShortcutPinPicker,
+                                onSelectShortcutPickerPlatform = onSelectShortcutPickerPlatform,
+                                onSelectShortcutPickerItem = onSelectShortcutPickerItem,
+                                onConfirmShortcutPicker = onConfirmShortcutPicker,
+                                onShortcutPickerQueryChange = onShortcutPickerQueryChange,
+                                onFocusShortcutPickerPane = onFocusShortcutPickerPane,
                                 onPinRecentShortcut = onPinRecentShortcut,
                                 onPinAndroidShortcut = onPinAndroidShortcut,
                                 onPinPictureShortcut = onPinPictureShortcut,
@@ -528,6 +546,12 @@ fun HomeScreen(
                             onShopComingSoon = onShopComingSoon,
                             onUploadComingSoon = onUploadComingSoon,
                             onDismissAddShortcut = onDismissAddShortcut,
+                            onDismissShortcutPinPicker = onDismissShortcutPinPicker,
+                            onSelectShortcutPickerPlatform = onSelectShortcutPickerPlatform,
+                            onSelectShortcutPickerItem = onSelectShortcutPickerItem,
+                            onConfirmShortcutPicker = onConfirmShortcutPicker,
+                            onShortcutPickerQueryChange = onShortcutPickerQueryChange,
+                            onFocusShortcutPickerPane = onFocusShortcutPickerPane,
                             onPinRecentShortcut = onPinRecentShortcut,
                             onPinAndroidShortcut = onPinAndroidShortcut,
                             onPinPictureShortcut = onPinPictureShortcut,
@@ -661,6 +685,12 @@ fun HomePageContent(
     onShopComingSoon: () -> Unit = {},
     onUploadComingSoon: () -> Unit = {},
     onDismissAddShortcut: () -> Unit = {},
+    onDismissShortcutPinPicker: () -> Unit = {},
+    onSelectShortcutPickerPlatform: (Int) -> Unit = {},
+    onSelectShortcutPickerItem: (Int) -> Unit = {},
+    onConfirmShortcutPicker: () -> Unit = {},
+    onShortcutPickerQueryChange: (String) -> Unit = {},
+    onFocusShortcutPickerPane: (ShortcutPickerPane) -> Unit = {},
     onPinRecentShortcut: () -> Unit = {},
     onPinAndroidShortcut: () -> Unit = {},
     onPinPictureShortcut: () -> Unit = {},
@@ -795,7 +825,20 @@ fun HomePageContent(
                             )
                         },
                     )
-                    if (state.homeHub.addShortcutOpen) {
+                    val pinPicker = state.homeHub.shortcutPicker
+                    if (pinPicker != null) {
+                        // Vita bubbles use the platform / ROM browser; the type chooser below is
+                        // still the Home board's path, which also pins pictures and GIFs.
+                        ShortcutPinPickerSheet(
+                            picker = pinPicker,
+                            onDismiss = onDismissShortcutPinPicker,
+                            onSelectPlatform = onSelectShortcutPickerPlatform,
+                            onSelectItem = onSelectShortcutPickerItem,
+                            onConfirm = onConfirmShortcutPicker,
+                            onQueryChange = onShortcutPickerQueryChange,
+                            onFocusPane = onFocusShortcutPickerPane,
+                        )
+                    } else if (state.homeHub.addShortcutOpen) {
                         AddShortcutSheet(
                             picker = state.homeHub.shortcutTargetPicker,
                             pendingKind = state.homeHub.pendingShortcutKind,

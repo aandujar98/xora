@@ -90,6 +90,33 @@ data class ShortcutTargetPickerUiState(
     val selected: Game? get() = candidates.getOrNull(selectedIndex)
 }
 
+/** Which panel of the Vita pin picker has the stick. */
+enum class ShortcutPickerPane {
+    Platforms,
+    Content,
+    Search,
+}
+
+/**
+ * Two-panel pin picker for an empty Vita bubble: the platforms the player actually has on the
+ * XMB down the left (Android included), that platform's ROMs / apps as cards on the right, and a
+ * search field over the grid.
+ *
+ * [results] is already filtered by [platformIndex] and [query] — the sheet renders it as-is so
+ * the focus index and the visible cards can never disagree.
+ */
+data class ShortcutPickerUiState(
+    val platforms: List<PlatformSummary>,
+    val platformIndex: Int = 0,
+    val query: String = "",
+    val results: List<Game> = emptyList(),
+    val itemIndex: Int = 0,
+    val pane: ShortcutPickerPane = ShortcutPickerPane.Platforms,
+) {
+    val platform: PlatformSummary? get() = platforms.getOrNull(platformIndex)
+    val selected: Game? get() = results.getOrNull(itemIndex)
+}
+
 data class HomeHubUiState(
     val section: HomeHubSection = HomeHubSection.ShardMenu,
     val shard: HomeShard = HomeShard.Continue,
@@ -151,6 +178,8 @@ data class HomeHubUiState(
     val pendingShortcutSpan: ShortcutSpan = ShortcutSpan.Default,
     /** Non-null while picking a library game or Android app to pin. */
     val shortcutTargetPicker: ShortcutTargetPickerUiState? = null,
+    /** Vita bubble pin picker. Non-null while the platform / ROM browser is up. */
+    val shortcutPicker: ShortcutPickerUiState? = null,
 ) {
     /** True while the LiveArea peel page (or its departing bubble) owns the screen. */
     val vitaLaunchPageOpen: Boolean
