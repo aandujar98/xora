@@ -71,6 +71,9 @@ import com.arcadia.shell.datastore.GAME_ART_ALIGN_STEP
 import com.arcadia.shell.designsystem.ShellTheme
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.arcadiaBackdropBlur
+import com.arcadia.shell.designsystem.XoraSettingsPanelHeader
+import com.arcadia.shell.designsystem.xoraFocusHighlight
+import com.arcadia.shell.designsystem.xoraSettingsPanelSurface
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.feature.home.component.ArtworkImage
@@ -425,39 +428,12 @@ private fun CustomizePanel(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(
-        modifier = modifier
-            .clip(PanelShape)
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color(0xFF0B0D12),
-                        Color(0xFF10141C),
-                        Color(0xFF151B26),
-                    ),
-                ),
-            )
-            .border(1.dp, Color.White.copy(alpha = 0.35f), PanelShape)
-            .padding(horizontal = 20.dp, vertical = 18.dp),
-        content = content,
-    )
+    Column(modifier = modifier.xoraSettingsPanelSurface(), content = content)
 }
 
-/** XOIREQE caps with the hairline rule under it, as in the Customize mock. */
 @Composable
 private fun PanelHeader(text: String) {
-    XoraTitleText(
-        text = text.uppercase(Locale.US),
-        fontSize = 20.sp,
-        fontWeight = FontWeight.SemiBold,
-    )
-    Box(
-        modifier = Modifier
-            .padding(top = 8.dp)
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(Color.White.copy(alpha = 0.55f)),
-    )
+    XoraSettingsPanelHeader(text)
 }
 
 @Composable
@@ -467,17 +443,24 @@ private fun CustomizeNavRow(
     focused: Boolean,
     onClick: () -> Unit,
 ) {
-    XoraSecondaryText(
-        text = label,
-        fontSize = 15.sp,
-        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        fillColor = when {
-            focused -> FocusRingColor
-            selected -> Color.White
-            else -> Color.White.copy(alpha = 0.62f)
-        },
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-    )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .xoraFocusHighlight(focused)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        XoraSecondaryText(
+            text = label,
+            fontSize = 15.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            fillColor = when {
+                focused -> Color.White
+                selected -> Color.White
+                else -> Color.White.copy(alpha = 0.62f)
+            },
+        )
+    }
 }
 
 @Composable

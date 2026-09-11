@@ -57,6 +57,9 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.XoraSettingsPanelHeader
+import com.arcadia.shell.designsystem.xoraFocusHighlight
+import com.arcadia.shell.designsystem.xoraSettingsPanelSurface
 import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.datastore.VisualPerformanceChoices
 import com.arcadia.shell.datastore.VisualPerformanceMode
@@ -128,28 +131,9 @@ fun StartSettingsPanel(
                     .widthIn(max = 560.dp)
                     .fillMaxWidth(0.78f)
                     .fillMaxHeight(0.74f)
-                    .liquidGlass(
-                        shape = ListShape,
-                        tone = GlassTone.OverMedia,
-                        intensity = GlassIntensity.Strong,
-                        shimmer = true,
-                    )
-                    .padding(horizontal = 10.dp, vertical = 14.dp),
+                    .xoraSettingsPanelSurface(),
             ) {
-                Text(
-                    text = state.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = glass.content,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .height(1.dp)
-                        .background(glass.border.copy(alpha = 0.35f)),
-                )
+                XoraSettingsPanelHeader(state.title)
                 val categoryFadeIn = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
                 val categoryFadeOut = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
                 val pageKey = if (state.inCategory) "cat:${state.category.name}" else "root"
@@ -285,14 +269,6 @@ private fun StartSettingsListRow(
     muted: Color,
     onClick: () -> Unit,
 ) {
-    val theme = LocalShellTheme.current.colors
-    val focusStart = theme.focusStart
-    val focusEnd = theme.focusEnd
-    val highlightAlpha by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Fast),
-        label = "startSettingsFocus",
-    )
     if (row is StartSettingsRow.Header) {
         Column(
             modifier = Modifier
@@ -325,15 +301,7 @@ private fun StartSettingsListRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 2.dp)
-            .clip(RowFocusShape)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        focusStart.copy(alpha = 0.42f * highlightAlpha),
-                        focusEnd.copy(alpha = 0.38f * highlightAlpha),
-                    ),
-                ),
-            )
+            .xoraFocusHighlight(selected, shape = RowFocusShape)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,

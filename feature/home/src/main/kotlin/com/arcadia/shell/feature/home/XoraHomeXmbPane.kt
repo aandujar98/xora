@@ -94,6 +94,7 @@ import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.NowPlayingPill
+import com.arcadia.shell.feature.home.component.ProfileEditRequestEffect
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.feature.home.component.XmbParticleFieldLayer
@@ -255,12 +256,23 @@ fun XoraHomeXmbPane(
         // Theme / custom wallpaper must remain the base plate — it zooms, then fades to black.
         // Grouped offscreen so the particle matte's Screen blend lands on the wallpaper under it
         // rather than on the window's render target.
+        // Both of these cost a full-screen buffer every frame, so neither is left on when it is
+        // doing nothing — the default wallpaper is 1080p60 and has the whole budget to hit.
+        val groupForParticles = !fullTrailer && state.homeHub.particlesEnabled
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .blur(trayBlur)
+                .then(if (trayBlur > 0.dp) Modifier.blur(trayBlur) else Modifier)
                 .clipToBounds()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .then(
+                    if (groupForParticles) {
+                        Modifier.graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
                 .arcadiaHazeSource(zIndex = 0f),
         ) {
             HomeWallpaper(
@@ -296,7 +308,7 @@ fun XoraHomeXmbPane(
                     .graphicsLayer { alpha = recedeAlpha },
             )
 
-            if (!fullTrailer && state.homeHub.particlesEnabled) {
+            if (groupForParticles) {
                 // PS5-style ambient dust between the wallpaper and the menu chrome.
                 XmbParticleFieldLayer(
                     modifier = Modifier
@@ -591,12 +603,21 @@ fun XoraXmbHeroDetail(
             .fillMaxSize()
             .background(Color.Black),
     ) {
+        val groupForParticles = !fullTrailer && state.homeHub.particlesEnabled
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .blur(trayBlur)
+                .then(if (trayBlur > 0.dp) Modifier.blur(trayBlur) else Modifier)
                 .clipToBounds()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
+                .then(
+                    if (groupForParticles) {
+                        Modifier.graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
             HomeWallpaper(
                 customPath = state.homeHub.wallpaperPath,
@@ -642,7 +663,7 @@ fun XoraXmbHeroDetail(
                     .then(backdropMotion)
                     .graphicsLayer { alpha = recedeAlpha },
             )
-            if (!fullTrailer && state.homeHub.particlesEnabled) {
+            if (groupForParticles) {
                 XmbParticleFieldLayer(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1094,9 +1115,7 @@ private fun XoraXmbPillChrome(
     onSignOutRetroAchievements: () -> Unit,
 ) {
     var profileEditing by remember { mutableStateOf(false) }
-    LaunchedEffect(state.profileEditRequest) {
-        if (state.profileEditRequest > 0) profileEditing = true
-    }
+    ProfileEditRequestEffect(state.profileEditRequest) { profileEditing = true }
     val launching = state.isLaunching
     val launchPageOpen = state.homeHub.vitaLaunchPageOpen
     val reduceMotion = rememberReduceMotion()
