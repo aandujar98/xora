@@ -49,6 +49,15 @@ class HomeThemeMediaStore @Inject constructor(
         imageOnly = false,
     )
 
+    /** Optional second track played while the Vita shortcut tray is open. */
+    suspend fun importTrayBgm(uri: Uri): String = importNamed(
+        uri = uri,
+        dir = bgmDir,
+        stem = TRAY_BGM_STEM,
+        defaultExt = "mp3",
+        imageOnly = false,
+    )
+
     suspend fun importShortcutArt(uri: Uri, id: String): String = importNamed(
         uri = uri,
         dir = shortcutArtDir,
@@ -76,8 +85,21 @@ class HomeThemeMediaStore @Inject constructor(
         runCatching { wallpaperDir.listFiles()?.forEach { it.delete() } }
     }
 
+    /** Main shell track only — the tray track shares this directory and must survive. */
     fun clearBgm() {
-        runCatching { bgmDir.listFiles()?.forEach { it.delete() } }
+        deleteStem(bgmDir, BGM_STEM)
+    }
+
+    fun clearTrayBgm() {
+        deleteStem(bgmDir, TRAY_BGM_STEM)
+    }
+
+    private fun deleteStem(dir: File, stem: String) {
+        runCatching {
+            dir.listFiles()
+                ?.filter { it.isFile && it.name.startsWith("$stem.") }
+                ?.forEach { it.delete() }
+        }
     }
 
     private fun resolve(path: String?, fallbackDir: File): File? {
@@ -162,6 +184,7 @@ class HomeThemeMediaStore @Inject constructor(
         const val FOLDER_DIR = "home_folder"
         private const val WALLPAPER_STEM = "wallpaper"
         private const val BGM_STEM = "bgm"
+        private const val TRAY_BGM_STEM = "bgm_tray"
         private const val FOLDER_STEM = "folder"
         private val WALLPAPER_IMAGE_EXTS = setOf("jpg", "jpeg", "png", "webp", "gif")
         private val WALLPAPER_VIDEO_EXTS = setOf("mp4", "webm", "mkv", "mov")

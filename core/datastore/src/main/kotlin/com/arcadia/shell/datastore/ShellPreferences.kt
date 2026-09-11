@@ -299,6 +299,11 @@ data class ShellSettings(
      */
     val customBgmPath: String? = null,
     /**
+     * Absolute path to an optional second looping BGM that takes over while the Vita shortcut
+     * tray is open. Null / blank keeps the main shell BGM playing through the tray.
+     */
+    val vitaTrayBgmPath: String? = null,
+    /**
      * Absolute path to the Music category's on-device library folder. Null / blank means
      * "all device music" via MediaStore.
      */
@@ -516,6 +521,7 @@ class ShellPreferences @Inject constructor(
             wallpaperAlignY = (prefs[Keys.WALLPAPER_ALIGN_Y] ?: 0f).coerceIn(-1f, 1f),
             homeFolderImagePath = prefs[Keys.HOME_FOLDER_IMAGE_PATH]?.takeIf { it.isNotBlank() },
             customBgmPath = prefs[Keys.CUSTOM_BGM_PATH]?.takeIf { it.isNotBlank() },
+            vitaTrayBgmPath = prefs[Keys.VITA_TRAY_BGM_PATH]?.takeIf { it.isNotBlank() },
             musicLibraryPath = prefs[Keys.MUSIC_LIBRARY_PATH]?.takeIf { it.isNotBlank() },
             shellThemeId = prefs[Keys.SHELL_THEME_ID]?.takeIf { it.isNotBlank() }
                 ?: DEFAULT_SHELL_THEME_ID,
@@ -924,6 +930,11 @@ class ShellPreferences @Inject constructor(
     suspend fun setCustomBgmPath(path: String?) = edit {
         if (path.isNullOrBlank()) it.remove(Keys.CUSTOM_BGM_PATH)
         else it[Keys.CUSTOM_BGM_PATH] = path
+    }
+
+    suspend fun setVitaTrayBgmPath(path: String?) = edit {
+        if (path.isNullOrBlank()) it.remove(Keys.VITA_TRAY_BGM_PATH)
+        else it[Keys.VITA_TRAY_BGM_PATH] = path
     }
 
     suspend fun setMusicLibraryPath(path: String?) = edit {
@@ -1448,12 +1459,18 @@ class ShellPreferences @Inject constructor(
     }
 
     /** Snapshots the current wallpaper/BGM as a new named [CustomTheme]. */
-    suspend fun addCustomTheme(name: String, wallpaperPath: String?, bgmPath: String?): CustomTheme {
+    suspend fun addCustomTheme(
+        name: String,
+        wallpaperPath: String?,
+        bgmPath: String?,
+        trayBgmPath: String? = null,
+    ): CustomTheme {
         val theme = CustomTheme(
             id = java.util.UUID.randomUUID().toString(),
             name = name.trim().take(CUSTOM_THEME_NAME_MAX_LENGTH).ifBlank { "Custom theme" },
             wallpaperPath = wallpaperPath,
             bgmPath = bgmPath,
+            trayBgmPath = trayBgmPath,
         )
         val current = customThemes.first()
         edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(current + theme) }
@@ -1577,6 +1594,7 @@ class ShellPreferences @Inject constructor(
         val WALLPAPER_ALIGN_Y = floatPreferencesKey("wallpaper_align_y")
         val HOME_FOLDER_IMAGE_PATH = stringPreferencesKey("home_folder_image_path")
         val CUSTOM_BGM_PATH = stringPreferencesKey("custom_bgm_path")
+        val VITA_TRAY_BGM_PATH = stringPreferencesKey("vita_tray_bgm_path")
         val MUSIC_LIBRARY_PATH = stringPreferencesKey("music_library_path")
         val SHELL_THEME_ID = stringPreferencesKey("shell_theme_id")
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
@@ -1899,6 +1917,8 @@ data class CustomTheme(
     val wallpaperPath: String?,
     /** Stable imported path, same as [ShellSettings.customBgmPath]. */
     val bgmPath: String?,
+    /** Optional Vita-tray track, same as [ShellSettings.vitaTrayBgmPath]. */
+    val trayBgmPath: String? = null,
 )
 
 /** Longer than any real theme name, short enough a pasted essay cannot bloat the store. */
@@ -1913,6 +1933,7 @@ internal fun encodeCustomThemes(themes: List<CustomTheme>): String {
             .put("name", theme.name)
         theme.wallpaperPath?.let { obj.put("wallpaperPath", it) }
         theme.bgmPath?.let { obj.put("bgmPath", it) }
+        theme.trayBgmPath?.let { obj.put("trayBgmPath", it) }
         array.put(obj)
     }
     return array.toString()
@@ -1934,6 +1955,7 @@ internal fun decodeCustomThemes(raw: String): List<CustomTheme> {
                         name = name,
                         wallpaperPath = obj.optString("wallpaperPath").trim().takeIf { it.isNotEmpty() },
                         bgmPath = obj.optString("bgmPath").trim().takeIf { it.isNotEmpty() },
+                        trayBgmPath = obj.optString("trayBgmPath").trim().takeIf { it.isNotEmpty() },
                     ),
                 )
             }

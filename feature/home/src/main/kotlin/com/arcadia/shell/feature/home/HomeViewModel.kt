@@ -901,8 +901,19 @@ class HomeViewModel @Inject constructor(
             xora = themesAndXora.second,
         )
     }.combine(
-        combine(preferences.customThemes, preferences.bootAnimationId, ::Pair),
-    ) { chrome, custom -> chrome.copy(customThemes = custom.first, bootAnimationId = custom.second) }
+        combine(
+            preferences.customThemes,
+            preferences.bootAnimationId,
+            preferences.settings.map { it.vitaTrayBgmPath }.distinctUntilChanged(),
+            ::Triple,
+        ),
+    ) { chrome, custom ->
+        chrome.copy(
+            customThemes = custom.first,
+            bootAnimationId = custom.second,
+            vitaTrayBgmPath = custom.third,
+        )
+    }
 
     private data class HomeThemeChrome(
         val wallpaperPath: String?,
@@ -920,6 +931,7 @@ class HomeViewModel @Inject constructor(
         val xora: XoraNavChrome,
         val customThemes: List<CustomTheme> = emptyList(),
         val bootAnimationId: String = DEFAULT_BOOT_ANIMATION_ID,
+        val vitaTrayBgmPath: String? = null,
     )
 
     private data class OverlayChrome(
@@ -2471,6 +2483,7 @@ class HomeViewModel @Inject constructor(
                 wallpaperAlignX = theme.wallpaperAlignX,
                 wallpaperAlignY = theme.wallpaperAlignY,
                 customBgmPath = theme.customBgmPath,
+                vitaTrayBgmPath = theme.vitaTrayBgmPath,
                 continueGame = continueGame,
                 themesOpen = theme.themesOpen,
                 themesSheetTab = theme.themesSheetTab,
@@ -5693,6 +5706,7 @@ class HomeViewModel @Inject constructor(
                 name = name,
                 wallpaperPath = settings.homeWallpaperPath,
                 bgmPath = settings.customBgmPath,
+                trayBgmPath = settings.vitaTrayBgmPath,
             )
             emit(HomeEvent.ShowMessage("Saved custom theme: ${saved.name}"))
         }
@@ -5705,6 +5719,7 @@ class HomeViewModel @Inject constructor(
             val theme = preferences.customThemes.first().firstOrNull { it.id == id } ?: return@launch
             preferences.setHomeWallpaperPath(theme.wallpaperPath)
             preferences.setCustomBgmPath(theme.bgmPath)
+            preferences.setVitaTrayBgmPath(theme.trayBgmPath)
             emit(HomeEvent.ShowMessage("Applied: ${theme.name}"))
         }
     }
@@ -5761,6 +5776,13 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         viewModelScope.launch {
             runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.Bgm) }
+        }
+    }
+
+    fun requestTrayBgmPicker() {
+        noteUserActivity()
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.TrayBgm) }
         }
     }
 
@@ -6098,6 +6120,24 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             themeMediaStore.clearBgm()
             preferences.setCustomBgmPath(null)
+        }
+    }
+
+    fun setVitaTrayBgm(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = themeMediaStore.importTrayBgm(uri)
+                preferences.setVitaTrayBgmPath(path)
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import BGM."))
+            }
+        }
+    }
+
+    fun clearVitaTrayBgm() {
+        viewModelScope.launch {
+            themeMediaStore.clearTrayBgm()
+            preferences.setVitaTrayBgmPath(null)
         }
     }
 

@@ -85,6 +85,7 @@ fun ThemesSheet(
     hasCustomWallpaper: Boolean,
     customWallpaperLabel: String,
     hasCustomBgm: Boolean,
+    hasTrayBgm: Boolean,
     bootAnimationId: String,
     onDismiss: () -> Unit,
     onSelectTheme: (String) -> Unit,
@@ -92,6 +93,8 @@ fun ThemesSheet(
     onClearWallpaper: () -> Unit,
     onRequestBgm: () -> Unit,
     onClearBgm: () -> Unit,
+    onRequestTrayBgm: () -> Unit,
+    onClearTrayBgm: () -> Unit,
     onSaveCustomTheme: (String) -> Unit,
     onApplyCustomTheme: (String) -> Unit,
     onDeleteCustomTheme: (String) -> Unit,
@@ -161,10 +164,13 @@ fun ThemesSheet(
                                 hasCustomWallpaper = hasCustomWallpaper,
                                 customWallpaperLabel = customWallpaperLabel,
                                 hasCustomBgm = hasCustomBgm,
+                                hasTrayBgm = hasTrayBgm,
                                 onRequestWallpaper = onRequestWallpaper,
                                 onClearWallpaper = onClearWallpaper,
                                 onRequestBgm = onRequestBgm,
                                 onClearBgm = onClearBgm,
+                                onRequestTrayBgm = onRequestTrayBgm,
+                                onClearTrayBgm = onClearTrayBgm,
                                 wallpaperAlignX = wallpaperAlignX,
                                 wallpaperAlignY = wallpaperAlignY,
                                 onNudgeWallpaper = onNudgeWallpaper,
@@ -454,10 +460,13 @@ private fun CreateCustomThemeContent(
     hasCustomWallpaper: Boolean,
     customWallpaperLabel: String,
     hasCustomBgm: Boolean,
+    hasTrayBgm: Boolean,
     onRequestWallpaper: () -> Unit,
     onClearWallpaper: () -> Unit,
     onRequestBgm: () -> Unit,
     onClearBgm: () -> Unit,
+    onRequestTrayBgm: () -> Unit,
+    onClearTrayBgm: () -> Unit,
     wallpaperAlignX: Float,
     wallpaperAlignY: Float,
     onNudgeWallpaper: (Float, Float) -> Unit,
@@ -538,6 +547,30 @@ private fun CreateCustomThemeContent(
         }
 
         XoraSecondaryText(
+            text = "Shortcut menu music",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        XoraSecondaryText(
+            text = if (hasTrayBgm) {
+                "Fades in when the shortcut menu opens"
+            } else {
+                "Optional — the main BGM keeps playing"
+            },
+            fontSize = 13.sp,
+            fillColor = Color.White.copy(alpha = 0.55f),
+        )
+        Button(onClick = { runCatching { onRequestTrayBgm() } }, modifier = Modifier.fillMaxWidth()) {
+            Text(text = "Choose shortcut menu BGM")
+        }
+        if (hasTrayBgm) {
+            OutlinedButton(onClick = onClearTrayBgm, modifier = Modifier.fillMaxWidth()) {
+                Text(text = "Remove shortcut menu BGM")
+            }
+        }
+
+        XoraSecondaryText(
             text = "Name this theme",
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
@@ -559,7 +592,7 @@ private fun CreateCustomThemeContent(
             }
             Button(
                 onClick = { onSave(name.trim().ifBlank { "My theme" }) },
-                enabled = hasCustomWallpaper || hasCustomBgm,
+                enabled = hasCustomWallpaper || hasCustomBgm || hasTrayBgm,
             ) {
                 Text("Save custom theme")
             }

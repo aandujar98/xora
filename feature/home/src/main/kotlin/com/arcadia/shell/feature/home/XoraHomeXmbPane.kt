@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -53,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
@@ -220,6 +222,12 @@ fun XoraHomeXmbPane(
     )
     val recedeScale = 1f - (recede * 0.12f)
     val recedeAlpha = 1f - recede
+    // Tray-only: RA replaces the backdrop outright, so blurring under it would be wasted work.
+    val trayBlur by animateDpAsState(
+        targetValue = if (trayOpen) XMB_TRAY_BLUR_RADIUS else 0.dp,
+        animationSpec = tween(durationMillis = XMB_TRAY_BLUR_MS, easing = FastOutSlowInEasing),
+        label = "xmbTrayBlur",
+    )
     // Keep the XMB cross composed under RA so it can zoom out instead of sliding away.
     var underlayDepth by remember {
         mutableStateOf(
@@ -248,6 +256,7 @@ fun XoraHomeXmbPane(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .blur(trayBlur)
                 .clipToBounds()
                 .arcadiaHazeSource(zIndex = 0f),
         ) {
@@ -566,6 +575,11 @@ fun XoraXmbHeroDetail(
     )
     val recedeScale = 1f - (recede * 0.12f)
     val recedeAlpha = 1f - recede
+    val trayBlur by animateDpAsState(
+        targetValue = if (trayOpen) XMB_TRAY_BLUR_RADIUS else 0.dp,
+        animationSpec = tween(durationMillis = XMB_TRAY_BLUR_MS, easing = FastOutSlowInEasing),
+        label = "xmbHeroTrayBlur",
+    )
 
     // Full-bleed: emulator aspect ratio must not crop this wallpaper or the XMB chrome.
     Box(modifier = modifier.fillMaxSize()) {
@@ -577,6 +591,7 @@ fun XoraXmbHeroDetail(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .blur(trayBlur)
                 .clipToBounds(),
         ) {
             HomeWallpaper(
@@ -1235,3 +1250,11 @@ private fun XoraXmbPillChrome(
 
 /** Drill in / out slide between XMB rungs (PSP / PS3 shell feel). */
 private const val XMB_DEPTH_SLIDE_MS = 300
+
+/**
+ * Backdrop defocus while the Vita shortcut tray is open. The tray is a foreground surface, so
+ * the shell behind it goes soft rather than dark. Needs API 31+ RenderEffect; older devices
+ * simply keep the sharp wallpaper (the tray still reads fine over it).
+ */
+private val XMB_TRAY_BLUR_RADIUS = 18.dp
+private const val XMB_TRAY_BLUR_MS = 280

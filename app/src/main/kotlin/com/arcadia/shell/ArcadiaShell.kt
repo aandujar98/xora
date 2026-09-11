@@ -188,6 +188,11 @@ fun ArcadiaShell(
     ) { uri ->
         if (uri != null) homeViewModel.setCustomBgm(uri)
     }
+    val trayBgmPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) homeViewModel.setVitaTrayBgm(uri)
+    }
     val profileAvatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -309,6 +314,7 @@ fun ArcadiaShell(
                         arrayOf("image/*", "video/*"),
                     )
                     HomeMediaPickerRequest.Bgm -> bgmPicker.launch("audio/*")
+                    HomeMediaPickerRequest.TrayBgm -> trayBgmPicker.launch("audio/*")
                     is HomeMediaPickerRequest.ProfileAvatar -> when (request.source) {
                         PhotoImportSource.PhotosApp -> profileAvatarPicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
@@ -1273,6 +1279,7 @@ private fun ThemesCustomizeOverlay(
                 ?.takeIf { it.isNotBlank() }
                 ?: "Custom wallpaper",
             hasCustomBgm = !state.homeHub.customBgmPath.isNullOrBlank(),
+            hasTrayBgm = !state.homeHub.vitaTrayBgmPath.isNullOrBlank(),
             bootAnimationId = state.homeHub.bootAnimationId,
             initialSection = state.homeHub.themesSheetTab,
             onDismiss = homeViewModel::dismissThemesSheet,
@@ -1281,6 +1288,8 @@ private fun ThemesCustomizeOverlay(
             onClearWallpaper = homeViewModel::clearHomeWallpaper,
             onRequestBgm = homeViewModel::requestBgmPicker,
             onClearBgm = homeViewModel::clearCustomBgm,
+            onRequestTrayBgm = homeViewModel::requestTrayBgmPicker,
+            onClearTrayBgm = homeViewModel::clearVitaTrayBgm,
             onSaveCustomTheme = homeViewModel::saveCurrentAsCustomTheme,
             onApplyCustomTheme = homeViewModel::applyCustomTheme,
             onDeleteCustomTheme = homeViewModel::deleteCustomTheme,

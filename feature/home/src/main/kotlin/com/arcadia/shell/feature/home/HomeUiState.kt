@@ -129,6 +129,8 @@ data class HomeHubUiState(
     val wallpaperAlignY: Float = 0f,
     /** Absolute path to custom BGM, or null for the bundled default. */
     val customBgmPath: String? = null,
+    /** Optional second track that plays while the Vita shortcut tray is open. */
+    val vitaTrayBgmPath: String? = null,
     /** Most recently played non-app game for the Continue shard. */
     val continueGame: Game? = null,
     /** True while the Customize sheet is open (always hosted on the Activity window). */
@@ -428,6 +430,9 @@ sealed interface HomeMediaPickerRequest {
     data object ShortcutGif : HomeMediaPickerRequest
     data object Wallpaper : HomeMediaPickerRequest
     data object Bgm : HomeMediaPickerRequest
+
+    /** Optional second track for the Vita shortcut tray. */
+    data object TrayBgm : HomeMediaPickerRequest
 
     /** Local profile picture from the Photos picker or the Files app. */
     data class ProfileAvatar(val source: PhotoImportSource) : HomeMediaPickerRequest

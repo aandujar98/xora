@@ -102,6 +102,9 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(homeState.isLaunching) {
                 backgroundMusic.setGameLaunchActive(homeState.isLaunching)
             }
+            LaunchedEffect(homeState.homeHub.vitaShortcutTrayOpen) {
+                backgroundMusic.setVitaTrayOpen(homeState.homeHub.vitaShortcutTrayOpen)
+            }
 
             LaunchedEffect(shellState.prefsReady, shellState.showOnboarding) {
                 val holdShellBgm = !shellState.prefsReady || shellState.showOnboarding
