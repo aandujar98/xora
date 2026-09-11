@@ -502,17 +502,19 @@ class HomeViewModel @Inject constructor(
             preferences.settings,
             preferences.hiddenGameIds,
             preferences.gameArtAlignments,
-        ) { settings, hidden, alignments -> Triple(settings, hidden, alignments) },
+            preferences.gameTitleOverrides,
+            ::LibraryPrefs,
+        ),
         scanner.progress,
         selection,
         transientFlow,
         panelFlow,
     ) { prefs, progress, currentSelection, transient, panels ->
-        val (settings, hiddenGameIds, artAlignments) = prefs
         ChromeState(
-            settings = settings,
-            hiddenGameIds = hiddenGameIds,
-            artAlignments = artAlignments,
+            settings = prefs.settings,
+            hiddenGameIds = prefs.hiddenGameIds,
+            artAlignments = prefs.artAlignments,
+            titleOverrides = prefs.titleOverrides,
             progress = progress,
             selection = currentSelection,
             resolvedPlayerName = transient.first,
@@ -543,10 +545,19 @@ class HomeViewModel @Inject constructor(
         val achievements: AchievementsUiState,
     )
 
+    /** The four library-shaping preference flows, grouped to stay inside combine's arity. */
+    private data class LibraryPrefs(
+        val settings: ShellSettings,
+        val hiddenGameIds: Set<String>,
+        val artAlignments: Map<String, GameArtAlignment>,
+        val titleOverrides: Map<String, String>,
+    )
+
     private data class ChromeState(
         val settings: ShellSettings,
         val hiddenGameIds: Set<String> = emptySet(),
         val artAlignments: Map<String, GameArtAlignment> = emptyMap(),
+        val titleOverrides: Map<String, String> = emptyMap(),
         val progress: ScanProgress,
         val selection: Selection,
         val resolvedPlayerName: String?,
@@ -2328,10 +2339,18 @@ class HomeViewModel @Inject constructor(
     ): HomeUiState {
         val hiddenIds = chrome.hiddenGameIds
         val showHidden = chrome.settings.showHiddenGames
+        // Renames are applied here, at the one funnel every surface draws from, so the XMB rows,
+        // the Vita bubbles, card browse and search all agree on what a game is called.
+        val renamed = chrome.titleOverrides.takeIf { it.isNotEmpty() }?.let { overrides ->
+            allGames.map { game ->
+                val custom = overrides[game.id]?.takeIf { it.isNotBlank() }
+                if (custom == null || custom == game.title) game else game.copy(title = custom)
+            }
+        } ?: allGames
         val libraryGames = if (showHidden || hiddenIds.isEmpty()) {
-            allGames
+            renamed
         } else {
-            allGames.filter { it.id !in hiddenIds }
+            renamed.filter { it.id !in hiddenIds }
         }
         val catalogSummaries = if (showHidden || hiddenIds.isEmpty()) {
             summaries
@@ -2504,7 +2523,17 @@ class HomeViewModel @Inject constructor(
                 customizeChrome = theme.nav.customizeChrome,
                 shortcutGridColumns = theme.nav.gridColumns,
                 shortcutGridRows = theme.nav.gridRows,
-                shortcuts = theme.shortcuts,
+                // Bubbles snapshot the title they were pinned with, so a later rename has to be
+                // resolved back through the library or the tray keeps showing the old name.
+                shortcuts = theme.shortcuts.map { shortcut ->
+                    if (shortcut.kind != HomeShortcutKind.Game) return@map shortcut
+                    val live = libraryGames.firstOrNull { it.id == shortcut.target }?.title
+                    if (live == null || live == shortcut.title) {
+                        shortcut
+                    } else {
+                        shortcut.copy(title = live)
+                    }
+                },
                 vitaShortcutTrayOpen = theme.nav.vitaShortcutTrayOpen,
                 vitaShortcutPinMode = theme.nav.vitaShortcutPinMode,
                 vitaShortcutLaunch = theme.nav.vitaShortcutLaunch,
@@ -2546,6 +2575,7 @@ class HomeViewModel @Inject constructor(
             games = games,
             selectedGameIndex = gameIndex,
             hiddenGameIds = hiddenIds,
+            showHiddenGames = showHidden,
             gameArtAlignments = chrome.artAlignments,
             displayMode = DisplayMode.Single,
             gridColumns = chrome.settings.gridColumns.coerceIn(2, 6),
@@ -5675,7 +5705,16 @@ class HomeViewModel @Inject constructor(
     /** Platform + ROM/app browser for an empty Vita bubble. */
     private fun openShortcutPinPicker() {
         viewModelScope.launch {
+            // Same view of the library the XMB shows: renamed, and hidden entries left out.
+            val overrides = preferences.gameTitleOverrides.first()
+            val hidden = uiState.value.hiddenGameIds
+            val showHidden = preferences.settings.first().showHiddenGames
             val games = libraryRepository.observeGames().first()
+                .filter { showHidden || it.id !in hidden }
+                .map { game ->
+                    val custom = overrides[game.id]?.takeIf { it.isNotBlank() }
+                    if (custom == null) game else game.copy(title = custom)
+                }
             if (games.isEmpty()) {
                 emit(HomeEvent.ShowMessage("Nothing to pin yet — scan a library or sync apps."))
                 return@launch
@@ -9580,6 +9619,20 @@ class HomeViewModel @Inject constructor(
 
     fun setGameHidden(gameId: String, hidden: Boolean) {
         viewModelScope.launch { preferences.setGameHidden(gameId, hidden) }
+    }
+
+    /** Library → Show hidden games, from the platform editor. */
+    fun toggleShowHiddenGames() {
+        noteUserActivity()
+        viewModelScope.launch {
+            val current = preferences.settings.first().showHiddenGames
+            preferences.setShowHiddenGames(!current)
+            emit(
+                HomeEvent.ShowMessage(
+                    if (current) "Hidden games are now out of sight" else "Showing hidden games",
+                ),
+            )
+        }
     }
 
     fun nudgeGameArtAlignment(gameId: String, dx: Float, dy: Float) {

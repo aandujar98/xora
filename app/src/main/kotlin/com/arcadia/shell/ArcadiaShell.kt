@@ -1085,6 +1085,7 @@ fun ArcadiaShell(
                 hasCustomBanner = hasCustomBanner,
                 platformPreference = platformPref,
                 currentEmulatorLabel = emulatorLabel,
+                showHiddenGames = state.showHiddenGames,
                 navActions = if (choosingEmulator) {
                     emptyFlow()
                 } else {
@@ -1101,6 +1102,7 @@ fun ArcadiaShell(
                     onChooseEmulator = { chooseEmulatorPlatformId = platformId },
                     onClearEmulator = { homeViewModel.clearPlatformEmulator(platformId) },
                     onRescrapePlatform = { homeViewModel.rescrapePlatform(platformId) },
+                    onToggleShowHidden = homeViewModel::toggleShowHiddenGames,
                 ),
             )
         }

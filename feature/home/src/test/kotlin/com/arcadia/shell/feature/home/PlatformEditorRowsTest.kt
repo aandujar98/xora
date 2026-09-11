@@ -57,19 +57,31 @@ class PlatformEditorRowsTest {
 
     @Test
     fun libraryNoLongerHostsTheEmulatorRow() {
-        val rows = platformEditorRows(
-            section = PlatformEditorSection.Library,
-            platform = samplePlatform(),
-            gameCount = 3,
-            bannerPath = null,
-            hasCustomBanner = false,
-            platformPreference = ScraperPreference.Auto,
-            currentEmulatorLabel = "RetroArch · melonDS",
-            actions = actions(),
-        )
+        val rows = libraryRows(showHiddenGames = false)
         assertTrue(rows.none { it.key.startsWith("emulator") })
-        assertEquals(listOf("scraperplatform", "rescrapeplatform"), rows.map { it.key })
+        assertEquals(
+            listOf("showhidden", "scraperplatform", "rescrapeplatform"),
+            rows.map { it.key },
+        )
     }
+
+    @Test
+    fun showHiddenRowReflectsTheCurrentSetting() {
+        assertEquals("Off", libraryRows(showHiddenGames = false).first().value)
+        assertEquals("On", libraryRows(showHiddenGames = true).first().value)
+    }
+
+    private fun libraryRows(showHiddenGames: Boolean) = platformEditorRows(
+        section = PlatformEditorSection.Library,
+        platform = samplePlatform(),
+        gameCount = 3,
+        bannerPath = null,
+        hasCustomBanner = false,
+        platformPreference = ScraperPreference.Auto,
+        currentEmulatorLabel = "RetroArch · melonDS",
+        showHiddenGames = showHiddenGames,
+        actions = actions(),
+    )
 
     private fun samplePlatform() = GamePlatform(
         id = "nds",

@@ -68,6 +68,7 @@ data class PlatformEditorActions(
     val onChooseEmulator: () -> Unit,
     val onClearEmulator: () -> Unit,
     val onRescrapePlatform: () -> Unit,
+    val onToggleShowHidden: () -> Unit = {},
 )
 
 private enum class PlatformEditorColumn { Rail, Rows }
@@ -87,6 +88,7 @@ fun PlatformEditorPane(
     hasCustomBanner: Boolean,
     platformPreference: ScraperPreference,
     currentEmulatorLabel: String?,
+    showHiddenGames: Boolean,
     navActions: Flow<NavAction>,
     actions: PlatformEditorActions,
     modifier: Modifier = Modifier,
@@ -112,6 +114,7 @@ fun PlatformEditorPane(
         hasCustomBanner = hasCustomBanner,
         platformPreference = platformPreference,
         currentEmulatorLabel = currentEmulatorLabel,
+        showHiddenGames = showHiddenGames,
         actions = actions,
     )
 
@@ -265,6 +268,7 @@ private fun rememberPlatformEditorRows(
     hasCustomBanner: Boolean,
     platformPreference: ScraperPreference,
     currentEmulatorLabel: String?,
+    showHiddenGames: Boolean,
     actions: PlatformEditorActions,
 ): List<RomEditorRow> = remember(
     section,
@@ -274,6 +278,7 @@ private fun rememberPlatformEditorRows(
     hasCustomBanner,
     platformPreference,
     currentEmulatorLabel,
+    showHiddenGames,
 ) {
     platformEditorRows(
         section = section,
@@ -283,6 +288,7 @@ private fun rememberPlatformEditorRows(
         hasCustomBanner = hasCustomBanner,
         platformPreference = platformPreference,
         currentEmulatorLabel = currentEmulatorLabel,
+        showHiddenGames = showHiddenGames,
         actions = actions,
     )
 }
@@ -295,6 +301,7 @@ internal fun platformEditorRows(
     hasCustomBanner: Boolean,
     platformPreference: ScraperPreference,
     currentEmulatorLabel: String?,
+    showHiddenGames: Boolean,
     actions: PlatformEditorActions,
 ): List<RomEditorRow> = when (section) {
     PlatformEditorSection.Details -> listOf(
@@ -351,6 +358,13 @@ internal fun platformEditorRows(
     PlatformEditorSection.Library -> {
         val options = ScraperPreference.entries
         listOf(
+            RomEditorRow(
+                key = "showhidden",
+                label = "Show hidden games",
+                hint = "Hidden ROMs and apps stay listed everywhere, marked Hidden.",
+                value = if (showHiddenGames) "On" else "Off",
+                onActivate = actions.onToggleShowHidden,
+            ),
             RomEditorRow(
                 key = "scraperplatform",
                 label = "Scraper for ${platform.shortName}",

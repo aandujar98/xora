@@ -308,6 +308,8 @@ data class HomeUiState(
     val selectedGameIndex: Int = 0,
     /** Game ids the user hid from library lists. */
     val hiddenGameIds: Set<String> = emptySet(),
+    /** Platform editor → Library → Show hidden games. */
+    val showHiddenGames: Boolean = false,
     /** Per-game cover pan inside the Game Icon. */
     val gameArtAlignments: Map<String, GameArtAlignment> = emptyMap(),
     /** Single-screen vertical selector vs dual-screen horizontal XMB. */
