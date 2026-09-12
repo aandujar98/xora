@@ -176,6 +176,17 @@ fun ThemesSheet(
         pane = CustomizePane.Content
     }
 
+    // One way in and out of a section, so no per-section state can outlive the section it
+    // belongs to — a stale create-form flag is what made switching sections look broken.
+    fun goToSection(next: CustomizeSection) {
+        section = next
+        creatingCustomTheme = false
+        editingThemeId = null
+        themeMenuId = null
+        formRowIndex = 0
+        itemIndex = 0
+    }
+
     fun beginEditTheme(id: String, name: String) {
         // Load it first: editing means changing the wallpaper / BGM that theme holds, so the
         // pickers have to be acting on that theme's media, not whatever was last applied.
@@ -238,7 +249,7 @@ fun ThemesSheet(
     // Collected once, so a held direction is never dropped while the tree recomposes around it.
     val onNav by rememberUpdatedState<(NavAction) -> Unit> { action ->
         when {
-            creatingCustomTheme -> when (action) {
+            creatingCustomTheme && section == CustomizeSection.CustomThemes -> when (action) {
                 NavAction.Up -> formRowIndex =
                     (safeFormIndex - 1).coerceAtLeast(0)
                 NavAction.Down -> formRowIndex =
@@ -288,14 +299,12 @@ fun ThemesSheet(
             pane == CustomizePane.Nav -> when (action) {
                 NavAction.Up -> {
                     val next = (section.ordinal - 1).coerceAtLeast(0)
-                    section = CustomizeSection.entries[next]
-                    itemIndex = 0
+                    goToSection(CustomizeSection.entries[next])
                 }
                 NavAction.Down -> {
                     val next = (section.ordinal + 1)
                         .coerceAtMost(CustomizeSection.entries.size - 1)
-                    section = CustomizeSection.entries[next]
-                    itemIndex = 0
+                    goToSection(CustomizeSection.entries[next])
                 }
                 NavAction.Right, NavAction.Confirm -> if (entries.isNotEmpty()) {
                     pane = CustomizePane.Content
@@ -366,9 +375,7 @@ fun ThemesSheet(
                             selected = entry == section,
                             focused = entry == section && pane == CustomizePane.Nav,
                             onClick = {
-                                section = entry
-                                creatingCustomTheme = false
-                                itemIndex = 0
+                                goToSection(entry)
                                 pane = CustomizePane.Nav
                             },
                         )

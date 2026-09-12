@@ -310,7 +310,12 @@ fun HomeScreen(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
-                    } else if (state.homePage == HomePage.RaLibrary) {
+                    } else if (
+                        // XOrA NOW owns the whole screen the way RA does. Left in the hero branch
+                        // it drew under a HeroPane, which is the split header the page showed.
+                        state.homePage == HomePage.RaLibrary ||
+                        state.homePage == HomePage.RssFeed
+                    ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()

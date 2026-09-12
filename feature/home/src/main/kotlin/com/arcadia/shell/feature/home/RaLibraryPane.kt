@@ -137,6 +137,14 @@ fun RaLibraryPane(
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.22f)),
         )
+        // The library steps aside for the cheevo window rather than sitting behind it. Fading it
+        // out also drops its layout and image work while the window is the thing being looked at.
+        AnimatedVisibility(
+            visible = !ra.gameDetailOpen,
+            enter = fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
@@ -282,6 +290,7 @@ fun RaLibraryPane(
                     )
                 }
             }
+        }
         }
 
         // Outside the transition so the dim does not scale with the window it is dimming for.

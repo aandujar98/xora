@@ -28,6 +28,16 @@ class ShellSessionState @Inject constructor() {
         coldStartPending = true
     }
 
+    /**
+     * Called when the Activity came back with saved state — a rebuild, not a launch. Android
+     * hands a non-null bundle only when it tore the Activity down and put it back, which is the
+     * media-picker case; a real launch gets null. Distinguishing the two is what lets the boot
+     * clip play when the shell actually starts without replaying it every time focus returns.
+     */
+    fun markActivityRebuild() {
+        coldStartPending = false
+    }
+
     fun clearColdStart() {
         coldStartPending = false
     }

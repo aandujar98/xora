@@ -154,7 +154,9 @@ fun BootIntroOverlay(
     ) {
         if (playVideo) {
             BootIntroPlayer(
-                mediaUri = customClip?.let { java.io.File(it).toURI().toString() }
+                // Uri.fromFile, not File.toURI: the latter yields `file:/path` with one slash,
+                // which is a valid URI but not what the player's file source expects.
+                mediaUri = customClip?.let { android.net.Uri.fromFile(java.io.File(it)).toString() }
                     ?: bootIntroUri(assetPath),
                 onFirstFrame = { firstFrame = true },
                 onEnded = { requestEnd = true },

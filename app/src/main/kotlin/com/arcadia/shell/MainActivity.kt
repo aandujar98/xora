@@ -32,6 +32,7 @@ import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.GameSoundBitePlayer
 import com.arcadia.shell.feature.home.HomeViewModel
+import com.arcadia.shell.feature.home.ShellSessionState
 import com.arcadia.shell.home.ShellViewModel
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var uiSounds: UiSoundController
     @Inject lateinit var discordRichPresence: DiscordRichPresence
     @Inject lateinit var shellSystemNotifier: ShellSystemNotifier
+    @Inject lateinit var shellSession: ShellSessionState
 
     private val postNotificationsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -64,6 +66,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Non-null bundle means this Activity was rebuilt, not launched: no boot clip replay.
+        if (savedInstanceState != null) shellSession.markActivityRebuild()
         applyXoraScreenOrientation()
         enableEdgeToEdge()
         ImmersiveMode.apply(window)
