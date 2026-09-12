@@ -38,6 +38,8 @@ data class ShellUiState(
     val shellThemeId: String = DEFAULT_SHELL_THEME_ID,
     /** Shell / XMB text size multiplier from Display settings. */
     val uiTextScale: Float = DEFAULT_UI_TEXT_SCALE,
+    /** Display → Refresh rate. True asks the panel for its fastest mode. */
+    val highRefreshRate: Boolean = true,
     /** Auto-fit vs system density (Display settings). */
     val uiFitMode: UiFitMode = UiFitMode.Auto,
     /** False until the first DataStore emission so we do not flash Home before onboarding. */
@@ -124,6 +126,7 @@ class ShellViewModel @Inject constructor(
             themeMode = settings.themeMode,
             shellThemeId = settings.shellThemeId,
             uiTextScale = settings.uiTextScale,
+            highRefreshRate = settings.highRefreshRate,
             uiFitMode = settings.uiFitMode,
             prefsReady = true,
             onboardingComplete = onboardingDone,

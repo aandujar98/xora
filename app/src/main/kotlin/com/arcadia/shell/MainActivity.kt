@@ -27,6 +27,7 @@ import com.arcadia.shell.audio.UiSoundController
 import com.arcadia.shell.datastore.resolveDarkTheme
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.display.DisplayRefresh
+import com.arcadia.shell.display.RefreshRateMode
 import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.GameSoundBitePlayer
@@ -66,7 +67,7 @@ class MainActivity : ComponentActivity() {
         applyXoraScreenOrientation()
         enableEdgeToEdge()
         ImmersiveMode.apply(window)
-        DisplayRefresh.preferSixtyHertz(window)
+        DisplayRefresh.preferShellRefresh(window)
         discordRichPresence.attachHostActivity(this)
         handleExternalAuthIntent(intent)
 
@@ -101,6 +102,15 @@ class MainActivity : ComponentActivity() {
             }
             LaunchedEffect(homeState.isLaunching) {
                 backgroundMusic.setGameLaunchActive(homeState.isLaunching)
+            }
+            // Panel mode follows the Display setting; re-applied on change, not just at start.
+            LaunchedEffect(shellState.highRefreshRate) {
+                DisplayRefresh.mode = if (shellState.highRefreshRate) {
+                    RefreshRateMode.Max
+                } else {
+                    RefreshRateMode.Sixty
+                }
+                DisplayRefresh.preferShellRefresh(window)
             }
             LaunchedEffect(homeState.homeHub.vitaShortcutTrayOpen) {
                 backgroundMusic.setVitaTrayOpen(homeState.homeHub.vitaShortcutTrayOpen)
@@ -168,7 +178,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ImmersiveMode.apply(window)
-        DisplayRefresh.preferSixtyHertz(window)
+        DisplayRefresh.preferShellRefresh(window)
         shellViewModel.refresh()
         homeViewModel.onResumed()
         backgroundMusic.onForeground()

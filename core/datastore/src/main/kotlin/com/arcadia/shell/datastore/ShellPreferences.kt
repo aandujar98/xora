@@ -347,6 +347,8 @@ data class ShellSettings(
     val musicCategoryArtBackdrop: Boolean = true,
     /** When true, ambient particles drift over the XMB wallpaper. */
     val xmbParticlesEnabled: Boolean = true,
+    /** When true the shell takes the panel's fastest mode; false pins 60 Hz for battery. */
+    val highRefreshRate: Boolean = true,
 )
 
 /**
@@ -540,6 +542,7 @@ class ShellPreferences @Inject constructor(
                 ?: VisualPerformanceMode.Auto,
             musicCategoryArtBackdrop = prefs[Keys.MUSIC_CATEGORY_ART_BACKDROP] ?: true,
             xmbParticlesEnabled = prefs[Keys.XMB_PARTICLES_ENABLED] ?: true,
+            highRefreshRate = prefs[Keys.HIGH_REFRESH_RATE] ?: true,
         )
     }
 
@@ -907,6 +910,10 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setXmbParticlesEnabled(enabled: Boolean) = edit {
         it[Keys.XMB_PARTICLES_ENABLED] = enabled
+    }
+
+    suspend fun setHighRefreshRate(enabled: Boolean) = edit {
+        it[Keys.HIGH_REFRESH_RATE] = enabled
     }
 
     suspend fun setMusicCategoryArtBackdrop(enabled: Boolean) = edit {
@@ -1484,6 +1491,32 @@ class ShellPreferences @Inject constructor(
         return theme
     }
 
+    /** Edit in place so the theme keeps its position in the grid rather than jumping to the end. */
+    suspend fun updateCustomTheme(
+        id: String,
+        name: String,
+        wallpaperPath: String?,
+        bgmPath: String?,
+        trayBgmPath: String?,
+    ) {
+        if (id.isBlank()) return
+        val current = customThemes.first()
+        if (current.none { it.id == id }) return
+        val next = current.map { theme ->
+            if (theme.id != id) {
+                theme
+            } else {
+                theme.copy(
+                    name = name.trim().take(CUSTOM_THEME_NAME_MAX_LENGTH).ifBlank { theme.name },
+                    wallpaperPath = wallpaperPath,
+                    bgmPath = bgmPath,
+                    trayBgmPath = trayBgmPath,
+                )
+            }
+        }
+        edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(next) }
+    }
+
     suspend fun removeCustomTheme(id: String) {
         if (id.isBlank()) return
         val current = customThemes.first()
@@ -1498,6 +1531,46 @@ class ShellPreferences @Inject constructor(
     suspend fun setBootAnimationPath(path: String?) = edit {
         if (path.isNullOrBlank()) it.remove(Keys.BOOT_ANIMATION_PATH)
         else it[Keys.BOOT_ANIMATION_PATH] = path
+    }
+
+    /** Blank store means untouched, so the seeded set stays live rather than being frozen in. */
+    val newsOutlets: Flow<List<NewsOutlet>> = dataStore.data.map { prefs ->
+        decodeNewsOutlets(prefs[Keys.NEWS_OUTLETS].orEmpty())
+            .takeIf { it.isNotEmpty() }
+            ?: DEFAULT_NEWS_OUTLETS
+    }
+
+    val selectedNewsOutletId: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[Keys.NEWS_OUTLET_ID]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setSelectedNewsOutletId(id: String?) = edit {
+        if (id.isNullOrBlank()) it.remove(Keys.NEWS_OUTLET_ID) else it[Keys.NEWS_OUTLET_ID] = id
+    }
+
+    suspend fun addNewsOutlet(name: String, feedUrl: String): NewsOutlet? {
+        val url = feedUrl.trim()
+        if (url.isBlank()) return null
+        val current = newsOutlets.first()
+        val existing = current.firstOrNull { it.feedUrl.equals(url, ignoreCase = true) }
+        if (existing != null) return existing
+        val outlet = NewsOutlet(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name.trim().take(NEWS_OUTLET_NAME_MAX_LENGTH).ifBlank { outletNameFromUrl(url) },
+            feedUrl = url,
+        )
+        edit { it[Keys.NEWS_OUTLETS] = encodeNewsOutlets((current + outlet).take(NEWS_OUTLET_LIMIT)) }
+        return outlet
+    }
+
+    suspend fun removeNewsOutlet(id: String) {
+        if (id.isBlank()) return
+        val current = newsOutlets.first()
+        val next = current.filterNot { it.id == id }
+        // Never write an empty list: that is the "untouched" sentinel and would resurrect
+        // the seeded set the moment it was read back.
+        if (next.isEmpty()) return
+        edit { it[Keys.NEWS_OUTLETS] = encodeNewsOutlets(next) }
     }
 
     suspend fun setBootAnimationId(id: String) = edit {
@@ -1599,6 +1672,8 @@ class ShellPreferences @Inject constructor(
         val CUSTOM_THEMES = stringPreferencesKey("custom_themes")
         val BOOT_ANIMATION_ID = stringPreferencesKey("boot_animation_id")
         val BOOT_ANIMATION_PATH = stringPreferencesKey("boot_animation_path")
+        val NEWS_OUTLETS = stringPreferencesKey("news_outlets")
+        val NEWS_OUTLET_ID = stringPreferencesKey("news_outlet_id")
         /** JSON array of MediaStore photo ids favourited in the Photo Viewer. */
         val FAVORITE_PHOTO_IDS = stringPreferencesKey("favorite_photo_ids")
         val HIDDEN_GAME_IDS = stringPreferencesKey("hidden_game_ids")
@@ -1608,6 +1683,7 @@ class ShellPreferences @Inject constructor(
         val VISUAL_PERFORMANCE_MODE = stringPreferencesKey("visual_performance_mode")
         val MUSIC_CATEGORY_ART_BACKDROP = booleanPreferencesKey("music_category_art_backdrop")
         val XMB_PARTICLES_ENABLED = booleanPreferencesKey("xmb_particles_enabled")
+        val HIGH_REFRESH_RATE = booleanPreferencesKey("high_refresh_rate")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
         val WALLPAPER_ALIGN_X = floatPreferencesKey("wallpaper_align_x")
         val WALLPAPER_ALIGN_Y = floatPreferencesKey("wallpaper_align_y")
@@ -1928,6 +2004,92 @@ internal fun decodeCirclePins(raw: String): List<CirclePin> {
     }.getOrDefault(emptyList())
 }
 
+/** A news source behind one bubble in the XOrA NOW header. */
+data class NewsOutlet(
+    val id: String,
+    val name: String,
+    val feedUrl: String,
+    /** Bubble art; null falls back to the outlet's initials. */
+    val iconUrl: String? = null,
+    /** Seeded sources are kept out of the delete path so the shell never ships with no news. */
+    val builtIn: Boolean = false,
+)
+
+/**
+ * The sources XOrA NOW starts with. Stored only once the player edits the list, so a later
+ * change here reaches anyone who never touched theirs.
+ */
+val DEFAULT_NEWS_OUTLETS: List<NewsOutlet> = listOf(
+    NewsOutlet(
+        id = "ign",
+        name = "IGN",
+        feedUrl = "https://feeds.ign.com/ign/games-all",
+        builtIn = true,
+    ),
+    NewsOutlet(
+        id = "nintendolife",
+        name = "Nintendo Life",
+        feedUrl = "https://www.nintendolife.com/feeds/latest",
+        builtIn = true,
+    ),
+    NewsOutlet(
+        id = "retrogamecorps",
+        name = "Retro Game Corps",
+        feedUrl = "https://retrogamecorps.com/feed/",
+        builtIn = true,
+    ),
+    NewsOutlet(
+        id = "kotaku",
+        name = "Kotaku",
+        feedUrl = "https://kotaku.com/rss",
+        builtIn = true,
+    ),
+)
+
+const val NEWS_OUTLET_NAME_MAX_LENGTH = 40
+
+/** Cap so a runaway paste cannot turn the header into an unscrollable wall of bubbles. */
+const val NEWS_OUTLET_LIMIT = 24
+
+internal fun encodeNewsOutlets(outlets: List<NewsOutlet>): String {
+    val array = JSONArray()
+    outlets.forEach { outlet ->
+        if (outlet.id.isBlank() || outlet.feedUrl.isBlank()) return@forEach
+        val obj = JSONObject()
+            .put("id", outlet.id)
+            .put("name", outlet.name)
+            .put("feedUrl", outlet.feedUrl)
+            .put("builtIn", outlet.builtIn)
+        outlet.iconUrl?.let { obj.put("iconUrl", it) }
+        array.put(obj)
+    }
+    return array.toString()
+}
+
+internal fun decodeNewsOutlets(raw: String): List<NewsOutlet> {
+    if (raw.isBlank()) return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optString("id").trim()
+                val feedUrl = obj.optString("feedUrl").trim()
+                if (id.isEmpty() || feedUrl.isEmpty()) continue
+                add(
+                    NewsOutlet(
+                        id = id,
+                        name = obj.optString("name").trim().ifEmpty { id },
+                        feedUrl = feedUrl,
+                        iconUrl = obj.optString("iconUrl").trim().takeIf { it.isNotEmpty() },
+                        builtIn = obj.optBoolean("builtIn", false),
+                    ),
+                )
+            }
+        }.distinctBy { it.id }.take(NEWS_OUTLET_LIMIT)
+    }.getOrDefault(emptyList())
+}
+
 /** A named wallpaper + BGM combo the player saved from Customize → Custom Themes. */
 data class CustomTheme(
     val id: String,
@@ -2013,3 +2175,13 @@ fun uiTextScaleLabel(scale: Float): String = when {
     scale < 1.08f -> "Medium"
     else -> "Large"
 }
+
+/** "https://www.nintendolife.com/feeds/latest" -> "Nintendolife" when no name was given. */
+internal fun outletNameFromUrl(url: String): String =
+    runCatching {
+        android.net.Uri.parse(url).host
+            ?.removePrefix("www.")
+            ?.substringBefore('.')
+            ?.replaceFirstChar { it.uppercase() }
+            ?.takeIf { it.isNotBlank() }
+    }.getOrNull() ?: "News"

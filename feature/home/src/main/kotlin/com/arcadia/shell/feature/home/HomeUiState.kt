@@ -8,6 +8,7 @@ import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.GameArtAlignment
 import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.LocalProfile
+import com.arcadia.shell.datastore.NewsOutlet
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.launcher.music.MusicAlbum
@@ -29,7 +30,7 @@ enum class TabKind { All, Favorites, Recent, Apps, Platform }
  * RSS / RA / legacy GameSelector are opened from XMB drills or retained for dual layouts.
  */
 enum class HomePage {
-    /** Gaming / emulation news (XOrA News). */
+    /** Gaming / emulation news (XOrA NOW). */
     RssFeed,
     /** XOrA XMB home — Profiles, Settings, Games, Media, Music, Network. */
     Home,
@@ -217,6 +218,12 @@ data class LibraryTab(
     val gameCount: Int = 0,
 )
 
+/** One piece of an article body, in document order, for the reader window. */
+sealed interface ArticleBlock {
+    data class Text(val text: String) : ArticleBlock
+    data class Image(val url: String) : ArticleBlock
+}
+
 data class RssFeedItem(
     val id: String,
     val title: String,
@@ -228,7 +235,18 @@ data class RssFeedItem(
     val description: String? = null,
     /** Direct video URL or YouTube watch/embed URL when the item includes one. */
     val videoUrl: String? = null,
+    /** Full body as paragraphs and images, when the feed ships one. */
+    val blocks: List<ArticleBlock> = emptyList(),
 )
+
+/** Columns in the XOrA NOW article grid — the nav model and the pane must agree. */
+const val NEWS_GRID_COLUMNS = 3
+
+/** Which band of XOrA NOW has the stick. */
+enum class NewsFocus {
+    Outlets,
+    Articles,
+}
 
 data class RssUiState(
     val isLoading: Boolean = false,
@@ -236,9 +254,23 @@ data class RssUiState(
     val selectedIndex: Int = 0,
     val error: String? = null,
     val feedTitle: String? = null,
+    /** Source bubbles across the header; always at least the seeded set. */
+    val outlets: List<NewsOutlet> = emptyList(),
+    val outletIndex: Int = 0,
+    val focus: NewsFocus = NewsFocus.Articles,
+    /** Non-null while the reader window is up. */
+    val openArticle: RssFeedItem? = null,
+    /** True while the add-source prompt is showing. */
+    val addOutletOpen: Boolean = false,
 ) {
     val selectedItem: RssFeedItem? get() = items.getOrNull(selectedIndex)
     val isEmpty: Boolean get() = !isLoading && error == null && items.isEmpty()
+    val outlet: NewsOutlet? get() = outlets.getOrNull(outletIndex)
+
+    /** The add bubble sits after the sources, so focus runs one past the list. */
+    val outletSlotCount: Int get() = outlets.size + 1
+    val addBubbleFocused: Boolean
+        get() = focus == NewsFocus.Outlets && outletIndex >= outlets.size
 }
 
 /**

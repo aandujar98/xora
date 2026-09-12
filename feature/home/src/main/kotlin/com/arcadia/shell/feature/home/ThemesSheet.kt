@@ -143,6 +143,7 @@ fun ThemesSheet(
     onRequestTrayBgm: () -> Unit,
     onClearTrayBgm: () -> Unit,
     onSaveCustomTheme: (String) -> Unit,
+    onUpdateCustomTheme: (String, String) -> Unit,
     onApplyCustomTheme: (String) -> Unit,
     onDeleteCustomTheme: (String) -> Unit,
     onSelectBootAnimation: (String) -> Unit,
@@ -159,7 +160,10 @@ fun ThemesSheet(
     var creatingCustomTheme by remember { mutableStateOf(false) }
     var pane by remember { mutableStateOf(CustomizePane.Nav) }
     var itemIndex by remember { mutableIntStateOf(0) }
-    var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+    // Select opens a small menu on the focused theme: edit it, or remove it.
+    var themeMenuId by remember { mutableStateOf<String?>(null) }
+    var themeMenuIndex by remember { mutableIntStateOf(0) }
+    var editingThemeId by remember { mutableStateOf<String?>(null) }
     var formRowIndex by remember { mutableIntStateOf(0) }
     var themeName by remember { mutableStateOf("") }
     val gridState = rememberLazyGridState()
@@ -167,8 +171,20 @@ fun ThemesSheet(
 
     fun leaveForm() {
         creatingCustomTheme = false
+        editingThemeId = null
         formRowIndex = 0
         pane = CustomizePane.Content
+    }
+
+    fun beginEditTheme(id: String, name: String) {
+        // Load it first: editing means changing the wallpaper / BGM that theme holds, so the
+        // pickers have to be acting on that theme's media, not whatever was last applied.
+        onApplyCustomTheme(id)
+        editingThemeId = id
+        themeName = name
+        themeMenuId = null
+        creatingCustomTheme = true
+        formRowIndex = 0
     }
 
     val entries = customizeEntries(
@@ -179,7 +195,8 @@ fun ThemesSheet(
         bootAnimationPath = bootAnimationPath,
         onRequestBootAnimation = onRequestBootAnimation,
         onClearBootAnimation = onClearBootAnimation,
-        pendingDeleteId = pendingDeleteId,
+        menuThemeId = themeMenuId,
+        menuIndex = themeMenuIndex,
         onSelectTheme = onSelectTheme,
         onNewTheme = {
             creatingCustomTheme = true
@@ -188,10 +205,14 @@ fun ThemesSheet(
         onApplyCustomTheme = onApplyCustomTheme,
         onDeleteCustomTheme = {
             onDeleteCustomTheme(it)
-            pendingDeleteId = null
+            themeMenuId = null
         },
-        onRequestDelete = { pendingDeleteId = it },
-        onCancelDelete = { pendingDeleteId = null },
+        onEditCustomTheme = { id, name -> beginEditTheme(id, name) },
+        onOpenThemeMenu = {
+            themeMenuId = it
+            themeMenuIndex = 0
+        },
+        onCloseThemeMenu = { themeMenuId = null },
         onSelectBootAnimation = onSelectBootAnimation,
     )
 
@@ -233,7 +254,9 @@ fun ThemesSheet(
                     CreateFormKind.ClearTrayBgm -> onClearTrayBgm()
                     CreateFormKind.Name -> runCatching { nameFocus.requestFocus() }
                     CreateFormKind.Save -> {
-                        onSaveCustomTheme(themeName.trim().ifBlank { "My theme" })
+                        val name = themeName.trim().ifBlank { "My theme" }
+                        editingThemeId?.let { onUpdateCustomTheme(it, name) }
+                            ?: onSaveCustomTheme(name)
                         themeName = ""
                         leaveForm()
                     }
@@ -243,12 +266,22 @@ fun ThemesSheet(
                 else -> Unit
             }
 
-            pendingDeleteId != null -> when (action) {
+            themeMenuId != null -> when (action) {
+                NavAction.Up -> themeMenuIndex = 0
+                NavAction.Down -> themeMenuIndex = 1
                 NavAction.Confirm -> {
-                    pendingDeleteId?.let(onDeleteCustomTheme)
-                    pendingDeleteId = null
+                    val id = themeMenuId
+                    val theme = customThemes.firstOrNull { it.id == id }
+                    when {
+                        id == null -> Unit
+                        themeMenuIndex == 0 -> beginEditTheme(id, theme?.name.orEmpty())
+                        else -> {
+                            onDeleteCustomTheme(id)
+                            themeMenuId = null
+                        }
+                    }
                 }
-                NavAction.Cancel -> pendingDeleteId = null
+                NavAction.Cancel, NavAction.ScrapeMenu -> themeMenuId = null
                 else -> Unit
             }
 
@@ -369,8 +402,10 @@ fun ThemesSheet(
                             onResetWallpaper = onResetWallpaper,
                             onFocusRow = { formRowIndex = it },
                             onCancel = { leaveForm() },
+                            editing = editingThemeId != null,
                             onSave = { name ->
-                                onSaveCustomTheme(name)
+                                editingThemeId?.let { onUpdateCustomTheme(it, name) }
+                                    ?: onSaveCustomTheme(name)
                                 themeName = ""
                                 leaveForm()
                             },
@@ -461,13 +496,15 @@ private fun customizeEntries(
     bootAnimationPath: String?,
     onRequestBootAnimation: () -> Unit,
     onClearBootAnimation: () -> Unit,
-    pendingDeleteId: String?,
+    menuThemeId: String?,
+    menuIndex: Int,
     onSelectTheme: (String) -> Unit,
     onNewTheme: () -> Unit,
     onApplyCustomTheme: (String) -> Unit,
     onDeleteCustomTheme: (String) -> Unit,
-    onRequestDelete: (String) -> Unit,
-    onCancelDelete: () -> Unit,
+    onEditCustomTheme: (String, String) -> Unit,
+    onOpenThemeMenu: (String) -> Unit,
+    onCloseThemeMenu: () -> Unit,
     onSelectBootAnimation: (String) -> Unit,
 ): List<CustomizeEntry> = when (section) {
     CustomizeSection.PresetThemes -> ShellThemeCatalog.all.map { theme ->
@@ -496,21 +533,22 @@ private fun customizeEntries(
             },
         )
         customThemes.forEach { theme ->
-            val confirming = pendingDeleteId == theme.id
+            val menuOpen = menuThemeId == theme.id
             add(
                 CustomizeEntry(
                     key = theme.id,
                     name = theme.name,
                     selected = false,
                     onActivate = {
-                        if (confirming) onCancelDelete() else onApplyCustomTheme(theme.id)
+                        if (menuOpen) onCloseThemeMenu() else onApplyCustomTheme(theme.id)
                     },
-                    onSecondary = { onRequestDelete(theme.id) },
+                    onSecondary = { onOpenThemeMenu(theme.id) },
                 ) {
-                    if (confirming) {
-                        DeleteConfirmOverlay(
-                            onConfirm = { onDeleteCustomTheme(theme.id) },
-                            onCancel = onCancelDelete,
+                    if (menuOpen) {
+                        ThemeMenuOverlay(
+                            highlighted = menuIndex,
+                            onEdit = { onEditCustomTheme(theme.id, theme.name) },
+                            onRemove = { onDeleteCustomTheme(theme.id) },
                         )
                     } else {
                         ArtworkImage(
@@ -606,19 +644,37 @@ private fun ThemeSwatchPreview(theme: ShellTheme) {
     )
 }
 
+/** Select on a saved theme: edit it, or remove it. Drawn on the card so the target is obvious. */
 @Composable
-private fun DeleteConfirmOverlay(onConfirm: () -> Unit, onCancel: () -> Unit) {
+private fun ThemeMenuOverlay(
+    highlighted: Int,
+    onEdit: () -> Unit,
+    onRemove: () -> Unit,
+) {
     Column(
-        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.74f)).padding(6.dp),
-        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.80f)).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        XoraSecondaryText(text = "Delete?", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TextButton(onClick = onConfirm) { Text("Yes", color = Color.White) }
-            TextButton(onClick = onCancel) { Text("No", color = Color.White) }
-        }
+        ThemeMenuRow(label = "Edit", highlighted = highlighted == 0, onClick = onEdit)
+        ThemeMenuRow(label = "Remove", highlighted = highlighted == 1, onClick = onRemove)
     }
+}
+
+@Composable
+private fun ThemeMenuRow(label: String, highlighted: Boolean, onClick: () -> Unit) {
+    XoraSecondaryText(
+        text = label,
+        fontSize = 14.sp,
+        fontWeight = if (highlighted) FontWeight.SemiBold else FontWeight.Normal,
+        fillColor = Color.White,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .xoraFocusHighlight(highlighted, shape = RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 5.dp),
+    )
 }
 
 @Composable
@@ -847,6 +903,7 @@ private fun CreateCustomThemeContent(
     onNudgeWallpaper: (Float, Float) -> Unit,
     onResetWallpaper: () -> Unit,
     onFocusRow: (Int) -> Unit,
+    editing: Boolean = false,
     onCancel: () -> Unit,
     onSave: (String) -> Unit,
 ) {
@@ -1017,7 +1074,7 @@ private fun CreateCustomThemeContent(
                     enabled = hasCustomWallpaper || hasCustomBgm || hasTrayBgm,
                     modifier = Modifier.focusRing(focusedKind == CreateFormKind.Save),
                 ) {
-                    Text("Save custom theme")
+                    Text(if (editing) "Save changes" else "Save custom theme")
                 }
             }
         }

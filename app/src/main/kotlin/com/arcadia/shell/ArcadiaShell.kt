@@ -633,6 +633,12 @@ fun ArcadiaShell(
                         homeViewModel.openSelectedRssItem()
                     },
                     onRetryRss = homeViewModel::refreshRssFeed,
+                    onSelectNewsOutlet = homeViewModel::selectNewsOutlet,
+                    onAddNewsOutlet = homeViewModel::openAddNewsOutlet,
+                    onDismissAddNewsOutlet = homeViewModel::dismissAddNewsOutlet,
+                    onSubmitNewsOutlet = homeViewModel::addNewsOutlet,
+                    onCloseRssArticle = homeViewModel::closeRssArticle,
+                    onOpenRssInBrowser = homeViewModel::openRssArticleInBrowser,
                     onOpenSettings = {
                         homeViewModel.collapseHeroPanels()
                         route = ShellRoute.Settings
@@ -1310,6 +1316,7 @@ private fun ThemesCustomizeOverlay(
             onRequestTrayBgm = homeViewModel::requestTrayBgmPicker,
             onClearTrayBgm = homeViewModel::clearVitaTrayBgm,
             onSaveCustomTheme = homeViewModel::saveCurrentAsCustomTheme,
+            onUpdateCustomTheme = homeViewModel::updateCustomTheme,
             onApplyCustomTheme = homeViewModel::applyCustomTheme,
             onDeleteCustomTheme = homeViewModel::deleteCustomTheme,
             onSelectBootAnimation = homeViewModel::selectBootAnimation,
@@ -1471,6 +1478,12 @@ private fun PaneForRole(
                         homeViewModel.openSelectedRssItem()
                     },
                     onRetryRss = homeViewModel::refreshRssFeed,
+                    onSelectNewsOutlet = homeViewModel::selectNewsOutlet,
+                    onAddNewsOutlet = homeViewModel::openAddNewsOutlet,
+                    onDismissAddNewsOutlet = homeViewModel::dismissAddNewsOutlet,
+                    onSubmitNewsOutlet = homeViewModel::addNewsOutlet,
+                    onCloseRssArticle = homeViewModel::closeRssArticle,
+                    onOpenRssInBrowser = homeViewModel::openRssArticleInBrowser,
                     onSelectRaLibraryIndex = homeViewModel::selectRaLibraryIndex,
                     onSelectRaLibraryTab = homeViewModel::selectRaLibraryTab,
                     onToggleRaSortMenu = homeViewModel::toggleRaSortMenu,

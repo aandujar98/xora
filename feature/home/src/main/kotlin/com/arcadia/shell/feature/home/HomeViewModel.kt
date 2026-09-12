@@ -232,6 +232,7 @@ class HomeViewModel @Inject constructor(
     private val appForegroundTracker: AppForegroundTracker,
     private val xoraCoreCatalog: XoraCoreCatalog,
     private val rssFeedClient: RssFeedClient,
+    private val shellSession: ShellSessionState,
     private val gameInsightRepository: GameInsightRepository,
     private val gameScreenshotRepository: GameScreenshotRepository,
     private val steamWebApiClient: SteamWebApiClient,
@@ -403,11 +404,8 @@ class HomeViewModel @Inject constructor(
     private var backgroundedAtElapsed: Long? = null
     /** True when the last pause happened while the display was not interactive (screen off). */
     private var pausedWhileScreenOff: Boolean = false
-    /**
-     * Process-start boot candidate. Consumed on the first [onResumed] that can decide
-     * (onboarding complete → play boot clip; incomplete → skip without showing later).
-     */
-    private var pendingColdStartWelcome: Boolean = true
+    // Cold start lives in [ShellSessionState] so it is scoped to the process. As a field here it
+    // was scoped to the ViewModel, so every Activity recreation replayed the boot clip.
 
     /** Bumped to force a re-read of permission state, which is not observable. */
     private val refreshTrigger = MutableStateFlow(0)
@@ -1308,8 +1306,19 @@ class HomeViewModel @Inject constructor(
 
     init {
         refreshInstalledApps()
-        // Warm the feed in the background; Home must not wait on network at startup.
-        refreshRssFeed()
+        // Outlets first: the feed to warm depends on which source was last selected.
+        viewModelScope.launch {
+            combine(
+                preferences.newsOutlets,
+                preferences.selectedNewsOutletId,
+                ::Pair,
+            ).collect { (outlets, selectedId) ->
+                val index = outlets.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+                val changed = rssUi.value.outlet?.feedUrl != outlets.getOrNull(index)?.feedUrl
+                rssUi.update { it.copy(outlets = outlets, outletIndex = index) }
+                if (changed) refreshRssFeed()
+            }
+        }
         migrateTrailerPipeline()
         // Restore the persisted XOrA Network session so sign-in survives process death.
         viewModelScope.launch {
@@ -5938,6 +5947,22 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /** Saves the current wallpaper / BGM back onto an existing theme. */
+    fun updateCustomTheme(id: String, name: String) {
+        noteUserActivity()
+        viewModelScope.launch {
+            val settings = preferences.settings.first()
+            preferences.updateCustomTheme(
+                id = id,
+                name = name,
+                wallpaperPath = settings.homeWallpaperPath,
+                bgmPath = settings.customBgmPath,
+                trayBgmPath = settings.vitaTrayBgmPath,
+            )
+            emit(HomeEvent.ShowMessage("Updated theme"))
+        }
+    }
+
     /** Applies a saved custom theme's wallpaper + BGM — same setters the pickers use. */
     fun applyCustomTheme(id: String) {
         noteUserActivity()
@@ -7732,10 +7757,61 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun onRssNavAction(action: NavAction, state: HomeUiState) {
+        val rss = state.rss
+
+        // The reader owns the pad while it is up; scrolling is the pane's own business.
+        if (rss.openArticle != null) {
+            when (action) {
+                NavAction.Cancel -> closeRssArticle()
+                NavAction.Confirm, NavAction.Options -> openRssArticleInBrowser()
+                NavAction.PreviousPlatform -> cycleNewsOutlet(-1)
+                NavAction.NextPlatform -> cycleNewsOutlet(1)
+                else -> Unit
+            }
+            return
+        }
+
+        if (rss.focus == NewsFocus.Outlets) {
+            when (action) {
+                NavAction.Left -> selectNewsOutlet(rss.outletIndex - 1)
+                NavAction.Right -> selectNewsOutlet(
+                    (rss.outletIndex + 1).coerceAtMost(rss.outlets.size),
+                )
+                NavAction.Down -> focusNewsBand(NewsFocus.Articles)
+                NavAction.Up -> Unit
+                NavAction.Confirm -> if (rss.addBubbleFocused) {
+                    openAddNewsOutlet()
+                } else {
+                    focusNewsBand(NewsFocus.Articles)
+                }
+                // Select removes a source you added; built-ins say so rather than vanishing.
+                NavAction.ScrapeMenu -> removeSelectedNewsOutlet()
+                NavAction.Cancel -> setHomePage(HomePage.Home)
+                NavAction.PreviousPlatform -> cycleNewsOutlet(-1)
+                NavAction.NextPlatform -> cycleNewsOutlet(1)
+                NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+                NavAction.SwapScreens -> swapScreenRoles()
+                else -> Unit
+            }
+            return
+        }
+
         when (action) {
-            // News is a single column now, so every direction steps one story.
-            NavAction.Left, NavAction.Up -> moveRssSelection(-1)
-            NavAction.Right, NavAction.Down -> moveRssSelection(1)
+            NavAction.Left -> moveRssSelection(-1)
+            NavAction.Right -> moveRssSelection(1)
+            NavAction.Up -> {
+                // Top row steps up onto the source bubbles.
+                if (rss.selectedIndex < NEWS_GRID_COLUMNS) {
+                    focusNewsBand(NewsFocus.Outlets)
+                } else {
+                    moveRssSelection(-NEWS_GRID_COLUMNS)
+                }
+            }
+            NavAction.Down -> moveRssSelection(NEWS_GRID_COLUMNS)
+            NavAction.PreviousPlatform -> cycleNewsOutlet(-1)
+            NavAction.NextPlatform -> cycleNewsOutlet(1)
             NavAction.Confirm -> openSelectedRssItem()
             NavAction.Cancel -> {
                 if (state.anyHeroPanelExpanded) collapseHeroPanels()
@@ -7938,6 +8014,10 @@ class HomeViewModel @Inject constructor(
                     GameIconIdleMedia.Screenshot -> GameIconIdleMedia.Trailer
                 }
                 preferences.setGameIconIdleMedia(next)
+            }
+            StartSettingsAction.ToggleHighRefreshRate -> viewModelScope.launch {
+                val current = preferences.settings.first().highRefreshRate
+                preferences.setHighRefreshRate(!current)
             }
             StartSettingsAction.ToggleXmbParticles -> viewModelScope.launch {
                 val current = preferences.settings.first().xmbParticlesEnabled
@@ -8969,13 +9049,28 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         rssUi.update { current ->
             if (current.items.isEmpty()) current
-            else current.copy(selectedIndex = index.coerceIn(0, current.items.lastIndex))
+            else current.copy(
+                selectedIndex = index.coerceIn(0, current.items.lastIndex),
+                focus = NewsFocus.Articles,
+            )
         }
     }
 
+    /** A on a card opens the reader in-shell; the browser is now an explicit action inside it. */
     fun openSelectedRssItem() {
         val item = uiState.value.rss.selectedItem ?: return
-        val link = item.link.takeIf { it.isNotBlank() } ?: return
+        noteUserActivity()
+        rssUi.update { it.copy(openArticle = item) }
+    }
+
+    fun closeRssArticle() {
+        rssUi.update { it.copy(openArticle = null) }
+    }
+
+    fun openRssArticleInBrowser() {
+        val link = uiState.value.rss.openArticle?.link?.takeIf { it.isNotBlank() }
+            ?: uiState.value.rss.selectedItem?.link?.takeIf { it.isNotBlank() }
+            ?: return
         noteUserActivity()
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { appContext.startActivity(intent) }
@@ -8984,20 +9079,84 @@ class HomeViewModel @Inject constructor(
             }
     }
 
+    fun selectNewsOutlet(index: Int) {
+        noteUserActivity()
+        val outlets = rssUi.value.outlets
+        if (outlets.isEmpty()) return
+        // One past the end is the add bubble, which is focus only — never a selection.
+        val slot = index.coerceIn(0, outlets.size)
+        rssUi.update { it.copy(outletIndex = slot, focus = NewsFocus.Outlets) }
+        val outlet = outlets.getOrNull(slot) ?: return
+        viewModelScope.launch { preferences.setSelectedNewsOutletId(outlet.id) }
+    }
+
+    /** LB / RB step sources without leaving the article grid. */
+    fun cycleNewsOutlet(delta: Int) {
+        val outlets = rssUi.value.outlets
+        if (outlets.size < 2) return
+        noteUserActivity()
+        val current = rssUi.value.outletIndex.coerceIn(0, outlets.lastIndex)
+        val next = (current + delta).mod(outlets.size)
+        rssUi.update { it.copy(outletIndex = next) }
+        viewModelScope.launch { preferences.setSelectedNewsOutletId(outlets[next].id) }
+    }
+
+    fun focusNewsBand(focus: NewsFocus) {
+        rssUi.update { it.copy(focus = focus) }
+    }
+
+    fun openAddNewsOutlet() {
+        noteUserActivity()
+        rssUi.update { it.copy(addOutletOpen = true) }
+    }
+
+    fun dismissAddNewsOutlet() {
+        rssUi.update { it.copy(addOutletOpen = false) }
+    }
+
+    fun addNewsOutlet(name: String, feedUrl: String) {
+        viewModelScope.launch {
+            val added = preferences.addNewsOutlet(name, feedUrl)
+            if (added == null) {
+                emit(HomeEvent.ShowError("That does not look like a feed address."))
+                return@launch
+            }
+            preferences.setSelectedNewsOutletId(added.id)
+            rssUi.update { it.copy(addOutletOpen = false) }
+            emit(HomeEvent.ShowMessage("Added ${added.name}"))
+        }
+    }
+
+    fun removeSelectedNewsOutlet() {
+        val outlet = rssUi.value.outlet ?: return
+        if (outlet.builtIn) {
+            emit(HomeEvent.ShowMessage("${outlet.name} is a built-in source"))
+            return
+        }
+        noteUserActivity()
+        viewModelScope.launch {
+            preferences.removeNewsOutlet(outlet.id)
+            preferences.setSelectedNewsOutletId(null)
+            emit(HomeEvent.ShowMessage("Removed ${outlet.name}"))
+        }
+    }
+
     fun refreshRssFeed() {
         viewModelScope.launch {
             rssUi.update { it.copy(isLoading = true, error = null) }
-            val result = rssFeedClient.fetch()
+            val feedUrl = rssUi.value.outlet?.feedUrl
+            val result = if (feedUrl.isNullOrBlank()) {
+                rssFeedClient.fetch()
+            } else {
+                rssFeedClient.fetch(feedUrl)
+            }
             rssUi.update { current ->
                 result.fold(
                     onSuccess = { feed ->
                         current.copy(
                             isLoading = false,
                             items = feed.items,
-                            selectedIndex = current.selectedIndex.coerceIn(
-                                0,
-                                (feed.items.size - 1).coerceAtLeast(0),
-                            ),
+                            selectedIndex = 0,
                             error = null,
                             feedTitle = feed.title,
                         )
@@ -9017,7 +9176,10 @@ class HomeViewModel @Inject constructor(
         val size = rssUi.value.items.size
         if (size == 0) return
         rssUi.update { current ->
-            current.copy(selectedIndex = (current.selectedIndex + delta).coerceIn(0, size - 1))
+            current.copy(
+                selectedIndex = (current.selectedIndex + delta).coerceIn(0, size - 1),
+                focus = NewsFocus.Articles,
+            )
         }
     }
 
@@ -10399,7 +10561,7 @@ class HomeViewModel @Inject constructor(
 
     /** First-run Finish: play the boot clip, then reveal the XMB. */
     fun playBootIntroAfterOnboarding() {
-        pendingColdStartWelcome = false
+        shellSession.clearColdStart()
         if (welcomeBackOpen.value || bootIntroOpen.value) return
         homeIntroReveal.value = false
         bootIntroSkip.value = false
@@ -10457,8 +10619,7 @@ class HomeViewModel @Inject constructor(
 
         if (!onboardingDone) return
 
-        val coldStart = pendingColdStartWelcome
-        if (pendingColdStartWelcome) pendingColdStartWelcome = false
+        val coldStart = shellSession.consumeColdStart()
 
         if (coldStart) {
             if (welcomeBackOpen.value || bootIntroOpen.value) return

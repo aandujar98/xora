@@ -71,6 +71,8 @@ sealed interface StartSettingsAction {
     data object ToggleMusicCategoryArt : StartSettingsAction
 
     data object ToggleXmbParticles : StartSettingsAction
+
+    data object ToggleHighRefreshRate : StartSettingsAction
     data object CycleThemeMode : StartSettingsAction
     data object OpenVisualPerformance : StartSettingsAction
     data class SelectVisualPerformance(val mode: VisualPerformanceMode) : StartSettingsAction
@@ -251,6 +253,17 @@ fun buildStartSettingsRows(
             },
             checked = settings.musicCategoryArtBackdrop,
             action = StartSettingsAction.ToggleMusicCategoryArt,
+        ),
+        StartSettingsRow.Toggle(
+            id = "high_refresh",
+            title = "Refresh rate",
+            subtitle = if (settings.highRefreshRate) {
+                "Maximum · smoothest menus, warmer & shorter battery"
+            } else {
+                "60 Hz · coolest and longest battery"
+            },
+            checked = settings.highRefreshRate,
+            action = StartSettingsAction.ToggleHighRefreshRate,
         ),
         StartSettingsRow.Toggle(
             id = "xmb_particles",

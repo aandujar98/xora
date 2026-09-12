@@ -544,7 +544,7 @@ fun buildXoraCategoryItems(
         ),
         XoraXmbItem(
             id = "news",
-            title = "XOrA News",
+            title = "XOrA NOW",
             subtitle = "Gaming & emulation feed",
             action = XoraXmbAction.OpenNews,
             icon = XmbIcon.News,

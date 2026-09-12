@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home.rss
 
+import com.arcadia.shell.feature.home.ArticleBlock
 import com.arcadia.shell.feature.home.RssFeedItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -123,6 +124,7 @@ private fun parseRssItem(parser: XmlPullParser, source: String): RssFeedItem {
     var link = ""
     var pubDate: String? = null
     var description: String? = null
+    var contentHtml: String? = null
     var imageUrl: String? = null
     var videoUrl: String? = null
     var guid: String? = null
@@ -137,8 +139,10 @@ private fun parseRssItem(parser: XmlPullParser, source: String): RssFeedItem {
                     "guid" -> guid = parser.nextText().orEmpty().trim()
                     "pubdate", "published", "updated", "dc:date" ->
                         pubDate = parser.nextText().orEmpty().trim().ifBlank { null }
-                    "description", "content:encoded", "summary" ->
-                        description = parser.nextText().orEmpty()
+                    // content:encoded is the whole article when a feed ships it; description is
+                    // usually just the teaser. Keep both so the reader is not stuck with the teaser.
+                    "description", "summary" -> description = parser.nextText().orEmpty()
+                    "content:encoded", "encoded" -> contentHtml = parser.nextText().orEmpty()
                     "enclosure" -> {
                         val type = parser.getAttributeValue(null, "type").orEmpty()
                         val url = parser.getAttributeValue(null, "url")
@@ -179,11 +183,12 @@ private fun parseRssItem(parser: XmlPullParser, source: String): RssFeedItem {
         }
     }
 
+    val body = contentHtml?.takeIf { it.isNotBlank() } ?: description
     if (imageUrl == null) {
-        imageUrl = extractImageFromHtml(description)
+        imageUrl = extractImageFromHtml(body)
     }
     if (videoUrl == null) {
-        videoUrl = extractVideoFromHtml(description)
+        videoUrl = extractVideoFromHtml(body)
     }
 
     val id = guid?.takeIf { it.isNotBlank() } ?: link.ifBlank { title }
@@ -194,8 +199,9 @@ private fun parseRssItem(parser: XmlPullParser, source: String): RssFeedItem {
         source = source,
         publishedAt = formatDate(pubDate),
         imageUrl = imageUrl,
-        description = cleanDescription(description),
+        description = cleanDescription(description ?: contentHtml),
         videoUrl = videoUrl,
+        blocks = articleBlocks(body),
     )
 }
 
@@ -257,6 +263,7 @@ private fun parseAtomEntry(parser: XmlPullParser, source: String): RssFeedItem {
         imageUrl = imageUrl,
         description = cleanDescription(summary),
         videoUrl = videoUrl,
+        blocks = articleBlocks(summary),
     )
 }
 
@@ -274,6 +281,57 @@ private fun extractVideoFromHtml(html: String?): String? {
     YOUTUBE_URL_REGEX.find(html)?.value?.let { return it }
     return null
 }
+
+/**
+ * Split feed HTML into the reader's paragraph / image stream, in document order.
+ *
+ * Deliberately a small regex pass rather than a real HTML parser: feed bodies are a narrow,
+ * well-behaved subset, and pulling in a parser to read a news item is not a trade worth making.
+ * Anything it cannot classify ends up as text, which is the safe direction to fail.
+ */
+internal fun articleBlocks(html: String?): List<ArticleBlock> {
+    if (html.isNullOrBlank()) return emptyList()
+    val blocks = mutableListOf<ArticleBlock>()
+    val imgPattern = Regex("<img[^>]+>", RegexOption.IGNORE_CASE)
+    var cursor = 0
+    for (match in imgPattern.findAll(html)) {
+        appendArticleText(blocks, html.substring(cursor, match.range.first))
+        val src = Regex("src\\s*=\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+            .find(match.value)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        if (!src.isNullOrBlank() && src.startsWith("http")) {
+            blocks += ArticleBlock.Image(src)
+        }
+        cursor = match.range.last + 1
+    }
+    appendArticleText(blocks, html.substring(cursor))
+    return blocks.take(MAX_ARTICLE_BLOCKS)
+}
+
+private const val MAX_ARTICLE_BLOCKS = 80
+
+private fun appendArticleText(blocks: MutableList<ArticleBlock>, raw: String) {
+    if (raw.isBlank()) return
+    raw.split(Regex("(?i)</p>|<br\\s*/?>"))
+        .map { stripHtml(it) }
+        .filter { it.isNotBlank() }
+        .forEach { blocks += ArticleBlock.Text(it) }
+}
+
+private fun stripHtml(html: String): String = html
+    .replace(Regex("<[^>]+>"), " ")
+    .replace(Regex("&nbsp;", RegexOption.IGNORE_CASE), " ")
+    .replace(Regex("&amp;", RegexOption.IGNORE_CASE), "&")
+    .replace(Regex("&quot;", RegexOption.IGNORE_CASE), "\"")
+    .replace(Regex("&#8217;|&rsquo;"), "'")
+    .replace(Regex("&#8216;|&lsquo;"), "'")
+    .replace(Regex("&#8220;|&ldquo;|&#8221;|&rdquo;"), "\"")
+    .replace(Regex("&#39;"), "'")
+    .replace(Regex("&#\\d+;"), "")
+    .replace(Regex("\\s+"), " ")
+    .trim()
 
 private fun cleanDescription(html: String?): String? {
     if (html.isNullOrBlank()) return null
