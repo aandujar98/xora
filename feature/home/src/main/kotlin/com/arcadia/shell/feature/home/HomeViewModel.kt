@@ -9835,10 +9835,32 @@ class HomeViewModel @Inject constructor(
      * even if [onPaused] never ran (second display / companion pane).
      */
     fun onShellRegainedFocus() {
-        // Dual-screen / ArcOS keep MainActivity resumed. Lifting the bite hold here is what
-        // restarted the clip over gameplay ~1.5s after launch. [onPlaySessionEnded] and
-        // [restoreShellPresence] are the only places that unsuppress.
+        // Dual-screen / ArcOS keep MainActivity resumed. Lifting the bite hold unconditionally
+        // here is what restarted the clip over gameplay ~1.5s after launch, so the hold is only
+        // released once a real play session has elapsed — see
+        // [releaseSoundBiteHoldIfSessionOver] and [onPlaySessionEnded].
         maybeRestoreBrowsingPresence()
+    }
+
+    /**
+     * Launch suppresses ROM sound bites so the clip cannot restart over the cinematic or the
+     * emulator handoff. Only the built-in emulator's own exit lifted that again, so returning
+     * from *any* external emulator left bites suppressed for the rest of the process — they
+     * simply stopped working after the first game.
+     *
+     * The same elapsed-session test the Discord presence uses distinguishes a real return from
+     * the pause/resume flicker startActivity causes, and from dual-screen keeping the shell
+     * resumed through gameplay — lifting the hold on either of those is what used to restart the
+     * clip over the game.
+     */
+    private fun releaseSoundBiteHoldIfSessionOver() {
+        if (!gameSoundBitePlayer.playbackSuppressed.value) return
+        if (isLaunching.value) return
+        val awayMs = backgroundedAtElapsed?.let { SystemClock.elapsedRealtime() - it } ?: 0L
+        val pendingMs = sessionTracker.pendingElapsedMs()
+        if (awayMs >= PLAYING_PRESENCE_RETURN_MS || pendingMs >= PLAYING_PRESENCE_RETURN_MS) {
+            gameSoundBitePlayer.setPlaybackSuppressed(false)
+        }
     }
 
     private fun maybeRestoreBrowsingPresence() {
@@ -10531,6 +10553,7 @@ class HomeViewModel @Inject constructor(
     fun onResumed() {
         // Coming back from the emulator ends the play session, and with it the companion panel.
         gameCompanionController.onShellForegrounded()
+        releaseSoundBiteHoldIfSessionOver()
         // Keep Playing through the launch handoff. startActivity often pause/resumes the shell
         // for a frame, which used to snap Discord back to Browsing XOrA before the game started.
         maybeRestoreBrowsingPresence()

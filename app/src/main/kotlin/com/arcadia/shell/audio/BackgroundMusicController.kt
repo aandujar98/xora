@@ -532,17 +532,25 @@ class BackgroundMusicController @Inject constructor(
         applyVolume()
     }
 
+    /**
+     * Asymmetric on purpose. Going out has to be quick or the bite starts under the soundtrack;
+     * coming back is the shell settling, so it eases in over about a second instead of snapping
+     * to full the instant the clip ends.
+     */
     private suspend fun fadeOverlay(to: Float) {
         val from = overlayFade
         if (from == to) {
             applyVolume()
             return
         }
-        val steps = OVERLAY_FADE_STEPS
-        val stepMs = OVERLAY_FADE_MS / steps
+        val rising = to > from
+        val steps = if (rising) OVERLAY_FADE_IN_STEPS else OVERLAY_FADE_OUT_STEPS
+        val stepMs = (if (rising) OVERLAY_FADE_IN_MS else OVERLAY_FADE_OUT_MS) / steps
         for (i in 1..steps) {
             val t = i.toFloat() / steps
-            overlayFade = from + (to - from) * t
+            // Ease the return so the last of the ramp is not the loudest part of it.
+            val shaped = if (rising) t * t else t
+            overlayFade = from + (to - from) * shaped
             applyVolume()
             delay(stepMs)
         }
@@ -604,8 +612,13 @@ class BackgroundMusicController @Inject constructor(
         const val KEY_DEFAULT = "__default__"
         const val KEY_UNLOADED = "__unloaded__"
         const val CROSSFADE_STEPS = 24
-        const val OVERLAY_FADE_MS = 240L
-        const val OVERLAY_FADE_STEPS = 16
+        /** Out of the way fast; a bite is short and must not fight the soundtrack. */
+        const val OVERLAY_FADE_OUT_MS = 220L
+        const val OVERLAY_FADE_OUT_STEPS = 14
+
+        /** Back in gently once the clip has finished. */
+        const val OVERLAY_FADE_IN_MS = 1_100L
+        const val OVERLAY_FADE_IN_STEPS = 44
 
         /** Fade either way when the Vita tray swaps the soundtrack. */
         const val TRAY_FADE_MS = 900L
