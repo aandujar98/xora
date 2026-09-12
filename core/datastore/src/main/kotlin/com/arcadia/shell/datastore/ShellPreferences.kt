@@ -1554,13 +1554,28 @@ class ShellPreferences @Inject constructor(
         val current = newsOutlets.first()
         val existing = current.firstOrNull { it.feedUrl.equals(url, ignoreCase = true) }
         if (existing != null) return existing
+        val host = runCatching { android.net.Uri.parse(url).host }.getOrNull()
         val outlet = NewsOutlet(
             id = java.util.UUID.randomUUID().toString(),
             name = name.trim().take(NEWS_OUTLET_NAME_MAX_LENGTH).ifBlank { outletNameFromUrl(url) },
             feedUrl = url,
+            iconUrl = host?.removePrefix("www.")?.let(::faviconFor),
         )
         edit { it[Keys.NEWS_OUTLETS] = encodeNewsOutlets((current + outlet).take(NEWS_OUTLET_LIMIT)) }
         return outlet
+    }
+
+    /** Caches the logo a feed advertised, so the bubble keeps its picture between launches. */
+    suspend fun setNewsOutletIcon(id: String, iconUrl: String?) {
+        val url = iconUrl?.trim()?.takeIf { it.startsWith("http") } ?: return
+        val current = newsOutlets.first()
+        val existing = current.firstOrNull { it.id == id } ?: return
+        if (existing.iconUrl == url) return
+        edit {
+            it[Keys.NEWS_OUTLETS] = encodeNewsOutlets(
+                current.map { outlet -> if (outlet.id == id) outlet.copy(iconUrl = url) else outlet },
+            )
+        }
     }
 
     suspend fun removeNewsOutlet(id: String) {
@@ -2024,27 +2039,38 @@ val DEFAULT_NEWS_OUTLETS: List<NewsOutlet> = listOf(
         id = "ign",
         name = "IGN",
         feedUrl = "https://feeds.ign.com/ign/games-all",
+        iconUrl = faviconFor("ign.com"),
         builtIn = true,
     ),
     NewsOutlet(
         id = "nintendolife",
         name = "Nintendo Life",
         feedUrl = "https://www.nintendolife.com/feeds/latest",
+        iconUrl = faviconFor("nintendolife.com"),
         builtIn = true,
     ),
     NewsOutlet(
         id = "retrogamecorps",
         name = "Retro Game Corps",
         feedUrl = "https://retrogamecorps.com/feed/",
+        iconUrl = faviconFor("retrogamecorps.com"),
         builtIn = true,
     ),
     NewsOutlet(
         id = "kotaku",
         name = "Kotaku",
         feedUrl = "https://kotaku.com/rss",
+        iconUrl = faviconFor("kotaku.com"),
         builtIn = true,
     ),
 )
+
+/**
+ * A site's own icon at a usable size. Used as the bubble picture until the feed's own channel
+ * artwork arrives on first fetch, which is generally the better image where a feed ships one.
+ */
+internal fun faviconFor(host: String): String =
+    "https://icons.duckduckgo.com/ip3/$host.ico"
 
 const val NEWS_OUTLET_NAME_MAX_LENGTH = 40
 

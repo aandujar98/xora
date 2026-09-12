@@ -4,17 +4,32 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Facts about *this process*, not this ViewModel.
+ * Facts about *this process*, not this ViewModel and not this Activity.
  *
- * The boot clip is a cold-start event, so it has to be scoped to the process. Held on the
- * ViewModel it replayed every time the Activity was recreated — and a media picker handing focus
- * back is enough to do that on a memory-tight handheld, which is why adding a wallpaper looked
- * like the app restarting.
+ * The boot clip is a cold-start event. Two earlier attempts at scoping it were both wrong:
+ *
+ * - On the ViewModel it replayed every time the Activity was rebuilt, so handing focus to a media
+ *   picker looked like the app restarting.
+ * - Keying off `savedInstanceState != null` to detect a rebuild was worse: Android hands back a
+ *   bundle for a *process-death restore* too, which is a real cold start, so the clip stopped
+ *   playing at the one moment it should.
+ *
+ * The reliable signal is this object's own lifetime. It is created with the process, so the first
+ * Activity to check in is a cold start by definition and every later one is a rebuild.
  */
 @Singleton
 class ShellSessionState @Inject constructor() {
-    /** True until the first resume of the process consumes it. */
+    private var activityEverCreated: Boolean = false
     private var coldStartPending: Boolean = true
+
+    /**
+     * Called from `MainActivity.onCreate`. The first call in a process leaves the boot clip
+     * pending; any later one is an Activity rebuild and clears it.
+     */
+    fun onActivityCreated() {
+        if (activityEverCreated) coldStartPending = false
+        activityEverCreated = true
+    }
 
     /** Returns true once per process, then false for the life of it. */
     fun consumeColdStart(): Boolean {
@@ -26,16 +41,6 @@ class ShellSessionState @Inject constructor() {
     /** Onboarding restarts the shell's sense of "first run" without a new process. */
     fun markColdStartPending() {
         coldStartPending = true
-    }
-
-    /**
-     * Called when the Activity came back with saved state — a rebuild, not a launch. Android
-     * hands a non-null bundle only when it tore the Activity down and put it back, which is the
-     * media-picker case; a real launch gets null. Distinguishing the two is what lets the boot
-     * clip play when the shell actually starts without replaying it every time focus returns.
-     */
-    fun markActivityRebuild() {
-        coldStartPending = false
     }
 
     fun clearColdStart() {

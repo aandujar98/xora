@@ -3306,25 +3306,28 @@ class HomeViewModel @Inject constructor(
             return
         }
 
-        // On XOrA XMB home, LB/RB cycle categories. Elsewhere they retain page jumps.
-        when (action) {
-            NavAction.PreviousPlatform -> {
-                if (state.homePage == HomePage.Home) {
-                    cycleXoraCategory(-1)
-                } else {
-                    setHomePage(HomePage.Home)
+        // On XOrA XMB home, LB/RB cycle categories. Elsewhere they retain page jumps — except
+        // XOrA NOW, where the shoulders step news sources and must reach its own handler.
+        if (state.homePage != HomePage.RssFeed) {
+            when (action) {
+                NavAction.PreviousPlatform -> {
+                    if (state.homePage == HomePage.Home) {
+                        cycleXoraCategory(-1)
+                    } else {
+                        setHomePage(HomePage.Home)
+                    }
+                    return
                 }
-                return
-            }
-            NavAction.NextPlatform -> {
-                if (state.homePage == HomePage.Home) {
-                    cycleXoraCategory(1)
-                } else {
-                    setHomePage(HomePage.Home)
+                NavAction.NextPlatform -> {
+                    if (state.homePage == HomePage.Home) {
+                        cycleXoraCategory(1)
+                    } else {
+                        setHomePage(HomePage.Home)
+                    }
+                    return
                 }
-                return
+                else -> Unit
             }
-            else -> Unit
         }
 
         when (state.homePage) {
@@ -9149,6 +9152,11 @@ class HomeViewModel @Inject constructor(
                 rssFeedClient.fetch()
             } else {
                 rssFeedClient.fetch(feedUrl)
+            }
+            result.getOrNull()?.imageUrl?.let { art ->
+                rssUi.value.outlet?.let { outlet ->
+                    preferences.setNewsOutletIcon(outlet.id, art)
+                }
             }
             rssUi.update { current ->
                 result.fold(

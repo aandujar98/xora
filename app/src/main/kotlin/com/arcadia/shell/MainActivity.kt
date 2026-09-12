@@ -66,8 +66,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Non-null bundle means this Activity was rebuilt, not launched: no boot clip replay.
-        if (savedInstanceState != null) shellSession.markActivityRebuild()
+        // First Activity of the process is a cold start; a later one is a rebuild. Not keyed off
+        // savedInstanceState — that is non-null for a process-death restore too, which *is* cold.
+        shellSession.onActivityCreated()
         applyXoraScreenOrientation()
         enableEdgeToEdge()
         ImmersiveMode.apply(window)

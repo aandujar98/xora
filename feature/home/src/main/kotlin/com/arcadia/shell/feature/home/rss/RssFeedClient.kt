@@ -16,6 +16,8 @@ import javax.inject.Singleton
 data class RssFeed(
     val title: String,
     val items: List<RssFeedItem>,
+    /** Channel artwork, when the feed publishes one — the outlet bubble's picture. */
+    val imageUrl: String? = null,
 )
 
 /**
@@ -56,6 +58,7 @@ internal fun parseFeed(xml: String): RssFeed {
     val parser = factory.newPullParser().apply { setInput(StringReader(xml)) }
 
     var channelTitle = "News"
+    var channelImage: String? = null
     val items = mutableListOf<RssFeedItem>()
 
     var event = parser.eventType
@@ -65,11 +68,13 @@ internal fun parseFeed(xml: String): RssFeed {
                 "channel" -> {
                     val channel = parseRssChannel(parser)
                     channelTitle = channel.title.ifBlank { channelTitle }
+                    channelImage = channelImage ?: channel.imageUrl
                     items += channel.items
                 }
                 "feed" -> {
                     val atom = parseAtomFeed(parser)
                     channelTitle = atom.title.ifBlank { channelTitle }
+                    channelImage = channelImage ?: atom.imageUrl
                     items += atom.items
                 }
                 "item" -> items += parseRssItem(parser, channelTitle)
@@ -82,41 +87,74 @@ internal fun parseFeed(xml: String): RssFeed {
     return RssFeed(
         title = channelTitle,
         items = items.distinctBy { it.link.ifBlank { it.id } }.take(MAX_ITEMS),
+        imageUrl = channelImage,
     )
 }
 
-private data class ParsedChannel(val title: String, val items: List<RssFeedItem>)
+private data class ParsedChannel(
+    val title: String,
+    val items: List<RssFeedItem>,
+    val imageUrl: String? = null,
+)
 
 private fun parseRssChannel(parser: XmlPullParser): ParsedChannel {
     var title = ""
+    var imageUrl: String? = null
     val items = mutableListOf<RssFeedItem>()
     while (true) {
         when (parser.next()) {
             XmlPullParser.START_TAG -> when (parser.name.lowercase(Locale.US)) {
                 "title" -> if (title.isBlank()) title = parser.nextText().orEmpty().trim()
+                // <image><url> is the channel logo. Only take it before any <item>, so an
+                // article's own image cannot be mistaken for the outlet's.
+                "image" -> if (items.isEmpty()) {
+                    imageUrl = imageUrl ?: parseChannelImage(parser)
+                }
+                "icon", "logo" -> if (items.isEmpty() && imageUrl == null) {
+                    imageUrl = parser.nextText().orEmpty().trim().takeIf { it.startsWith("http") }
+                }
                 "item" -> items += parseRssItem(parser, title.ifBlank { "News" })
             }
             XmlPullParser.END_TAG -> if (parser.name.equals("channel", ignoreCase = true)) break
             XmlPullParser.END_DOCUMENT -> break
         }
     }
-    return ParsedChannel(title, items)
+    return ParsedChannel(title, items, imageUrl)
+}
+
+private fun parseChannelImage(parser: XmlPullParser): String? {
+    var url: String? = null
+    while (true) {
+        when (parser.next()) {
+            XmlPullParser.START_TAG ->
+                if (parser.name.equals("url", ignoreCase = true)) {
+                    url = parser.nextText().orEmpty().trim().takeIf { it.startsWith("http") }
+                }
+            XmlPullParser.END_TAG -> if (parser.name.equals("image", ignoreCase = true)) break
+            XmlPullParser.END_DOCUMENT -> break
+        }
+    }
+    return url
 }
 
 private fun parseAtomFeed(parser: XmlPullParser): ParsedChannel {
     var title = ""
+    var imageUrl: String? = null
     val items = mutableListOf<RssFeedItem>()
     while (true) {
         when (parser.next()) {
             XmlPullParser.START_TAG -> when (parser.name.lowercase(Locale.US)) {
                 "title" -> if (title.isBlank()) title = parser.nextText().orEmpty().trim()
+                "icon", "logo" -> if (items.isEmpty() && imageUrl == null) {
+                    imageUrl = parser.nextText().orEmpty().trim().takeIf { it.startsWith("http") }
+                }
                 "entry" -> items += parseAtomEntry(parser, title.ifBlank { "News" })
             }
             XmlPullParser.END_TAG -> if (parser.name.equals("feed", ignoreCase = true)) break
             XmlPullParser.END_DOCUMENT -> break
         }
     }
-    return ParsedChannel(title, items)
+    return ParsedChannel(title, items, imageUrl)
 }
 
 private fun parseRssItem(parser: XmlPullParser, source: String): RssFeedItem {

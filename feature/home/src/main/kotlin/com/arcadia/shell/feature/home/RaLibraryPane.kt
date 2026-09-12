@@ -135,7 +135,7 @@ fun RaLibraryPane(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.22f)),
+                .background(Color.Black.copy(alpha = 0.30f)),
         )
         // The library steps aside for the cheevo window rather than sitting behind it. Fading it
         // out also drops its layout and image work while the window is the thing being looked at.
@@ -168,11 +168,12 @@ fun RaLibraryPane(
                     .fillMaxHeight(),
             )
 
+            // No plate here: in the design the rows are their own pills on the wallpaper, and a
+            // panel behind them just boxes the list in.
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight()
-                    .xoraSettingsPanelSurface(),
+                    .fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 when {
