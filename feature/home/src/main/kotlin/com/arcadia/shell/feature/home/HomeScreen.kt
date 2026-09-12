@@ -19,6 +19,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -59,6 +64,12 @@ fun HomeScreen(
     onSelectRssItem: (Int) -> Unit,
     onOpenRssItem: (Int) -> Unit,
     onRetryRss: () -> Unit,
+    onSelectNewsOutlet: (Int) -> Unit = {},
+    onAddNewsOutlet: () -> Unit = {},
+    onDismissAddNewsOutlet: () -> Unit = {},
+    onSubmitNewsOutlet: (String, String) -> Unit = { _, _ -> },
+    onCloseRssArticle: () -> Unit = {},
+    onOpenRssInBrowser: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onToggleAccountPanel: () -> Unit,
     onToggleSystemPanel: () -> Unit,
@@ -74,6 +85,7 @@ fun HomeScreen(
     onClearCustomStatus: () -> Unit = {},
     onSelectRaLibraryIndex: (Int) -> Unit,
     onSelectRaLibraryTab: (RaLibraryTab) -> Unit,
+    onToggleRaSortMenu: () -> Unit = {},
     onSelectRaPlatformFilter: (String?) -> Unit,
     onActivateRaLibrary: () -> Unit,
     onRetryRaLibrary: () -> Unit,
@@ -111,6 +123,12 @@ fun HomeScreen(
     onShopComingSoon: () -> Unit = {},
     onUploadComingSoon: () -> Unit = {},
     onDismissAddShortcut: () -> Unit = {},
+    onDismissShortcutPinPicker: () -> Unit = {},
+    onSelectShortcutPickerPlatform: (Int) -> Unit = {},
+    onSelectShortcutPickerItem: (Int) -> Unit = {},
+    onConfirmShortcutPicker: () -> Unit = {},
+    onShortcutPickerQueryChange: (String) -> Unit = {},
+    onFocusShortcutPickerPane: (ShortcutPickerPane) -> Unit = {},
     onPinRecentShortcut: () -> Unit = {},
     onPinAndroidShortcut: () -> Unit = {},
     onPinPictureShortcut: () -> Unit = {},
@@ -193,8 +211,15 @@ fun HomeScreen(
                                 onSelectRssItem = onSelectRssItem,
                                 onOpenRssItem = onOpenRssItem,
                                 onRetryRss = onRetryRss,
+                                onSelectNewsOutlet = onSelectNewsOutlet,
+                                onAddNewsOutlet = onAddNewsOutlet,
+                                onDismissAddNewsOutlet = onDismissAddNewsOutlet,
+                                onSubmitNewsOutlet = onSubmitNewsOutlet,
+                                onCloseRssArticle = onCloseRssArticle,
+                                onOpenRssInBrowser = onOpenRssInBrowser,
                                 onSelectRaLibraryIndex = onSelectRaLibraryIndex,
                                 onSelectRaLibraryTab = onSelectRaLibraryTab,
+                                onToggleRaSortMenu = onToggleRaSortMenu,
                                 onSelectRaPlatformFilter = onSelectRaPlatformFilter,
                                 onActivateRaLibrary = onActivateRaLibrary,
                                 onRetryRaLibrary = onRetryRaLibrary,
@@ -260,6 +285,12 @@ fun HomeScreen(
                                 onShopComingSoon = onShopComingSoon,
                                 onUploadComingSoon = onUploadComingSoon,
                                 onDismissAddShortcut = onDismissAddShortcut,
+                                onDismissShortcutPinPicker = onDismissShortcutPinPicker,
+                                onSelectShortcutPickerPlatform = onSelectShortcutPickerPlatform,
+                                onSelectShortcutPickerItem = onSelectShortcutPickerItem,
+                                onConfirmShortcutPicker = onConfirmShortcutPicker,
+                                onShortcutPickerQueryChange = onShortcutPickerQueryChange,
+                                onFocusShortcutPickerPane = onFocusShortcutPickerPane,
                                 onPinRecentShortcut = onPinRecentShortcut,
                                 onPinAndroidShortcut = onPinAndroidShortcut,
                                 onPinPictureShortcut = onPinPictureShortcut,
@@ -279,7 +310,12 @@ fun HomeScreen(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
-                    } else if (state.homePage == HomePage.RaLibrary) {
+                    } else if (
+                        // XOrA NOW owns the whole screen the way RA does. Left in the hero branch
+                        // it drew under a HeroPane, which is the split header the page showed.
+                        state.homePage == HomePage.RaLibrary ||
+                        state.homePage == HomePage.RssFeed
+                    ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -295,8 +331,15 @@ fun HomeScreen(
                                 onSelectRssItem = onSelectRssItem,
                                 onOpenRssItem = onOpenRssItem,
                                 onRetryRss = onRetryRss,
+                                onSelectNewsOutlet = onSelectNewsOutlet,
+                                onAddNewsOutlet = onAddNewsOutlet,
+                                onDismissAddNewsOutlet = onDismissAddNewsOutlet,
+                                onSubmitNewsOutlet = onSubmitNewsOutlet,
+                                onCloseRssArticle = onCloseRssArticle,
+                                onOpenRssInBrowser = onOpenRssInBrowser,
                                 onSelectRaLibraryIndex = onSelectRaLibraryIndex,
                                 onSelectRaLibraryTab = onSelectRaLibraryTab,
+                                onToggleRaSortMenu = onToggleRaSortMenu,
                                 onSelectRaPlatformFilter = onSelectRaPlatformFilter,
                                 onActivateRaLibrary = onActivateRaLibrary,
                                 onRetryRaLibrary = onRetryRaLibrary,
@@ -362,6 +405,12 @@ fun HomeScreen(
                                 onShopComingSoon = onShopComingSoon,
                                 onUploadComingSoon = onUploadComingSoon,
                                 onDismissAddShortcut = onDismissAddShortcut,
+                                onDismissShortcutPinPicker = onDismissShortcutPinPicker,
+                                onSelectShortcutPickerPlatform = onSelectShortcutPickerPlatform,
+                                onSelectShortcutPickerItem = onSelectShortcutPickerItem,
+                                onConfirmShortcutPicker = onConfirmShortcutPicker,
+                                onShortcutPickerQueryChange = onShortcutPickerQueryChange,
+                                onFocusShortcutPickerPane = onFocusShortcutPickerPane,
                                 onPinRecentShortcut = onPinRecentShortcut,
                                 onPinAndroidShortcut = onPinAndroidShortcut,
                                 onPinPictureShortcut = onPinPictureShortcut,
@@ -489,8 +538,15 @@ fun HomeScreen(
                             onSelectRssItem = onSelectRssItem,
                             onOpenRssItem = onOpenRssItem,
                             onRetryRss = onRetryRss,
+                            onSelectNewsOutlet = onSelectNewsOutlet,
+                            onAddNewsOutlet = onAddNewsOutlet,
+                            onDismissAddNewsOutlet = onDismissAddNewsOutlet,
+                            onSubmitNewsOutlet = onSubmitNewsOutlet,
+                            onCloseRssArticle = onCloseRssArticle,
+                            onOpenRssInBrowser = onOpenRssInBrowser,
                             onSelectRaLibraryIndex = onSelectRaLibraryIndex,
                             onSelectRaLibraryTab = onSelectRaLibraryTab,
+                            onToggleRaSortMenu = onToggleRaSortMenu,
                             onSelectRaPlatformFilter = onSelectRaPlatformFilter,
                             onActivateRaLibrary = onActivateRaLibrary,
                             onRetryRaLibrary = onRetryRaLibrary,
@@ -528,6 +584,12 @@ fun HomeScreen(
                             onShopComingSoon = onShopComingSoon,
                             onUploadComingSoon = onUploadComingSoon,
                             onDismissAddShortcut = onDismissAddShortcut,
+                            onDismissShortcutPinPicker = onDismissShortcutPinPicker,
+                            onSelectShortcutPickerPlatform = onSelectShortcutPickerPlatform,
+                            onSelectShortcutPickerItem = onSelectShortcutPickerItem,
+                            onConfirmShortcutPicker = onConfirmShortcutPicker,
+                            onShortcutPickerQueryChange = onShortcutPickerQueryChange,
+                            onFocusShortcutPickerPane = onFocusShortcutPickerPane,
                             onPinRecentShortcut = onPinRecentShortcut,
                             onPinAndroidShortcut = onPinAndroidShortcut,
                             onPinPictureShortcut = onPinPictureShortcut,
@@ -595,8 +657,15 @@ fun HomePageContent(
     onSelectRssItem: (Int) -> Unit,
     onOpenRssItem: (Int) -> Unit,
     onRetryRss: () -> Unit,
+    onSelectNewsOutlet: (Int) -> Unit = {},
+    onAddNewsOutlet: () -> Unit = {},
+    onDismissAddNewsOutlet: () -> Unit = {},
+    onSubmitNewsOutlet: (String, String) -> Unit = { _, _ -> },
+    onCloseRssArticle: () -> Unit = {},
+    onOpenRssInBrowser: () -> Unit = {},
     onSelectRaLibraryIndex: (Int) -> Unit = {},
     onSelectRaLibraryTab: (RaLibraryTab) -> Unit = {},
+    onToggleRaSortMenu: () -> Unit = {},
     onSelectRaPlatformFilter: (String?) -> Unit = {},
     onActivateRaLibrary: () -> Unit = {},
     onRetryRaLibrary: () -> Unit = {},
@@ -661,6 +730,12 @@ fun HomePageContent(
     onShopComingSoon: () -> Unit = {},
     onUploadComingSoon: () -> Unit = {},
     onDismissAddShortcut: () -> Unit = {},
+    onDismissShortcutPinPicker: () -> Unit = {},
+    onSelectShortcutPickerPlatform: (Int) -> Unit = {},
+    onSelectShortcutPickerItem: (Int) -> Unit = {},
+    onConfirmShortcutPicker: () -> Unit = {},
+    onShortcutPickerQueryChange: (String) -> Unit = {},
+    onFocusShortcutPickerPane: (ShortcutPickerPane) -> Unit = {},
     onPinRecentShortcut: () -> Unit = {},
     onPinAndroidShortcut: () -> Unit = {},
     onPinPictureShortcut: () -> Unit = {},
@@ -739,6 +814,7 @@ fun HomePageContent(
                         onDashboardCommand = onDashboardCommand,
                         onSelectRaLibraryIndex = onSelectRaLibraryIndex,
                         onSelectRaLibraryTab = onSelectRaLibraryTab,
+                        onToggleRaSortMenu = onToggleRaSortMenu,
                         onSelectRaPlatformFilter = onSelectRaPlatformFilter,
                         onActivateRaLibrary = onActivateRaLibrary,
                         onRetryRaLibrary = onRetryRaLibrary,
@@ -795,7 +871,26 @@ fun HomePageContent(
                             )
                         },
                     )
-                    if (state.homeHub.addShortcutOpen) {
+                    val pinPicker = state.homeHub.shortcutPicker
+                    // Keep the last picker so the sheet can animate out after the state clears.
+                    var lastPinPicker by remember { mutableStateOf(pinPicker) }
+                    SideEffect { if (pinPicker != null) lastPinPicker = pinPicker }
+                    val shownPinPicker = pinPicker ?: lastPinPicker
+                    if (shownPinPicker != null) {
+                        // Vita bubbles use the platform / ROM browser; the type chooser below is
+                        // still the Home board's path, which also pins pictures and GIFs.
+                        ShortcutPinPickerSheet(
+                            picker = shownPinPicker,
+                            visible = pinPicker != null,
+                            onDismiss = onDismissShortcutPinPicker,
+                            onSelectPlatform = onSelectShortcutPickerPlatform,
+                            onSelectItem = onSelectShortcutPickerItem,
+                            onConfirm = onConfirmShortcutPicker,
+                            onQueryChange = onShortcutPickerQueryChange,
+                            onFocusPane = onFocusShortcutPickerPane,
+                        )
+                    }
+                    if (pinPicker == null && state.homeHub.addShortcutOpen) {
                         AddShortcutSheet(
                             picker = state.homeHub.shortcutTargetPicker,
                             pendingKind = state.homeHub.pendingShortcutKind,
@@ -832,6 +927,12 @@ fun HomePageContent(
                 onSelectItem = onSelectRssItem,
                 onOpenItem = onOpenRssItem,
                 onRetry = onRetryRss,
+                onSelectOutlet = onSelectNewsOutlet,
+                onAddOutlet = onAddNewsOutlet,
+                onDismissAddOutlet = onDismissAddNewsOutlet,
+                onSubmitOutlet = onSubmitNewsOutlet,
+                onCloseArticle = onCloseRssArticle,
+                onOpenInBrowser = onOpenRssInBrowser,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -839,6 +940,7 @@ fun HomePageContent(
                 state = state,
                 onSelectIndex = onSelectRaLibraryIndex,
                 onSelectTab = onSelectRaLibraryTab,
+                onToggleSortMenu = onToggleRaSortMenu,
                 onSelectPlatformFilter = onSelectRaPlatformFilter,
                 onActivate = onActivateRaLibrary,
                 onRetry = onRetryRaLibrary,

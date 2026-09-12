@@ -49,6 +49,7 @@ import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.HeroTrailerLayer
+import com.arcadia.shell.feature.home.component.ProfileEditRequestEffect
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.model.Game
@@ -141,9 +142,7 @@ fun HeroPane(
     val artworkScale = launchBackdropScale(cinematic.zoom)
     var profileEditing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(profileEditRequest) {
-        if (profileEditRequest > 0) profileEditing = true
-    }
+    ProfileEditRequestEffect(profileEditRequest) { profileEditing = true }
 
     Box(modifier = modifier.background(Color.Black)) {
         val heroEnter = fadeIn(arcadiaTween(ArcadiaMotion.Medium))

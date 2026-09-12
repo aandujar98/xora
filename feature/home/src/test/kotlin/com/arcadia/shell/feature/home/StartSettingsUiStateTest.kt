@@ -53,7 +53,11 @@ class StartSettingsUiStateTest {
         assertFalse(ids.contains("switch_mode"))
         assertFalse(ids.contains("second_screen"))
         assertTrue(ids.contains("trailer_display"))
+        assertTrue(ids.contains("music_art_backdrop"))
         assertTrue(ids.contains("visual_performance"))
+        val musicArt = rows.first { it.id == "music_art_backdrop" } as StartSettingsRow.Toggle
+        assertTrue(musicArt.checked)
+        assertEquals(StartSettingsAction.ToggleMusicCategoryArt, musicArt.action)
         val performance = rows.first { it.id == "visual_performance" }
         assertEquals("Auto on this device · Performance · 5.2 GB RAM", performance.subtitle)
         assertEquals(

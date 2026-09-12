@@ -56,6 +56,19 @@ internal const val VITA_BUBBLE_TILT_SHIFT_FRACTION = 0.115f
  */
 private const val TILT_REST_RELAX_PER_SECOND = 0.85f
 
+/**
+ * Below this a reading is sensor noise and the rest baseline's own residue rather than a tilt.
+ * At [VITA_BUBBLE_TILT_SHIFT_FRACTION] of a bubble it is well under a pixel of sway, so nothing
+ * visible is lost — but it lets a device at rest report a true zero and park the frame loop.
+ */
+private const val TILT_DEADZONE = 0.02f
+
+/** One tilt axis, clamped to the sway range, with sub-threshold noise flattened to a true zero. */
+internal fun tiltDeadzoned(raw: Float): Float {
+    val clamped = raw.coerceIn(-1f, 1f)
+    return if (abs(clamped) < TILT_DEADZONE) 0f else clamped
+}
+
 private const val SPRING_STIFFNESS = 52f
 private const val SPRING_DAMPING_RATIO = 0.34f
 private const val MAX_FRAME_SECONDS = 1f / 30f
@@ -183,9 +196,14 @@ private class TiltListener(
             restY += (pose.y - restY) * relax
         }
 
+        // Deadzoned, so a device lying still publishes exactly Offset.Zero. The rest baseline is
+        // a low-pass chasing the pose, so its residue lands near zero but never on it, and the
+        // sensor re-injects noise every sample — which meant the spring loop's park guard could
+        // never fire and the shell asked for a frame at display rate forever. Structural
+        // equality on the State makes the repeated Zero writes free.
         output.value = Offset(
-            x = ((pose.x - restX) / TILT_FULL_SCALE_RADIANS).coerceIn(-1f, 1f),
-            y = ((pose.y - restY) / TILT_FULL_SCALE_RADIANS).coerceIn(-1f, 1f),
+            x = tiltDeadzoned((pose.x - restX) / TILT_FULL_SCALE_RADIANS),
+            y = tiltDeadzoned((pose.y - restY) / TILT_FULL_SCALE_RADIANS),
         )
     }
 
@@ -320,8 +338,11 @@ fun rememberVitaBubbleMotion(
             if (!moving) {
                 // Everything has come to rest. Stop asking for frames — otherwise a tray left open
                 // on a desk would redraw at display rate forever — and wait for the next movement.
-                snapshotFlow { tilt.value }
-                    .first { it.x != 0f || it.y != 0f }
+                // The wake test is "the tilt changed", not "the tilt is non-zero": a device propped
+                // at an angle the springs have already caught up with is at rest too, and testing
+                // for non-zero there returned immediately and spun the loop at display rate.
+                val settledAt = tilt.value
+                snapshotFlow { tilt.value }.first { it != settledAt }
                 lastFrame = 0L
             }
         }

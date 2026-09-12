@@ -746,6 +746,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setGameIconIdleMedia(media) }
     }
 
+    fun setMusicCategoryArtBackdrop(enabled: Boolean) {
+        viewModelScope.launch { preferences.setMusicCategoryArtBackdrop(enabled) }
+    }
+
     fun setScreenScraperCredentials(user: String, password: String) {
         viewModelScope.launch { preferences.setScreenScraperCredentials(user, password) }
     }

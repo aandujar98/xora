@@ -27,10 +27,12 @@ import com.arcadia.shell.audio.UiSoundController
 import com.arcadia.shell.datastore.resolveDarkTheme
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.display.DisplayRefresh
+import com.arcadia.shell.display.RefreshRateMode
 import com.arcadia.shell.display.ImmersiveMode
 import com.arcadia.shell.display.applyXoraScreenOrientation
 import com.arcadia.shell.feature.home.GameSoundBitePlayer
 import com.arcadia.shell.feature.home.HomeViewModel
+import com.arcadia.shell.feature.home.ShellSessionState
 import com.arcadia.shell.home.ShellViewModel
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
@@ -52,6 +54,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var uiSounds: UiSoundController
     @Inject lateinit var discordRichPresence: DiscordRichPresence
     @Inject lateinit var shellSystemNotifier: ShellSystemNotifier
+    @Inject lateinit var shellSession: ShellSessionState
 
     private val postNotificationsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -63,10 +66,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // First Activity of the process is a cold start; a later one is a rebuild. Not keyed off
+        // savedInstanceState — that is non-null for a process-death restore too, which *is* cold.
+        shellSession.onActivityCreated()
         applyXoraScreenOrientation()
         enableEdgeToEdge()
         ImmersiveMode.apply(window)
-        DisplayRefresh.preferSixtyHertz(window)
+        DisplayRefresh.preferShellRefresh(window)
         discordRichPresence.attachHostActivity(this)
         handleExternalAuthIntent(intent)
 
@@ -101,6 +107,18 @@ class MainActivity : ComponentActivity() {
             }
             LaunchedEffect(homeState.isLaunching) {
                 backgroundMusic.setGameLaunchActive(homeState.isLaunching)
+            }
+            // Panel mode follows the Display setting; re-applied on change, not just at start.
+            LaunchedEffect(shellState.highRefreshRate) {
+                DisplayRefresh.mode = if (shellState.highRefreshRate) {
+                    RefreshRateMode.Max
+                } else {
+                    RefreshRateMode.Sixty
+                }
+                DisplayRefresh.preferShellRefresh(window)
+            }
+            LaunchedEffect(homeState.homeHub.vitaShortcutTrayOpen) {
+                backgroundMusic.setVitaTrayOpen(homeState.homeHub.vitaShortcutTrayOpen)
             }
 
             LaunchedEffect(shellState.prefsReady, shellState.showOnboarding) {
@@ -165,7 +183,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ImmersiveMode.apply(window)
-        DisplayRefresh.preferSixtyHertz(window)
+        DisplayRefresh.preferShellRefresh(window)
         shellViewModel.refresh()
         homeViewModel.onResumed()
         backgroundMusic.onForeground()

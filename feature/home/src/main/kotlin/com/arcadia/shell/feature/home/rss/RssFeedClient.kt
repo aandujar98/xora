@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home.rss
 
+import com.arcadia.shell.feature.home.ArticleBlock
 import com.arcadia.shell.feature.home.RssFeedItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,6 +16,8 @@ import javax.inject.Singleton
 data class RssFeed(
     val title: String,
     val items: List<RssFeedItem>,
+    /** Channel artwork, when the feed publishes one — the outlet bubble's picture. */
+    val imageUrl: String? = null,
 )
 
 /**
@@ -55,6 +58,7 @@ internal fun parseFeed(xml: String): RssFeed {
     val parser = factory.newPullParser().apply { setInput(StringReader(xml)) }
 
     var channelTitle = "News"
+    var channelImage: String? = null
     val items = mutableListOf<RssFeedItem>()
 
     var event = parser.eventType
@@ -64,11 +68,13 @@ internal fun parseFeed(xml: String): RssFeed {
                 "channel" -> {
                     val channel = parseRssChannel(parser)
                     channelTitle = channel.title.ifBlank { channelTitle }
+                    channelImage = channelImage ?: channel.imageUrl
                     items += channel.items
                 }
                 "feed" -> {
                     val atom = parseAtomFeed(parser)
                     channelTitle = atom.title.ifBlank { channelTitle }
+                    channelImage = channelImage ?: atom.imageUrl
                     items += atom.items
                 }
                 "item" -> items += parseRssItem(parser, channelTitle)
@@ -81,41 +87,74 @@ internal fun parseFeed(xml: String): RssFeed {
     return RssFeed(
         title = channelTitle,
         items = items.distinctBy { it.link.ifBlank { it.id } }.take(MAX_ITEMS),
+        imageUrl = channelImage,
     )
 }
 
-private data class ParsedChannel(val title: String, val items: List<RssFeedItem>)
+private data class ParsedChannel(
+    val title: String,
+    val items: List<RssFeedItem>,
+    val imageUrl: String? = null,
+)
 
 private fun parseRssChannel(parser: XmlPullParser): ParsedChannel {
     var title = ""
+    var imageUrl: String? = null
     val items = mutableListOf<RssFeedItem>()
     while (true) {
         when (parser.next()) {
             XmlPullParser.START_TAG -> when (parser.name.lowercase(Locale.US)) {
                 "title" -> if (title.isBlank()) title = parser.nextText().orEmpty().trim()
+                // <image><url> is the channel logo. Only take it before any <item>, so an
+                // article's own image cannot be mistaken for the outlet's.
+                "image" -> if (items.isEmpty()) {
+                    imageUrl = imageUrl ?: parseChannelImage(parser)
+                }
+                "icon", "logo" -> if (items.isEmpty() && imageUrl == null) {
+                    imageUrl = parser.nextText().orEmpty().trim().takeIf { it.startsWith("http") }
+                }
                 "item" -> items += parseRssItem(parser, title.ifBlank { "News" })
             }
             XmlPullParser.END_TAG -> if (parser.name.equals("channel", ignoreCase = true)) break
             XmlPullParser.END_DOCUMENT -> break
         }
     }
-    return ParsedChannel(title, items)
+    return ParsedChannel(title, items, imageUrl)
+}
+
+private fun parseChannelImage(parser: XmlPullParser): String? {
+    var url: String? = null
+    while (true) {
+        when (parser.next()) {
+            XmlPullParser.START_TAG ->
+                if (parser.name.equals("url", ignoreCase = true)) {
+                    url = parser.nextText().orEmpty().trim().takeIf { it.startsWith("http") }
+                }
+            XmlPullParser.END_TAG -> if (parser.name.equals("image", ignoreCase = true)) break
+            XmlPullParser.END_DOCUMENT -> break
+        }
+    }
+    return url
 }
 
 private fun parseAtomFeed(parser: XmlPullParser): ParsedChannel {
     var title = ""
+    var imageUrl: String? = null
     val items = mutableListOf<RssFeedItem>()
     while (true) {
         when (parser.next()) {
             XmlPullParser.START_TAG -> when (parser.name.lowercase(Locale.US)) {
                 "title" -> if (title.isBlank()) title = parser.nextText().orEmpty().trim()
+                "icon", "logo" -> if (items.isEmpty() && imageUrl == null) {
+                    imageUrl = parser.nextText().orEmpty().trim().takeIf { it.startsWith("http") }
+                }
                 "entry" -> items += parseAtomEntry(parser, title.ifBlank { "News" })
             }
             XmlPullParser.END_TAG -> if (parser.name.equals("feed", ignoreCase = true)) break
             XmlPullParser.END_DOCUMENT -> break
         }
     }
-    return ParsedChannel(title, items)
+    return ParsedChannel(title, items, imageUrl)
 }
 
 private fun parseRssItem(parser: XmlPullParser, source: String): RssFeedItem {
@@ -123,6 +162,7 @@ private fun parseRssItem(parser: XmlPullParser, source: String): RssFeedItem {
     var link = ""
     var pubDate: String? = null
     var description: String? = null
+    var contentHtml: String? = null
     var imageUrl: String? = null
     var videoUrl: String? = null
     var guid: String? = null
@@ -137,8 +177,10 @@ private fun parseRssItem(parser: XmlPullParser, source: String): RssFeedItem {
                     "guid" -> guid = parser.nextText().orEmpty().trim()
                     "pubdate", "published", "updated", "dc:date" ->
                         pubDate = parser.nextText().orEmpty().trim().ifBlank { null }
-                    "description", "content:encoded", "summary" ->
-                        description = parser.nextText().orEmpty()
+                    // content:encoded is the whole article when a feed ships it; description is
+                    // usually just the teaser. Keep both so the reader is not stuck with the teaser.
+                    "description", "summary" -> description = parser.nextText().orEmpty()
+                    "content:encoded", "encoded" -> contentHtml = parser.nextText().orEmpty()
                     "enclosure" -> {
                         val type = parser.getAttributeValue(null, "type").orEmpty()
                         val url = parser.getAttributeValue(null, "url")
@@ -179,11 +221,12 @@ private fun parseRssItem(parser: XmlPullParser, source: String): RssFeedItem {
         }
     }
 
+    val body = contentHtml?.takeIf { it.isNotBlank() } ?: description
     if (imageUrl == null) {
-        imageUrl = extractImageFromHtml(description)
+        imageUrl = extractImageFromHtml(body)
     }
     if (videoUrl == null) {
-        videoUrl = extractVideoFromHtml(description)
+        videoUrl = extractVideoFromHtml(body)
     }
 
     val id = guid?.takeIf { it.isNotBlank() } ?: link.ifBlank { title }
@@ -194,8 +237,9 @@ private fun parseRssItem(parser: XmlPullParser, source: String): RssFeedItem {
         source = source,
         publishedAt = formatDate(pubDate),
         imageUrl = imageUrl,
-        description = cleanDescription(description),
+        description = cleanDescription(description ?: contentHtml),
         videoUrl = videoUrl,
+        blocks = articleBlocks(body),
     )
 }
 
@@ -257,6 +301,7 @@ private fun parseAtomEntry(parser: XmlPullParser, source: String): RssFeedItem {
         imageUrl = imageUrl,
         description = cleanDescription(summary),
         videoUrl = videoUrl,
+        blocks = articleBlocks(summary),
     )
 }
 
@@ -274,6 +319,57 @@ private fun extractVideoFromHtml(html: String?): String? {
     YOUTUBE_URL_REGEX.find(html)?.value?.let { return it }
     return null
 }
+
+/**
+ * Split feed HTML into the reader's paragraph / image stream, in document order.
+ *
+ * Deliberately a small regex pass rather than a real HTML parser: feed bodies are a narrow,
+ * well-behaved subset, and pulling in a parser to read a news item is not a trade worth making.
+ * Anything it cannot classify ends up as text, which is the safe direction to fail.
+ */
+internal fun articleBlocks(html: String?): List<ArticleBlock> {
+    if (html.isNullOrBlank()) return emptyList()
+    val blocks = mutableListOf<ArticleBlock>()
+    val imgPattern = Regex("<img[^>]+>", RegexOption.IGNORE_CASE)
+    var cursor = 0
+    for (match in imgPattern.findAll(html)) {
+        appendArticleText(blocks, html.substring(cursor, match.range.first))
+        val src = Regex("src\\s*=\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+            .find(match.value)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        if (!src.isNullOrBlank() && src.startsWith("http")) {
+            blocks += ArticleBlock.Image(src)
+        }
+        cursor = match.range.last + 1
+    }
+    appendArticleText(blocks, html.substring(cursor))
+    return blocks.take(MAX_ARTICLE_BLOCKS)
+}
+
+private const val MAX_ARTICLE_BLOCKS = 80
+
+private fun appendArticleText(blocks: MutableList<ArticleBlock>, raw: String) {
+    if (raw.isBlank()) return
+    raw.split(Regex("(?i)</p>|<br\\s*/?>"))
+        .map { stripHtml(it) }
+        .filter { it.isNotBlank() }
+        .forEach { blocks += ArticleBlock.Text(it) }
+}
+
+private fun stripHtml(html: String): String = html
+    .replace(Regex("<[^>]+>"), " ")
+    .replace(Regex("&nbsp;", RegexOption.IGNORE_CASE), " ")
+    .replace(Regex("&amp;", RegexOption.IGNORE_CASE), "&")
+    .replace(Regex("&quot;", RegexOption.IGNORE_CASE), "\"")
+    .replace(Regex("&#8217;|&rsquo;"), "'")
+    .replace(Regex("&#8216;|&lsquo;"), "'")
+    .replace(Regex("&#8220;|&ldquo;|&#8221;|&rdquo;"), "\"")
+    .replace(Regex("&#39;"), "'")
+    .replace(Regex("&#\\d+;"), "")
+    .replace(Regex("\\s+"), " ")
+    .trim()
 
 private fun cleanDescription(html: String?): String? {
     if (html.isNullOrBlank()) return null

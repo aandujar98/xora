@@ -1,11 +1,14 @@
 package com.arcadia.shell.feature.home
 
+import com.arcadia.shell.datastore.CustomTheme
+import com.arcadia.shell.datastore.DEFAULT_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.GameArtAlignment
 import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.LocalProfile
+import com.arcadia.shell.datastore.NewsOutlet
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.launcher.music.MusicAlbum
@@ -27,7 +30,7 @@ enum class TabKind { All, Favorites, Recent, Apps, Platform }
  * RSS / RA / legacy GameSelector are opened from XMB drills or retained for dual layouts.
  */
 enum class HomePage {
-    /** Gaming / emulation news (XOrA News). */
+    /** Gaming / emulation news (XOrA NOW). */
     RssFeed,
     /** XOrA XMB home — Profiles, Settings, Games, Media, Music, Network. */
     Home,
@@ -88,6 +91,33 @@ data class ShortcutTargetPickerUiState(
     val selected: Game? get() = candidates.getOrNull(selectedIndex)
 }
 
+/** Which panel of the Vita pin picker has the stick. */
+enum class ShortcutPickerPane {
+    Platforms,
+    Content,
+    Search,
+}
+
+/**
+ * Two-panel pin picker for an empty Vita bubble: the platforms the player actually has on the
+ * XMB down the left (Android included), that platform's ROMs / apps as cards on the right, and a
+ * search field over the grid.
+ *
+ * [results] is already filtered by [platformIndex] and [query] — the sheet renders it as-is so
+ * the focus index and the visible cards can never disagree.
+ */
+data class ShortcutPickerUiState(
+    val platforms: List<PlatformSummary>,
+    val platformIndex: Int = 0,
+    val query: String = "",
+    val results: List<Game> = emptyList(),
+    val itemIndex: Int = 0,
+    val pane: ShortcutPickerPane = ShortcutPickerPane.Platforms,
+) {
+    val platform: PlatformSummary? get() = platforms.getOrNull(platformIndex)
+    val selected: Game? get() = results.getOrNull(itemIndex)
+}
+
 data class HomeHubUiState(
     val section: HomeHubSection = HomeHubSection.ShardMenu,
     val shard: HomeShard = HomeShard.Continue,
@@ -125,14 +155,24 @@ data class HomeHubUiState(
     val wallpaperPath: String? = null,
     val wallpaperAlignX: Float = 0f,
     val wallpaperAlignY: Float = 0f,
+    /** Display → Particle effects. When false the XMB backdrop is wallpaper only. */
+    val particlesEnabled: Boolean = true,
     /** Absolute path to custom BGM, or null for the bundled default. */
     val customBgmPath: String? = null,
+    /** Optional second track that plays while the Vita shortcut tray is open. */
+    val vitaTrayBgmPath: String? = null,
     /** Most recently played non-app game for the Continue shard. */
     val continueGame: Game? = null,
-    /** True while the Themes editor sheet is open (always hosted on the Activity window). */
+    /** True while the Customize sheet is open (always hosted on the Activity window). */
     val themesOpen: Boolean = false,
-    /** Tab shown when [themesOpen] is true — Customize for wallpaper/BGM, Presets for packs. */
-    val themesSheetTab: ThemesSheetTab = ThemesSheetTab.Customize,
+    /** Left-nav section shown when [themesOpen] is true. */
+    val themesSheetTab: CustomizeSection = CustomizeSection.PresetThemes,
+    /** Saved wallpaper + BGM combos for Customize → Custom Themes. */
+    val customThemes: List<CustomTheme> = emptyList(),
+    /** Selected boot animation id for Customize → Boot Animations. */
+    val bootAnimationId: String = DEFAULT_BOOT_ANIMATION_ID,
+    /** Absolute path to the player's own boot clip, when they added one. */
+    val bootAnimationPath: String? = null,
     /** True while the add-shortcut chooser is open (always hosted on the Activity window). */
     val addShortcutOpen: Boolean = false,
     /** Non-null while choosing tile size after a pin type was selected. */
@@ -141,6 +181,8 @@ data class HomeHubUiState(
     val pendingShortcutSpan: ShortcutSpan = ShortcutSpan.Default,
     /** Non-null while picking a library game or Android app to pin. */
     val shortcutTargetPicker: ShortcutTargetPickerUiState? = null,
+    /** Vita bubble pin picker. Non-null while the platform / ROM browser is up. */
+    val shortcutPicker: ShortcutPickerUiState? = null,
 ) {
     /** True while the LiveArea peel page (or its departing bubble) owns the screen. */
     val vitaLaunchPageOpen: Boolean
@@ -176,6 +218,12 @@ data class LibraryTab(
     val gameCount: Int = 0,
 )
 
+/** One piece of an article body, in document order, for the reader window. */
+sealed interface ArticleBlock {
+    data class Text(val text: String) : ArticleBlock
+    data class Image(val url: String) : ArticleBlock
+}
+
 data class RssFeedItem(
     val id: String,
     val title: String,
@@ -187,7 +235,18 @@ data class RssFeedItem(
     val description: String? = null,
     /** Direct video URL or YouTube watch/embed URL when the item includes one. */
     val videoUrl: String? = null,
+    /** Full body as paragraphs and images, when the feed ships one. */
+    val blocks: List<ArticleBlock> = emptyList(),
 )
+
+/** Columns in the XOrA NOW article grid — the nav model and the pane must agree. */
+const val NEWS_GRID_COLUMNS = 3
+
+/** Which band of XOrA NOW has the stick. */
+enum class NewsFocus {
+    Outlets,
+    Articles,
+}
 
 data class RssUiState(
     val isLoading: Boolean = false,
@@ -195,9 +254,23 @@ data class RssUiState(
     val selectedIndex: Int = 0,
     val error: String? = null,
     val feedTitle: String? = null,
+    /** Source bubbles across the header; always at least the seeded set. */
+    val outlets: List<NewsOutlet> = emptyList(),
+    val outletIndex: Int = 0,
+    val focus: NewsFocus = NewsFocus.Articles,
+    /** Non-null while the reader window is up. */
+    val openArticle: RssFeedItem? = null,
+    /** True while the add-source prompt is showing. */
+    val addOutletOpen: Boolean = false,
 ) {
     val selectedItem: RssFeedItem? get() = items.getOrNull(selectedIndex)
     val isEmpty: Boolean get() = !isLoading && error == null && items.isEmpty()
+    val outlet: NewsOutlet? get() = outlets.getOrNull(outletIndex)
+
+    /** The add bubble sits after the sources, so focus runs one past the list. */
+    val outletSlotCount: Int get() = outlets.size + 1
+    val addBubbleFocused: Boolean
+        get() = focus == NewsFocus.Outlets && outletIndex >= outlets.size
 }
 
 /**
@@ -269,6 +342,8 @@ data class HomeUiState(
     val selectedGameIndex: Int = 0,
     /** Game ids the user hid from library lists. */
     val hiddenGameIds: Set<String> = emptySet(),
+    /** Platform editor → Library → Show hidden games. */
+    val showHiddenGames: Boolean = false,
     /** Per-game cover pan inside the Game Icon. */
     val gameArtAlignments: Map<String, GameArtAlignment> = emptyMap(),
     /** Single-screen vertical selector vs dual-screen horizontal XMB. */
@@ -423,6 +498,12 @@ sealed interface HomeMediaPickerRequest {
     data object Wallpaper : HomeMediaPickerRequest
     data object Bgm : HomeMediaPickerRequest
 
+    /** Optional second track for the Vita shortcut tray. */
+    data object TrayBgm : HomeMediaPickerRequest
+
+    /** User-supplied cold-start clip for Customize -> Boot Animation. */
+    data object BootAnimation : HomeMediaPickerRequest
+
     /** Local profile picture from the Photos picker or the Files app. */
     data class ProfileAvatar(val source: PhotoImportSource) : HomeMediaPickerRequest
 
@@ -467,6 +548,11 @@ data class MusicUiState(
     val nowPlayingBackdropPath: String? = null,
     /** Volume for track background video audio; the song itself uses Now Playing volume. */
     val backdropAudioVolume: Float = 0f,
+    /**
+     * Display toggle: while a track plays on the Music column, show cover art plus the
+     * bundled wave Multiply mask.
+     */
+    val categoryArtBackdropEnabled: Boolean = true,
 ) {
     /** Cover art for whichever music rung is focused, used as the XMB backdrop. */
     val nowPlayingArtPath: String? get() = nowPlaying.track?.albumArtUri

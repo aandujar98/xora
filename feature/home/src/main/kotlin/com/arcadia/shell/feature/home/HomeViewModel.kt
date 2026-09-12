@@ -16,6 +16,9 @@ import com.arcadia.shell.datastore.AvatarSource
 import com.arcadia.shell.datastore.CIRCLE_FRIEND_LIMIT
 import com.arcadia.shell.datastore.CirclePin
 import com.arcadia.shell.datastore.CirclePinSource
+import com.arcadia.shell.datastore.CustomTheme
+import com.arcadia.shell.datastore.CUSTOM_BOOT_ANIMATION_ID
+import com.arcadia.shell.datastore.DEFAULT_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
@@ -49,7 +52,6 @@ import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XoraInternalResolution
 import com.arcadia.shell.datastore.next
 import com.arcadia.shell.designsystem.ArcadiaMotion
-import com.arcadia.shell.display.OverlayPermission
 import com.arcadia.shell.designsystem.ShellThemeCatalog
 import com.arcadia.shell.designsystem.isReduceMotionPreferred
 import com.arcadia.shell.designsystem.readDeviceVisualBudget
@@ -103,6 +105,7 @@ import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.HomeShortcutKind
 import com.arcadia.shell.model.LaunchDisplayPreference
 import com.arcadia.shell.model.LibraryRoot
+import com.arcadia.shell.model.PlatformCatalog
 import com.arcadia.shell.model.PlatformSummary
 import com.arcadia.shell.model.Player
 import com.arcadia.shell.model.ScanProgress
@@ -229,6 +232,7 @@ class HomeViewModel @Inject constructor(
     private val appForegroundTracker: AppForegroundTracker,
     private val xoraCoreCatalog: XoraCoreCatalog,
     private val rssFeedClient: RssFeedClient,
+    private val shellSession: ShellSessionState,
     private val gameInsightRepository: GameInsightRepository,
     private val gameScreenshotRepository: GameScreenshotRepository,
     private val steamWebApiClient: SteamWebApiClient,
@@ -291,6 +295,8 @@ class HomeViewModel @Inject constructor(
     private val vitaShortcutDepartingIndex = MutableStateFlow<Int?>(null)
     /** A / plate tap asked for the start gate to peel itself; the page runs the animation. */
     private val vitaShortcutPeelRequested = MutableStateFlow(false)
+    /** Peel zoom sting plays once per LiveArea visit (A auto-peel or first dog-ear drag). */
+    private var vitaPeelLaunchSfxPlayed = false
     /** Bubble held for repositioning in the Vita tray. */
     private val vitaShortcutMoveIndex = MutableStateFlow<Int?>(null)
     /** Shortcut order as it was when the move started, so B can put it back. */
@@ -304,14 +310,29 @@ class HomeViewModel @Inject constructor(
     private var vitaLaunchHandoff: Job? = null
     private val themesOpen = MutableStateFlow(false)
     /** Which Themes sheet tab to show when [themesOpen] becomes true. */
-    private val themesSheetTab = MutableStateFlow(ThemesSheetTab.Customize)
+    private val themesSheetTab = MutableStateFlow(CustomizeSection.PresetThemes)
+    /**
+     * Stick / face buttons forwarded to the Customize window while it owns the screen.
+     * CONFLATED would drop a second press in the same frame; BUFFERED keeps held-direction
+     * repeats in order.
+     */
+    private val customizeNavActions = Channel<NavAction>(Channel.BUFFERED)
     private val addShortcutOpen = MutableStateFlow(false)
     private val pendingShortcutKind = MutableStateFlow<PendingShortcutKind?>(null)
     private val pendingShortcutSpan = MutableStateFlow(ShortcutSpan.Default)
     private val shortcutTargetPicker = MutableStateFlow<ShortcutTargetPickerUiState?>(null)
+    private val shortcutPicker = MutableStateFlow<ShortcutPickerUiState?>(null)
+    /**
+     * Library snapshot taken when the pin picker opens. Filtering happens in memory from here so
+     * typing in the search field does not re-query the repository on every keystroke.
+     */
+    private var shortcutPickerGames: List<Game> = emptyList()
     private val mediaPickerRequests = Channel<HomeMediaPickerRequest>(Channel.BUFFERED)
     /** Observed from the primary Activity composition only — never under a Presentation. */
     val mediaPickerRequestFlow: Flow<HomeMediaPickerRequest> = mediaPickerRequests.receiveAsFlow()
+
+    /** D-pad / face buttons for the Customize window, which drives its own focus. */
+    val customizeNavActionFlow: Flow<NavAction> = customizeNavActions.receiveAsFlow()
 
     /** Bumps when ROM options should re-scan on-disk saves. */
     private val romSaveRefresh = MutableStateFlow(0)
@@ -383,11 +404,8 @@ class HomeViewModel @Inject constructor(
     private var backgroundedAtElapsed: Long? = null
     /** True when the last pause happened while the display was not interactive (screen off). */
     private var pausedWhileScreenOff: Boolean = false
-    /**
-     * Process-start boot candidate. Consumed on the first [onResumed] that can decide
-     * (onboarding complete → play boot clip; incomplete → skip without showing later).
-     */
-    private var pendingColdStartWelcome: Boolean = true
+    // Cold start lives in [ShellSessionState] so it is scoped to the process. As a field here it
+    // was scoped to the ViewModel, so every Activity recreation replayed the boot clip.
 
     /** Bumped to force a re-read of permission state, which is not observable. */
     private val refreshTrigger = MutableStateFlow(0)
@@ -483,17 +501,19 @@ class HomeViewModel @Inject constructor(
             preferences.settings,
             preferences.hiddenGameIds,
             preferences.gameArtAlignments,
-        ) { settings, hidden, alignments -> Triple(settings, hidden, alignments) },
+            preferences.gameTitleOverrides,
+            ::LibraryPrefs,
+        ),
         scanner.progress,
         selection,
         transientFlow,
         panelFlow,
     ) { prefs, progress, currentSelection, transient, panels ->
-        val (settings, hiddenGameIds, artAlignments) = prefs
         ChromeState(
-            settings = settings,
-            hiddenGameIds = hiddenGameIds,
-            artAlignments = artAlignments,
+            settings = prefs.settings,
+            hiddenGameIds = prefs.hiddenGameIds,
+            artAlignments = prefs.artAlignments,
+            titleOverrides = prefs.titleOverrides,
             progress = progress,
             selection = currentSelection,
             resolvedPlayerName = transient.first,
@@ -524,10 +544,19 @@ class HomeViewModel @Inject constructor(
         val achievements: AchievementsUiState,
     )
 
+    /** The four library-shaping preference flows, grouped to stay inside combine's arity. */
+    private data class LibraryPrefs(
+        val settings: ShellSettings,
+        val hiddenGameIds: Set<String>,
+        val artAlignments: Map<String, GameArtAlignment>,
+        val titleOverrides: Map<String, String>,
+    )
+
     private data class ChromeState(
         val settings: ShellSettings,
         val hiddenGameIds: Set<String> = emptySet(),
         val artAlignments: Map<String, GameArtAlignment> = emptyMap(),
+        val titleOverrides: Map<String, String> = emptyMap(),
         val progress: ScanProgress,
         val selection: Selection,
         val resolvedPlayerName: String?,
@@ -828,12 +857,14 @@ class HomeViewModel @Inject constructor(
         shortcutTargetPicker,
         pendingShortcutKind,
         pendingShortcutSpan,
-    ) { open, picker, kind, span ->
+        shortcutPicker,
+    ) { open, picker, kind, span, pinPicker ->
         AddShortcutChrome(
             open = open,
             targetPicker = picker,
             pendingKind = kind,
             pendingSpan = span,
+            pinPicker = pinPicker,
         )
     }
 
@@ -842,6 +873,7 @@ class HomeViewModel @Inject constructor(
         val targetPicker: ShortcutTargetPickerUiState?,
         val pendingKind: PendingShortcutKind?,
         val pendingSpan: ShortcutSpan,
+        val pinPicker: ShortcutPickerUiState?,
     )
 
     private data class XoraNavChrome(
@@ -890,6 +922,7 @@ class HomeViewModel @Inject constructor(
             shortcuts = shortcuts,
             nav = nav,
             addShortcutOpen = addChrome.open,
+            shortcutPicker = addChrome.pinPicker,
             shortcutTargetPicker = addChrome.targetPicker,
             pendingShortcutKind = addChrome.pendingKind,
             pendingShortcutSpan = addChrome.pendingSpan,
@@ -897,7 +930,36 @@ class HomeViewModel @Inject constructor(
             themesSheetTab = themes.second,
             xora = themesAndXora.second,
         )
+    }.combine(
+        combine(
+            preferences.customThemes,
+            preferences.bootAnimationId,
+            preferences.settings.map { it.vitaTrayBgmPath }.distinctUntilChanged(),
+            combine(
+                preferences.settings.map { it.xmbParticlesEnabled }.distinctUntilChanged(),
+                preferences.bootAnimationPath,
+                ::Pair,
+            ),
+            ::CustomizeChrome,
+        ),
+    ) { chrome, custom ->
+        chrome.copy(
+            customThemes = custom.customThemes,
+            bootAnimationId = custom.bootAnimationId,
+            vitaTrayBgmPath = custom.vitaTrayBgmPath,
+            particlesEnabled = custom.particles.first,
+            bootAnimationPath = custom.particles.second,
+        )
     }
+
+    /** Customize-owned preferences, grouped so [homeThemeFlow] stays inside combine's arity. */
+    private data class CustomizeChrome(
+        val customThemes: List<CustomTheme>,
+        val bootAnimationId: String,
+        val vitaTrayBgmPath: String?,
+        /** Particles-on plus the custom boot clip path, paired to stay inside combine's arity. */
+        val particles: Pair<Boolean, String?>,
+    )
 
     private data class HomeThemeChrome(
         val wallpaperPath: String?,
@@ -908,11 +970,17 @@ class HomeViewModel @Inject constructor(
         val nav: HomeHubNav,
         val addShortcutOpen: Boolean,
         val shortcutTargetPicker: ShortcutTargetPickerUiState?,
+        val shortcutPicker: ShortcutPickerUiState?,
         val pendingShortcutKind: PendingShortcutKind?,
         val pendingShortcutSpan: ShortcutSpan,
         val themesOpen: Boolean,
-        val themesSheetTab: ThemesSheetTab,
+        val themesSheetTab: CustomizeSection,
         val xora: XoraNavChrome,
+        val customThemes: List<CustomTheme> = emptyList(),
+        val bootAnimationId: String = DEFAULT_BOOT_ANIMATION_ID,
+        val vitaTrayBgmPath: String? = null,
+        val particlesEnabled: Boolean = true,
+        val bootAnimationPath: String? = null,
     )
 
     private data class OverlayChrome(
@@ -992,7 +1060,8 @@ class HomeViewModel @Inject constructor(
         nowPlayingStable,
         customMediaEpoch,
         preferences.settings.map { it.bgmVolume }.distinctUntilChanged(),
-    ) { music, nowPlaying, _, bgmVolume ->
+        preferences.settings.map { it.musicCategoryArtBackdrop }.distinctUntilChanged(),
+    ) { music, nowPlaying, _, bgmVolume, artBackdrop ->
         val track = nowPlaying.track
         val backdrop = track?.let { playing ->
             gameCustomMediaStore.findBackground("track_${playing.id}")
@@ -1002,6 +1071,7 @@ class HomeViewModel @Inject constructor(
             nowPlaying = nowPlaying,
             nowPlayingBackdropPath = backdrop,
             backdropAudioVolume = bgmVolume,
+            categoryArtBackdropEnabled = artBackdrop,
         )
     }
 
@@ -1236,8 +1306,19 @@ class HomeViewModel @Inject constructor(
 
     init {
         refreshInstalledApps()
-        // Warm the feed in the background; Home must not wait on network at startup.
-        refreshRssFeed()
+        // Outlets first: the feed to warm depends on which source was last selected.
+        viewModelScope.launch {
+            combine(
+                preferences.newsOutlets,
+                preferences.selectedNewsOutletId,
+                ::Pair,
+            ).collect { (outlets, selectedId) ->
+                val index = outlets.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+                val changed = rssUi.value.outlet?.feedUrl != outlets.getOrNull(index)?.feedUrl
+                rssUi.update { it.copy(outlets = outlets, outletIndex = index) }
+                if (changed) refreshRssFeed()
+            }
+        }
         migrateTrailerPipeline()
         // Restore the persisted XOrA Network session so sign-in survives process death.
         viewModelScope.launch {
@@ -2275,10 +2356,18 @@ class HomeViewModel @Inject constructor(
     ): HomeUiState {
         val hiddenIds = chrome.hiddenGameIds
         val showHidden = chrome.settings.showHiddenGames
+        // Renames are applied here, at the one funnel every surface draws from, so the XMB rows,
+        // the Vita bubbles, card browse and search all agree on what a game is called.
+        val renamed = chrome.titleOverrides.takeIf { it.isNotEmpty() }?.let { overrides ->
+            allGames.map { game ->
+                val custom = overrides[game.id]?.takeIf { it.isNotBlank() }
+                if (custom == null || custom == game.title) game else game.copy(title = custom)
+            }
+        } ?: allGames
         val libraryGames = if (showHidden || hiddenIds.isEmpty()) {
-            allGames
+            renamed
         } else {
-            allGames.filter { it.id !in hiddenIds }
+            renamed.filter { it.id !in hiddenIds }
         }
         val catalogSummaries = if (showHidden || hiddenIds.isEmpty()) {
             summaries
@@ -2315,7 +2404,6 @@ class HomeViewModel @Inject constructor(
                 raSettings = raSettings,
                 deviceSuggestsLite = deviceVisualBudget.suggestsLiteVisuals,
                 deviceRamLabel = deviceVisualBudget.usableRamLabel,
-                friendBannerOverlayGranted = OverlayPermission.isGranted(appContext),
             )
         } else {
             buildStartSettingsCategoryRows()
@@ -2452,7 +2540,17 @@ class HomeViewModel @Inject constructor(
                 customizeChrome = theme.nav.customizeChrome,
                 shortcutGridColumns = theme.nav.gridColumns,
                 shortcutGridRows = theme.nav.gridRows,
-                shortcuts = theme.shortcuts,
+                // Bubbles snapshot the title they were pinned with, so a later rename has to be
+                // resolved back through the library or the tray keeps showing the old name.
+                shortcuts = theme.shortcuts.map { shortcut ->
+                    if (shortcut.kind != HomeShortcutKind.Game) return@map shortcut
+                    val live = libraryGames.firstOrNull { it.id == shortcut.target }?.title
+                    if (live == null || live == shortcut.title) {
+                        shortcut
+                    } else {
+                        shortcut.copy(title = live)
+                    }
+                },
                 vitaShortcutTrayOpen = theme.nav.vitaShortcutTrayOpen,
                 vitaShortcutPinMode = theme.nav.vitaShortcutPinMode,
                 vitaShortcutLaunch = theme.nav.vitaShortcutLaunch,
@@ -2463,10 +2561,16 @@ class HomeViewModel @Inject constructor(
                 wallpaperAlignX = theme.wallpaperAlignX,
                 wallpaperAlignY = theme.wallpaperAlignY,
                 customBgmPath = theme.customBgmPath,
+                vitaTrayBgmPath = theme.vitaTrayBgmPath,
+                particlesEnabled = theme.particlesEnabled,
                 continueGame = continueGame,
                 themesOpen = theme.themesOpen,
                 themesSheetTab = theme.themesSheetTab,
+                customThemes = theme.customThemes,
+                bootAnimationId = theme.bootAnimationId,
+                bootAnimationPath = theme.bootAnimationPath,
                 addShortcutOpen = theme.addShortcutOpen,
+                shortcutPicker = theme.shortcutPicker,
                 pendingShortcutKind = theme.pendingShortcutKind,
                 pendingShortcutSpan = theme.pendingShortcutSpan,
                 shortcutTargetPicker = theme.shortcutTargetPicker,
@@ -2489,6 +2593,7 @@ class HomeViewModel @Inject constructor(
             games = games,
             selectedGameIndex = gameIndex,
             hiddenGameIds = hiddenIds,
+            showHiddenGames = showHidden,
             gameArtAlignments = chrome.artAlignments,
             displayMode = DisplayMode.Single,
             gridColumns = chrome.settings.gridColumns.coerceIn(2, 6),
@@ -3083,9 +3188,15 @@ class HomeViewModel @Inject constructor(
             return
         }
 
-        // Themes customize sheet: B (and Start) close the window. Do not jump to Settings.
+        // Customize sheet: the window owns the stick and the face buttons while it is up — it
+        // knows its own focus, item counts and whether the create-theme form is showing, so it
+        // decides what B means. Start is the one hard escape kept here.
         if (state.homeHub.themesOpen) {
-            if (action == NavAction.Cancel || action == NavAction.Menu) dismissThemesSheet()
+            if (action == NavAction.Menu) {
+                dismissThemesSheet()
+            } else {
+                customizeNavActions.trySend(action)
+            }
             return
         }
 
@@ -3144,6 +3255,13 @@ class HomeViewModel @Inject constructor(
             return
         }
 
+        // Vita pin picker owns the pad outright — it has its own two-panel focus model.
+        val pinPicker = state.homeHub.shortcutPicker
+        if (pinPicker != null) {
+            onShortcutPinPickerNavAction(action, pinPicker)
+            return
+        }
+
         // Add-shortcut overlay (type chooser or game/app target list) captures nav.
         if (state.homeHub.addShortcutOpen) {
             onAddShortcutNavAction(action, state)
@@ -3188,25 +3306,28 @@ class HomeViewModel @Inject constructor(
             return
         }
 
-        // On XOrA XMB home, LB/RB cycle categories. Elsewhere they retain page jumps.
-        when (action) {
-            NavAction.PreviousPlatform -> {
-                if (state.homePage == HomePage.Home) {
-                    cycleXoraCategory(-1)
-                } else {
-                    setHomePage(HomePage.Home)
+        // On XOrA XMB home, LB/RB cycle categories. Elsewhere they retain page jumps — except
+        // XOrA NOW, where the shoulders step news sources and must reach its own handler.
+        if (state.homePage != HomePage.RssFeed) {
+            when (action) {
+                NavAction.PreviousPlatform -> {
+                    if (state.homePage == HomePage.Home) {
+                        cycleXoraCategory(-1)
+                    } else {
+                        setHomePage(HomePage.Home)
+                    }
+                    return
                 }
-                return
-            }
-            NavAction.NextPlatform -> {
-                if (state.homePage == HomePage.Home) {
-                    cycleXoraCategory(1)
-                } else {
-                    setHomePage(HomePage.Home)
+                NavAction.NextPlatform -> {
+                    if (state.homePage == HomePage.Home) {
+                        cycleXoraCategory(1)
+                    } else {
+                        setHomePage(HomePage.Home)
+                    }
+                    return
                 }
-                return
+                else -> Unit
             }
-            else -> Unit
         }
 
         when (state.homePage) {
@@ -3285,7 +3406,13 @@ class HomeViewModel @Inject constructor(
             NavAction.SwapScreens -> toggleVitaShortcutTray()
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             NavAction.ToggleSystemPanel -> toggleSystemPanel()
-            NavAction.ToggleAchievementsPanel -> toggleVolumeMixer()
+            // X is the achievements key everywhere except the Music column, where the mixer
+            // owns it — the shell-wide mixer binding left no way to open cheevos from the XMB.
+            NavAction.ToggleAchievementsPanel -> if (xmb.category == XoraXmbCategory.Music) {
+                toggleVolumeMixer()
+            } else {
+                toggleAchievementsPanel()
+            }
             else -> Unit
         }
     }
@@ -3370,6 +3497,7 @@ class HomeViewModel @Inject constructor(
     fun confirmVitaShortcutLaunch() {
         noteUserActivity()
         if (vitaShortcutLaunch.value == null) return
+        playVitaPeelZoomSfx()
         vitaShortcutPeelRequested.value = true
     }
 
@@ -3378,11 +3506,15 @@ class HomeViewModel @Inject constructor(
         val preview = vitaShortcutLaunch.value ?: return
         if (isLaunching.value) return
         gameSoundBitePlayer.stop()
-        playUiOneShot(UiOneShot.BootVita)
+        playVitaPeelZoomSfx()
         // The page already resolved the title when it opened, so the cinematic can start on
         // the frame the sheet comes off instead of after another trip through the library.
         val game = preview.game
-        if (game != null) launchGame(game, playBootSfx = false) else openHomeShortcut(preview.shortcut)
+        if (game != null) {
+            launchGame(game, playBootSfx = false)
+        } else {
+            beginVitaNonGameLaunch(preview.shortcut)
+        }
         vitaLaunchHandoff?.cancel()
         vitaLaunchHandoff = viewModelScope.launch {
             // The page holds the title's artwork through the launch cinematic instead of
@@ -3413,6 +3545,37 @@ class HomeViewModel @Inject constructor(
         vitaLaunchHandoff?.cancel()
         vitaLaunchHandoff = null
         vitaShortcutPeelRequested.value = false
+        vitaPeelLaunchSfxPlayed = false
+    }
+
+    private fun playVitaPeelZoomSfx() {
+        vitaPeelZoomOneShot(vitaPeelLaunchSfxPlayed)?.let { shot ->
+            vitaPeelLaunchSfxPlayed = true
+            playUiOneShot(shot)
+        }
+    }
+
+    /**
+     * Apps and pinned media never go through [launchGame], so they used to skip [isLaunching]
+     * and the peel zoom died the moment the Activity started. Hold the cinematic first.
+     */
+    private fun beginVitaNonGameLaunch(shortcut: HomeShortcut) {
+        // Reached only when the shortcut resolved to no Game, so openHomeShortcut cannot re-enter
+        // launchGame and trip its isLaunching guard.
+        isLaunching.value = true
+        viewModelScope.launch {
+            val waitMs = if (appContext.isReduceMotionPreferred()) {
+                0L
+            } else {
+                ArcadiaMotion.LaunchHold.toLong()
+            }
+            if (waitMs > 0L) delay(waitMs)
+            try {
+                openHomeShortcut(shortcut)
+            } finally {
+                isLaunching.value = false
+            }
+        }
     }
 
     private suspend fun resolveVitaShortcutLaunch(shortcut: HomeShortcut): VitaShortcutLaunchUi {
@@ -5551,12 +5714,152 @@ class HomeViewModel @Inject constructor(
         pendingShortcutKind.value = null
         pendingShortcutSpan.value = ShortcutSpan.Default
         if (vitaShortcutTrayOpen.value) {
+            // Vita bubbles pin a ROM or an app and nothing else, so the type chooser was a step
+            // with one real outcome. Go straight to the platform / ROM browser instead.
             vitaShortcutPinMode.value = true
+            openShortcutPinPicker()
+            return
         }
         addShortcutOpen.value = true
     }
 
+    /** Platform + ROM/app browser for an empty Vita bubble. */
+    private fun openShortcutPinPicker() {
+        viewModelScope.launch {
+            // Same view of the library the XMB shows: renamed, and hidden entries left out.
+            val overrides = preferences.gameTitleOverrides.first()
+            val hidden = uiState.value.hiddenGameIds
+            val showHidden = preferences.settings.first().showHiddenGames
+            val games = libraryRepository.observeGames().first()
+                .filter { showHidden || it.id !in hidden }
+                .map { game ->
+                    val custom = overrides[game.id]?.takeIf { it.isNotBlank() }
+                    if (custom == null) game else game.copy(title = custom)
+                }
+            if (games.isEmpty()) {
+                emit(HomeEvent.ShowMessage("Nothing to pin yet — scan a library or sync apps."))
+                return@launch
+            }
+            shortcutPickerGames = games
+            val platforms = games
+                .groupingBy { it.platformId }
+                .eachCount()
+                .mapNotNull { (id, count) ->
+                    val platform = runCatching { PlatformCatalog.requireById(id) }.getOrNull()
+                    platform?.let { PlatformSummary(platform = it, gameCount = count) }
+                }
+                .sortedBy { it.platform.displayName.lowercase() }
+            if (platforms.isEmpty()) {
+                emit(HomeEvent.ShowMessage("Nothing to pin yet — scan a library or sync apps."))
+                return@launch
+            }
+            shortcutPicker.value = ShortcutPickerUiState(
+                platforms = platforms,
+                platformIndex = 0,
+                results = pinPickerResults(platforms.first().platform.id, ""),
+                pane = ShortcutPickerPane.Platforms,
+            )
+            addShortcutOpen.value = true
+        }
+    }
+
+    /**
+     * A blank query lists the platform; a non-blank one searches the whole library, because
+     * hunting for a title you can name should not also require remembering its system.
+     */
+    private fun pinPickerResults(platformId: String, query: String): List<Game> {
+        val trimmed = query.trim()
+        val pool = if (trimmed.isEmpty()) {
+            shortcutPickerGames.filter { it.platformId == platformId }
+        } else {
+            shortcutPickerGames.filter { it.title.contains(trimmed, ignoreCase = true) }
+        }
+        return pool.sortedBy { it.title.lowercase() }
+    }
+
+    fun selectShortcutPickerPlatform(index: Int) {
+        noteUserActivity()
+        shortcutPicker.update { current ->
+            if (current == null) return@update current
+            val next = index.coerceIn(0, current.platforms.lastIndex)
+            val platformId = current.platforms[next].platform.id
+            current.copy(
+                platformIndex = next,
+                results = pinPickerResults(platformId, current.query),
+                itemIndex = 0,
+            )
+        }
+    }
+
+    fun selectShortcutPickerItem(index: Int) {
+        noteUserActivity()
+        shortcutPicker.update { current ->
+            if (current == null || current.results.isEmpty()) return@update current
+            current.copy(
+                itemIndex = index.coerceIn(0, current.results.lastIndex),
+                pane = ShortcutPickerPane.Content,
+            )
+        }
+    }
+
+    fun setShortcutPickerQuery(query: String) {
+        shortcutPicker.update { current ->
+            if (current == null) return@update current
+            val platformId = current.platform?.platform?.id ?: return@update current
+            current.copy(
+                query = query,
+                results = pinPickerResults(platformId, query),
+                itemIndex = 0,
+            )
+        }
+    }
+
+    fun focusShortcutPickerPane(pane: ShortcutPickerPane) {
+        shortcutPicker.update { it?.copy(pane = pane) }
+    }
+
+    fun confirmShortcutPickerSelection() {
+        val picker = shortcutPicker.value ?: return
+        val game = picker.selected ?: return
+        noteUserActivity()
+        viewModelScope.launch {
+            val shortcut = if (game.isAndroidApp) {
+                HomeShortcut(
+                    id = UUID.randomUUID().toString(),
+                    kind = HomeShortcutKind.AndroidApp,
+                    title = game.title,
+                    target = game.fileName,
+                    artPath = InstalledAppSync.iconPathFor(game.fileName),
+                    span = ShortcutSpan.Default,
+                )
+            } else {
+                HomeShortcut(
+                    id = UUID.randomUUID().toString(),
+                    kind = HomeShortcutKind.Game,
+                    title = game.title,
+                    target = game.id,
+                    artPath = game.shortcutIcon,
+                    span = ShortcutSpan.Default,
+                )
+            }
+            appendShortcut(shortcut)
+            dismissShortcutPinPicker()
+        }
+    }
+
+    fun dismissShortcutPinPicker() {
+        shortcutPicker.value = null
+        shortcutPickerGames = emptyList()
+        addShortcutOpen.value = false
+        if (!vitaShortcutTrayOpen.value) {
+            vitaShortcutPinMode.value = false
+        }
+    }
+
     fun dismissAddShortcutChooser() {
+        // Closing the tray routes here too, so the pin picker has to come down with it.
+        shortcutPicker.value = null
+        shortcutPickerGames = emptyList()
         shortcutTargetPicker.value = null
         pendingShortcutKind.value = null
         pendingShortcutSpan.value = ShortcutSpan.Default
@@ -5614,7 +5917,7 @@ class HomeViewModel @Inject constructor(
         pendingShortcutSpan.value = ShortcutSpan.Default
     }
 
-    fun openThemesSheet(tab: ThemesSheetTab = ThemesSheetTab.Customize) {
+    fun openThemesSheet(tab: CustomizeSection = CustomizeSection.PresetThemes) {
         noteUserActivity()
         themesSheetTab.value = tab
         // Always land on Home so dual-screen Grid/Hero roles and page content stay coherent while
@@ -5630,6 +5933,59 @@ class HomeViewModel @Inject constructor(
     fun selectShellTheme(themeId: String) {
         noteUserActivity()
         performStartSettingsAction(StartSettingsAction.SelectShellTheme(themeId))
+    }
+
+    /** Snapshots the current wallpaper + BGM as a new named entry under Custom Themes. */
+    fun saveCurrentAsCustomTheme(name: String) {
+        noteUserActivity()
+        viewModelScope.launch {
+            val settings = preferences.settings.first()
+            val saved = preferences.addCustomTheme(
+                name = name,
+                wallpaperPath = settings.homeWallpaperPath,
+                bgmPath = settings.customBgmPath,
+                trayBgmPath = settings.vitaTrayBgmPath,
+            )
+            emit(HomeEvent.ShowMessage("Saved custom theme: ${saved.name}"))
+        }
+    }
+
+    /** Saves the current wallpaper / BGM back onto an existing theme. */
+    fun updateCustomTheme(id: String, name: String) {
+        noteUserActivity()
+        viewModelScope.launch {
+            val settings = preferences.settings.first()
+            preferences.updateCustomTheme(
+                id = id,
+                name = name,
+                wallpaperPath = settings.homeWallpaperPath,
+                bgmPath = settings.customBgmPath,
+                trayBgmPath = settings.vitaTrayBgmPath,
+            )
+            emit(HomeEvent.ShowMessage("Updated theme"))
+        }
+    }
+
+    /** Applies a saved custom theme's wallpaper + BGM — same setters the pickers use. */
+    fun applyCustomTheme(id: String) {
+        noteUserActivity()
+        viewModelScope.launch {
+            val theme = preferences.customThemes.first().firstOrNull { it.id == id } ?: return@launch
+            preferences.setHomeWallpaperPath(theme.wallpaperPath)
+            preferences.setCustomBgmPath(theme.bgmPath)
+            preferences.setVitaTrayBgmPath(theme.trayBgmPath)
+            emit(HomeEvent.ShowMessage("Applied: ${theme.name}"))
+        }
+    }
+
+    fun deleteCustomTheme(id: String) {
+        noteUserActivity()
+        viewModelScope.launch { preferences.removeCustomTheme(id) }
+    }
+
+    fun selectBootAnimation(id: String) {
+        noteUserActivity()
+        viewModelScope.launch { preferences.setBootAnimationId(id) }
     }
 
     fun notifyShopThemesComingSoon() {
@@ -5674,6 +6030,20 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         viewModelScope.launch {
             runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.Bgm) }
+        }
+    }
+
+    fun requestTrayBgmPicker() {
+        noteUserActivity()
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.TrayBgm) }
+        }
+    }
+
+    fun requestBootAnimationPicker() {
+        noteUserActivity()
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.BootAnimation) }
         }
     }
 
@@ -6014,6 +6384,46 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun setVitaTrayBgm(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = themeMediaStore.importTrayBgm(uri)
+                preferences.setVitaTrayBgmPath(path)
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import BGM."))
+            }
+        }
+    }
+
+    fun clearVitaTrayBgm() {
+        viewModelScope.launch {
+            themeMediaStore.clearTrayBgm()
+            preferences.setVitaTrayBgmPath(null)
+        }
+    }
+
+    fun setBootAnimation(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val path = themeMediaStore.importBootAnimation(uri)
+                preferences.setBootAnimationPath(path)
+                // Adding a clip is the act of choosing it; nobody uploads one to leave it off.
+                preferences.setBootAnimationId(CUSTOM_BOOT_ANIMATION_ID)
+                emit(HomeEvent.ShowMessage("Boot animation set"))
+            }.onFailure { error ->
+                emit(HomeEvent.ShowError(error.message ?: "Could not import that clip."))
+            }
+        }
+    }
+
+    fun clearBootAnimation() {
+        viewModelScope.launch {
+            themeMediaStore.clearBootAnimation()
+            preferences.setBootAnimationPath(null)
+            preferences.setBootAnimationId(DEFAULT_BOOT_ANIMATION_ID)
+        }
+    }
+
     fun addShortcutPinRecentGame() {
         beginShortcutSizeStep(PendingShortcutKind.LibraryGame)
     }
@@ -6125,6 +6535,54 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         shortcutTargetPicker.value = null
         pendingShortcutKind.value = null
+    }
+
+    /**
+     * Two panels plus a search field, navigated like the Customize window: the platform list on
+     * the left, that platform's cards on the right, and the search bar reached by going up off
+     * the top row of the grid.
+     */
+    private fun onShortcutPinPickerNavAction(action: NavAction, picker: ShortcutPickerUiState) {
+        when (picker.pane) {
+            ShortcutPickerPane.Platforms -> when (action) {
+                NavAction.Up -> selectShortcutPickerPlatform(picker.platformIndex - 1)
+                NavAction.Down -> selectShortcutPickerPlatform(picker.platformIndex + 1)
+                NavAction.Right, NavAction.Confirm -> if (picker.results.isNotEmpty()) {
+                    focusShortcutPickerPane(ShortcutPickerPane.Content)
+                }
+                NavAction.Cancel -> dismissShortcutPinPicker()
+                else -> Unit
+            }
+
+            ShortcutPickerPane.Content -> when (action) {
+                NavAction.Left -> if (picker.itemIndex % PIN_PICKER_COLUMNS == 0) {
+                    focusShortcutPickerPane(ShortcutPickerPane.Platforms)
+                } else {
+                    selectShortcutPickerItem(picker.itemIndex - 1)
+                }
+                NavAction.Right -> selectShortcutPickerItem(picker.itemIndex + 1)
+                NavAction.Up -> {
+                    val next = picker.itemIndex - PIN_PICKER_COLUMNS
+                    if (next < 0) {
+                        focusShortcutPickerPane(ShortcutPickerPane.Search)
+                    } else {
+                        selectShortcutPickerItem(next)
+                    }
+                }
+                NavAction.Down -> selectShortcutPickerItem(picker.itemIndex + PIN_PICKER_COLUMNS)
+                NavAction.Confirm -> confirmShortcutPickerSelection()
+                NavAction.Cancel -> focusShortcutPickerPane(ShortcutPickerPane.Platforms)
+                else -> Unit
+            }
+
+            // A opens the keyboard; the sheet owns that, since the focus requester is its own.
+            ShortcutPickerPane.Search -> when (action) {
+                NavAction.Down -> focusShortcutPickerPane(ShortcutPickerPane.Content)
+                NavAction.Left -> focusShortcutPickerPane(ShortcutPickerPane.Platforms)
+                NavAction.Cancel -> focusShortcutPickerPane(ShortcutPickerPane.Content)
+                else -> Unit
+            }
+        }
     }
 
     private fun onAddShortcutNavAction(action: NavAction, state: HomeUiState) {
@@ -7073,11 +7531,6 @@ class HomeViewModel @Inject constructor(
         emit(HomeEvent.ShowError("Could not open Discord conversation."))
     }
 
-    private fun openFriendBannerOverlaySettings() {
-        runCatching { appContext.startActivity(OverlayPermission.settingsIntent(appContext)) }
-            .onFailure { emit(HomeEvent.ShowError("Could not open \"Display over other apps\" settings.")) }
-    }
-
     private fun openNotificationListenerSettings() {
         conversationRepository.refreshListenerEnabled()
         val intent = conversationRepository.notificationListenerSettingsIntent()
@@ -7187,32 +7640,69 @@ class HomeViewModel @Inject constructor(
     private fun onRaLibraryNavAction(action: NavAction) {
         val ra = raLibraryUi.value
         val detailOpen = ra.gameDetailOpen
+
+        // The expanded sort dropdown owns the pad outright — it is a list over the panel, and
+        // letting Up/Down leak to the columns behind it would move two things at once.
+        if (ra.sortMenuOpen && !detailOpen) {
+            val options = RaLibraryTab.entries
+            when (action) {
+                NavAction.Up -> raLibraryUi.update {
+                    it.copy(sortMenuIndex = (it.sortMenuIndex - 1).coerceAtLeast(0))
+                }
+                NavAction.Down -> raLibraryUi.update {
+                    it.copy(sortMenuIndex = (it.sortMenuIndex + 1).coerceAtMost(options.lastIndex))
+                }
+                NavAction.Confirm -> {
+                    selectRaLibraryTab(options[ra.sortMenuIndex.coerceIn(0, options.lastIndex)])
+                    raLibraryUi.update { it.copy(sortMenuOpen = false) }
+                }
+                NavAction.Cancel -> raLibraryUi.update { it.copy(sortMenuOpen = false) }
+                else -> Unit
+            }
+            return
+        }
+
         when (action) {
             NavAction.Up -> when {
                 detailOpen -> moveRaCheevoSelection(0, -1)
+                ra.focusColumn == RaLibraryFocusColumn.Sort -> Unit
+                // Top of the Following list steps up onto the dropdown above it.
+                ra.focusColumn == RaLibraryFocusColumn.Following && ra.followingIndex == 0 ->
+                    raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Sort) }
                 ra.focusColumn == RaLibraryFocusColumn.Following -> moveRaFollowingSelection(-1)
                 else -> moveRaLibrarySelection(-1)
             }
             NavAction.Down -> when {
                 detailOpen -> moveRaCheevoSelection(0, 1)
+                ra.focusColumn == RaLibraryFocusColumn.Sort -> raLibraryUi.update {
+                    it.copy(
+                        focusColumn = if (it.following.isEmpty()) {
+                            RaLibraryFocusColumn.Games
+                        } else {
+                            RaLibraryFocusColumn.Following
+                        },
+                    )
+                }
                 ra.focusColumn == RaLibraryFocusColumn.Following -> moveRaFollowingSelection(1)
                 else -> moveRaLibrarySelection(1)
             }
             NavAction.Left -> when {
                 detailOpen -> moveRaCheevoSelection(-1, 0)
-                ra.following.isNotEmpty() ->
-                    raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Following) }
-                else -> cycleRaLibraryTab(-1)
+                ra.focusColumn == RaLibraryFocusColumn.Games ->
+                    raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Sort) }
+                else -> Unit
             }
             NavAction.Right -> when {
                 detailOpen -> moveRaCheevoSelection(1, 0)
-                ra.following.isNotEmpty() ->
-                    raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Games) }
-                else -> cycleRaLibraryTab(1)
+                else -> raLibraryUi.update { it.copy(focusColumn = RaLibraryFocusColumn.Games) }
             }
             NavAction.PreviousPlatform -> cycleRaLibraryPlatform(-1)
             NavAction.NextPlatform -> cycleRaLibraryPlatform(1)
-            NavAction.Confirm -> activateRaLibrarySelection()
+            NavAction.Confirm -> if (ra.focusColumn == RaLibraryFocusColumn.Sort) {
+                openRaSortMenu()
+            } else {
+                activateRaLibrarySelection()
+            }
             NavAction.Cancel -> when {
                 detailOpen -> closeRaGameDetail()
                 ra.viewingFollower -> closeFollowedUser()
@@ -7270,10 +7760,61 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun onRssNavAction(action: NavAction, state: HomeUiState) {
+        val rss = state.rss
+
+        // The reader owns the pad while it is up; scrolling is the pane's own business.
+        if (rss.openArticle != null) {
+            when (action) {
+                NavAction.Cancel -> closeRssArticle()
+                NavAction.Confirm, NavAction.Options -> openRssArticleInBrowser()
+                NavAction.PreviousPlatform -> cycleNewsOutlet(-1)
+                NavAction.NextPlatform -> cycleNewsOutlet(1)
+                else -> Unit
+            }
+            return
+        }
+
+        if (rss.focus == NewsFocus.Outlets) {
+            when (action) {
+                NavAction.Left -> selectNewsOutlet(rss.outletIndex - 1)
+                NavAction.Right -> selectNewsOutlet(
+                    (rss.outletIndex + 1).coerceAtMost(rss.outlets.size),
+                )
+                NavAction.Down -> focusNewsBand(NewsFocus.Articles)
+                NavAction.Up -> Unit
+                NavAction.Confirm -> if (rss.addBubbleFocused) {
+                    openAddNewsOutlet()
+                } else {
+                    focusNewsBand(NewsFocus.Articles)
+                }
+                // Select removes a source you added; built-ins say so rather than vanishing.
+                NavAction.ScrapeMenu -> removeSelectedNewsOutlet()
+                NavAction.Cancel -> setHomePage(HomePage.Home)
+                NavAction.PreviousPlatform -> cycleNewsOutlet(-1)
+                NavAction.NextPlatform -> cycleNewsOutlet(1)
+                NavAction.ToggleAccountPanel -> toggleAccountPanel()
+                NavAction.ToggleSystemPanel -> toggleSystemPanel()
+                NavAction.ToggleAchievementsPanel -> toggleAchievementsPanel()
+                NavAction.SwapScreens -> swapScreenRoles()
+                else -> Unit
+            }
+            return
+        }
+
         when (action) {
-            // News is a single column now, so every direction steps one story.
-            NavAction.Left, NavAction.Up -> moveRssSelection(-1)
-            NavAction.Right, NavAction.Down -> moveRssSelection(1)
+            NavAction.Left -> moveRssSelection(-1)
+            NavAction.Right -> moveRssSelection(1)
+            NavAction.Up -> {
+                // Top row steps up onto the source bubbles.
+                if (rss.selectedIndex < NEWS_GRID_COLUMNS) {
+                    focusNewsBand(NewsFocus.Outlets)
+                } else {
+                    moveRssSelection(-NEWS_GRID_COLUMNS)
+                }
+            }
+            NavAction.Down -> moveRssSelection(NEWS_GRID_COLUMNS)
+            NavAction.PreviousPlatform -> cycleNewsOutlet(-1)
+            NavAction.NextPlatform -> cycleNewsOutlet(1)
             NavAction.Confirm -> openSelectedRssItem()
             NavAction.Cancel -> {
                 if (state.anyHeroPanelExpanded) collapseHeroPanels()
@@ -7319,6 +7860,14 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         collapseHeroPanels()
         if (guideOpen.value) closeGuide()
+        // Customize is a sheet, not a row list. Every route in — the Settings category list, the
+        // XMB Settings column, the Options button — opens it directly rather than parking the
+        // player on a one-row page whose only entry is the sheet.
+        if (category == StartSettingsCategory.Themes) {
+            closeStartSettings()
+            openThemesSheet(CustomizeSection.PresetThemes)
+            return
+        }
         if (category != null) {
             startSettingsCategory.value = category
             startSettingsInCategory.value = true
@@ -7469,6 +8018,18 @@ class HomeViewModel @Inject constructor(
                 }
                 preferences.setGameIconIdleMedia(next)
             }
+            StartSettingsAction.ToggleHighRefreshRate -> viewModelScope.launch {
+                val current = preferences.settings.first().highRefreshRate
+                preferences.setHighRefreshRate(!current)
+            }
+            StartSettingsAction.ToggleXmbParticles -> viewModelScope.launch {
+                val current = preferences.settings.first().xmbParticlesEnabled
+                preferences.setXmbParticlesEnabled(!current)
+            }
+            StartSettingsAction.ToggleMusicCategoryArt -> viewModelScope.launch {
+                val current = preferences.settings.first().musicCategoryArtBackdrop
+                preferences.setMusicCategoryArtBackdrop(!current)
+            }
             StartSettingsAction.CycleThemeMode -> viewModelScope.launch {
                 val values = ThemeMode.entries
                 val current = preferences.settings.first().themeMode
@@ -7498,8 +8059,14 @@ class HomeViewModel @Inject constructor(
                 }
                 preferences.setUiFitMode(next)
             }
-            is StartSettingsAction.OpenCategory -> selectStartSettingsCategory(action.category)
-            StartSettingsAction.OpenFriendBannerOverlaySettings -> openFriendBannerOverlaySettings()
+            // Customize has no flat row list of its own — A on the category opens the sheet.
+            is StartSettingsAction.OpenCategory -> if (
+                action.category == StartSettingsCategory.Themes
+            ) {
+                openStartSettings(StartSettingsCategory.Themes)
+            } else {
+                selectStartSettingsCategory(action.category)
+            }
             StartSettingsAction.OpenSystemDisplay -> {
                 closeStartSettings()
                 openSystemSettings(Settings.ACTION_DISPLAY_SETTINGS)
@@ -7511,7 +8078,7 @@ class HomeViewModel @Inject constructor(
             }
             StartSettingsAction.OpenThemeCustomize -> {
                 closeStartSettings()
-                openThemesSheet(ThemesSheetTab.Customize)
+                openThemesSheet(CustomizeSection.PresetThemes)
             }
             StartSettingsAction.ShopThemesComingSoon -> {
                 emit(HomeEvent.ShowMessage("XOrA Store themes are coming soon"))
@@ -7658,7 +8225,7 @@ class HomeViewModel @Inject constructor(
             }
             StartSettingsAction.EditHome -> {
                 closeStartSettings()
-                openThemesSheet(ThemesSheetTab.Customize)
+                openThemesSheet(CustomizeSection.CustomThemes)
             }
             StartSettingsAction.EditProfile -> {
                 closeStartSettings()
@@ -8108,7 +8675,27 @@ class HomeViewModel @Inject constructor(
     fun selectRaLibraryTab(tab: RaLibraryTab) {
         noteUserActivity()
         closeRaGameDetail()
-        raLibraryUi.update { it.copy(tab = tab, selectedIndex = 0) }
+        raLibraryUi.update { it.copy(tab = tab, selectedIndex = 0, sortMenuOpen = false) }
+    }
+
+    fun openRaSortMenu() {
+        noteUserActivity()
+        raLibraryUi.update {
+            it.copy(
+                sortMenuOpen = true,
+                sortMenuIndex = RaLibraryTab.entries.indexOf(it.tab).coerceAtLeast(0),
+                focusColumn = RaLibraryFocusColumn.Sort,
+            )
+        }
+    }
+
+    fun closeRaSortMenu() {
+        raLibraryUi.update { it.copy(sortMenuOpen = false) }
+    }
+
+    /** Tap / A on the dropdown pill. */
+    fun toggleRaSortMenu() {
+        if (raLibraryUi.value.sortMenuOpen) closeRaSortMenu() else openRaSortMenu()
     }
 
     fun selectRaPlatformFilter(platform: String?) {
@@ -8465,13 +9052,28 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         rssUi.update { current ->
             if (current.items.isEmpty()) current
-            else current.copy(selectedIndex = index.coerceIn(0, current.items.lastIndex))
+            else current.copy(
+                selectedIndex = index.coerceIn(0, current.items.lastIndex),
+                focus = NewsFocus.Articles,
+            )
         }
     }
 
+    /** A on a card opens the reader in-shell; the browser is now an explicit action inside it. */
     fun openSelectedRssItem() {
         val item = uiState.value.rss.selectedItem ?: return
-        val link = item.link.takeIf { it.isNotBlank() } ?: return
+        noteUserActivity()
+        rssUi.update { it.copy(openArticle = item) }
+    }
+
+    fun closeRssArticle() {
+        rssUi.update { it.copy(openArticle = null) }
+    }
+
+    fun openRssArticleInBrowser() {
+        val link = uiState.value.rss.openArticle?.link?.takeIf { it.isNotBlank() }
+            ?: uiState.value.rss.selectedItem?.link?.takeIf { it.isNotBlank() }
+            ?: return
         noteUserActivity()
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { appContext.startActivity(intent) }
@@ -8480,20 +9082,89 @@ class HomeViewModel @Inject constructor(
             }
     }
 
+    fun selectNewsOutlet(index: Int) {
+        noteUserActivity()
+        val outlets = rssUi.value.outlets
+        if (outlets.isEmpty()) return
+        // One past the end is the add bubble, which is focus only — never a selection.
+        val slot = index.coerceIn(0, outlets.size)
+        rssUi.update { it.copy(outletIndex = slot, focus = NewsFocus.Outlets) }
+        val outlet = outlets.getOrNull(slot) ?: return
+        viewModelScope.launch { preferences.setSelectedNewsOutletId(outlet.id) }
+    }
+
+    /** LB / RB step sources without leaving the article grid. */
+    fun cycleNewsOutlet(delta: Int) {
+        val outlets = rssUi.value.outlets
+        if (outlets.size < 2) return
+        noteUserActivity()
+        val current = rssUi.value.outletIndex.coerceIn(0, outlets.lastIndex)
+        val next = (current + delta).mod(outlets.size)
+        rssUi.update { it.copy(outletIndex = next) }
+        viewModelScope.launch { preferences.setSelectedNewsOutletId(outlets[next].id) }
+    }
+
+    fun focusNewsBand(focus: NewsFocus) {
+        rssUi.update { it.copy(focus = focus) }
+    }
+
+    fun openAddNewsOutlet() {
+        noteUserActivity()
+        rssUi.update { it.copy(addOutletOpen = true) }
+    }
+
+    fun dismissAddNewsOutlet() {
+        rssUi.update { it.copy(addOutletOpen = false) }
+    }
+
+    fun addNewsOutlet(name: String, feedUrl: String) {
+        viewModelScope.launch {
+            val added = preferences.addNewsOutlet(name, feedUrl)
+            if (added == null) {
+                emit(HomeEvent.ShowError("That does not look like a feed address."))
+                return@launch
+            }
+            preferences.setSelectedNewsOutletId(added.id)
+            rssUi.update { it.copy(addOutletOpen = false) }
+            emit(HomeEvent.ShowMessage("Added ${added.name}"))
+        }
+    }
+
+    fun removeSelectedNewsOutlet() {
+        val outlet = rssUi.value.outlet ?: return
+        if (outlet.builtIn) {
+            emit(HomeEvent.ShowMessage("${outlet.name} is a built-in source"))
+            return
+        }
+        noteUserActivity()
+        viewModelScope.launch {
+            preferences.removeNewsOutlet(outlet.id)
+            preferences.setSelectedNewsOutletId(null)
+            emit(HomeEvent.ShowMessage("Removed ${outlet.name}"))
+        }
+    }
+
     fun refreshRssFeed() {
         viewModelScope.launch {
             rssUi.update { it.copy(isLoading = true, error = null) }
-            val result = rssFeedClient.fetch()
+            val feedUrl = rssUi.value.outlet?.feedUrl
+            val result = if (feedUrl.isNullOrBlank()) {
+                rssFeedClient.fetch()
+            } else {
+                rssFeedClient.fetch(feedUrl)
+            }
+            result.getOrNull()?.imageUrl?.let { art ->
+                rssUi.value.outlet?.let { outlet ->
+                    preferences.setNewsOutletIcon(outlet.id, art)
+                }
+            }
             rssUi.update { current ->
                 result.fold(
                     onSuccess = { feed ->
                         current.copy(
                             isLoading = false,
                             items = feed.items,
-                            selectedIndex = current.selectedIndex.coerceIn(
-                                0,
-                                (feed.items.size - 1).coerceAtLeast(0),
-                            ),
+                            selectedIndex = 0,
                             error = null,
                             feedTitle = feed.title,
                         )
@@ -8513,7 +9184,10 @@ class HomeViewModel @Inject constructor(
         val size = rssUi.value.items.size
         if (size == 0) return
         rssUi.update { current ->
-            current.copy(selectedIndex = (current.selectedIndex + delta).coerceIn(0, size - 1))
+            current.copy(
+                selectedIndex = (current.selectedIndex + delta).coerceIn(0, size - 1),
+                focus = NewsFocus.Articles,
+            )
         }
     }
 
@@ -8672,6 +9346,7 @@ class HomeViewModel @Inject constructor(
     }
 
     fun playVitaPeelSfx(speed: VitaPeelDragSpeed?) {
+        if (speed != null) playVitaPeelZoomSfx()
         playUiOneShot(vitaPeelOneShot(speed))
     }
 
@@ -9168,10 +9843,32 @@ class HomeViewModel @Inject constructor(
      * even if [onPaused] never ran (second display / companion pane).
      */
     fun onShellRegainedFocus() {
-        // Dual-screen / ArcOS keep MainActivity resumed. Lifting the bite hold here is what
-        // restarted the clip over gameplay ~1.5s after launch. [onPlaySessionEnded] and
-        // [restoreShellPresence] are the only places that unsuppress.
+        // Dual-screen / ArcOS keep MainActivity resumed. Lifting the bite hold unconditionally
+        // here is what restarted the clip over gameplay ~1.5s after launch, so the hold is only
+        // released once a real play session has elapsed — see
+        // [releaseSoundBiteHoldIfSessionOver] and [onPlaySessionEnded].
         maybeRestoreBrowsingPresence()
+    }
+
+    /**
+     * Launch suppresses ROM sound bites so the clip cannot restart over the cinematic or the
+     * emulator handoff. Only the built-in emulator's own exit lifted that again, so returning
+     * from *any* external emulator left bites suppressed for the rest of the process — they
+     * simply stopped working after the first game.
+     *
+     * The same elapsed-session test the Discord presence uses distinguishes a real return from
+     * the pause/resume flicker startActivity causes, and from dual-screen keeping the shell
+     * resumed through gameplay — lifting the hold on either of those is what used to restart the
+     * clip over the game.
+     */
+    private fun releaseSoundBiteHoldIfSessionOver() {
+        if (!gameSoundBitePlayer.playbackSuppressed.value) return
+        if (isLaunching.value) return
+        val awayMs = backgroundedAtElapsed?.let { SystemClock.elapsedRealtime() - it } ?: 0L
+        val pendingMs = sessionTracker.pendingElapsedMs()
+        if (awayMs >= PLAYING_PRESENCE_RETURN_MS || pendingMs >= PLAYING_PRESENCE_RETURN_MS) {
+            gameSoundBitePlayer.setPlaybackSuppressed(false)
+        }
     }
 
     private fun maybeRestoreBrowsingPresence() {
@@ -9209,6 +9906,20 @@ class HomeViewModel @Inject constructor(
 
     fun setGameHidden(gameId: String, hidden: Boolean) {
         viewModelScope.launch { preferences.setGameHidden(gameId, hidden) }
+    }
+
+    /** Library → Show hidden games, from the platform editor. */
+    fun toggleShowHiddenGames() {
+        noteUserActivity()
+        viewModelScope.launch {
+            val current = preferences.settings.first().showHiddenGames
+            preferences.setShowHiddenGames(!current)
+            emit(
+                HomeEvent.ShowMessage(
+                    if (current) "Hidden games are now out of sight" else "Showing hidden games",
+                ),
+            )
+        }
     }
 
     fun nudgeGameArtAlignment(gameId: String, dx: Float, dy: Float) {
@@ -9850,6 +10561,7 @@ class HomeViewModel @Inject constructor(
     fun onResumed() {
         // Coming back from the emulator ends the play session, and with it the companion panel.
         gameCompanionController.onShellForegrounded()
+        releaseSoundBiteHoldIfSessionOver()
         // Keep Playing through the launch handoff. startActivity often pause/resumes the shell
         // for a frame, which used to snap Discord back to Browsing XOrA before the game started.
         maybeRestoreBrowsingPresence()
@@ -9880,7 +10592,7 @@ class HomeViewModel @Inject constructor(
 
     /** First-run Finish: play the boot clip, then reveal the XMB. */
     fun playBootIntroAfterOnboarding() {
-        pendingColdStartWelcome = false
+        shellSession.clearColdStart()
         if (welcomeBackOpen.value || bootIntroOpen.value) return
         homeIntroReveal.value = false
         bootIntroSkip.value = false
@@ -9938,8 +10650,7 @@ class HomeViewModel @Inject constructor(
 
         if (!onboardingDone) return
 
-        val coldStart = pendingColdStartWelcome
-        if (pendingColdStartWelcome) pendingColdStartWelcome = false
+        val coldStart = shellSession.consumeColdStart()
 
         if (coldStart) {
             if (welcomeBackOpen.value || bootIntroOpen.value) return
@@ -9996,7 +10707,7 @@ class HomeViewModel @Inject constructor(
          * How long a peeled start gate waits for [launchGame] to take over. Shortcuts that open
          * a plain Activity instead (apps, pictures) never set it, and fall back to the gate.
          */
-        private const val VITA_LAUNCH_HANDOFF_MS = 1_500L
+        private const val VITA_LAUNCH_HANDOFF_MS = 3_200L
     }
 
     private fun refreshInstalledApps() {
@@ -10019,3 +10730,6 @@ private data class SoundBiteFocus(
     val title: String,
     val fileName: String,
 )
+
+/** Columns in the Vita pin picker grid — the nav model and the sheet must agree on this. */
+internal const val PIN_PICKER_COLUMNS = 3

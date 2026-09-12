@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -16,6 +17,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -52,13 +54,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -74,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.LocalLiteVisuals
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
 import com.arcadia.shell.designsystem.arcadiaHazeSource
@@ -88,9 +94,10 @@ import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.NowPlayingPill
+import com.arcadia.shell.feature.home.component.ProfileEditRequestEffect
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
-import com.arcadia.shell.feature.home.component.XmbStarFieldLayer
+import com.arcadia.shell.feature.home.component.XmbParticleFieldLayer
 import com.arcadia.shell.launcher.music.NowPlayingState
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
@@ -148,6 +155,7 @@ fun XoraHomeXmbPane(
     onDashboardCommand: (DashboardCommand) -> Unit = {},
     onSelectRaLibraryIndex: (Int) -> Unit = {},
     onSelectRaLibraryTab: (RaLibraryTab) -> Unit = {},
+    onToggleRaSortMenu: () -> Unit = {},
     onSelectRaPlatformFilter: (String?) -> Unit = {},
     onActivateRaLibrary: () -> Unit = {},
     onRetryRaLibrary: () -> Unit = {},
@@ -166,17 +174,25 @@ fun XoraHomeXmbPane(
             xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
             xmb.selectedItem?.action is XoraXmbAction.LaunchGame
     }
-    // Playing-track wallpaper follows the user around the XMB. Music browse still paints the
+    // Playing-track cover + wave stay on the Music column. Browse still paints the
     // focused album / song when nothing is playing.
-    val playingBackdrop = state.music.nowPlayingBackdropPath?.takeIf {
-        state.music.nowPlaying.hasTrack
-    }
-    val musicArtPath = playingBackdrop ?: when (xmb.depth) {
-        XoraXmbDepth.MusicAlbums, XoraXmbDepth.MusicTracks ->
-            xmb.selectedItem?.heroPath ?: xmb.selectedItem?.artPath
-        XoraXmbDepth.NowPlaying -> state.music.nowPlaying.track?.albumArtUri
-        XoraXmbDepth.Category -> xmb.selectedItem?.heroPath
-        else -> null
+    val musicBackdrop = musicCategoryBackdrop(
+        category = xmb.category,
+        depth = xmb.depth,
+        playing = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying,
+        enabled = state.music.categoryArtBackdropEnabled,
+        coverPath = state.music.nowPlayingArtPath,
+    )
+    val musicArtPath = if (musicBackdrop.showCover) {
+        musicBackdrop.coverPath
+    } else {
+        when (xmb.depth) {
+            XoraXmbDepth.MusicAlbums, XoraXmbDepth.MusicTracks ->
+                xmb.selectedItem?.heroPath ?: xmb.selectedItem?.artPath
+            XoraXmbDepth.NowPlaying -> state.music.nowPlaying.track?.albumArtUri
+            XoraXmbDepth.Category -> xmb.selectedItem?.heroPath
+            else -> null
+        }
     }
     val backdropArtPath = musicArtPath ?: xmbGameSelectWallpaperPath(
         game = heroGame,
@@ -208,6 +224,12 @@ fun XoraHomeXmbPane(
     )
     val recedeScale = 1f - (recede * 0.12f)
     val recedeAlpha = 1f - recede
+    // Tray-only: RA replaces the backdrop outright, so blurring under it would be wasted work.
+    val trayBlur by animateDpAsState(
+        targetValue = if (trayOpen) XMB_TRAY_BLUR_RADIUS else 0.dp,
+        animationSpec = tween(durationMillis = XMB_TRAY_BLUR_MS, easing = FastOutSlowInEasing),
+        label = "xmbTrayBlur",
+    )
     // Keep the XMB cross composed under RA so it can zoom out instead of sliding away.
     var underlayDepth by remember {
         mutableStateOf(
@@ -233,10 +255,25 @@ fun XoraHomeXmbPane(
             .background(Color.Black),
     ) {
         // Theme / custom wallpaper must remain the base plate — it zooms, then fades to black.
+        // Grouped offscreen so the particle matte's Screen blend lands on the wallpaper under it
+        // rather than on the window's render target.
+        // Both of these cost a full-screen buffer every frame, so neither is left on when it is
+        // doing nothing — the default wallpaper is 1080p60 and has the whole budget to hit.
+        val groupForParticles = !fullTrailer && state.homeHub.particlesEnabled
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .then(if (trayBlur > 0.dp) Modifier.blur(trayBlur) else Modifier)
                 .clipToBounds()
+                .then(
+                    if (groupForParticles) {
+                        Modifier.graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
                 .arcadiaHazeSource(zIndex = 0f),
         ) {
             HomeWallpaper(
@@ -250,22 +287,18 @@ fun XoraHomeXmbPane(
             )
 
             // Keep mounted so focus / back / cancel always crossfade (never unmount-snap).
-            XoraRomHeroBackdrop(
+            XmbHeroWaveBackdrop(
                 artPath = backdropArtPath,
+                showWaveMask = musicBackdrop.showWaveMask,
                 settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
                     XMB_GAME_SELECT_SETTLE_MS
                 } else {
                     XMB_FOCUS_SETTLE_MS
                 },
-                audioVolume = if (playingBackdrop != null) {
-                    state.music.backdropAudioVolume
-                } else {
-                    0f
-                },
+                alpha = recedeAlpha,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(backdropMotion)
-                    .graphicsLayer { alpha = recedeAlpha },
+                    .then(backdropMotion),
             )
 
             HeroTrailerLayer(
@@ -275,6 +308,16 @@ fun XoraHomeXmbPane(
                     .then(backdropMotion)
                     .graphicsLayer { alpha = recedeAlpha },
             )
+
+            if (groupForParticles) {
+                // PS5-style ambient dust between the wallpaper and the menu chrome.
+                XmbParticleFieldLayer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .xoraDesignCanvas()
+                        .clipToBounds(),
+                )
+            }
 
             if (fullTrailer) {
                 Box(
@@ -308,16 +351,6 @@ fun XoraHomeXmbPane(
                         .fillMaxSize()
                         .arcadiaHazeSource(zIndex = 1f),
                 ) {
-                if (!fullTrailer) {
-                    // PS5-style ambient dust between the wallpaper and the menu chrome.
-                    XmbStarFieldLayer(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .xoraDesignCanvas()
-                            .clipToBounds(),
-                    )
-                }
-
                 // System and ROM browsing are card rungs of the same menu, so drilling slides sideways
                 // between them the way the PSP / PS3 shells do rather than cutting.
                 val depthSlideMs = motionMillis(XMB_DEPTH_SLIDE_MS)
@@ -422,6 +455,7 @@ fun XoraHomeXmbPane(
                     state = state,
                     onSelectIndex = onSelectRaLibraryIndex,
                     onSelectTab = onSelectRaLibraryTab,
+                    onToggleSortMenu = onToggleRaSortMenu,
                     onSelectPlatformFilter = onSelectRaPlatformFilter,
                     onActivate = onActivateRaLibrary,
                     onRetry = onRetryRaLibrary,
@@ -522,9 +556,13 @@ fun XoraXmbHeroDetail(
 ) {
     val xmb = state.xoraXmb
     val heroGame = xmb.focusGame
-    val playingBackdrop = state.music.nowPlayingBackdropPath?.takeIf {
-        state.music.nowPlaying.hasTrack
-    }
+    val musicBackdrop = musicCategoryBackdrop(
+        category = xmb.category,
+        depth = xmb.depth,
+        playing = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying,
+        enabled = state.music.categoryArtBackdropEnabled,
+        coverPath = state.music.nowPlayingArtPath,
+    )
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
     val reduceMotion = rememberReduceMotion()
@@ -554,6 +592,11 @@ fun XoraXmbHeroDetail(
     )
     val recedeScale = 1f - (recede * 0.12f)
     val recedeAlpha = 1f - recede
+    val trayBlur by animateDpAsState(
+        targetValue = if (trayOpen) XMB_TRAY_BLUR_RADIUS else 0.dp,
+        animationSpec = tween(durationMillis = XMB_TRAY_BLUR_MS, easing = FastOutSlowInEasing),
+        label = "xmbHeroTrayBlur",
+    )
 
     // Full-bleed: emulator aspect ratio must not crop this wallpaper or the XMB chrome.
     Box(modifier = modifier.fillMaxSize()) {
@@ -562,10 +605,21 @@ fun XoraXmbHeroDetail(
             .fillMaxSize()
             .background(Color.Black),
     ) {
+        val groupForParticles = !fullTrailer && state.homeHub.particlesEnabled
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clipToBounds(),
+                .then(if (trayBlur > 0.dp) Modifier.blur(trayBlur) else Modifier)
+                .clipToBounds()
+                .then(
+                    if (groupForParticles) {
+                        Modifier.graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
             HomeWallpaper(
                 customPath = state.homeHub.wallpaperPath,
@@ -576,34 +630,33 @@ fun XoraXmbHeroDetail(
                     .fillMaxSize()
                     .then(backdropMotion),
             )
-            XoraRomHeroBackdrop(
-                artPath = playingBackdrop
-                    ?: xmb.selectedItem?.heroPath
-                    ?: xmb.selectedItem?.artPath?.takeIf {
-                        xmb.depth == XoraXmbDepth.MusicAlbums ||
-                            xmb.depth == XoraXmbDepth.MusicTracks
-                    }
-                    ?: xmbGameSelectWallpaperPath(
-                        heroGame?.takeIf {
-                            xmb.depth == XoraXmbDepth.Roms ||
-                                xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
-                                xmb.selectedItem?.action is XoraXmbAction.LaunchGame
-                        },
-                    ),
+            XmbHeroWaveBackdrop(
+                artPath = if (musicBackdrop.showCover) {
+                    musicBackdrop.coverPath
+                } else {
+                    xmb.selectedItem?.heroPath
+                        ?: xmb.selectedItem?.artPath?.takeIf {
+                            xmb.depth == XoraXmbDepth.MusicAlbums ||
+                                xmb.depth == XoraXmbDepth.MusicTracks
+                        }
+                        ?: xmbGameSelectWallpaperPath(
+                            heroGame?.takeIf {
+                                xmb.depth == XoraXmbDepth.Roms ||
+                                    xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
+                                    xmb.selectedItem?.action is XoraXmbAction.LaunchGame
+                            },
+                        )
+                },
+                showWaveMask = musicBackdrop.showWaveMask,
                 settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
                     XMB_GAME_SELECT_SETTLE_MS
                 } else {
                     XMB_FOCUS_SETTLE_MS
                 },
-                audioVolume = if (playingBackdrop != null) {
-                    state.music.backdropAudioVolume
-                } else {
-                    0f
-                },
+                alpha = recedeAlpha,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(backdropMotion)
-                    .graphicsLayer { alpha = recedeAlpha },
+                    .then(backdropMotion),
             )
             HeroTrailerLayer(
                 state = state.trailer,
@@ -612,6 +665,14 @@ fun XoraXmbHeroDetail(
                     .then(backdropMotion)
                     .graphicsLayer { alpha = recedeAlpha },
             )
+            if (groupForParticles) {
+                XmbParticleFieldLayer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .xoraDesignCanvas()
+                        .clipToBounds(),
+                )
+            }
             if (fullTrailer) {
                 Box(
                     modifier = Modifier
@@ -837,11 +898,71 @@ internal fun formatXmbPlaytime(millis: Long): String {
 }
 
 @Composable
+private fun MusicWaveMaskLayer(modifier: Modifier = Modifier) {
+    LoopingWallpaperVideo(
+        uri = MUSIC_WAVE_MASK_URI,
+        modifier = modifier.graphicsLayer { blendMode = BlendMode.Multiply },
+    )
+}
+
+/**
+ * Hero art with the Music wave mask over it, shared by the single- and dual-screen XMB panes.
+ *
+ * The mask blends Multiply, so the pair must be grouped offscreen for the blend to land on the
+ * art instead of the render target — but only while the mask is actually composed, which
+ * includes its fade-out after [showWaveMask] flips false. Gating on the transition rather than
+ * leaving the group on spares every wave-less surface a full-screen buffer and blit per frame.
+ */
+@Composable
+private fun XmbHeroWaveBackdrop(
+    artPath: String?,
+    showWaveMask: Boolean,
+    settleMs: Long,
+    alpha: Float,
+    modifier: Modifier = Modifier,
+) {
+    val reduceMotion = rememberReduceMotion()
+    // Lite devices skip the video entirely, so they must not pay for the group either.
+    val waveVisible = showWaveMask && !LocalLiteVisuals.current
+    val wave = remember { MutableTransitionState(waveVisible) }
+    wave.targetState = waveVisible
+    val grouped = wave.currentState || wave.targetState
+    Box(
+        modifier = modifier.graphicsLayer {
+            this.alpha = alpha
+            if (grouped) compositingStrategy = CompositingStrategy.Offscreen
+        },
+    ) {
+        XoraRomHeroBackdrop(
+            artPath = artPath,
+            settleMs = settleMs,
+            modifier = Modifier.fillMaxSize(),
+        )
+        AnimatedVisibility(
+            visibleState = wave,
+            enter = fadeIn(
+                tween(
+                    durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                    easing = FastOutSlowInEasing,
+                ),
+            ),
+            exit = fadeOut(
+                tween(
+                    durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                    easing = FastOutSlowInEasing,
+                ),
+            ),
+        ) {
+            MusicWaveMaskLayer(Modifier.fillMaxSize())
+        }
+    }
+}
+
+@Composable
 private fun XoraRomHeroBackdrop(
     artPath: String?,
     modifier: Modifier = Modifier,
     settleMs: Long = XMB_FOCUS_SETTLE_MS,
-    audioVolume: Float = 0f,
 ) {
     val reduceMotion = rememberReduceMotion()
     // Wait out the focus settle so a held d-pad does not strobe every ROM's hero.
@@ -889,7 +1010,7 @@ private fun XoraRomHeroBackdrop(
                             } else {
                                 "file://$path"
                             },
-                            audioVolume = audioVolume,
+                            audioVolume = 0f,
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
@@ -996,9 +1117,7 @@ private fun XoraXmbPillChrome(
     onSignOutRetroAchievements: () -> Unit,
 ) {
     var profileEditing by remember { mutableStateOf(false) }
-    LaunchedEffect(state.profileEditRequest) {
-        if (state.profileEditRequest > 0) profileEditing = true
-    }
+    ProfileEditRequestEffect(state.profileEditRequest) { profileEditing = true }
     val launching = state.isLaunching
     val launchPageOpen = state.homeHub.vitaLaunchPageOpen
     val reduceMotion = rememberReduceMotion()
@@ -1164,3 +1283,11 @@ private fun XoraXmbPillChrome(
 
 /** Drill in / out slide between XMB rungs (PSP / PS3 shell feel). */
 private const val XMB_DEPTH_SLIDE_MS = 300
+
+/**
+ * Backdrop defocus while the Vita shortcut tray is open. The tray is a foreground surface, so
+ * the shell behind it goes soft rather than dark. Needs API 31+ RenderEffect; older devices
+ * simply keep the sharp wallpaper (the tray still reads fine over it).
+ */
+private val XMB_TRAY_BLUR_RADIUS = 18.dp
+private const val XMB_TRAY_BLUR_MS = 280

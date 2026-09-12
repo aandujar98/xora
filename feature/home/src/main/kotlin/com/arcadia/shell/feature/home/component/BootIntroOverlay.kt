@@ -70,6 +70,8 @@ private fun bootIntroUri(assetPath: String): String = "asset:///$assetPath"
 fun BootIntroOverlay(
     visible: Boolean,
     skip: Boolean,
+    /** Player's own clip from Customize -> Boot Animation; null uses the bundled one. */
+    customClipPath: String? = null,
     onRevealHome: () -> Unit,
     onFinished: () -> Unit,
     modifier: Modifier = Modifier,
@@ -82,7 +84,13 @@ fun BootIntroOverlay(
     val liteExists = remember(context) { assetExists(context, BOOT_INTRO_LITE_ASSET) }
     val qualityExists = remember(context) { assetExists(context, BOOT_INTRO_ASSET) }
     val assetPath = bootIntroAsset(lite = lite, liteExists = liteExists)
-    val hasAsset = if (assetPath == BOOT_INTRO_LITE_ASSET) liteExists else qualityExists
+    // A custom clip wins over both bundled encodes, including the Performance one: the player
+    // picked this file, so silently playing something else would be wrong.
+    val customClip = remember(customClipPath) {
+        customClipPath?.takeIf { it.isNotBlank() && java.io.File(it).isFile }
+    }
+    val hasAsset = customClip != null ||
+        if (assetPath == BOOT_INTRO_LITE_ASSET) liteExists else qualityExists
     val whiteAlpha = remember { Animatable(1f) }
     var playVideo by remember { mutableStateOf(false) }
     var requestEnd by remember { mutableStateOf(false) }
@@ -146,7 +154,10 @@ fun BootIntroOverlay(
     ) {
         if (playVideo) {
             BootIntroPlayer(
-                assetPath = assetPath,
+                // Uri.fromFile, not File.toURI: the latter yields `file:/path` with one slash,
+                // which is a valid URI but not what the player's file source expects.
+                mediaUri = customClip?.let { android.net.Uri.fromFile(java.io.File(it)).toString() }
+                    ?: bootIntroUri(assetPath),
                 onFirstFrame = { firstFrame = true },
                 onEnded = { requestEnd = true },
                 onError = { requestEnd = true },
@@ -164,7 +175,8 @@ fun BootIntroOverlay(
 
 @Composable
 private fun BootIntroPlayer(
-    assetPath: String,
+    /** Ready-to-play uri: the bundled asset, or the player's own file. */
+    mediaUri: String,
     onFirstFrame: () -> Unit,
     onEnded: () -> Unit,
     onError: () -> Unit,
@@ -175,7 +187,7 @@ private fun BootIntroPlayer(
     val firstFrame = rememberUpdatedState(onFirstFrame)
     val ended = rememberUpdatedState(onEnded)
     val failed = rememberUpdatedState(onError)
-    val player = remember(assetPath) {
+    val player = remember(mediaUri) {
         ExoPlayer.Builder(context).build().apply {
             repeatMode = Player.REPEAT_MODE_OFF
             volume = 1f
@@ -183,7 +195,7 @@ private fun BootIntroPlayer(
         }
     }
 
-    DisposableEffect(player, lifecycleOwner, assetPath) {
+    DisposableEffect(player, lifecycleOwner, mediaUri) {
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
                 firstFrame.value()
@@ -197,7 +209,7 @@ private fun BootIntroPlayer(
         }
         // Attach before prepare — a local asset can reach READY synchronously.
         player.addListener(listener)
-        player.setMediaItem(MediaItem.fromUri(bootIntroUri(assetPath)))
+        player.setMediaItem(MediaItem.fromUri(mediaUri))
         player.prepare()
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             when (event) {

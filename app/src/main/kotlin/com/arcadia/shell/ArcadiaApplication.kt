@@ -25,10 +25,7 @@ import com.arcadia.shell.launcher.music.NowPlayingController
 import com.arcadia.shell.music.MusicPlaybackService
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
 import com.arcadia.shell.launcher.notifications.AppForegroundTracker
-import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
-import com.arcadia.shell.launcher.notifications.isFriendPresenceBanner
-import com.arcadia.shell.notifications.FriendBannerOverlayService
 import com.arcadia.shell.scanner.LibraryAutoScanner
 import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scraper.LibraryHashScheduler
@@ -60,7 +57,6 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var appForegroundTracker: AppForegroundTracker
     @Inject lateinit var shellSystemNotifier: ShellSystemNotifier
     @Inject lateinit var gameCompanionController: GameCompanionController
-    @Inject lateinit var shellNotificationCenter: ShellNotificationCenter
     @Inject lateinit var xoraNetworkAuthCookies: XoraNetworkAuthCookies
     @Inject lateinit var libraryAutoScanner: LibraryAutoScanner
     @Inject lateinit var libraryScanner: LibraryScanner
@@ -72,6 +68,7 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        installCrashLogger()
         // Seeding touches the database, so it must not run on the main thread during startup.
         applicationScope.launch { playerSeeder.seedIfNeeded() }
         emulatorInstallMonitor.start()
@@ -107,19 +104,6 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
         ) { session, displayId -> session != null && displayId != null }
             .distinctUntilChanged()
             .onEach { active -> CompanionOverlayService.setActive(this, active) }
-            .launchIn(applicationScope)
-
-        // Same idea for the friend-online / friend-playing banner over other apps: the service
-        // only needs to be alive while there is something eligible to show and XOrA is not it.
-        combine(
-            shellNotificationCenter.active,
-            appForegroundTracker.isForeground,
-        ) { notification, foreground -> !foreground && notification?.isFriendPresenceBanner() == true }
-            .distinctUntilChanged()
-            .onEach { active ->
-                Log.i("ArcadiaApplication", "FriendBannerOverlayService.setActive($active)")
-                FriendBannerOverlayService.setActive(this, active)
-            }
             .launchIn(applicationScope)
 
         nowPlayingController.state
@@ -196,6 +180,40 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
                 level == ComponentCallbacks2.TRIM_MEMORY_MODERATE -> {
                 runCatching { SingletonImageLoader.get(this).memoryCache?.clear() }
             }
+        }
+    }
+
+    /**
+     * Writes any uncaught crash to a plain-text file in Downloads (or the app's own external
+     * files dir if Downloads is not writable), so a crash can be diagnosed by opening a file
+     * manager instead of needing adb. Re-delivers to the previous handler afterward so the
+     * crash still surfaces normally — this only ever adds a copy of what would happen anyway.
+     */
+    private fun installCrashLogger() {
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                val downloads = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS,
+                )
+                val dir = if (downloads.isDirectory || downloads.mkdirs()) {
+                    downloads
+                } else {
+                    getExternalFilesDir(null) ?: filesDir
+                }
+                val stamp = System.currentTimeMillis()
+                val file = java.io.File(dir, "XOrA_crash_$stamp.txt")
+                file.writeText(
+                    buildString {
+                        appendLine("XOrA crash at $stamp")
+                        appendLine("Thread: ${thread.name}")
+                        appendLine()
+                        appendLine(Log.getStackTraceString(throwable))
+                    },
+                )
+                Log.e("CrashLogger", "Wrote crash log to ${file.absolutePath}")
+            }.onFailure { Log.e("CrashLogger", "Failed to write crash log", it) }
+            previousHandler?.uncaughtException(thread, throwable)
         }
     }
 

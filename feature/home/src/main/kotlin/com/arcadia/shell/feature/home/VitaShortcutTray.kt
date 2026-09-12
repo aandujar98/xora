@@ -18,7 +18,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
-import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.designsystem.supportsGlassBlurEffect
 import com.arcadia.shell.input.UiOneShot
 import kotlin.math.exp
@@ -44,7 +43,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -420,6 +421,34 @@ private fun nearestVitaSlot(
     .minByOrNull { (_, centre) -> (centre - point).getDistanceSquared() }
     ?.key
 
+/** Half-period of the highlighted bubble's idle pulse. */
+private const val VITA_BUBBLE_PULSE_MS = 640
+
+/**
+ * One leg of the bubble's idle pulse, as a [State] so the read stays inside the caller's
+ * `graphicsLayer` block. Parked bubbles get a constant and no running transition at all.
+ */
+@Composable
+private fun vitaBubblePulse(
+    active: Boolean,
+    still: Float,
+    swing: Float,
+    label: String,
+): State<Float> =
+    if (active) {
+        rememberInfiniteTransition(label = "$label-loop").animateFloat(
+            initialValue = still,
+            targetValue = swing,
+            animationSpec = infiniteRepeatable(
+                animation = tween(VITA_BUBBLE_PULSE_MS, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = label,
+        )
+    } else {
+        remember(still) { mutableFloatStateOf(still) }
+    }
+
 @Composable
 private fun VitaBubble(
     slot: VitaShortcutSlot,
@@ -451,7 +480,6 @@ private fun VitaBubble(
         label = "vitaBubbleDepart",
     )
     val hovered by interaction.collectIsHoveredAsState()
-    val reduceMotion = rememberReduceMotion()
     val highlighted = (selected || hovered) && depart < 0.05f && interactive
     // A picked-up bubble lifts off the field so it reads as held rather than merely focused.
     val liftScale by animateFloatAsState(
@@ -459,25 +487,12 @@ private fun VitaBubble(
         animationSpec = arcadiaTween(ArcadiaMotion.Fast),
         label = "vitaBubbleLift",
     )
-    val pulse = rememberInfiniteTransition(label = "vitaBubblePulse")
-    val pulseScale by pulse.animateFloat(
-        initialValue = 1f,
-        targetValue = if (highlighted && !reduceMotion) 1.045f else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(640, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "vitaBubblePulseScale",
-    )
-    val pulseLift by pulse.animateFloat(
-        initialValue = 0f,
-        targetValue = if (highlighted && !reduceMotion) -0.035f else 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(640, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "vitaBubblePulseLift",
-    )
+    // Only the highlighted bubble pulses. The transition used to be built for every bubble with
+    // its target equal to its start when unhighlighted — a no-op swing that still asks for a
+    // frame at display rate, once per bubble, for as long as the tray is open.
+    val pulsing = highlighted && rememberAmbientMotionActive()
+    val pulseScale by vitaBubblePulse(pulsing, 1f, 1.045f, "vitaBubblePulseScale")
+    val pulseLift by vitaBubblePulse(pulsing, 0f, -0.035f, "vitaBubblePulseLift")
     val canBlur = supportsGlassBlurEffect()
     Box(
         modifier = modifier
@@ -836,6 +851,13 @@ internal fun vitaTrayVerticalOneShot(crossedPage: Boolean): UiOneShot =
 /** Opening the tray plays `vita_open.wav`; already-open (edit / swipe while open) stays silent. */
 internal fun vitaTrayOpenOneShot(alreadyOpen: Boolean): UiOneShot? =
     if (alreadyOpen) null else UiOneShot.VitaOpen
+
+/**
+ * Peel-into-game zoom sting (`boot_vita.wav`). Plays once when the dog-ear starts moving
+ * or A auto-peels; later peel rasps / the launch handoff stay silent on this cue.
+ */
+internal fun vitaPeelZoomOneShot(alreadyStarted: Boolean): UiOneShot? =
+    if (alreadyStarted) null else UiOneShot.BootVita
 
 /**
  * Slot indices for [page], grouped into the staggered rows the design uses. Indices are absolute

@@ -29,6 +29,9 @@ class HomeThemeMediaStore @Inject constructor(
     private val folderDir: File
         get() = File(context.filesDir, FOLDER_DIR).also { it.mkdirs() }
 
+    private val bootDir: File
+        get() = File(context.filesDir, BOOT_DIR).also { it.mkdirs() }
+
     /**
      * Import still image, animated GIF, or looping video (mp4/webm) as Home wallpaper.
      */
@@ -47,6 +50,25 @@ class HomeThemeMediaStore @Inject constructor(
         stem = BGM_STEM,
         defaultExt = "mp3",
         imageOnly = false,
+    )
+
+    /** Optional second track played while the Vita shortcut tray is open. */
+    suspend fun importTrayBgm(uri: Uri): String = importNamed(
+        uri = uri,
+        dir = bgmDir,
+        stem = TRAY_BGM_STEM,
+        defaultExt = "mp3",
+        imageOnly = false,
+    )
+
+    /** User-supplied cold-start clip for Customize -> Boot Animation. */
+    suspend fun importBootAnimation(uri: Uri): String = importNamed(
+        uri = uri,
+        dir = bootDir,
+        stem = BOOT_STEM,
+        defaultExt = "mp4",
+        imageOnly = false,
+        wallpaperMedia = true,
     )
 
     suspend fun importShortcutArt(uri: Uri, id: String): String = importNamed(
@@ -69,6 +91,8 @@ class HomeThemeMediaStore @Inject constructor(
 
     fun resolveBgm(absoluteOrRelative: String?): File? = resolve(absoluteOrRelative, bgmDir)
 
+    fun resolveBootAnimation(absoluteOrRelative: String?): File? = resolve(absoluteOrRelative, bootDir)
+
     fun resolveShortcutArt(absoluteOrRelative: String?): File? =
         resolve(absoluteOrRelative, shortcutArtDir)
 
@@ -76,8 +100,25 @@ class HomeThemeMediaStore @Inject constructor(
         runCatching { wallpaperDir.listFiles()?.forEach { it.delete() } }
     }
 
+    /** Main shell track only — the tray track shares this directory and must survive. */
     fun clearBgm() {
-        runCatching { bgmDir.listFiles()?.forEach { it.delete() } }
+        deleteStem(bgmDir, BGM_STEM)
+    }
+
+    fun clearTrayBgm() {
+        deleteStem(bgmDir, TRAY_BGM_STEM)
+    }
+
+    fun clearBootAnimation() {
+        deleteStem(bootDir, BOOT_STEM)
+    }
+
+    private fun deleteStem(dir: File, stem: String) {
+        runCatching {
+            dir.listFiles()
+                ?.filter { it.isFile && it.name.startsWith("$stem.") }
+                ?.forEach { it.delete() }
+        }
     }
 
     private fun resolve(path: String?, fallbackDir: File): File? {
@@ -160,9 +201,12 @@ class HomeThemeMediaStore @Inject constructor(
         const val BGM_DIR = "home_bgm"
         const val SHORTCUT_ART_DIR = "home_shortcut_art"
         const val FOLDER_DIR = "home_folder"
+        const val BOOT_DIR = "home_boot"
         private const val WALLPAPER_STEM = "wallpaper"
         private const val BGM_STEM = "bgm"
+        private const val TRAY_BGM_STEM = "bgm_tray"
         private const val FOLDER_STEM = "folder"
+        private const val BOOT_STEM = "boot"
         private val WALLPAPER_IMAGE_EXTS = setOf("jpg", "jpeg", "png", "webp", "gif")
         private val WALLPAPER_VIDEO_EXTS = setOf("mp4", "webm", "mkv", "mov")
     }

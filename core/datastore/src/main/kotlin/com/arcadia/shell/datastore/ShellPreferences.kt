@@ -299,6 +299,11 @@ data class ShellSettings(
      */
     val customBgmPath: String? = null,
     /**
+     * Absolute path to an optional second looping BGM that takes over while the Vita shortcut
+     * tray is open. Null / blank keeps the main shell BGM playing through the tray.
+     */
+    val vitaTrayBgmPath: String? = null,
+    /**
      * Absolute path to the Music category's on-device library folder. Null / blank means
      * "all device music" via MediaStore.
      */
@@ -335,6 +340,15 @@ data class ShellSettings(
      * 4–6 GB phones so XMB stays responsive.
      */
     val visualPerformanceMode: VisualPerformanceMode = VisualPerformanceMode.Auto,
+    /**
+     * When true, a playing track on the Music XMB column uses cover art plus the bundled
+     * wave Multiply mask as the backdrop.
+     */
+    val musicCategoryArtBackdrop: Boolean = true,
+    /** When true, ambient particles drift over the XMB wallpaper. */
+    val xmbParticlesEnabled: Boolean = true,
+    /** When true the shell takes the panel's fastest mode; false pins 60 Hz for battery. */
+    val highRefreshRate: Boolean = true,
 )
 
 /**
@@ -511,6 +525,7 @@ class ShellPreferences @Inject constructor(
             wallpaperAlignY = (prefs[Keys.WALLPAPER_ALIGN_Y] ?: 0f).coerceIn(-1f, 1f),
             homeFolderImagePath = prefs[Keys.HOME_FOLDER_IMAGE_PATH]?.takeIf { it.isNotBlank() },
             customBgmPath = prefs[Keys.CUSTOM_BGM_PATH]?.takeIf { it.isNotBlank() },
+            vitaTrayBgmPath = prefs[Keys.VITA_TRAY_BGM_PATH]?.takeIf { it.isNotBlank() },
             musicLibraryPath = prefs[Keys.MUSIC_LIBRARY_PATH]?.takeIf { it.isNotBlank() },
             shellThemeId = prefs[Keys.SHELL_THEME_ID]?.takeIf { it.isNotBlank() }
                 ?: DEFAULT_SHELL_THEME_ID,
@@ -525,6 +540,9 @@ class ShellPreferences @Inject constructor(
             visualPerformanceMode = prefs[Keys.VISUAL_PERFORMANCE_MODE]
                 ?.let { name -> runCatching { VisualPerformanceMode.valueOf(name) }.getOrNull() }
                 ?: VisualPerformanceMode.Auto,
+            musicCategoryArtBackdrop = prefs[Keys.MUSIC_CATEGORY_ART_BACKDROP] ?: true,
+            xmbParticlesEnabled = prefs[Keys.XMB_PARTICLES_ENABLED] ?: true,
+            highRefreshRate = prefs[Keys.HIGH_REFRESH_RATE] ?: true,
         )
     }
 
@@ -696,6 +714,16 @@ class ShellPreferences @Inject constructor(
      * Prefers [Keys.CIRCLE_PINS] JSON; falls back to legacy Steam-only
      * [Keys.CIRCLE_FRIEND_IDS] comma list.
      */
+    /** User-saved wallpaper + BGM combos, named and reusable from Customize → Custom Themes. */
+    val customThemes: Flow<List<CustomTheme>> = dataStore.data.map { prefs ->
+        decodeCustomThemes(prefs[Keys.CUSTOM_THEMES].orEmpty())
+    }
+
+    /** Selected boot animation id — [DEFAULT_BOOT_ANIMATION_ID] until more are offered. */
+    val bootAnimationId: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.BOOT_ANIMATION_ID]?.trim()?.ifBlank { null } ?: DEFAULT_BOOT_ANIMATION_ID
+    }
+
     val circlePins: Flow<List<CirclePin>> = dataStore.data.map { prefs ->
         val encoded = prefs[Keys.CIRCLE_PINS].orEmpty()
         if (encoded.isNotBlank()) {
@@ -880,6 +908,18 @@ class ShellPreferences @Inject constructor(
         it[Keys.GAME_ICON_IDLE_MEDIA] = media.name
     }
 
+    suspend fun setXmbParticlesEnabled(enabled: Boolean) = edit {
+        it[Keys.XMB_PARTICLES_ENABLED] = enabled
+    }
+
+    suspend fun setHighRefreshRate(enabled: Boolean) = edit {
+        it[Keys.HIGH_REFRESH_RATE] = enabled
+    }
+
+    suspend fun setMusicCategoryArtBackdrop(enabled: Boolean) = edit {
+        it[Keys.MUSIC_CATEGORY_ART_BACKDROP] = enabled
+    }
+
     suspend fun setHomeWallpaperPath(path: String?) = edit {
         if (path.isNullOrBlank()) it.remove(Keys.HOME_WALLPAPER_PATH)
         else it[Keys.HOME_WALLPAPER_PATH] = path
@@ -904,6 +944,11 @@ class ShellPreferences @Inject constructor(
     suspend fun setCustomBgmPath(path: String?) = edit {
         if (path.isNullOrBlank()) it.remove(Keys.CUSTOM_BGM_PATH)
         else it[Keys.CUSTOM_BGM_PATH] = path
+    }
+
+    suspend fun setVitaTrayBgmPath(path: String?) = edit {
+        if (path.isNullOrBlank()) it.remove(Keys.VITA_TRAY_BGM_PATH)
+        else it[Keys.VITA_TRAY_BGM_PATH] = path
     }
 
     suspend fun setMusicLibraryPath(path: String?) = edit {
@@ -1427,6 +1472,126 @@ class ShellPreferences @Inject constructor(
         setCirclePins(circlePins.first().filterNot { it.key == normalized.key })
     }
 
+    /** Snapshots the current wallpaper/BGM as a new named [CustomTheme]. */
+    suspend fun addCustomTheme(
+        name: String,
+        wallpaperPath: String?,
+        bgmPath: String?,
+        trayBgmPath: String? = null,
+    ): CustomTheme {
+        val theme = CustomTheme(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name.trim().take(CUSTOM_THEME_NAME_MAX_LENGTH).ifBlank { "Custom theme" },
+            wallpaperPath = wallpaperPath,
+            bgmPath = bgmPath,
+            trayBgmPath = trayBgmPath,
+        )
+        val current = customThemes.first()
+        edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(current + theme) }
+        return theme
+    }
+
+    /** Edit in place so the theme keeps its position in the grid rather than jumping to the end. */
+    suspend fun updateCustomTheme(
+        id: String,
+        name: String,
+        wallpaperPath: String?,
+        bgmPath: String?,
+        trayBgmPath: String?,
+    ) {
+        if (id.isBlank()) return
+        val current = customThemes.first()
+        if (current.none { it.id == id }) return
+        val next = current.map { theme ->
+            if (theme.id != id) {
+                theme
+            } else {
+                theme.copy(
+                    name = name.trim().take(CUSTOM_THEME_NAME_MAX_LENGTH).ifBlank { theme.name },
+                    wallpaperPath = wallpaperPath,
+                    bgmPath = bgmPath,
+                    trayBgmPath = trayBgmPath,
+                )
+            }
+        }
+        edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(next) }
+    }
+
+    suspend fun removeCustomTheme(id: String) {
+        if (id.isBlank()) return
+        val current = customThemes.first()
+        edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(current.filterNot { theme -> theme.id == id }) }
+    }
+
+    /** Absolute path to a user-supplied boot clip; null means only the bundled one exists. */
+    val bootAnimationPath: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[Keys.BOOT_ANIMATION_PATH]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setBootAnimationPath(path: String?) = edit {
+        if (path.isNullOrBlank()) it.remove(Keys.BOOT_ANIMATION_PATH)
+        else it[Keys.BOOT_ANIMATION_PATH] = path
+    }
+
+    /** Blank store means untouched, so the seeded set stays live rather than being frozen in. */
+    val newsOutlets: Flow<List<NewsOutlet>> = dataStore.data.map { prefs ->
+        decodeNewsOutlets(prefs[Keys.NEWS_OUTLETS].orEmpty())
+            .takeIf { it.isNotEmpty() }
+            ?: DEFAULT_NEWS_OUTLETS
+    }
+
+    val selectedNewsOutletId: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[Keys.NEWS_OUTLET_ID]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setSelectedNewsOutletId(id: String?) = edit {
+        if (id.isNullOrBlank()) it.remove(Keys.NEWS_OUTLET_ID) else it[Keys.NEWS_OUTLET_ID] = id
+    }
+
+    suspend fun addNewsOutlet(name: String, feedUrl: String): NewsOutlet? {
+        val url = feedUrl.trim()
+        if (url.isBlank()) return null
+        val current = newsOutlets.first()
+        val existing = current.firstOrNull { it.feedUrl.equals(url, ignoreCase = true) }
+        if (existing != null) return existing
+        val host = runCatching { android.net.Uri.parse(url).host }.getOrNull()
+        val outlet = NewsOutlet(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name.trim().take(NEWS_OUTLET_NAME_MAX_LENGTH).ifBlank { outletNameFromUrl(url) },
+            feedUrl = url,
+            iconUrl = host?.removePrefix("www.")?.let(::faviconFor),
+        )
+        edit { it[Keys.NEWS_OUTLETS] = encodeNewsOutlets((current + outlet).take(NEWS_OUTLET_LIMIT)) }
+        return outlet
+    }
+
+    /** Caches the logo a feed advertised, so the bubble keeps its picture between launches. */
+    suspend fun setNewsOutletIcon(id: String, iconUrl: String?) {
+        val url = iconUrl?.trim()?.takeIf { it.startsWith("http") } ?: return
+        val current = newsOutlets.first()
+        val existing = current.firstOrNull { it.id == id } ?: return
+        if (existing.iconUrl == url) return
+        edit {
+            it[Keys.NEWS_OUTLETS] = encodeNewsOutlets(
+                current.map { outlet -> if (outlet.id == id) outlet.copy(iconUrl = url) else outlet },
+            )
+        }
+    }
+
+    suspend fun removeNewsOutlet(id: String) {
+        if (id.isBlank()) return
+        val current = newsOutlets.first()
+        val next = current.filterNot { it.id == id }
+        // Never write an empty list: that is the "untouched" sentinel and would resurrect
+        // the seeded set the moment it was read back.
+        if (next.isEmpty()) return
+        edit { it[Keys.NEWS_OUTLETS] = encodeNewsOutlets(next) }
+    }
+
+    suspend fun setBootAnimationId(id: String) = edit {
+        it[Keys.BOOT_ANIMATION_ID] = id.trim().ifBlank { DEFAULT_BOOT_ANIMATION_ID }
+    }
+
     /**
      * Preferred scraper for a single ROM. Empty / missing means inherit platform (or Auto).
      * Stored as the [com.arcadia.shell.scraper.ScraperPreference] enum name.
@@ -1519,6 +1684,11 @@ class ShellPreferences @Inject constructor(
         val CIRCLE_FRIEND_IDS = stringPreferencesKey("circle_friend_ids")
         /** JSON array of `{source,id}` Circle pins (Steam + Discord). */
         val CIRCLE_PINS = stringPreferencesKey("circle_pins")
+        val CUSTOM_THEMES = stringPreferencesKey("custom_themes")
+        val BOOT_ANIMATION_ID = stringPreferencesKey("boot_animation_id")
+        val BOOT_ANIMATION_PATH = stringPreferencesKey("boot_animation_path")
+        val NEWS_OUTLETS = stringPreferencesKey("news_outlets")
+        val NEWS_OUTLET_ID = stringPreferencesKey("news_outlet_id")
         /** JSON array of MediaStore photo ids favourited in the Photo Viewer. */
         val FAVORITE_PHOTO_IDS = stringPreferencesKey("favorite_photo_ids")
         val HIDDEN_GAME_IDS = stringPreferencesKey("hidden_game_ids")
@@ -1526,11 +1696,15 @@ class ShellPreferences @Inject constructor(
         val GAME_TITLE_OVERRIDES = stringPreferencesKey("game_title_overrides")
         val SHOW_HIDDEN_GAMES = booleanPreferencesKey("show_hidden_games")
         val VISUAL_PERFORMANCE_MODE = stringPreferencesKey("visual_performance_mode")
+        val MUSIC_CATEGORY_ART_BACKDROP = booleanPreferencesKey("music_category_art_backdrop")
+        val XMB_PARTICLES_ENABLED = booleanPreferencesKey("xmb_particles_enabled")
+        val HIGH_REFRESH_RATE = booleanPreferencesKey("high_refresh_rate")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
         val WALLPAPER_ALIGN_X = floatPreferencesKey("wallpaper_align_x")
         val WALLPAPER_ALIGN_Y = floatPreferencesKey("wallpaper_align_y")
         val HOME_FOLDER_IMAGE_PATH = stringPreferencesKey("home_folder_image_path")
         val CUSTOM_BGM_PATH = stringPreferencesKey("custom_bgm_path")
+        val VITA_TRAY_BGM_PATH = stringPreferencesKey("vita_tray_bgm_path")
         val MUSIC_LIBRARY_PATH = stringPreferencesKey("music_library_path")
         val SHELL_THEME_ID = stringPreferencesKey("shell_theme_id")
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
@@ -1845,6 +2019,157 @@ internal fun decodeCirclePins(raw: String): List<CirclePin> {
     }.getOrDefault(emptyList())
 }
 
+/** A news source behind one bubble in the XOrA NOW header. */
+data class NewsOutlet(
+    val id: String,
+    val name: String,
+    val feedUrl: String,
+    /** Bubble art; null falls back to the outlet's initials. */
+    val iconUrl: String? = null,
+    /** Seeded sources are kept out of the delete path so the shell never ships with no news. */
+    val builtIn: Boolean = false,
+)
+
+/**
+ * The sources XOrA NOW starts with. Stored only once the player edits the list, so a later
+ * change here reaches anyone who never touched theirs.
+ */
+val DEFAULT_NEWS_OUTLETS: List<NewsOutlet> = listOf(
+    NewsOutlet(
+        id = "ign",
+        name = "IGN",
+        feedUrl = "https://feeds.ign.com/ign/games-all",
+        iconUrl = faviconFor("ign.com"),
+        builtIn = true,
+    ),
+    NewsOutlet(
+        id = "nintendolife",
+        name = "Nintendo Life",
+        feedUrl = "https://www.nintendolife.com/feeds/latest",
+        iconUrl = faviconFor("nintendolife.com"),
+        builtIn = true,
+    ),
+    NewsOutlet(
+        id = "retrogamecorps",
+        name = "Retro Game Corps",
+        feedUrl = "https://retrogamecorps.com/feed/",
+        iconUrl = faviconFor("retrogamecorps.com"),
+        builtIn = true,
+    ),
+    NewsOutlet(
+        id = "kotaku",
+        name = "Kotaku",
+        feedUrl = "https://kotaku.com/rss",
+        iconUrl = faviconFor("kotaku.com"),
+        builtIn = true,
+    ),
+)
+
+/**
+ * A site's own icon at a usable size. Used as the bubble picture until the feed's own channel
+ * artwork arrives on first fetch, which is generally the better image where a feed ships one.
+ */
+internal fun faviconFor(host: String): String =
+    "https://icons.duckduckgo.com/ip3/$host.ico"
+
+const val NEWS_OUTLET_NAME_MAX_LENGTH = 40
+
+/** Cap so a runaway paste cannot turn the header into an unscrollable wall of bubbles. */
+const val NEWS_OUTLET_LIMIT = 24
+
+internal fun encodeNewsOutlets(outlets: List<NewsOutlet>): String {
+    val array = JSONArray()
+    outlets.forEach { outlet ->
+        if (outlet.id.isBlank() || outlet.feedUrl.isBlank()) return@forEach
+        val obj = JSONObject()
+            .put("id", outlet.id)
+            .put("name", outlet.name)
+            .put("feedUrl", outlet.feedUrl)
+            .put("builtIn", outlet.builtIn)
+        outlet.iconUrl?.let { obj.put("iconUrl", it) }
+        array.put(obj)
+    }
+    return array.toString()
+}
+
+internal fun decodeNewsOutlets(raw: String): List<NewsOutlet> {
+    if (raw.isBlank()) return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optString("id").trim()
+                val feedUrl = obj.optString("feedUrl").trim()
+                if (id.isEmpty() || feedUrl.isEmpty()) continue
+                add(
+                    NewsOutlet(
+                        id = id,
+                        name = obj.optString("name").trim().ifEmpty { id },
+                        feedUrl = feedUrl,
+                        iconUrl = obj.optString("iconUrl").trim().takeIf { it.isNotEmpty() },
+                        builtIn = obj.optBoolean("builtIn", false),
+                    ),
+                )
+            }
+        }.distinctBy { it.id }.take(NEWS_OUTLET_LIMIT)
+    }.getOrDefault(emptyList())
+}
+
+/** A named wallpaper + BGM combo the player saved from Customize → Custom Themes. */
+data class CustomTheme(
+    val id: String,
+    val name: String,
+    /** Stable imported path (see [ThemeMediaStore]), same as [ShellSettings.homeWallpaperPath]. */
+    val wallpaperPath: String?,
+    /** Stable imported path, same as [ShellSettings.customBgmPath]. */
+    val bgmPath: String?,
+    /** Optional Vita-tray track, same as [ShellSettings.vitaTrayBgmPath]. */
+    val trayBgmPath: String? = null,
+)
+
+/** Longer than any real theme name, short enough a pasted essay cannot bloat the store. */
+const val CUSTOM_THEME_NAME_MAX_LENGTH = 60
+
+internal fun encodeCustomThemes(themes: List<CustomTheme>): String {
+    val array = JSONArray()
+    themes.forEach { theme ->
+        if (theme.id.isBlank() || theme.name.isBlank()) return@forEach
+        val obj = JSONObject()
+            .put("id", theme.id)
+            .put("name", theme.name)
+        theme.wallpaperPath?.let { obj.put("wallpaperPath", it) }
+        theme.bgmPath?.let { obj.put("bgmPath", it) }
+        theme.trayBgmPath?.let { obj.put("trayBgmPath", it) }
+        array.put(obj)
+    }
+    return array.toString()
+}
+
+internal fun decodeCustomThemes(raw: String): List<CustomTheme> {
+    if (raw.isBlank()) return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optString("id").trim()
+                val name = obj.optString("name").trim()
+                if (id.isEmpty() || name.isEmpty()) continue
+                add(
+                    CustomTheme(
+                        id = id,
+                        name = name,
+                        wallpaperPath = obj.optString("wallpaperPath").trim().takeIf { it.isNotEmpty() },
+                        bgmPath = obj.optString("bgmPath").trim().takeIf { it.isNotEmpty() },
+                        trayBgmPath = obj.optString("trayBgmPath").trim().takeIf { it.isNotEmpty() },
+                    ),
+                )
+            }
+        }.distinctBy { it.id }
+    }.getOrDefault(emptyList())
+}
+
 const val DEFAULT_BGM_VOLUME = 0.35f
 const val DEFAULT_MUSIC_VOLUME = 1f
 
@@ -1855,6 +2180,12 @@ const val DEFAULT_TRAILER_IDLE_SECONDS = 5
 
 /** Matches [com.arcadia.shell.designsystem.ShellThemeId.Default.id]. */
 const val DEFAULT_SHELL_THEME_ID = "default"
+
+/** The bundled boot clip — the only option today, but a stable id for when more are added. */
+const val DEFAULT_BOOT_ANIMATION_ID = "default"
+
+/** [ShellPreferences.bootAnimationId] when the player's own clip is selected. */
+const val CUSTOM_BOOT_ANIMATION_ID = "custom"
 
 /** Default shell text size — slightly under 1× so XMB titles stay compact. */
 const val DEFAULT_UI_TEXT_SCALE = 0.85f
@@ -1870,3 +2201,13 @@ fun uiTextScaleLabel(scale: Float): String = when {
     scale < 1.08f -> "Medium"
     else -> "Large"
 }
+
+/** "https://www.nintendolife.com/feeds/latest" -> "Nintendolife" when no name was given. */
+internal fun outletNameFromUrl(url: String): String =
+    runCatching {
+        android.net.Uri.parse(url).host
+            ?.removePrefix("www.")
+            ?.substringBefore('.')
+            ?.replaceFirstChar { it.uppercase() }
+            ?.takeIf { it.isNotBlank() }
+    }.getOrNull() ?: "News"

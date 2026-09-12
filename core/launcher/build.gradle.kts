@@ -89,8 +89,6 @@ dependencies {
     api(project(":core:database"))
     api(project(":core:libretro"))
     implementation(project(":core:datastore"))
-    // OverlayPermission, for ShellNotificationCenter's friend-banner overlay eligibility check.
-    implementation(project(":core:display"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.process)

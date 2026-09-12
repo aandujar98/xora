@@ -68,6 +68,7 @@ import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.HeroTrailerLayer
+import com.arcadia.shell.feature.home.component.ProfileEditRequestEffect
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.feature.home.component.xmb.PlatformIcon
@@ -131,9 +132,7 @@ fun VerticalGameSelectorPane(
     val artworkScale = launchBackdropScale(cinematic.zoom)
     var profileEditing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(state.profileEditRequest) {
-        if (state.profileEditRequest > 0) profileEditing = true
-    }
+    ProfileEditRequestEffect(state.profileEditRequest) { profileEditing = true }
 
     val fullBackgroundTrailer =
         state.trailer.active && state.trailer.displayMode == TrailerDisplayMode.FullBackground

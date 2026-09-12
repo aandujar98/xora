@@ -159,7 +159,7 @@ class SecondDisplayImageHost(private val activity: Activity) {
                 setBackgroundDrawableResource(android.R.color.black)
             }
             ImmersiveMode.apply(window)
-            DisplayRefresh.preferSixtyHertz(window)
+            DisplayRefresh.preferShellRefresh(window)
             setCancelable(false)
             setContentView(
                 imageView,

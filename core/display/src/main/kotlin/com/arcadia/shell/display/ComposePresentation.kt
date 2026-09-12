@@ -73,7 +73,7 @@ class ComposePresentation(
             setBackgroundDrawableResource(android.R.color.black)
         }
         ImmersiveMode.apply(window)
-        DisplayRefresh.preferSixtyHertz(window)
+        DisplayRefresh.preferShellRefresh(window)
         setCancelable(false)
 
         val composeView = ComposeView(context).apply {

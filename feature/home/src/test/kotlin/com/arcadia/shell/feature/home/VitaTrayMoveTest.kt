@@ -51,4 +51,10 @@ class VitaTrayMoveTest {
         assertEquals(UiOneShot.VitaOpen, vitaTrayOpenOneShot(alreadyOpen = false))
         assertNull(vitaTrayOpenOneShot(alreadyOpen = true))
     }
+
+    @Test
+    fun peelingAVitaPagePlaysTheZoomStingOnce() {
+        assertEquals(UiOneShot.BootVita, vitaPeelZoomOneShot(alreadyStarted = false))
+        assertNull(vitaPeelZoomOneShot(alreadyStarted = true))
+    }
 }

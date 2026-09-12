@@ -49,6 +49,7 @@ import com.arcadia.shell.designsystem.motionMillis
 import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.feature.home.SystemUpdatePhase
 import com.arcadia.shell.feature.home.SystemUpdateUiState
+import com.arcadia.shell.designsystem.XoraSheetScrim
 
 private val PanelShape = RoundedCornerShape(22.dp)
 private val ButtonShape = RoundedCornerShape(percent = 50)
@@ -79,7 +80,17 @@ fun SystemUpdatePanel(
 
     BackHandler(enabled = state.open, onBack = onDismiss)
 
-    AnimatedVisibility(
+    // Sibling of the panel's transition, never inside it: the panel scales up, and
+    // anything sharing that layer scales with it — which is what welded the tint to
+    // the window instead of dimming the room behind it.
+    Box(modifier = modifier.fillMaxSize()) {
+        // A download keeps running in the background, but do not let a stray scrim tap
+        // wipe the only progress readout.
+        XoraSheetScrim(
+            visible = state.open,
+            onClick = onDismiss.takeIf { !state.busy },
+        )
+        AnimatedVisibility(
         visible = state.open,
         enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
             animationSpec = if (enterMs == 0) arcadiaTween(0) else enterSpring,
@@ -89,22 +100,9 @@ fun SystemUpdatePanel(
             animationSpec = arcadiaTween(ArcadiaMotion.Fast),
             targetScale = 0.95f,
         ),
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.52f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        // A download keeps running in the background, but do not let a stray
-                        // scrim tap wipe the only progress readout.
-                        enabled = !state.busy,
-                        onClick = onDismiss,
-                    ),
-            )
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -267,6 +265,7 @@ fun SystemUpdatePanel(
                 }
             }
         }
+    }
     }
 }
 

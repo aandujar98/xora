@@ -320,7 +320,7 @@ fun buildXoraCategoryItems(
         ),
         XoraXmbItem(
             id = "set_themes",
-            title = "Themes",
+            title = "Customize",
             subtitle = "Presets, wallpaper & BGM",
             action = XoraXmbAction.OpenSettingsCategory(StartSettingsCategory.Themes),
             icon = XmbIcon.Themes,
@@ -544,7 +544,7 @@ fun buildXoraCategoryItems(
         ),
         XoraXmbItem(
             id = "news",
-            title = "XOrA News",
+            title = "XOrA NOW",
             subtitle = "Gaming & emulation feed",
             action = XoraXmbAction.OpenNews,
             icon = XmbIcon.News,

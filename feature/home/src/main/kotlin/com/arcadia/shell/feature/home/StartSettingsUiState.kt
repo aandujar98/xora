@@ -10,8 +10,6 @@ import com.arcadia.shell.datastore.UiFitMode
 import com.arcadia.shell.datastore.VisualPerformanceMode
 import com.arcadia.shell.datastore.uiTextScaleLabel
 import com.arcadia.shell.datastore.visualPerformanceModeSubtitle
-import com.arcadia.shell.designsystem.ShellThemeCatalog
-import com.arcadia.shell.designsystem.ShellThemeId
 
 /**
  * Start-button app config popup: a category list that drills into each page.
@@ -70,6 +68,11 @@ sealed interface StartSettingsAction {
     data object CycleSecondaryRole : StartSettingsAction
     data object CycleTrailerDisplay : StartSettingsAction
     data object CycleGameIconIdleMedia : StartSettingsAction
+    data object ToggleMusicCategoryArt : StartSettingsAction
+
+    data object ToggleXmbParticles : StartSettingsAction
+
+    data object ToggleHighRefreshRate : StartSettingsAction
     data object CycleThemeMode : StartSettingsAction
     data object OpenVisualPerformance : StartSettingsAction
     data class SelectVisualPerformance(val mode: VisualPerformanceMode) : StartSettingsAction
@@ -129,9 +132,6 @@ sealed interface StartSettingsAction {
     data object ToggleFriendPlaying : StartSettingsAction
     data object TestNotification : StartSettingsAction
 
-    /** Deep link to "Display over other apps" for the friend banner overlay. */
-    data object OpenFriendBannerOverlaySettings : StartSettingsAction
-
     // General
     data object CycleGamesSecondarySlot : StartSettingsAction
     data object CycleXmbTitleStyle : StartSettingsAction
@@ -172,7 +172,7 @@ fun startSettingsDismissClosesOverlay(inCategory: Boolean): Boolean = when {
 
 fun startSettingsCategoryTitle(category: StartSettingsCategory): String = when (category) {
     StartSettingsCategory.Display -> "Display"
-    StartSettingsCategory.Themes -> "Themes"
+    StartSettingsCategory.Themes -> "Customize"
     StartSettingsCategory.Sound -> "Sound"
     StartSettingsCategory.Scrape -> "Scrape"
     StartSettingsCategory.Social -> "Social"
@@ -182,7 +182,7 @@ fun startSettingsCategoryTitle(category: StartSettingsCategory): String = when (
 
 fun startSettingsCategorySubtitle(category: StartSettingsCategory): String = when (category) {
     StartSettingsCategory.Display -> "Screen, trailers & text"
-    StartSettingsCategory.Themes -> "Presets, wallpaper & shop"
+    StartSettingsCategory.Themes -> "Preset themes, custom themes & boot animation"
     StartSettingsCategory.Sound -> "Music & UI volume"
     StartSettingsCategory.Scrape -> "Artwork, trailers & RetroAchievements"
     StartSettingsCategory.Social -> "Friends, Steam & Discord"
@@ -213,7 +213,6 @@ fun buildStartSettingsRows(
     raSettings: RetroAchievementsSettings = RetroAchievementsSettings(),
     deviceSuggestsLite: Boolean? = null,
     deviceRamLabel: String? = null,
-    friendBannerOverlayGranted: Boolean = false,
 ): List<StartSettingsRow> = when (category) {
     StartSettingsCategory.Display -> listOf(
         StartSettingsRow.Action(
@@ -243,6 +242,39 @@ fun buildStartSettingsRows(
                 GameIconIdleMedia.Screenshot -> "Your screenshots & GIFs"
             },
             action = StartSettingsAction.CycleGameIconIdleMedia,
+        ),
+        StartSettingsRow.Toggle(
+            id = "music_art_backdrop",
+            title = "Music cover backdrop",
+            subtitle = if (settings.musicCategoryArtBackdrop) {
+                "On · cover art + wave while a song plays"
+            } else {
+                "Off · keep the theme wallpaper on Music"
+            },
+            checked = settings.musicCategoryArtBackdrop,
+            action = StartSettingsAction.ToggleMusicCategoryArt,
+        ),
+        StartSettingsRow.Toggle(
+            id = "high_refresh",
+            title = "Refresh rate",
+            subtitle = if (settings.highRefreshRate) {
+                "Maximum · smoothest menus, warmer & shorter battery"
+            } else {
+                "60 Hz · coolest and longest battery"
+            },
+            checked = settings.highRefreshRate,
+            action = StartSettingsAction.ToggleHighRefreshRate,
+        ),
+        StartSettingsRow.Toggle(
+            id = "xmb_particles",
+            title = "Particle effects",
+            subtitle = if (settings.xmbParticlesEnabled) {
+                "On · ambient particles drift over the wallpaper"
+            } else {
+                "Off · plain wallpaper"
+            },
+            checked = settings.xmbParticlesEnabled,
+            action = StartSettingsAction.ToggleXmbParticles,
         ),
         StartSettingsRow.Action(
             id = "visual_performance",
@@ -284,90 +316,17 @@ fun buildStartSettingsRows(
         ),
     )
 
-    StartSettingsCategory.Themes -> buildList {
-        val active = ShellThemeId.fromId(settings.shellThemeId)
-        add(
-            StartSettingsRow.Header(
-                id = "hdr_presets",
-                title = "Presets",
-                subtitle = "Launcher theme packs",
-            ),
-        )
-        ShellThemeCatalog.all.forEach { theme ->
-            val selected = theme.id == active
-            add(
-                StartSettingsRow.Action(
-                    id = "theme_${theme.id.id}",
-                    title = theme.id.displayName,
-                    subtitle = buildString {
-                        append(theme.description)
-                        if (selected) append(" · Active")
-                        theme.bgm?.let { bgm ->
-                            append(" · BGM: ")
-                            append(bgm.displayHint)
-                        }
-                    },
-                    action = StartSettingsAction.SelectShellTheme(theme.id.id),
-                ),
-            )
-        }
-        add(
-            StartSettingsRow.Header(
-                id = "hdr_shop",
-                title = "From XOrA Store",
-                subtitle = "Downloaded theme packs",
-            ),
-        )
-        if (shopThemeIds.isEmpty()) {
-            add(
-                StartSettingsRow.Action(
-                    id = "shop_themes_empty",
-                    title = "Coming from XOrA Store",
-                    subtitle = "Downloadable themes will appear here",
-                    action = StartSettingsAction.ShopThemesComingSoon,
-                ),
-            )
-        } else {
-            shopThemeIds.forEach { themeId ->
-                add(
-                    StartSettingsRow.Action(
-                        id = "shop_theme_$themeId",
-                        title = themeId,
-                        subtitle = "Installed from XOrA Store",
-                        action = StartSettingsAction.SelectShellTheme(themeId),
-                    ),
-                )
-            }
-        }
-        add(
-            StartSettingsRow.Header(
-                id = "hdr_customize",
-                title = "Customize",
-                subtitle = "Your wallpaper & soundtrack",
-            ),
-        )
-        add(
-            StartSettingsRow.Action(
-                id = "theme_customize",
-                title = "Customize…",
-                subtitle = buildString {
-                    append(if (hasCustomWallpaper) customWallpaperLabel else "Theme backdrop")
-                    append(" · ")
-                    append(if (hasCustomBgm) "Custom BGM" else "Theme / default BGM")
-                },
-                trailingIcon = StartSettingsTrailingIcon.Edit,
-                action = StartSettingsAction.OpenThemeCustomize,
-            ),
-        )
-        add(
-            StartSettingsRow.Action(
-                id = "upload_theme_shop",
-                title = "Upload theme to XOrA Store",
-                subtitle = "Coming soon",
-                action = StartSettingsAction.UploadThemeToShopComingSoon,
-            ),
-        )
-    }
+    // Unreachable in normal use: every route to Customize opens the sheet instead of this page.
+    // Kept so the category `when` stays exhaustive and nothing dead-ends if a new caller appears.
+    StartSettingsCategory.Themes -> listOf(
+        StartSettingsRow.Action(
+            id = "open_customize",
+            title = "Customize",
+            subtitle = "Preset themes, custom themes & boot animation",
+            trailingIcon = StartSettingsTrailingIcon.Edit,
+            action = StartSettingsAction.OpenThemeCustomize,
+        ),
+    )
 
     StartSettingsCategory.Sound -> buildList {
         add(
@@ -597,16 +556,6 @@ fun buildStartSettingsRows(
             title = "Test notification",
             subtitle = "Preview banner & chime",
             action = StartSettingsAction.TestNotification,
-        ),
-        StartSettingsRow.Action(
-            id = "friend_banner_overlay",
-            title = "Friend banners over other apps",
-            subtitle = if (friendBannerOverlayGranted) {
-                "Allowed · shows friend online / playing over other apps"
-            } else {
-                "Needs \"Display over other apps\" · tap to allow"
-            },
-            action = StartSettingsAction.OpenFriendBannerOverlaySettings,
         ),
     )
 
