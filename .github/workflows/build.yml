@@ -53,6 +53,14 @@ jobs:
       - name: Hide Discord AAR (unsupported local AAR in library module)
         run: mv core/launcher/libs/discord_partner_sdk.aar core/launcher/libs/discord_partner_sdk.aar.bak
 
+      - name: Pre-fetch mGBA (avoids a per-ABI clone race during CMake configure)
+        run: |
+          MGBA=core/libretro/src/main/cpp/third_party/mgba
+          if [ ! -f "$MGBA/CMakeLists.txt" ]; then
+            rm -rf "$MGBA"
+            git clone --depth 1 https://github.com/mgba-emu/mgba.git "$MGBA"
+          fi
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
