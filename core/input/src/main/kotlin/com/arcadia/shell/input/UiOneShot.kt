@@ -31,6 +31,10 @@ enum class UiOneShot {
     Cursor,
     /** Vita shortcut tray page turn (`vita_page_navigate.wav`, GitHub tag `vita-page-navigate`). */
     VitaPageNavigate,
+    /** Vita shortcut tray opening (`vita_open.wav`, GitHub tag `vita-open`). */
+    VitaOpen,
+    /** Vita shortcut tray closing back to the XMB (`vita_menu_close.wav`, GitHub tag `vita-menu-close`). */
+    VitaMenuClose,
 }
 
 fun interface UiOneShotPlayer {

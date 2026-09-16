@@ -33,6 +33,7 @@ import com.arcadia.shell.launcher.discord.XORA_PLUS_BYPASS_CODE
 import com.arcadia.shell.launcher.discord.XoraPlusCheckState
 import com.arcadia.shell.launcher.discord.XoraPlusMembership
 import com.arcadia.shell.launcher.discord.discordAccountLinked
+import com.arcadia.shell.launcher.discord.discordOnboardingMayAdvance
 import com.arcadia.shell.libretro.XoraLibretroPlayers
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
@@ -63,6 +64,7 @@ import javax.inject.Inject
 
 enum class OnboardingStep {
     Welcome,
+    Discord,
     Profile,
     DisplayMode,
     Performance,
@@ -70,7 +72,6 @@ enum class OnboardingStep {
     AndroidApps,
     Emulators,
     Scrapers,
-    Discord,
     Steam,
     RetroAchievements,
     Audio,
@@ -128,7 +129,11 @@ data class OnboardingUiState(
     val discordLinked: Boolean get() = discordAccountLinked(discordPresence)
     val canAdvance: Boolean get() = when (step) {
         OnboardingStep.Emulators -> !scanRunning
-        OnboardingStep.Discord -> xoraPlusBypass || (discordLinked && xoraPlus.hasPlus)
+        OnboardingStep.Discord -> discordOnboardingMayAdvance(
+            bypass = xoraPlusBypass,
+            plus = xoraPlus,
+            presence = discordPresence,
+        )
         else -> true
     }
 }
@@ -369,6 +374,10 @@ class OnboardingViewModel @Inject constructor(
     init {
         loadLaunchableAndroidApps()
         viewModelScope.launch {
+            val saved = preferences.onboardingStep.first()
+            OnboardingStep.entries.firstOrNull { it.name == saved }?.let { step.value = it }
+        }
+        viewModelScope.launch {
             discordRichPresence.state
                 .map { it.currentUserId to it.capability }
                 .distinctUntilChanged()
@@ -394,8 +403,7 @@ class OnboardingViewModel @Inject constructor(
         if (step.value == OnboardingStep.Discord) {
             val plus = xoraPlusMembership.state.value
             val bypass = plusBypassOverride.value || uiState.value.xoraPlusBypass
-            val linked = discordAccountLinked(discordRichPresence.state.value)
-            if (!bypass && !(linked && plus.hasPlus)) return
+            if (!discordOnboardingMayAdvance(bypass, plus, discordRichPresence.state.value)) return
         }
         if (step.value == OnboardingStep.AndroidApps) {
             persistAndroidAppSelection()
@@ -407,7 +415,7 @@ class OnboardingViewModel @Inject constructor(
         val entries = OnboardingStep.entries
         val index = entries.indexOf(step.value)
         if (index > 0) {
-            step.value = entries[index - 1]
+            setStep(entries[index - 1])
         }
     }
 
@@ -440,11 +448,17 @@ class OnboardingViewModel @Inject constructor(
         val entries = OnboardingStep.entries
         val index = entries.indexOf(step.value)
         if (index < entries.lastIndex) {
-            step.value = entries[index + 1]
+            setStep(entries[index + 1])
         }
         if (step.value == OnboardingStep.Emulators) {
             ensureLibraryScanned()
         }
+    }
+
+    /** Updates the in-memory step and persists it so a killed process resumes here. */
+    private fun setStep(newStep: OnboardingStep) {
+        step.value = newStep
+        viewModelScope.launch { preferences.setOnboardingStep(newStep.name) }
     }
 
     private fun persistAndroidAppSelection() {
@@ -719,7 +733,7 @@ class OnboardingViewModel @Inject constructor(
     /** Re-run the guild / role lookup, e.g. after the player is granted Plus in Discord. */
     fun refreshXoraPlus() {
         viewModelScope.launch {
-            xoraPlusMembership.refresh()
+            xoraPlusMembership.refresh(force = true)
             message.value = "Re-checking XOrA Plus…"
         }
     }
@@ -759,6 +773,7 @@ class OnboardingViewModel @Inject constructor(
     fun finish(onFinished: () -> Unit) {
         viewModelScope.launch {
             preferences.setOnboardingComplete(true)
+            preferences.setOnboardingStep("")
             onFinished()
         }
     }

@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.settings
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -861,6 +862,21 @@ class SettingsViewModel @Inject constructor(
 
     fun openDiscordDeveloperPortalIntent(): Intent =
         discordRichPresence.openDeveloperPortalIntent()
+
+    fun linkDiscordAccount(activity: Activity) {
+        discordRichPresence.attachHostActivity(activity)
+        discordRichPresence.startAccountLinking(activity)
+        transientMessage.value = "Opening Discord sign-in…"
+    }
+
+    fun signOutDiscord() {
+        discordRichPresence.signOutAccount()
+        transientMessage.value = "Signed out of Discord."
+    }
+
+    fun signInDiscordUnavailable() {
+        transientMessage.value = "Could not start Discord sign-in."
+    }
 
     fun listDirectories(path: String): List<java.io.File> =
         runCatching {

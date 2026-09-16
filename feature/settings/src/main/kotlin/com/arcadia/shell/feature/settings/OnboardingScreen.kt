@@ -114,7 +114,10 @@ import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import com.arcadia.shell.launcher.discord.XORA_DISCORD_INVITE_URL
 import com.arcadia.shell.launcher.discord.XoraPlusCheckState
-import com.arcadia.shell.launcher.discord.XoraPlusStatus
+import com.arcadia.shell.launcher.discord.discordOnboardingLinkEnabled
+import com.arcadia.shell.launcher.discord.discordOnboardingLinkLabel
+import com.arcadia.shell.launcher.discord.discordOnboardingSessionReady
+import com.arcadia.shell.launcher.discord.xoraPlusOnboardingLine
 import kotlin.math.roundToInt
 
 private val AccentInk = Color(0xFF7EC8E8)
@@ -612,10 +615,8 @@ private fun OnboardingSteps(
                                 discordPresence = state.discordPresence,
                                 xoraPlus = state.xoraPlus,
                                 xoraPlusBypass = state.xoraPlusBypass,
-                                plusRoleIds = state.xoraPlusRoleIds,
                                 onLinkDiscord = viewModel::requestLinkDiscord,
                                 onRecheckPlus = viewModel::refreshXoraPlus,
-                                onPlusRoleIds = viewModel::setPlusRoleIds,
                             )
                             OnboardingStep.Steam -> SteamStep(
                                 steam = state.steamWebApi,
@@ -1557,10 +1558,8 @@ private fun DiscordStep(
     discordPresence: DiscordPresenceUiState,
     xoraPlus: XoraPlusCheckState,
     xoraPlusBypass: Boolean,
-    plusRoleIds: String,
     onLinkDiscord: () -> Unit,
     onRecheckPlus: () -> Unit,
-    onPlusRoleIds: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1575,28 +1574,8 @@ private fun DiscordStep(
             color = Color.White,
         )
 
-        val discordLabel = when {
-            discordPresence.connecting -> "Connecting Discord…"
-            discordPresence.capability == DiscordPresenceCapability.Connected ->
-                "Discord linked"
-            discordPresence.capability == DiscordPresenceCapability.NeedsDiscordApp ->
-                "Install Discord"
-            discordPresence.capability == DiscordPresenceCapability.Failed ->
-                "Retry Discord link"
-            discordPresence.capability == DiscordPresenceCapability.SdkMissing ->
-                "Discord SDK missing"
-            discordPresence.capability == DiscordPresenceCapability.NotConfigured ->
-                "Link Discord"
-            else -> "Link Discord"
-        }
-        val canLinkDiscord = discordPresence.capability == DiscordPresenceCapability.NeedsAccountLink ||
-            discordPresence.capability == DiscordPresenceCapability.NeedsDiscordApp ||
-            discordPresence.capability == DiscordPresenceCapability.Failed ||
-            discordPresence.capability == DiscordPresenceCapability.Connected ||
-            (discordPresence.capability == DiscordPresenceCapability.NotConfigured &&
-                discordPresence.applicationId.isNotBlank())
-        val discordEnabled = canLinkDiscord && !discordPresence.connecting &&
-            discordPresence.capability != DiscordPresenceCapability.SdkMissing
+        val discordLabel = discordOnboardingLinkLabel(discordPresence)
+        val discordEnabled = discordOnboardingLinkEnabled(discordPresence)
 
         SettingsPadTarget(
             id = "social_discord",
@@ -1609,9 +1588,15 @@ private fun DiscordStep(
                 Text(discordLabel)
             }
         }
-        if (discordPresence.capability == DiscordPresenceCapability.Connected) {
+        if (discordOnboardingSessionReady(discordPresence)) {
             Text(
-                text = "Discord account linked.",
+                text = if (discordPresence.connecting &&
+                    discordPresence.capability != DiscordPresenceCapability.Connected
+                ) {
+                    "Discord sign-in received. If this stays on Connecting, tap it again."
+                } else {
+                    "Discord account linked."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White,
             )
@@ -1623,44 +1608,15 @@ private fun DiscordStep(
             )
         }
 
-        val plusLine = when {
-            xoraPlusBypass -> "Access override accepted."
-            xoraPlus.checking -> "Checking XOrA Plus…"
-            xoraPlus.detail.isNotBlank() -> xoraPlus.detail
-            xoraPlus.plusConfirmed -> "XOrA Plus confirmed."
-            else -> "Next stays locked until XOrA Plus is confirmed."
-        }
         Text(
-            text = plusLine,
+            text = xoraPlusOnboardingLine(xoraPlusBypass, xoraPlus),
             style = MaterialTheme.typography.bodySmall,
             color = Color.White,
         )
 
         SettingsPadTarget(id = "social_discord_recheck", onActivate = onRecheckPlus) {
-            OutlinedButton(onClick = onRecheckPlus, enabled = !xoraPlus.checking) {
+            OutlinedButton(onClick = onRecheckPlus, enabled = !xoraPlus.checking && !xoraPlus.hasPlus) {
                 Text("Check XOrA Plus again")
-            }
-        }
-
-        // Role *names* are bot-only on Discord's API, so an exact check needs the snowflake.
-        // Shown with the account's own role ids to copy from when the owner sets it up.
-        val roleHintVisible = plusRoleIds.isNotBlank() ||
-            xoraPlus.status == XoraPlusStatus.InGuildUnverified ||
-            xoraPlus.status == XoraPlusStatus.InGuildNoPlus
-        if (roleHintVisible) {
-            OnboardingSecretField(
-                id = "social_plus_role",
-                label = "XOrA Plus role ID (optional)",
-                value = plusRoleIds,
-                onCommit = onPlusRoleIds,
-            )
-            if (xoraPlus.roleIds.isNotEmpty()) {
-                Text(
-                    text = "Your roles on the XOrA server: " +
-                        xoraPlus.roleIds.joinToString(", "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White,
-                )
             }
         }
     }
@@ -1926,7 +1882,7 @@ private fun OnboardingActions(
             onActivate = { if (state.canAdvance) onNext() },
         ) {
             Button(
-                onClick = onNext,
+                onClick = { if (state.canAdvance) onNext() },
                 enabled = state.canAdvance,
             ) {
                 Text(

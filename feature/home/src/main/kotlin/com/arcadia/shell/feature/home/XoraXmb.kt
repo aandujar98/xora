@@ -355,8 +355,8 @@ fun buildXoraCategoryItems(
         ),
         XoraXmbItem(
             id = "set_update",
-            title = "Update",
-            subtitle = "Check for a new XOrA version",
+            title = "About XOrA",
+            subtitle = "Version, updates & open source",
             action = XoraXmbAction.InstallLatestUpdate,
             icon = XmbIcon.Update,
         ),
