@@ -37,7 +37,10 @@ jobs:
 
       - name: Install NDK and CMake
         run: |
-          sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1"
+          # 27.0.12077973 is pinned by :core:launcher whenever the Discord Social SDK AAR is
+          # present — its prefab was built against that NDK — so it has to be installed or the
+          # Discord-enabled build cannot configure.
+          sdkmanager --install "ndk;27.2.12479018" "ndk;27.0.12077973" "cmake;3.22.1"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
           echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
 
@@ -49,9 +52,6 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: gradle-
-
-      - name: Hide Discord AAR (unsupported local AAR in library module)
-        run: mv core/launcher/libs/discord_partner_sdk.aar core/launcher/libs/discord_partner_sdk.aar.bak
 
       - name: Pre-fetch mGBA (avoids a per-ABI clone race during CMake configure)
         run: |
@@ -83,12 +83,20 @@ jobs:
       - name: Compute next version tag
         id: ver
         run: |
-          LATEST=$(git tag --list "v0.2.*" | grep -E "^v0\.2\.[0-9]+$" | sort -t. -k3 -n | tail -1)
-          if [ -z "$LATEST" ]; then
-            NEXT="v0.2.167"
-          else
-            PATCH=$(echo "$LATEST" | cut -d. -f3)
-            NEXT="v0.2.$((PATCH + 1))"
+          # Tag what the app actually is. Counting up from the old v0.2.x tags published a
+          # 0.5.6 build as v0.2.346.
+          VN=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          VC=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -1)
+          if [ -z "$VN" ]; then
+            echo "Could not read versionName from app/build.gradle.kts" >&2
+            exit 1
+          fi
+          NEXT="v$VN"
+          if git rev-parse -q --verify "refs/tags/$NEXT" >/dev/null; then
+            NEXT="v$VN-$VC"
+          fi
+          if git rev-parse -q --verify "refs/tags/$NEXT" >/dev/null; then
+            NEXT="v$VN-$VC-$(git rev-parse --short HEAD)"
           fi
           echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
           echo "Next tag: $NEXT"
