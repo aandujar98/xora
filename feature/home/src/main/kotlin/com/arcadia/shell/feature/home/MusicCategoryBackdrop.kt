@@ -1,7 +1,7 @@
 package com.arcadia.shell.feature.home
 
 /** Bundled white-background wave loop (GitHub tag `music-BG-mask`). */
-internal const val MUSIC_WAVE_MASK_ASSET = "music/wave_mask.mp4"
+internal const val MUSIC_WAVE_MASK_ASSET = "music/wave_black.mp4"
 
 internal const val MUSIC_WAVE_MASK_URI = "asset:///$MUSIC_WAVE_MASK_ASSET"
 
