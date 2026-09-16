@@ -54,8 +54,12 @@ The repo had Dashboard / Store / News — the All Friends rung was absent. Fixed
 
 Confirmed by string-literal diff against the repo (present in the APK, absent from source):
 
-### Edit Profile — the status bar by the profile bubble (class `sw3`)
-Entirely missing. 0.5.6 copy:
+### Edit Profile — the status bar by the profile bubble (class `sw3`) — **REBUILT**
+Was entirely missing; the repo carried a 0.3.45-era form (Display name / Username /
+Location fields with Save and Cancel). Rebuilt to 0.5.6's layout: the avatar bubble with its
+pencil overlay on the left, USERNAME and XORA NETWORK STATUS stacked beside it, and the
+PROFILE PICTURE sheet underneath. Three focus sections replace the five form rows, and the
+sheet and status menu take the stick while open. 0.5.6 copy, all now in place:
 - Headings: `EDIT PROFILE`, `USERNAME:`, `XORA NETWORK STATUS:`, `PROFILE PICTURE`
 - Status values: `Online`, `Away`, `Busy`, `Offline`
 - Picture sources: `Upload a new picture`, `Use your Discord picture` (disabled hint
