@@ -270,6 +270,11 @@ fun NotificationBanner(
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
     val content = bannerContent(notification)
+    // Trophies arrive mid-game and often in bursts, so they ride at half scale — the same glass
+    // card, just small enough to read past rather than sit through.
+    val compact = notification is ShellNotification.AchievementUnlocked ||
+        notification is ShellNotification.FriendAchievementUnlocked
+    val scale = if (compact) 0.5f else 1f
     val accessibility = listOfNotNull(
         content.category,
         content.body,
@@ -283,7 +288,7 @@ fun NotificationBanner(
     ) {
         Row(
             modifier = Modifier
-                .widthIn(min = 220.dp, max = 300.dp)
+                .widthIn(min = 220.dp * scale, max = 300.dp * scale)
                 .xoraForegroundShadow(
                     shape = BannerShape,
                     offset = BannerShadowOffset,
@@ -301,9 +306,9 @@ fun NotificationBanner(
                     onDismiss()
                 })
                 .semantics { contentDescription = accessibility }
-                .padding(horizontal = 10.dp, vertical = 5.dp),
+                .padding(horizontal = 10.dp * scale, vertical = 5.dp * scale),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp * scale),
         ) {
             BannerAvatar(
                 url = content.avatarUrl,
@@ -426,6 +431,17 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             subtitle = copy.subtitle,
             avatarUrl = notification.badgeUrl,
             avatarFallback = "RA",
+            accent = if (notification.hardcore) Color(0xFFFFC24B) else Color(0xFF37D6A0),
+        )
+
+        is ShellNotification.FriendAchievementUnlocked -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_trophy,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            // Their badge is the news; their face is the fallback when the badge has not loaded.
+            avatarUrl = notification.badgeUrl ?: notification.avatarUrl,
+            avatarFallback = notification.displayName.take(2).uppercase(),
             accent = if (notification.hardcore) Color(0xFFFFC24B) else Color(0xFF37D6A0),
         )
 

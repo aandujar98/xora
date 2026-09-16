@@ -932,12 +932,19 @@ private fun XoraSelfPresenceChip(network: XoraNetworkState) {
 private fun XoraFriendPresenceChip(friend: XoraFriend) {
     val presence = xoraFriendPresence(friend)
     val activity = xoraFriendActivity(friend)
+    // A friend who wrote a status meant it to be read. In a game the game wins — that is the more
+    // specific news — but anywhere else their own words beat the bare state word.
+    val custom = activity?.takeUnless {
+        it.equals("Online", ignoreCase = true) ||
+            it.equals("Away", ignoreCase = true) ||
+            it.equals("Busy", ignoreCase = true)
+    }
     val (label, color) = when (presence) {
         SocialPresence.Offline -> "Offline" to InkMuted
-        SocialPresence.Away -> "Away" to AwayAmber
-        SocialPresence.Busy -> "Busy" to BusyRose
+        SocialPresence.Away -> (custom ?: "Away") to AwayAmber
+        SocialPresence.Busy -> (custom ?: "Busy") to BusyRose
         SocialPresence.InGame -> (activity ?: "In game") to OnlineGreen
-        SocialPresence.Online -> (activity?.takeUnless { it.equals("Online", ignoreCase = true) } ?: "Online") to OnlineGreen
+        SocialPresence.Online -> (custom ?: "Online") to OnlineGreen
     }
     StateChip(label, color)
 }

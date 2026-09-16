@@ -123,9 +123,19 @@ data class XoraDashboardUiState(
 ) {
     val focusedTile: DashboardTile? get() = DASHBOARD_TILES.getOrNull(tileIndex)
 
-    /** Ordered rows behind [friendsIndex]: the add field, invites first, then friends. */
+    /**
+     * Invites stay pinned at the top — they are the rows that want an answer. Friends below them
+     * sort by [friendPresenceRank], so whoever is in a game comes first, then anyone else
+     * reachable, and the offline block settles at the bottom. Name breaks ties so the list does
+     * not reshuffle itself on every presence poll.
+     */
     val friendRows: List<com.arcadia.shell.xoranetwork.XoraFriend>
-        get() = network.incomingInvites + network.outgoingInvites + network.acceptedFriends
+        get() = network.incomingInvites + network.outgoingInvites +
+            network.acceptedFriends.sortedWith(
+                compareBy<com.arcadia.shell.xoranetwork.XoraFriend> {
+                    friendPresenceRank(xoraFriendPresence(it))
+                }.thenBy { it.displayName.ifBlank { it.username }.lowercase() },
+            )
 }
 
 /** Everything the Dashboard pane can ask the shell to do — touch and gamepad both land here. */

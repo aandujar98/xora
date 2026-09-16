@@ -49,6 +49,20 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
         )
     }
 
+    is ShellNotification.FriendAchievementUnlocked -> {
+        val detail = listOfNotNull(
+            title.trim().takeIf { it.isNotEmpty() },
+            points?.takeIf { it > 0 }?.let { "$it pts" },
+            if (hardcore) "Hardcore" else null,
+            gameTitle?.trim()?.takeIf { it.isNotEmpty() },
+        ).joinToString(" · ").ifBlank { "Achievement unlocked" }
+        ShellNotificationCopy(
+            category = "Trophy",
+            body = "$displayName unlocked",
+            subtitle = detail,
+        )
+    }
+
     is ShellNotification.RetroAchievementsSignedIn -> {
         val mode = if (hardcore) "Hardcore" else "Softcore"
         val game = gameTitle?.trim()?.takeIf { it.isNotEmpty() }

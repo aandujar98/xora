@@ -253,6 +253,8 @@ class ShellNotificationCenter @Inject constructor(
             FriendNetwork.Steam -> steamFriendOnlineEnabled
             FriendNetwork.Xora -> xoraFriendOnlineEnabled
         }
+        // A friend's trophy is XOrA Network friend news, so it honours the same switch.
+        is ShellNotification.FriendAchievementUnlocked -> xoraFriendOnlineEnabled
         else -> true
     }
 

@@ -1241,8 +1241,12 @@ private fun XoraXmbPillChrome(
         // so the mini player hides there and comes back on exit. The RA capsule stays off the
         // Vita launch page — no chrome card, no in-peel copy.
         val musicFocused = state.xoraXmb.category == XoraXmbCategory.Music
+        // While a song is actually playing the pill follows you out of Music and stays up
+        // wherever you browse — the transport should be reachable without walking back. Music
+        // still shows it when merely focused, so a paused queue keeps its controls. Now Playing
+        // has its own transport, and game media still wins the corner.
         val showMiniPlayer = !launchPageOpen &&
-            musicFocused &&
+            (musicFocused || musicPlaying) &&
             state.xoraXmb.depth != XoraXmbDepth.NowPlaying &&
             state.xoraXmb.depth != XoraXmbDepth.RaLibrary &&
             !state.xoraXmb.showsGameMedia
@@ -1256,7 +1260,10 @@ private fun XoraXmbPillChrome(
             exit = fadeOut(arcadiaTween(ArcadiaMotion.Medium)),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                // Recedes with the rest of the shell when the Vita tray comes up, so the tray
+                // reads as the foreground rather than competing with the corner.
+                .then(if (trayBlur > 0.dp) Modifier.blur(trayBlur) else Modifier),
         ) {
             NowPlayingPill(
                 state = state.music.nowPlaying.withLivePosition(nowPlayingPositionMs),

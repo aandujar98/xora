@@ -269,8 +269,12 @@ data class ShellSettings(
      * When true, resolve and persist [com.arcadia.shell.model.Game.trailerUrl] during metadata
      * scrape and on idle. When false, never fetch; already-stored URLs still play if idle trailers
      * are enabled.
+     *
+     * Off by default: playback is the feature people want, and fetching is the expensive half —
+     * it costs bandwidth on every scrape for something most libraries never watch. Turn it on to
+     * go looking; leave it off and trailers still play wherever a URL is already stored.
      */
-    val trailerScrapeEnabled: Boolean = true,
+    val trailerScrapeEnabled: Boolean = false,
     /** Which provider(s) to use when [trailerScrapeEnabled] is on. */
     val trailerSourcePreference: TrailerSourcePreference = TrailerSourcePreference.Auto,
     val trailerDisplayMode: TrailerDisplayMode = TrailerDisplayMode.InIcon,
@@ -508,7 +512,7 @@ class ShellPreferences @Inject constructor(
                 ?.let { name -> runCatching { ThemeMode.valueOf(name) }.getOrNull() }
                 ?: ThemeMode.Dark,
             trailerEnabled = prefs[Keys.TRAILER_ENABLED] ?: true,
-            trailerScrapeEnabled = prefs[Keys.TRAILER_SCRAPE_ENABLED] ?: true,
+            trailerScrapeEnabled = prefs[Keys.TRAILER_SCRAPE_ENABLED] ?: false,
             trailerSourcePreference = prefs[Keys.TRAILER_SOURCE_PREFERENCE]
                 ?.let { name -> runCatching { TrailerSourcePreference.valueOf(name) }.getOrNull() }
                 ?: TrailerSourcePreference.Auto,

@@ -113,6 +113,23 @@ sealed interface ShellNotification {
         val avatarUrl: String? = null,
     ) : ShellNotification
 
+    /**
+     * A friend on XOrA Network unlocked something. Deliberately separate from
+     * [AchievementUnlocked], which is your own trophy: this one leads with who earned it, and it
+     * only ever carries XOrA Network friends — the point is that it is people you actually know
+     * here, not every RetroAchievements account being followed.
+     */
+    data class FriendAchievementUnlocked(
+        override val id: String,
+        val displayName: String,
+        val title: String,
+        val gameTitle: String? = null,
+        val points: Int? = null,
+        val badgeUrl: String? = null,
+        val avatarUrl: String? = null,
+        val hardcore: Boolean = false,
+    ) : ShellNotification
+
     /** A friend on Steam, Discord, or XOrA Network started (or switched) a game. */
     data class FriendPlaying(
         override val id: String,

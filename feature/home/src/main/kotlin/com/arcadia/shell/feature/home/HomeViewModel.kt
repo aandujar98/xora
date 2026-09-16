@@ -1640,7 +1640,13 @@ class HomeViewModel @Inject constructor(
             appForegroundTracker.isForeground,
             customMediaEpoch,
             isLaunching,
-            gameSoundBitePlayer.playbackSuppressed,
+            // A sound bite talking over a song is the one combination nobody wants, so a playing
+            // track suppresses bites the same way the player's own suppression flag does. Folded
+            // in here rather than added as a sixth source: combine's typed overloads stop at five.
+            combine(
+                gameSoundBitePlayer.playbackSuppressed,
+                nowPlayingController.state.map { it.isPlaying }.distinctUntilChanged(),
+            ) { suppressed, musicPlaying -> suppressed || musicPlaying },
         ) { focus, foreground, _, launching, suppressed ->
             if (!foreground || focus == null || launching || suppressed) {
                 null
@@ -10783,10 +10789,18 @@ class HomeViewModel @Inject constructor(
         gameCompanionController.onShellBackgrounded()
         // Device Now Playing keeps going via the media foreground service (emulator + Home).
         nowPlayingController.onShellBackgrounded()
+        // A booted game owns the speakers, so the soundtrack ramps down behind it. A pending
+        // play session is what separates that from sleep or stepping out to another app, where
+        // the music is meant to carry on — so only a launch fades.
+        if (sessionTracker.hasPendingSession()) {
+            nowPlayingController.setGameStandbyActive(true)
+        }
     }
 
     /** Called when the shell regains focus, to record playtime and re-read permission state. */
     fun onResumed() {
+        // Back in the shell: whatever the music was doing under a game, it comes back up.
+        nowPlayingController.setGameStandbyActive(false)
         // Coming back from the emulator ends the play session, and with it the companion panel.
         gameCompanionController.onShellForegrounded()
         releaseSoundBiteHoldIfSessionOver()
