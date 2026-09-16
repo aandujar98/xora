@@ -125,6 +125,7 @@ fun ArcadiaShell(
     modifier: Modifier = Modifier,
 ) {
     val state by homeViewModel.uiState.collectAsStateWithLifecycle()
+    val nowPlayingPositionMs by homeViewModel.nowPlayingPositionMs.collectAsStateWithLifecycle()
     val gameCompanion by homeViewModel.gameCompanion.collectAsStateWithLifecycle()
     var route by rememberSaveable { mutableStateOf(ShellRoute.Home) }
     var pendingBootAfterOnboarding by remember { mutableStateOf(false) }
@@ -606,6 +607,7 @@ fun ArcadiaShell(
             } else if (route != ShellRoute.Settings) {
                 HomeScreen(
                     state = state,
+                    nowPlayingPositionMs = nowPlayingPositionMs,
                     onSelectTab = homeViewModel::selectTab,
                     onSelectGame = homeViewModel::selectGame,
                     onLaunchGame = { index ->
@@ -1314,6 +1316,7 @@ private fun PaneForRole(
 ) {
     val enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
     val exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
+    val nowPlayingPositionMs by homeViewModel.nowPlayingPositionMs.collectAsStateWithLifecycle()
     AnimatedContent(
         targetState = role,
         transitionSpec = { enter togetherWith exit },
@@ -1325,6 +1328,7 @@ private fun PaneForRole(
                 if (state.homePage == HomePage.Home) {
                     XoraXmbHeroDetail(
                         state = state,
+                        nowPlayingPositionMs = nowPlayingPositionMs,
                         onToggleAccountPanel = homeViewModel::toggleAccountPanel,
                         onToggleSystemPanel = homeViewModel::toggleSystemPanel,
                     onOpenNotifications = homeViewModel::openNotificationHistory,

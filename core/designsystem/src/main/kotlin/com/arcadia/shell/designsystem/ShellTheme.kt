@@ -14,7 +14,7 @@ enum class ShellThemeId(val id: String, val displayName: String) {
     Midnight("midnight", "Midnight"),
     ClassicXmb("classic_xmb", "Classic XMB"),
     WarmArcade("warm_arcade", "Warm Arcade"),
-    UsagiShadePink("usagishade_pink", "UsagiShade (Pink)"),
+    UsagiShadePink("usagishade_pink", "Usagi Reload"),
     UsagiShadeDark("usagishade_dark", "UsagiShade (Dark)"),
     DreamOs("dreamos", "DreamOS"),
     ;
@@ -236,7 +236,7 @@ object ShellThemeCatalog {
             assetPath = USAGISHADE_BGM_ASSET,
             displayHint = "System menu theme",
         ),
-        description = "Pink motion field, glossy rose chrome",
+        description = "Usagi Reload motion field, glossy rose chrome",
     )
 
     val UsagiShadeDark: ShellTheme = ShellTheme(

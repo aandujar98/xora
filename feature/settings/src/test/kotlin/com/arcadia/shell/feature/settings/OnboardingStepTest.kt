@@ -7,6 +7,7 @@ import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import com.arcadia.shell.launcher.discord.XoraPlusCheckState
 import com.arcadia.shell.launcher.discord.XoraPlusStatus
+import com.arcadia.shell.launcher.discord.xoraPlusOnboardingLine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -95,7 +96,7 @@ class OnboardingStepTest {
         )
         assertTrue(plus.canAdvance)
 
-        // Discord never names guild roles for a user token; membership alone still opens the gate.
+        // In the server without a matched Plus role does not unlock Next.
         val unverified = OnboardingUiState(
             step = OnboardingStep.Discord,
             discordPresence = DiscordPresenceUiState(
@@ -103,13 +104,52 @@ class OnboardingStepTest {
             ),
             xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
         )
-        assertTrue(unverified.canAdvance)
+        assertFalse(unverified.canAdvance)
 
         val bypass = OnboardingUiState(
             step = OnboardingStep.Discord,
             xoraPlusBypass = true,
         )
         assertTrue(bypass.canAdvance)
+
+        // Tokens exist but Social SDK Connect() has not reached Ready yet.
+        val connectingPlus = OnboardingUiState(
+            step = OnboardingStep.Discord,
+            discordPresence = DiscordPresenceUiState(
+                capability = DiscordPresenceCapability.NeedsAccountLink,
+                connecting = true,
+            ),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.HasPlus),
+        )
+        assertTrue(connectingPlus.canAdvance)
+
+        val connectingNoPlus = OnboardingUiState(
+            step = OnboardingStep.Discord,
+            discordPresence = DiscordPresenceUiState(
+                capability = DiscordPresenceCapability.NeedsAccountLink,
+                connecting = true,
+            ),
+            xoraPlus = XoraPlusCheckState(status = XoraPlusStatus.CheckFailed),
+        )
+        assertFalse(connectingNoPlus.canAdvance)
+    }
+
+    @Test
+    fun discordStepTellsThePlayerWhetherPlusWasDetected() {
+        assertEquals(
+            "XOrA detected the XOrA Plus role on this Discord account.",
+            xoraPlusOnboardingLine(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.HasPlus),
+            ),
+        )
+        assertEquals(
+            "XOrA did not detect the XOrA Plus role on this Discord account.",
+            xoraPlusOnboardingLine(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.InGuildNoPlus),
+            ),
+        )
     }
 
     @Test

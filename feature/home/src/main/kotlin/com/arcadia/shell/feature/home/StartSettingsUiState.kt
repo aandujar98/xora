@@ -129,6 +129,9 @@ sealed interface StartSettingsAction {
     data object ToggleFriendPlaying : StartSettingsAction
     data object TestNotification : StartSettingsAction
 
+    /** Deep link to "Display over other apps" for the friend banner overlay. */
+    data object OpenFriendBannerOverlaySettings : StartSettingsAction
+
     // General
     data object CycleGamesSecondarySlot : StartSettingsAction
     data object CycleXmbTitleStyle : StartSettingsAction
@@ -210,6 +213,7 @@ fun buildStartSettingsRows(
     raSettings: RetroAchievementsSettings = RetroAchievementsSettings(),
     deviceSuggestsLite: Boolean? = null,
     deviceRamLabel: String? = null,
+    friendBannerOverlayGranted: Boolean = false,
 ): List<StartSettingsRow> = when (category) {
     StartSettingsCategory.Display -> listOf(
         StartSettingsRow.Action(
@@ -593,6 +597,16 @@ fun buildStartSettingsRows(
             title = "Test notification",
             subtitle = "Preview banner & chime",
             action = StartSettingsAction.TestNotification,
+        ),
+        StartSettingsRow.Action(
+            id = "friend_banner_overlay",
+            title = "Friend banners over other apps",
+            subtitle = if (friendBannerOverlayGranted) {
+                "Allowed · shows friend online / playing over other apps"
+            } else {
+                "Needs \"Display over other apps\" · tap to allow"
+            },
+            action = StartSettingsAction.OpenFriendBannerOverlaySettings,
         ),
     )
 

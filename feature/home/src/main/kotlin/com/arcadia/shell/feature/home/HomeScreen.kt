@@ -142,6 +142,11 @@ fun HomeScreen(
     onSignOutRetroAchievements: () -> Unit,
     onPhotoCommand: (PhotoPaneCommand) -> Unit = {},
     onDashboardCommand: (DashboardCommand) -> Unit = {},
+    /**
+     * Live playback position, ticking every ~250ms while music plays — kept out of [state] so
+     * the Now Playing pane can animate smoothly without recomposing the rest of the XMB.
+     */
+    nowPlayingPositionMs: Long = 0L,
     modifier: Modifier = Modifier,
 ) {
     val contentTween = arcadiaTween<Float>(ArcadiaMotion.Medium)
@@ -181,6 +186,7 @@ fun HomeScreen(
                         ) {
                             HomePageContent(
                                 state = state,
+                                nowPlayingPositionMs = nowPlayingPositionMs,
                                 onSelectTab = onSelectTab,
                                 onSelectGame = onSelectGame,
                                 onLaunchGame = onLaunchGame,
@@ -282,6 +288,7 @@ fun HomeScreen(
                         ) {
                             HomePageContent(
                                 state = state,
+                                nowPlayingPositionMs = nowPlayingPositionMs,
                                 onSelectTab = onSelectTab,
                                 onSelectGame = onSelectGame,
                                 onLaunchGame = onLaunchGame,
@@ -475,6 +482,7 @@ fun HomeScreen(
 
                         HomePageContent(
                             state = state,
+                            nowPlayingPositionMs = nowPlayingPositionMs,
                             onSelectTab = onSelectTab,
                             onSelectGame = onSelectGame,
                             onLaunchGame = onLaunchGame,
@@ -579,6 +587,8 @@ fun HomeScreen(
 @Composable
 fun HomePageContent(
     state: HomeUiState,
+    /** Live playback position — see [HomeScreen]'s parameter of the same name. */
+    nowPlayingPositionMs: Long = 0L,
     onSelectTab: (Int) -> Unit,
     onSelectGame: (Int) -> Unit,
     onLaunchGame: (Int) -> Unit,
@@ -693,6 +703,7 @@ fun HomePageContent(
                     val trayOpen = state.homeHub.vitaShortcutTrayOpen
                     XoraHomeXmbPane(
                         state = state,
+                        nowPlayingPositionMs = nowPlayingPositionMs,
                         onSelectCategory = onSelectXoraCategory,
                         onSelectItem = onSelectXoraItem,
                         onActivateItem = onActivateXoraItem,

@@ -58,8 +58,14 @@ class DisplayOverlayWindow(
      * Adds the window to [displayId]. Returns false when the display is gone, the overlay
      * permission is missing, or the window manager rejects the token — all of which are normal and
      * must leave the caller in a usable state.
+     *
+     * [fullScreen] is the companion-panel case: a `MATCH_PARENT` window that claims the whole
+     * display (fine for a dedicated second screen, since nothing else is using it). Pass `false`
+     * for a small floating window instead — `WRAP_CONTENT`, sized to [content] — so a heads-up
+     * banner over another running app only intercepts touches on its own footprint and leaves the
+     * rest of the screen usable underneath it.
      */
-    fun show(displayId: Int, content: @Composable () -> Unit): Boolean {
+    fun show(displayId: Int, fullScreen: Boolean = true, content: @Composable () -> Unit): Boolean {
         if (isShowing) return true
         if (!OverlayPermission.isGranted(outerContext)) return false
 
@@ -87,7 +93,7 @@ class DisplayOverlayWindow(
             setContent(content)
         }
 
-        val added = runCatching { manager.addView(view, layoutParams()) }.isSuccess
+        val added = runCatching { manager.addView(view, layoutParams(fullScreen)) }.isSuccess
         if (!added) {
             lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
             return false
@@ -113,19 +119,28 @@ class DisplayOverlayWindow(
         viewModelStore.clear()
     }
 
-    private fun layoutParams() = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.MATCH_PARENT,
-        OVERLAY_TYPE,
-        // NOT_FOCUSABLE keeps keys and gamepad input flowing to the game while touch still lands
-        // here. LAYOUT_NO_LIMITS lets the panel run under the second screen's cutouts and bars.
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
-        PixelFormat.TRANSLUCENT,
-    ).apply {
-        gravity = Gravity.TOP or Gravity.START
-        DisplayRefresh.applyToLayoutParams(this)
+    private fun layoutParams(fullScreen: Boolean): WindowManager.LayoutParams {
+        val size = if (fullScreen) {
+            WindowManager.LayoutParams.MATCH_PARENT
+        } else {
+            WindowManager.LayoutParams.WRAP_CONTENT
+        }
+        return WindowManager.LayoutParams(
+            size,
+            size,
+            OVERLAY_TYPE,
+            // NOT_FOCUSABLE keeps keys and gamepad input flowing to the app underneath while touch
+            // still lands here. LAYOUT_NO_LIMITS lets a full-screen panel run under the second
+            // screen's cutouts and bars — a small floating window skips it so its own touchable
+            // bounds stay just its content, leaving the rest of the screen to the app below.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                (if (fullScreen) WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS else 0) or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            DisplayRefresh.applyToLayoutParams(this)
+        }
     }
 
     private companion object {

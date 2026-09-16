@@ -62,10 +62,14 @@ class XoraPlusMembershipTest {
     }
 
     @Test
-    fun unverifiedMembershipStillOpensTheGateButIsNotConfirmed() {
+    fun unverifiedMembershipDoesNotOpenTheGate() {
         val unverified = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified)
-        assertTrue(unverified.hasPlus)
+        assertFalse(unverified.hasPlus)
         assertFalse(unverified.plusConfirmed)
+
+        val noPlus = XoraPlusCheckState(status = XoraPlusStatus.InGuildNoPlus)
+        assertFalse(noPlus.hasPlus)
+        assertFalse(noPlus.plusConfirmed)
 
         val confirmed = XoraPlusCheckState(status = XoraPlusStatus.HasPlus)
         assertTrue(confirmed.hasPlus)
@@ -75,6 +79,7 @@ class XoraPlusMembershipTest {
             XoraPlusStatus.NotLinked,
             XoraPlusStatus.Checking,
             XoraPlusStatus.InGuildNoPlus,
+            XoraPlusStatus.InGuildUnverified,
             XoraPlusStatus.NotInGuild,
             XoraPlusStatus.CheckFailed,
         )) {
@@ -116,6 +121,144 @@ class XoraPlusMembershipTest {
         assertFalse(
             discordCanSignOut(
                 DiscordPresenceUiState(capability = DiscordPresenceCapability.NeedsAccountLink),
+            ),
+        )
+    }
+
+    @Test
+    fun onboardingLineReportsWhetherPlusWasDetected() {
+        assertEquals(
+            "Link Discord so XOrA can detect whether you have the XOrA Plus role.",
+            xoraPlusOnboardingLine(bypass = false, plus = XoraPlusCheckState()),
+        )
+        assertEquals(
+            "XOrA detected the XOrA Plus role on this Discord account.",
+            xoraPlusOnboardingLine(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.HasPlus),
+            ),
+        )
+        assertEquals(
+            "XOrA did not detect the XOrA Plus role on this Discord account.",
+            xoraPlusOnboardingLine(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.InGuildNoPlus),
+            ),
+        )
+        assertEquals(
+            "XOrA did not detect the XOrA Plus role on this Discord account.",
+            xoraPlusOnboardingLine(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
+            ),
+        )
+        assertEquals(
+            "Access override accepted.",
+            xoraPlusOnboardingLine(bypass = true, plus = XoraPlusCheckState()),
+        )
+        val failed = xoraPlusOnboardingLine(
+            bypass = false,
+            plus = XoraPlusCheckState(
+                status = XoraPlusStatus.CheckFailed,
+                detail = XORA_PLUS_RATE_LIMITED_DETAIL,
+            ),
+        )
+        assertEquals(XORA_PLUS_RATE_LIMITED_DETAIL, failed)
+        assertFalse(failed.contains("five times"))
+        assertFalse(failed.contains("role id"))
+        assertFalse(failed.contains("0825"))
+        assertFalse(failed.contains("Link Discord again"))
+    }
+
+    @Test
+    fun retryAfterPrefersJsonSecondsThenHeader() {
+        assertEquals(0L, parseDiscordRetryAfterMs(200, "2", """{"retry_after":1}"""))
+        assertEquals(
+            1_500L,
+            parseDiscordRetryAfterMs(
+                429,
+                "9",
+                """{"message":"You are being rate limited.","retry_after":1.5,"global":false}""",
+            ),
+        )
+        assertEquals(2_000L, parseDiscordRetryAfterMs(429, "2", ""))
+        assertEquals(DISCORD_429_MIN_WAIT_MS, parseDiscordRetryAfterMs(429, null, ""))
+        assertEquals(DISCORD_429_MIN_WAIT_MS, discordRetryWaitMs(10L))
+        assertEquals(DISCORD_429_MAX_WAIT_MS, discordRetryWaitMs(60_000L))
+    }
+
+    @Test
+    fun plusCheckCacheReusesATerminalResultForTheSameToken() {
+        val previous = XoraPlusCheckState(status = XoraPlusStatus.HasPlus)
+        assertTrue(
+            shouldReusePlusCheck(
+                token = "abc",
+                previousToken = "abc",
+                previous = previous,
+                nowMs = 3_000L,
+                previousAtMs = 1_000L,
+            ),
+        )
+        assertFalse(
+            shouldReusePlusCheck(
+                token = "abc",
+                previousToken = "abc",
+                previous = previous,
+                nowMs = 10_000L,
+                previousAtMs = 1_000L,
+            ),
+        )
+        assertFalse(
+            shouldReusePlusCheck(
+                token = "abc",
+                previousToken = "xyz",
+                previous = previous,
+                nowMs = 2_000L,
+                previousAtMs = 1_000L,
+            ),
+        )
+        assertFalse(
+            shouldReusePlusCheck(
+                token = "abc",
+                previousToken = "abc",
+                previous = XoraPlusCheckState(status = XoraPlusStatus.CheckFailed),
+                nowMs = 2_000L,
+                previousAtMs = 1_000L,
+            ),
+        )
+        assertTrue(plusCheckIsCacheable(XoraPlusStatus.InGuildUnverified))
+        assertFalse(plusCheckIsCacheable(XoraPlusStatus.Checking))
+    }
+
+    @Test
+    fun onboardingLinkStaysTappableWhileConnecting() {
+        val connecting = DiscordPresenceUiState(
+            capability = DiscordPresenceCapability.NeedsAccountLink,
+            connecting = true,
+            applicationId = "1",
+        )
+        assertEquals("Connecting Discord…", discordOnboardingLinkLabel(connecting))
+        assertTrue(discordOnboardingLinkEnabled(connecting))
+        assertTrue(discordOnboardingSessionReady(connecting))
+        assertTrue(
+            discordOnboardingMayAdvance(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.HasPlus),
+                presence = connecting,
+            ),
+        )
+        assertFalse(
+            discordOnboardingMayAdvance(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.InGuildUnverified),
+                presence = connecting,
+            ),
+        )
+        assertFalse(
+            discordOnboardingMayAdvance(
+                bypass = false,
+                plus = XoraPlusCheckState(status = XoraPlusStatus.CheckFailed),
+                presence = connecting,
             ),
         )
     }

@@ -160,6 +160,15 @@ fun ShellNotification.dismissalKeys(): Set<String> = buildSet {
     }
 }
 
+/**
+ * Friend presence events eligible for the floating overlay banner over other apps (see
+ * [com.arcadia.shell.launcher.notifications.ShellNotificationCenter.emit]) — deliberately narrow
+ * so a heads-up window with the "draw over other apps" permission only ever appears for the two
+ * event types the player asked to see this way, never messages, achievements, or invites.
+ */
+fun ShellNotification.isFriendPresenceBanner(): Boolean = this is ShellNotification.FriendOnline ||
+    this is ShellNotification.FriendPlaying
+
 fun netplaySessionDismissalKey(fromUsername: String, sessionCode: String): String? {
     val from = fromUsername.trim().lowercase()
     val code = sessionCode.trim()

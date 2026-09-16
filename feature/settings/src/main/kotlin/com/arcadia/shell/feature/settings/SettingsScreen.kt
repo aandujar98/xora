@@ -1242,8 +1242,7 @@ fun SettingsScreen(
 
                 SettingsFieldLabel("Discord")
                 val discordCanSignIn =
-                    !state.discordPresence.connecting &&
-                        state.discordPresence.capability != DiscordPresenceCapability.SdkMissing &&
+                    state.discordPresence.capability != DiscordPresenceCapability.SdkMissing &&
                         state.discordPresence.applicationId.isNotBlank()
                 val discordSignedIn = discordCanSignOut(state.discordPresence)
                 SettingsPadRow("social_discord_auth") {

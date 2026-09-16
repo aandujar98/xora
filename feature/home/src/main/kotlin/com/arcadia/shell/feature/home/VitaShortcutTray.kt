@@ -833,6 +833,10 @@ internal fun vitaTrayPageCount(slotCount: Int): Int =
 internal fun vitaTrayVerticalOneShot(crossedPage: Boolean): UiOneShot =
     if (crossedPage) UiOneShot.VitaPageNavigate else UiOneShot.Cursor
 
+/** Opening the tray plays `vita_open.wav`; already-open (edit / swipe while open) stays silent. */
+internal fun vitaTrayOpenOneShot(alreadyOpen: Boolean): UiOneShot? =
+    if (alreadyOpen) null else UiOneShot.VitaOpen
+
 /**
  * Slot indices for [page], grouped into the staggered rows the design uses. Indices are absolute
  * so callers can address a slot without knowing which page it lives on.

@@ -69,6 +69,10 @@ class UiSoundController @Inject constructor(
     private var peelFastId: Int = 0
     /** Vita shortcut tray page turn (`vita_page_navigate.wav`). */
     private var vitaPageId: Int = 0
+    /** Vita shortcut tray opening (`vita_open.wav`). */
+    private var vitaOpenId: Int = 0
+    /** Vita shortcut tray closing back to the XMB (`vita_menu_close.wav`). */
+    private var vitaMenuCloseId: Int = 0
     /** Active looping peel stream so speed changes replace rather than stack. */
     private var peelStreamId: Int = 0
     private var peelSoundId: Int = 0
@@ -187,6 +191,8 @@ class UiSoundController @Inject constructor(
                         play(cursorId)
                     }
                     UiOneShot.VitaPageNavigate -> play(vitaPageId)
+                    UiOneShot.VitaOpen -> play(vitaOpenId)
+                    UiOneShot.VitaMenuClose -> play(vitaMenuCloseId)
                 }
             }
         }
@@ -235,6 +241,8 @@ class UiSoundController @Inject constructor(
         peelMidId = 0
         peelFastId = 0
         vitaPageId = 0
+        vitaOpenId = 0
+        vitaMenuCloseId = 0
         peelStreamId = 0
         peelSoundId = 0
     }
@@ -300,8 +308,15 @@ class UiSoundController @Inject constructor(
                 // Flag is still the pre-toggle state when this action is observed.
                 if (gamepadDispatcher.guideOpen) ngId else okId
             NavAction.Cancel ->
-                // LT/RT window dismiss is [UiOneShot.NavClose] from Home; skip the generic click.
-                if (gamepadDispatcher.heroPanelClosesOnCancel) return else ngId
+                // LT/RT window dismiss is [UiOneShot.NavClose] and Vita tray close is
+                // [UiOneShot.VitaMenuClose], both fired from Home; skip the generic click.
+                if (gamepadDispatcher.heroPanelClosesOnCancel ||
+                    gamepadDispatcher.vitaTrayClosesOnCancel
+                ) {
+                    return
+                } else {
+                    ngId
+                }
 
             NavAction.Options,
             NavAction.ScrapeMenu,
@@ -435,6 +450,8 @@ class UiSoundController @Inject constructor(
                     peelMidId = created.loadQuietly(R.raw.peel_mid)
                     peelFastId = created.loadQuietly(R.raw.peel_fast)
                     vitaPageId = created.loadQuietly(R.raw.vita_page_navigate)
+                    vitaOpenId = created.loadQuietly(R.raw.vita_open)
+                    vitaMenuCloseId = created.loadQuietly(R.raw.vita_menu_close)
                 }
         }.getOrNull()
         soundPool = pool

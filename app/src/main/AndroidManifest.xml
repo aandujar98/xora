@@ -257,6 +257,15 @@
                 android:value="Keeps the game companion panel visible on the secondary display while a game is running." />
         </service>
 
+        <service
+            android:name=".notifications.FriendBannerOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Shows the friend-online / friend-playing banner over other apps." />
+        </service>
+
         <!--
           Discord Social SDK OAuth callback. Real implementation comes from discord_partner_sdk.aar;
           without the AAR, app/src/noDiscordSdk supplies a no-op stub so the class still resolves.
