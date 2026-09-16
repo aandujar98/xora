@@ -101,6 +101,8 @@ private data class AvatarSourceOption(
     val label: String,
     val iconRes: Int?,
     val available: Boolean,
+    /** 0.5.6 names what to link, per source, rather than folding them into one sentence. */
+    val hint: String? = null,
     val onPick: () -> Unit,
 )
 
@@ -167,6 +169,7 @@ fun ProfileEditSheet(
             "XOrA",
             R.drawable.ic_brand_xora,
             xoraSignedIn,
+            hint = "Sign in to XOrA Network first",
         ) {
             closePhotoChooser()
             onUseXoraAvatar()
@@ -176,6 +179,7 @@ fun ProfileEditSheet(
             "RA",
             R.drawable.xmb_figma_trophy,
             raConfigured,
+            hint = "Sign in to RetroAchievements first",
         ) {
             closePhotoChooser()
             onUseRaAvatar()
@@ -185,6 +189,7 @@ fun ProfileEditSheet(
             "Discord",
             R.drawable.ic_brand_discord,
             discordLinked,
+            hint = "Link Discord first",
         ) {
             closePhotoChooser()
             onUseDiscordAvatar()
@@ -347,7 +352,7 @@ fun ProfileEditSheet(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                Section(label = "Profile picture") {
+                Section(label = "PROFILE PICTURE") {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -362,7 +367,7 @@ fun ProfileEditSheet(
                             )
                         }
                     }
-                    unavailableHint(sources)?.let { hint ->
+                    focusedSourceHint(sources, row == ProfileRow.Source, colIndex)?.let { hint ->
                         XoraSecondaryText(
                             text = hint,
                             fontSize = 12.sp,
@@ -409,7 +414,7 @@ fun ProfileEditSheet(
                     }
                 }
 
-                Section(label = "Display name") {
+                Section(label = "USERNAME:") {
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it.take(NAME_MAX) },
@@ -423,7 +428,7 @@ fun ProfileEditSheet(
 
                 if (xoraSignedIn) {
                     val mode = parseXoraPresenceMode(profile.xoraPresenceMode)
-                    Section(label = "XOrA Network status") {
+                    Section(label = "XORA NETWORK STATUS:") {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -502,7 +507,7 @@ private fun SheetHeader(
             imageModel = avatarImageModel,
         )
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            XoraTitleText(text = "Customize Profile", fontSize = 26.sp, maxLines = 1)
+            XoraTitleText(text = "EDIT PROFILE", fontSize = 26.sp, maxLines = 1)
             XoraSecondaryText(
                 text = sourceLabel(source),
                 fontSize = 13.sp,
@@ -718,24 +723,23 @@ private fun presenceDescription(mode: XoraPresenceMode): String = when (mode) {
 }
 
 private fun sourceLabel(source: AvatarSource): String = when (source) {
-    AvatarSource.Default -> "Colour preset"
-    AvatarSource.Local -> "Custom photo"
-    AvatarSource.RetroAchievements -> "RetroAchievements"
+    AvatarSource.Default -> "Colour"
+    AvatarSource.Local -> "Photo"
+    AvatarSource.RetroAchievements -> "RA"
     AvatarSource.Discord -> "Discord"
-    AvatarSource.XoraNetwork -> "XOrA Network"
+    AvatarSource.XoraNetwork -> "XOrA"
 }
 
 /**
- * Folds what used to be three always-on paragraphs into one line naming only the sources that
- * are actually unavailable, or nothing at all once everything is linked.
+ * 0.5.6 shows one hint at a time — the focused source's, and only while that source is not
+ * linked yet — instead of one folded sentence naming every unavailable source at once.
  */
-private fun unavailableHint(sources: List<AvatarSourceOption>): String? {
-    val names = sources.filter { !it.available }.map { it.label }
-    if (names.isEmpty()) return null
-    val list = if (names.size == 1) {
-        names.first()
-    } else {
-        names.dropLast(1).joinToString(", ") + " or " + names.last()
-    }
-    return "Sign in to $list to use those avatars."
+private fun focusedSourceHint(
+    sources: List<AvatarSourceOption>,
+    sourceRowFocused: Boolean,
+    focusedIndex: Int,
+): String? {
+    if (!sourceRowFocused) return null
+    val option = sources.getOrNull(focusedIndex) ?: return null
+    return option.hint?.takeIf { !option.available }
 }
