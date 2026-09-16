@@ -156,7 +156,7 @@ fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
     XmbIcon.Music -> R.drawable.xmb_figma_music
     XmbIcon.Video -> R.drawable.xmb_figma_video
     XmbIcon.Network -> R.drawable.xmb_figma_network
-    XmbIcon.User, XmbIcon.Guest -> R.drawable.xmb_user
+    XmbIcon.User, XmbIcon.Guest, XmbIcon.Friends -> R.drawable.xmb_user
     XmbIcon.General -> R.drawable.xmb_settings_device
     XmbIcon.Display -> R.drawable.xmb_settings_display
     XmbIcon.Themes -> R.drawable.xmb_settings_theme
@@ -231,7 +231,7 @@ fun XmbIcon.intrinsicDesignSize(): Pair<Float, Float> = when (this) {
     XmbIcon.Music -> 111.16f to 122.19f
     XmbIcon.Video -> 128.56f to 86.20f
     XmbIcon.Network -> 92.20f to 92.20f
-    XmbIcon.User, XmbIcon.Guest -> 134f to 134f
+    XmbIcon.User, XmbIcon.Guest, XmbIcon.Friends -> 134f to 134f
     XmbIcon.General -> 151f to 137f
     XmbIcon.Display -> 162f to 146f
     XmbIcon.Themes -> 192f to 122f

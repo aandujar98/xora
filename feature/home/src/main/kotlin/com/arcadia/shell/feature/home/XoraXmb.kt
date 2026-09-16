@@ -193,6 +193,9 @@ sealed interface XoraXmbAction {
     data class LinkDspAccount(val provider: DspProvider) : XoraXmbAction
     /** XOrA Network → Dashboard — profile, friends, games & RA over the wallpaper. */
     data object OpenDashboard : XoraXmbAction
+
+    /** XOrA Network → All Friends — the Dashboard's friends list, opened straight from the rung. */
+    data object OpenAllFriends : XoraXmbAction
     data object StoreStub : XoraXmbAction
     data object OpenNews : XoraXmbAction
     data class DrillSystem(val platformId: String) : XoraXmbAction
@@ -573,6 +576,13 @@ fun buildXoraCategoryItems(
             subtitle = "Profile, friends & games on XOrA Network",
             action = XoraXmbAction.OpenDashboard,
             icon = XmbIcon.Dashboard,
+        ),
+        XoraXmbItem(
+            id = "all_friends",
+            title = "All Friends",
+            subtitle = "Everyone you're friends with, online or not",
+            action = XoraXmbAction.OpenAllFriends,
+            icon = XmbIcon.Friends,
         ),
         XoraXmbItem(
             id = "store",

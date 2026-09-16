@@ -28,6 +28,12 @@ jobs:
 
       - name: Set up Android SDK tools
         uses: android-actions/setup-android@v3
+        with:
+          # The action installs the obsolete "tools" package by default, which Google has
+          # removed from the SDK repository — sdkmanager now fails with
+          # "Failed to find package 'tools'". Everything this build needs is installed
+          # explicitly by the next step.
+          packages: ''
 
       - name: Install NDK and CMake
         run: |

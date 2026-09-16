@@ -4100,6 +4100,10 @@ class HomeViewModel @Inject constructor(
                 rememberXoraFolder(XoraXmbDepth.Category)
                 openDashboardRung()
             }
+            XoraXmbAction.OpenAllFriends -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openDashboardRung(DashboardView.Friends)
+            }
             XoraXmbAction.StoreStub ->
                 emit(HomeEvent.ShowMessage("XOrA Store — coming soon."))
             XoraXmbAction.OpenNews -> setHomePage(HomePage.RssFeed)
@@ -4801,11 +4805,11 @@ class HomeViewModel @Inject constructor(
     // -------------------------------------------------------------------------------------------
 
     /** Slides into the Dashboard and refreshes account, friends, RA chrome, and play history. */
-    private fun openDashboardRung() {
+    private fun openDashboardRung(view: DashboardView = DashboardView.Tiles) {
         xoraDepth.value = XoraXmbDepth.Dashboard
         xoraItemIndex.value = 0
         dashboardUi.update {
-            it.copy(view = DashboardView.Tiles, tileIndex = 0, busy = false, error = null, notice = null)
+            it.copy(view = view, tileIndex = 0, busy = false, error = null, notice = null)
         }
         viewModelScope.launch {
             val games = libraryRepository.observeGames().first()
