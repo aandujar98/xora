@@ -2,7 +2,6 @@ package com.arcadia.shell.feature.home
 
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.xoranetwork.XoraNetworkState
-import com.arcadia.shell.xoranetwork.XoraPresenceMode
 
 /** Layers inside the XOrA Network Dashboard (Network → Dashboard). */
 enum class DashboardView {
@@ -10,7 +9,7 @@ enum class DashboardView {
     Tiles,
     /** Friends list + invites + add-by-username. */
     Friends,
-    /** Avatar, username and XOrA Network status — 0.5.6's Edit Profile. */
+    /** Edit display name / username / location. */
     EditProfile,
 }
 
@@ -90,82 +89,18 @@ data class DashboardAuthFormState(
 /** Editable fields on the auth + profile forms (touch and gamepad funnel here). */
 enum class DashboardField { Email, Password, Username, DisplayName, Location, FriendQuery }
 
-/**
- * Edit Profile focus sections, in 0.5.6's order: the avatar bubble on the left, then the
- * USERNAME and XORA NETWORK STATUS rows stacked beside it.
- */
-enum class EditProfileSection { Avatar, Username, Status }
-
-/** One row of 0.5.6's PROFILE PICTURE sheet. [disabledHint] shows when the source isn't linked. */
-data class ProfilePictureSource(
-    val label: String,
-    val disabledHint: String? = null,
-    val enabled: Boolean = true,
-)
-
 data class DashboardEditProfileState(
     val displayName: String = "",
     val username: String = "",
     val location: String = "",
     val focusIndex: Int = 0,
     val fieldFocusTick: Int = 0,
-    val statusExpanded: Boolean = false,
-    /** Which picture sources are actually linked, resolved when the screen opens. */
-    val discordLinked: Boolean = false,
-    val raSignedIn: Boolean = false,
-    val steamLinked: Boolean = false,
-    val pictureSheetOpen: Boolean = false,
-    val pictureIndex: Int = 0,
-    /** The username row is a live text field rather than a label. */
-    val usernameEditing: Boolean = false,
 ) {
-    val section: EditProfileSection
-        get() = EditProfileSection.entries.getOrElse(focusIndex) { EditProfileSection.Avatar }
-
     companion object {
-        /** Avatar, Username, Status. */
-        const val ROW_COUNT = 3
+        /** DisplayName, Username, Location, Save, Cancel. */
+        const val ROW_COUNT = 5
     }
 }
-
-/**
- * 0.5.6's picture sources, in order. Everything but upload and the colour swatch needs an
- * account linked first, and says which one in its hint.
- */
-/** The four appearances 0.5.6's status menu offers, in its order. */
-val XORA_PRESENCE_MENU_MODES: List<XoraPresenceMode> = listOf(
-    XoraPresenceMode.Online,
-    XoraPresenceMode.Away,
-    XoraPresenceMode.Busy,
-    XoraPresenceMode.Invisible,
-)
-
-/** 0.5.6 shows the Invisible appearance to its own owner as "Offline". */
-fun xoraPresenceModeLabel(mode: XoraPresenceMode): String = when (mode) {
-    XoraPresenceMode.Online -> "Online"
-    XoraPresenceMode.Away -> "Away"
-    XoraPresenceMode.Busy -> "Busy"
-    XoraPresenceMode.Invisible -> "Offline"
-}
-
-/** How many rows the PROFILE PICTURE sheet has. */
-const val PROFILE_PICTURE_SOURCE_COUNT = 5
-
-fun profilePictureSources(
-    discordLinked: Boolean,
-    raSignedIn: Boolean,
-    steamLinked: Boolean,
-): List<ProfilePictureSource> = listOf(
-    ProfilePictureSource("Upload a new picture"),
-    ProfilePictureSource("Use your Discord picture", "Link Discord first", discordLinked),
-    ProfilePictureSource(
-        "Use your RetroAchievements picture",
-        "Sign in to RetroAchievements first",
-        raSignedIn,
-    ),
-    ProfilePictureSource("Use your Steam picture", "Add your Steam key and ID first", steamLinked),
-    ProfilePictureSource("Use a colour instead"),
-)
 
 data class XoraDashboardUiState(
     val network: XoraNetworkState = XoraNetworkState(),
@@ -212,12 +147,6 @@ sealed interface DashboardCommand {
 
     data class FocusEditRow(val index: Int) : DashboardCommand
     data class ActivateEditRow(val index: Int) : DashboardCommand
-    /** Open / close the PROFILE PICTURE sheet behind the avatar bubble. */
-    data object ToggleProfilePictureSheet : DashboardCommand
-    data class PickProfilePicture(val index: Int) : DashboardCommand
-    /** Open / close the XORA NETWORK STATUS dropdown. */
-    data object ToggleStatusMenu : DashboardCommand
-    data class SetPresenceMode(val mode: XoraPresenceMode) : DashboardCommand
 
     data object Refresh : DashboardCommand
     data object Back : DashboardCommand

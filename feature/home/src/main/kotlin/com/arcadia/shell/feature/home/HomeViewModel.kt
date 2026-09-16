@@ -4862,29 +4862,12 @@ class HomeViewModel @Inject constructor(
                 NavAction.Cancel -> closeDashboardSubView()
                 else -> Unit
             }
-            DashboardView.EditProfile -> when {
-                // The PROFILE PICTURE sheet and the status menu take the stick while open,
-                // and B backs out of them before it leaves the screen.
-                ui.edit.pictureSheetOpen -> when (action) {
-                    NavAction.Up -> pickProfilePicture(ui.edit.pictureIndex - 1)
-                    NavAction.Down -> pickProfilePicture(ui.edit.pictureIndex + 1)
-                    NavAction.Confirm -> applyProfilePicture(ui.edit.pictureIndex)
-                    NavAction.Cancel -> toggleProfilePictureSheet()
-                    else -> Unit
-                }
-                ui.edit.statusExpanded -> when (action) {
-                    NavAction.Up -> stepPresenceMode(-1)
-                    NavAction.Down -> stepPresenceMode(1)
-                    NavAction.Confirm, NavAction.Cancel -> toggleStatusMenu()
-                    else -> Unit
-                }
-                else -> when (action) {
-                    NavAction.Up -> focusEditRow(ui.edit.focusIndex - 1)
-                    NavAction.Down -> focusEditRow(ui.edit.focusIndex + 1)
-                    NavAction.Confirm -> activateEditRow(ui.edit.focusIndex)
-                    NavAction.Cancel -> closeDashboardSubView()
-                    else -> Unit
-                }
+            DashboardView.EditProfile -> when (action) {
+                NavAction.Up -> focusEditRow(ui.edit.focusIndex - 1)
+                NavAction.Down -> focusEditRow(ui.edit.focusIndex + 1)
+                NavAction.Confirm -> activateEditRow(ui.edit.focusIndex)
+                NavAction.Cancel -> closeDashboardSubView()
+                else -> Unit
             }
             DashboardView.Tiles -> when (action) {
                 NavAction.Left -> focusDashboardTile(ui.tileIndex - 1)
@@ -4922,10 +4905,6 @@ class HomeViewModel @Inject constructor(
             }
             is DashboardCommand.RemoveFriendRow -> removeFriendRow(command.index)
             DashboardCommand.SubmitAddFriend -> submitAddFriend()
-            DashboardCommand.ToggleProfilePictureSheet -> toggleProfilePictureSheet()
-            is DashboardCommand.PickProfilePicture -> pickProfilePicture(command.index)
-            DashboardCommand.ToggleStatusMenu -> toggleStatusMenu()
-            is DashboardCommand.SetPresenceMode -> setPresenceMode(command.mode)
             is DashboardCommand.FocusEditRow -> focusEditRow(command.index)
             is DashboardCommand.ActivateEditRow -> {
                 focusEditRow(command.index)
@@ -4969,9 +4948,6 @@ class HomeViewModel @Inject constructor(
                             displayName = account?.displayName.orEmpty(),
                             username = account?.username.orEmpty(),
                             location = account?.location.orEmpty(),
-                            discordLinked = discordSocialUi.value.avatarAvailable,
-                            raSignedIn = achievementsUi.value.credentials.isConfigured,
-                            steamLinked = steamFriendsUi.value.credentials.isConfigured,
                         ),
                         error = null,
                         notice = null,
@@ -5209,77 +5185,14 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /**
-     * 0.5.6's Edit Profile has three sections rather than a form: the avatar bubble opens the
-     * PROFILE PICTURE sheet, the username row becomes a live field (and commits on the second
-     * press), and the status row opens the appearance menu.
-     */
     private fun activateEditRow(index: Int) {
-        when (EditProfileSection.entries.getOrNull(index)) {
-            EditProfileSection.Avatar -> toggleProfilePictureSheet()
-            EditProfileSection.Username -> {
-                val editing = dashboardUi.value.edit.usernameEditing
-                if (editing) {
-                    submitDashboardProfile()
-                } else {
-                    dashboardUi.update {
-                        it.copy(
-                            edit = it.edit.copy(
-                                usernameEditing = true,
-                                fieldFocusTick = it.edit.fieldFocusTick + 1,
-                            ),
-                        )
-                    }
-                }
+        when (index) {
+            0, 1, 2 -> dashboardUi.update {
+                it.copy(edit = it.edit.copy(focusIndex = index, fieldFocusTick = it.edit.fieldFocusTick + 1))
             }
-            EditProfileSection.Status -> toggleStatusMenu()
-            null -> Unit
+            3 -> submitDashboardProfile()
+            4 -> closeDashboardSubView()
         }
-    }
-
-    private fun toggleProfilePictureSheet() {
-        dashboardUi.update {
-            it.copy(edit = it.edit.copy(pictureSheetOpen = !it.edit.pictureSheetOpen, pictureIndex = 0))
-        }
-    }
-
-    private fun toggleStatusMenu() {
-        dashboardUi.update { it.copy(edit = it.edit.copy(statusExpanded = !it.edit.statusExpanded)) }
-    }
-
-    private fun pickProfilePicture(index: Int) {
-        val last = PROFILE_PICTURE_SOURCE_COUNT - 1
-        dashboardUi.update { it.copy(edit = it.edit.copy(pictureIndex = index.coerceIn(0, last))) }
-    }
-
-    /** Confirm on a PROFILE PICTURE row. Only the sources that are actually linked can apply. */
-    private fun applyProfilePicture(index: Int) {
-        val edit = dashboardUi.value.edit
-        val source = profilePictureSources(
-            discordLinked = edit.discordLinked,
-            raSignedIn = edit.raSignedIn,
-            steamLinked = edit.steamLinked,
-        ).getOrNull(index) ?: return
-        if (!source.enabled) {
-            dashboardUi.update { it.copy(error = source.disabledHint) }
-            return
-        }
-        dashboardUi.update {
-            it.copy(edit = it.edit.copy(pictureSheetOpen = false), notice = source.label)
-        }
-    }
-
-    /** Move through Online / Away / Busy / Offline while the status menu is open. */
-    private fun stepPresenceMode(delta: Int) {
-        val modes = XORA_PRESENCE_MENU_MODES
-        val current = modes.indexOf(xoraNetwork.state.value.presenceMode).coerceAtLeast(0)
-        val next = modes[(current + delta).coerceIn(0, modes.lastIndex)]
-        xoraNetwork.setPresenceMode(next)
-    }
-
-    private fun setPresenceMode(mode: XoraPresenceMode) {
-        dashboardUi.update { it.copy(edit = it.edit.copy(statusExpanded = false)) }
-        xoraNetwork.setPresenceMode(mode)
     }
 
     private fun submitDashboardProfile() {

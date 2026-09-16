@@ -63,7 +63,6 @@ import com.arcadia.shell.model.Game
 import com.arcadia.shell.xoranetwork.XoraFriend
 import com.arcadia.shell.xoranetwork.XoraFriendState
 import com.arcadia.shell.xoranetwork.XoraNetworkClient
-import com.arcadia.shell.xoranetwork.XoraPresenceMode
 import com.arcadia.shell.xoranetwork.XoraNetworkState
 import com.arcadia.shell.xoranetwork.xoraAppearanceLabel
 
@@ -961,11 +960,10 @@ private fun DashboardEditProfileView(
     onCommand: (DashboardCommand) -> Unit,
 ) {
     val edit = state.edit
-    val account = state.network.account
-    val usernameRequester = remember { FocusRequester() }
+    val requesters = remember { List(3) { FocusRequester() } }
     LaunchedEffect(edit.fieldFocusTick) {
-        if (edit.fieldFocusTick > 0 && edit.section == EditProfileSection.Username) {
-            runCatching { usernameRequester.requestFocus() }
+        if (edit.fieldFocusTick > 0 && edit.focusIndex in 0..2) {
+            runCatching { requesters[edit.focusIndex].requestFocus() }
         }
     }
     Box(modifier = Modifier.fillMaxSize()) {
@@ -973,7 +971,7 @@ private fun DashboardEditProfileView(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .widthIn(max = 640.dp)
+                .widthIn(max = 480.dp)
                 .xoraForegroundShadow(ArcadiaGlass.PanelShape)
                 .liquidGlass(
                     shape = ArcadiaGlass.PanelShape,
@@ -981,308 +979,55 @@ private fun DashboardEditProfileView(
                     intensity = GlassIntensity.Strong,
                 )
                 .border(1.5.dp, RestEdge, ArcadiaGlass.PanelShape)
-                .padding(horizontal = 20.dp, vertical = 18.dp),
+                .padding(22.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                text = "EDIT PROFILE",
-                fontSize = 26.sp,
+                text = "Edit profile",
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
                 color = Ink,
             )
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                EditProfileAvatarBubble(
-                    username = account?.username.orEmpty(),
-                    displayName = account?.displayName.orEmpty(),
-                    avatarUrl = account?.resolvedAvatarUrl,
-                    focused = edit.section == EditProfileSection.Avatar,
-                    onClick = { onCommand(DashboardCommand.ToggleProfilePictureSheet) },
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    EditProfileSectionLabel("USERNAME:")
-                    EditProfileUsernameRow(
-                        username = edit.username,
-                        editing = edit.usernameEditing,
-                        focused = edit.section == EditProfileSection.Username,
-                        focusRequester = usernameRequester,
-                        onValueChange = {
-                            onCommand(DashboardCommand.EditField(DashboardField.Username, it))
-                        },
-                        onTap = { onCommand(DashboardCommand.FocusEditRow(1)) },
-                    )
-                    if (state.network.signedIn) {
-                        EditProfileSectionLabel("XORA NETWORK STATUS:")
-                        EditProfileStatusRow(
-                            mode = state.network.presenceMode,
-                            expanded = edit.statusExpanded,
-                            focused = edit.section == EditProfileSection.Status,
-                            onToggle = { onCommand(DashboardCommand.ToggleStatusMenu) },
-                            onPick = { onCommand(DashboardCommand.SetPresenceMode(it)) },
-                        )
-                    }
-                }
-            }
-            if (edit.pictureSheetOpen) {
-                EditProfilePictureSheet(
-                    sources = profilePictureSources(
-                        discordLinked = edit.discordLinked,
-                        raSignedIn = edit.raSignedIn,
-                        steamLinked = edit.steamLinked,
-                    ),
-                    selectedIndex = edit.pictureIndex,
-                    onPick = { onCommand(DashboardCommand.PickProfilePicture(it)) },
-                )
-            }
-        }
-    }
-}
-
-/** 0.5.6's small caps section label — 13sp, tracked, just shy of full white. */
-@Composable
-private fun EditProfileSectionLabel(text: String) {
-    Text(
-        text = text,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Medium,
-        letterSpacing = 1.2.sp,
-        maxLines = 1,
-        color = Color.White.copy(alpha = 0.92f),
-    )
-}
-
-/** The avatar with the pencil affordance 0.5.6 overlays on its bottom-right. */
-@Composable
-private fun EditProfileAvatarBubble(
-    username: String,
-    displayName: String,
-    avatarUrl: String?,
-    focused: Boolean,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .clip(CircleShape)
-            .border(
-                width = if (focused) 2.dp else 1.5.dp,
-                color = if (focused) FocusEdge else RestEdge,
-                shape = CircleShape,
+            DashboardTextField(
+                value = edit.displayName,
+                onValueChange = { onCommand(DashboardCommand.EditField(DashboardField.DisplayName, it)) },
+                label = "Display name",
+                focused = edit.focusIndex == 0,
+                focusRequester = requesters[0],
+                onTap = { onCommand(DashboardCommand.FocusEditRow(0)) },
             )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.BottomEnd,
-    ) {
-        XoraNetworkAvatar(
-            username = username,
-            displayName = displayName,
-            avatarUrl = avatarUrl,
-            size = 108.dp,
-        )
-        Text(
-            text = "\u270E",
-            fontSize = 14.sp,
-            color = Ink,
-            modifier = Modifier
-                .padding(6.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.55f))
-                .padding(horizontal = 6.dp, vertical = 2.dp),
-        )
-    }
-}
-
-/** USERNAME row — a label until focused, then the live field, with the same pencil glyph. */
-@Composable
-private fun EditProfileUsernameRow(
-    username: String,
-    editing: Boolean,
-    focused: Boolean,
-    focusRequester: FocusRequester,
-    onValueChange: (String) -> Unit,
-    onTap: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .border(
-                width = if (focused) 2.dp else 1.dp,
-                color = if (focused) FocusEdge else RestEdge,
-                shape = RoundedCornerShape(16.dp),
+            DashboardTextField(
+                value = edit.username,
+                onValueChange = { onCommand(DashboardCommand.EditField(DashboardField.Username, it)) },
+                label = "Username (public id)",
+                focused = edit.focusIndex == 1,
+                focusRequester = requesters[1],
+                onTap = { onCommand(DashboardCommand.FocusEditRow(1)) },
             )
-            .clickable(onClick = onTap)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (editing) {
-            BasicTextField(
-                value = username,
-                onValueChange = onValueChange,
-                singleLine = true,
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester),
-                textStyle = MaterialTheme.typography.titleMedium.copy(color = Ink),
-                cursorBrush = SolidColor(Ink),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            DashboardTextField(
+                value = edit.location,
+                onValueChange = { onCommand(DashboardCommand.EditField(DashboardField.Location, it)) },
+                label = "Location",
+                focused = edit.focusIndex == 2,
+                focusRequester = requesters[2],
+                onTap = { onCommand(DashboardCommand.FocusEditRow(2)) },
             )
-        } else {
+            DashboardButton(
+                label = "Save",
+                focused = edit.focusIndex == 3,
+                primary = true,
+                onClick = { onCommand(DashboardCommand.ActivateEditRow(3)) },
+            )
+            DashboardButton(
+                label = "Cancel",
+                focused = edit.focusIndex == 4,
+                onClick = { onCommand(DashboardCommand.ActivateEditRow(4)) },
+            )
             Text(
-                text = username.ifBlank { "Player" },
-                fontSize = 17.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = Ink,
-                modifier = Modifier.weight(1f),
+                text = "Avatar and password changes live on account.xoranetwork.com.",
+                style = MaterialTheme.typography.labelSmall,
+                color = InkMuted,
             )
-        }
-        Text(text = "\u270E", fontSize = 13.sp, color = Color.White.copy(alpha = 0.75f))
-    }
-}
-
-/**
- * XORA NETWORK STATUS — the presence dot, the mode in caps, and a ▼ that opens the
- * Online / Away / Busy / Offline list.
- */
-@Composable
-private fun EditProfileStatusRow(
-    mode: XoraPresenceMode,
-    expanded: Boolean,
-    focused: Boolean,
-    onToggle: () -> Unit,
-    onPick: (XoraPresenceMode) -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .border(
-                    width = if (focused) 2.dp else 1.dp,
-                    color = if (focused) FocusEdge else RestEdge,
-                    shape = RoundedCornerShape(16.dp),
-                )
-                .clickable(onClick = onToggle)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            PresenceDot(mode)
-            Text(
-                text = xoraPresenceModeLabel(mode).uppercase(),
-                fontSize = 17.sp,
-                letterSpacing = 1.5.sp,
-                maxLines = 1,
-                color = Ink,
-                modifier = Modifier.weight(1f),
-            )
-            Text(text = "\u25BC", fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f))
-        }
-        if (expanded) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xF2121822))
-                    .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
-                    .padding(4.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                XORA_PRESENCE_MENU_MODES.forEach { option ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onPick(option) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        PresenceDot(option)
-                        Text(
-                            text = xoraPresenceModeLabel(option),
-                            fontSize = 15.sp,
-                            color = if (option == mode) Ink else InkMuted,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PresenceDot(mode: XoraPresenceMode) {
-    val color = when (mode) {
-        XoraPresenceMode.Online -> Color(0xFF4CD964)
-        XoraPresenceMode.Away -> Color(0xFFFFCC00)
-        XoraPresenceMode.Busy -> Color(0xFFFF3B30)
-        XoraPresenceMode.Invisible -> Color.White.copy(alpha = 0.45f)
-    }
-    Box(
-        modifier = Modifier
-            .size(10.dp)
-            .clip(CircleShape)
-            .background(color),
-    )
-}
-
-/** PROFILE PICTURE — the source list behind the avatar bubble. */
-@Composable
-private fun EditProfilePictureSheet(
-    sources: List<ProfilePictureSource>,
-    selectedIndex: Int,
-    onPick: (Int) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth(0.62f)
-            .padding(top = 10.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xF2121822))
-            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(text = "PROFILE PICTURE", fontSize = 20.sp, maxLines = 1, color = Ink)
-        sources.forEachIndexed { index, source ->
-            val focused = index == selectedIndex
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .border(
-                        width = if (focused) 2.dp else 1.dp,
-                        color = if (focused) FocusEdge else RestEdge,
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                    .clickable(enabled = source.enabled) { onPick(index) }
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-            ) {
-                Text(
-                    text = source.label,
-                    fontSize = 15.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (source.enabled) Ink else InkMuted,
-                )
-                if (!source.enabled && source.disabledHint != null) {
-                    Text(
-                        text = source.disabledHint,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        color = InkMuted,
-                    )
-                }
-            }
         }
     }
 }
