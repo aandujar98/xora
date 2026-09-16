@@ -314,7 +314,7 @@ private fun videoRows(
  * Game Manual — 0.5.6 lets a title's manual be attached by hand, looked up on demand, or dropped,
  * rather than only arriving with a scrape.
  */
-private fun manualRows(
+internal fun manualRows(
     manualPath: String?,
     actions: RomEditorActions,
 ): List<RomEditorRow> = buildList {
