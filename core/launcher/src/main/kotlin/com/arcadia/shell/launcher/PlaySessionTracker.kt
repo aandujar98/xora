@@ -24,21 +24,39 @@ class PlaySessionTracker @Inject constructor(
         launchedAt = System.currentTimeMillis()
     }
 
+    fun hasPendingSession(): Boolean = pendingGameId != null
+
+    /** Elapsed ms since [onLaunched], or 0 when no session is open. */
+    fun pendingElapsedMs(): Long {
+        if (pendingGameId == null) return 0L
+        return (System.currentTimeMillis() - launchedAt).coerceAtLeast(0L)
+    }
+
     /**
      * Called when the shell comes back to the foreground. Sessions shorter than [minimumMs] are
      * discarded, since they mean the emulator failed to start or the user immediately backed out.
+     *
+     * @return the session that was banked, or null when there was nothing to bank — the caller
+     * uses it to say how long the player was gone.
      */
-    suspend fun settlePendingSession(minimumMs: Long = MINIMUM_SESSION_MS) {
-        val gameId = pendingGameId ?: return
+    suspend fun settlePendingSession(minimumMs: Long = MINIMUM_SESSION_MS): SettledPlaySession? {
+        val gameId = pendingGameId ?: return null
         pendingGameId = null
 
         val elapsed = System.currentTimeMillis() - launchedAt
-        if (elapsed < minimumMs) return
+        if (elapsed < minimumMs) return null
 
         libraryRepository.recordPlaySession(gameId, elapsed)
+        return SettledPlaySession(gameId = gameId, elapsedMs = elapsed)
     }
 
     private companion object {
         const val MINIMUM_SESSION_MS = 10_000L
     }
 }
+
+/** A play session that was just banked against a game. */
+data class SettledPlaySession(
+    val gameId: String,
+    val elapsedMs: Long,
+)

@@ -1,0 +1,22 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/VitaLiveAreaChrome.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/VitaLiveAreaChrome.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/VitaLiveAreaChrome.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/VitaLiveAreaChrome.kt
+@@ -138,7 +138,8 @@
+         Text(text = timeText, style = style, maxLines = 1)
+         Spacer(Modifier.width((18f * unit).dp))
+         Text(
+-            text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
++            // Charging shows in the cell itself (green fill), so the percentage stays a number.
++            text = "$batteryPercent%",
+             style = style,
+             maxLines = 1,
+         )
+@@ -197,7 +198,7 @@
+         )
+         val pad = size.height * 0.2f
+         drawRoundRect(
+-            color = if (charging || percent > 20) Color.White else Color(0xFFFF5C6C),
++            color = batteryFillColor(percent = percent, charging = charging),
+             topLeft = Offset(pad, top + pad),
+             size = Size(
+                 ((bodyW - pad * 2) * (percent / 100f).coerceIn(0f, 1f)),

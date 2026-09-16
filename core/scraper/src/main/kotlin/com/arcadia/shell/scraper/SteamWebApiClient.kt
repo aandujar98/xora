@@ -2,6 +2,11 @@ package com.arcadia.shell.scraper
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.intOrNull
@@ -41,7 +46,7 @@ class SteamWebApiClient @Inject constructor(
         apiKey: String,
         steamId64: String,
     ): Result<List<SteamPlayerSummary>> = withContext(Dispatchers.IO) {
-        runCatching {
+        try {
             val key = apiKey.trim()
             val selfId = steamId64.trim()
             require(key.isNotEmpty() && selfId.isNotEmpty()) {
@@ -49,16 +54,30 @@ class SteamWebApiClient @Inject constructor(
             }
 
             val friendIds = fetchFriendIds(key, selfId)
-            if (friendIds.isEmpty()) return@runCatching emptyList()
+            if (friendIds.isEmpty()) return@withContext Result.success(emptyList())
 
-            friendIds
-                .chunked(MAX_SUMMARY_IDS)
-                .flatMap { chunk -> fetchPlayerSummaries(key, chunk) }
+            val (summaries, animatedById) = coroutineScope {
+                val summariesJob = async {
+                    friendIds
+                        .chunked(MAX_SUMMARY_IDS)
+                        .flatMap { chunk -> fetchPlayerSummaries(key, chunk) }
+                }
+                val animatedJob = async { fetchAnimatedAvatarUrls(key, friendIds) }
+                summariesJob.await() to animatedJob.await()
+            }
+            val friends = summaries
+                .map { summary ->
+                    val animated = animatedById[summary.steamId]
+                    if (animated.isNullOrBlank()) summary else summary.copy(avatarUrl = animated)
+                }
                 .sortedWith(
                     compareByDescending<SteamPlayerSummary> { it.personaState > 0 }
                         .thenByDescending { !it.currentGame.isNullOrBlank() }
                         .thenBy { it.displayName.lowercase() },
                 )
+            Result.success(friends)
+        } catch (error: Throwable) {
+            Result.failure(error)
         }
     }
 
@@ -120,9 +139,7 @@ class SteamWebApiClient @Inject constructor(
                     displayName = obj["personaname"]?.jsonPrimitive?.contentOrNull
                         ?.takeIf { it.isNotBlank() }
                         ?: "Steam $steamId",
-                    avatarUrl = obj["avatarfull"]?.jsonPrimitive?.contentOrNull
-                        ?: obj["avatarmedium"]?.jsonPrimitive?.contentOrNull
-                        ?: obj["avatar"]?.jsonPrimitive?.contentOrNull,
+                    avatarUrl = SteamAvatarUrls.fromPlayerSummary(obj),
                     personaState = obj["personastate"]?.jsonPrimitive?.intOrNull ?: 0,
                     currentGame = obj["gameextrainfo"]?.jsonPrimitive?.contentOrNull
                         ?.takeIf { it.isNotBlank() },
@@ -144,6 +161,39 @@ class SteamWebApiClient @Inject constructor(
         }
     }
 
+    private suspend fun fetchAnimatedAvatarUrls(
+        apiKey: String,
+        steamIds: List<String>,
+    ): Map<String, String> = coroutineScope {
+        val semaphore = Semaphore(EQUIPPED_CONCURRENCY)
+        steamIds.map { steamId ->
+            async(Dispatchers.IO) {
+                semaphore.withPermit {
+                    steamId to fetchEquippedAnimatedAvatar(apiKey, steamId)
+                }
+            }
+        }.awaitAll().mapNotNull { (id, url) -> url?.let { id to it } }.toMap()
+    }
+
+    private fun fetchEquippedAnimatedAvatar(apiKey: String, steamId: String): String? {
+        val key = encode(apiKey)
+        val id = encode(steamId)
+        val url = "$BASE/IPlayerService/GetProfileItemsEquipped/v1/?key=$key&steamid=$id"
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .build()
+        return runCatching {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val root = json.parseToJsonElement(response.body.string()).jsonObject
+                SteamAvatarUrls.fromEquippedProfileItems(root)
+            }
+        }.onFailure { error ->
+            Log.d(TAG, "GetProfileItemsEquipped $steamId: ${error.message}")
+        }.getOrNull()
+    }
+
     private fun encode(value: String): String =
         URLEncoder.encode(value, StandardCharsets.UTF_8)
 
@@ -152,5 +202,6 @@ class SteamWebApiClient @Inject constructor(
         private const val BASE = "https://api.steampowered.com"
         private const val USER_AGENT = "SORA/1.0 (Android; Arcadia Shell)"
         private const val MAX_SUMMARY_IDS = 100
+        private const val EQUIPPED_CONCURRENCY = 8
     }
 }

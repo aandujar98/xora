@@ -1,0 +1,35 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbStatusBar.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbStatusBar.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbStatusBar.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbStatusBar.kt
+@@ -98,7 +98,8 @@
+         Text(text = status.timeText, style = style, maxLines = 1)
+         Spacer(Modifier.width((TIME_TO_PERCENT * unit).dp))
+         Text(
+-            text = if (status.charging) "${status.batteryPercent}%+" else "${status.batteryPercent}%",
++            // Charging shows in the cell itself (green bars), so the percentage stays a number.
++            text = "${status.batteryPercent}%",
+             style = style,
+             maxLines = 1,
+         )
+@@ -163,7 +164,7 @@
+             cornerRadius = CornerRadius(size.height * 0.1f),
+             style = Stroke(width = strokeW),
+         )
+-        val fillColor = if (charging || percent > 20) Color.White else Color(0xFFFF5C6C)
++        val fillColor = batteryFillColor(percent = percent, charging = charging)
+         val inset = strokeW * 1.8f
+         val innerW = bodyW - inset * 2f
+         val gap = innerW * 0.06f
+@@ -180,3 +181,12 @@
+         }
+     }
+ }
++
++/** Charging lights the cells green; a flat battery reds them; otherwise they are plain white. */
++internal fun batteryFillColor(percent: Int, charging: Boolean): Color = when {
++    charging -> BatteryChargingGreen
++    percent > 20 -> Color.White
++    else -> Color(0xFFFF5C6C)
++}
++
++internal val BatteryChargingGreen = Color(0xFF5BE37D)

@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.SoundPool
 import android.os.Build
 import android.os.SystemClock
+import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -13,6 +14,8 @@ import com.arcadia.shell.datastore.DEFAULT_UI_SFX_VOLUME
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.input.GamepadDispatcher
 import com.arcadia.shell.input.NavAction
+import com.arcadia.shell.input.UiOneShot
+import com.arcadia.shell.input.UiOneShotPlayer
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,8 +29,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Short UI navigation one-shots (cursor / confirm / cancel). Kept separate from
- * [BackgroundMusicController] so BGM mute does not silence menu clicks.
+ * Short UI navigation one-shots (cursor / confirm / cancel / LT-RT chrome). Kept
+ * separate from [BackgroundMusicController] so BGM mute does not silence menu clicks.
  *
  * Hooks [GamepadDispatcher.actions] once so every screen that consumes NavActions gets the same
  * feedback without each ViewModel knowing about audio. D-pad keys, hat switches, and the left
@@ -53,10 +56,34 @@ class UiSoundController @Inject constructor(
     private var ngId: Int = 0
     /** Friend online / download complete / RA unlock banner chime (`notif_banner.wav`). */
     private var notificationId: Int = 0
+    /** Online invite sent/received and player-joined cue (`error_popup.wav`). */
+    private var netplayInviteId: Int = 0
+    private var friendsTabId: Int = 0
+    private var profileTabId: Int = 0
+    private var navCloseId: Int = 0
+    /** Vita shortcut bubble confirm (`bubble_launch.wav`). */
+    private var bubbleLaunchId: Int = 0
+    private var bootVitaId: Int = 0
+    private var bootXmbId: Int = 0
+    private var peelMidId: Int = 0
+    private var peelFastId: Int = 0
+    /** Vita shortcut tray page turn (`vita_page_navigate.wav`). */
+    private var vitaPageId: Int = 0
+    /** Vita shortcut tray opening (`vita_open.wav`). */
+    private var vitaOpenId: Int = 0
+    /** Vita shortcut tray closing back to the XMB (`vita_menu_close.wav`). */
+    private var vitaMenuCloseId: Int = 0
+    /** Active looping peel stream so speed changes replace rather than stack. */
+    private var peelStreamId: Int = 0
+    private var peelSoundId: Int = 0
+    /** Waveform currently buzzing under the peel drag, or null when the finger is off. */
+    private var peelHaptic: PeelHaptic? = null
 
     private var volume: Float = DEFAULT_UI_SFX_VOLUME
     private var notificationSoundEnabled: Boolean = true
     private var foreground: Boolean = false
+    /** Boot clip owns the speakers — suppress clicks, loops, and banners until it finishes. */
+    private var bootIntroActive: Boolean = false
 
     /** Light debounce when hat + DPAD key both emit the same direction for one physical press. */
     private var lastCursorAction: NavAction? = null
@@ -93,6 +120,18 @@ class UiSoundController @Inject constructor(
                 }
         }
         scope.launch {
+            preferences.settings.collect { settings ->
+                notificationCenter.discordFriendOnlineEnabled =
+                    settings.discordFriendOnlineNotifications
+                notificationCenter.steamFriendOnlineEnabled =
+                    settings.steamFriendOnlineNotifications
+                notificationCenter.xoraFriendOnlineEnabled =
+                    settings.xoraFriendOnlineNotifications
+                notificationCenter.friendPlayingEnabled =
+                    settings.friendPlayingNotifications
+            }
+        }
+        scope.launch {
             preferences.settings
                 .map { it.notificationSoundEnabled }
                 .distinctUntilChanged()
@@ -104,13 +143,57 @@ class UiSoundController @Inject constructor(
         scope.launch {
             notificationCenter.active.collect { active ->
                 if (active != null && notificationSoundEnabled && foreground) {
-                    playNotificationChime()
+                    when (active) {
+                        is com.arcadia.shell.launcher.notifications.ShellNotification.XoraNetplayInvite,
+                        is com.arcadia.shell.launcher.notifications.ShellNotification.XoraSessionJoined,
+                        -> playNetplayInviteCue()
+                        else -> playNotificationChime()
+                    }
                 }
             }
         }
         scope.launch {
             gamepadDispatcher.actions.collect { action ->
                 if (foreground) playFor(action)
+            }
+        }
+        gamepadDispatcher.uiOneShotPlayer = UiOneShotPlayer { shot ->
+            if (foreground && !bootIntroActive) {
+                when (shot) {
+                    UiOneShot.FriendsTab -> play(friendsTabId)
+                    UiOneShot.ProfileTab -> play(profileTabId)
+                    UiOneShot.NavClose -> play(navCloseId)
+                    UiOneShot.BubbleLaunch -> play(bubbleLaunchId)
+                    UiOneShot.BootVita -> {
+                        stopPeel()
+                        play(bootVitaId)
+                    }
+                    UiOneShot.BootXmb -> {
+                        stopPeel()
+                        play(bootXmbId)
+                    }
+                    UiOneShot.PeelSlow -> {
+                        // No sample this slow — the buzz alone carries the drag.
+                        stopPeelSample()
+                        vibratePeel(PeelHaptic.Slow)
+                    }
+                    UiOneShot.PeelMid -> {
+                        playPeel(peelMidId)
+                        vibratePeel(PeelHaptic.Mid)
+                    }
+                    UiOneShot.PeelFast -> {
+                        playPeel(peelFastId)
+                        vibratePeel(PeelHaptic.Fast)
+                    }
+                    UiOneShot.PeelStop -> stopPeel()
+                    UiOneShot.Cursor -> {
+                        vibrateCursor()
+                        play(cursorId)
+                    }
+                    UiOneShot.VitaPageNavigate -> play(vitaPageId)
+                    UiOneShot.VitaOpen -> play(vitaOpenId)
+                    UiOneShot.VitaMenuClose -> play(vitaMenuCloseId)
+                }
             }
         }
     }
@@ -120,19 +203,48 @@ class UiSoundController @Inject constructor(
         ensurePool()
     }
 
+    /** Mute menu SFX (and stop any peel loop) while the boot video is playing. */
+    fun setBootIntroActive(active: Boolean) {
+        if (bootIntroActive == active) return
+        bootIntroActive = active
+        if (active) {
+            stopPeel()
+            runCatching { soundPool?.autoPause() }
+        } else {
+            runCatching { soundPool?.autoResume() }
+        }
+    }
+
     fun onBackground() {
         foreground = false
+        // A peel left mid-drag would otherwise keep buzzing in the player's hand.
+        stopPeel()
         runCatching { soundPool?.autoPause() }
     }
 
     /** Drop SoundPool samples under memory pressure; rebuilt on next foreground. */
     fun releaseForTrim() {
+        stopPeelHaptic()
         runCatching { soundPool?.release() }
         soundPool = null
         cursorId = 0
         okId = 0
         ngId = 0
         notificationId = 0
+        netplayInviteId = 0
+        friendsTabId = 0
+        profileTabId = 0
+        navCloseId = 0
+        bubbleLaunchId = 0
+        bootVitaId = 0
+        bootXmbId = 0
+        peelMidId = 0
+        peelFastId = 0
+        vitaPageId = 0
+        vitaOpenId = 0
+        vitaMenuCloseId = 0
+        peelStreamId = 0
+        peelSoundId = 0
     }
 
     /** Banner appear chime — friend online, download complete, RetroAchievement unlock. */
@@ -140,16 +252,25 @@ class UiSoundController @Inject constructor(
         play(if (notificationId != 0) notificationId else okId)
     }
 
-    /** Select / confirm one-shot — launcher Confirm and XOrA Emulator overlay activate. */
+    /** Invite sent/received and a player joining the online session. */
+    fun playNetplayInviteCue() {
+        play(if (netplayInviteId != 0) netplayInviteId else okId)
+    }
+
+    /** Select / confirm one-shot (`select.wav`) — launcher Confirm and XOrA Emulator overlay. */
     fun playConfirm() = play(okId)
 
-    /** Cancel / back one-shot. */
+    /** Cancel / back one-shot (`nav_back.wav`, GitHub tag `nav-back`). */
     fun playCancel() = play(ngId)
 
-    /** Cursor / focus-move one-shot. */
-    fun playCursor() = play(cursorId)
+    /** Cursor / focus-move one-shot (`selection.wav`) plus the same tick as D-pad steps. */
+    fun playCursor() {
+        vibrateCursor()
+        play(cursorId)
+    }
 
     private fun playFor(action: NavAction) {
+        if (bootIntroActive) return
         val soundId = when (action) {
             NavAction.Left,
             NavAction.Right,
@@ -157,16 +278,27 @@ class UiSoundController @Inject constructor(
             NavAction.Down,
             NavAction.PreviousPlatform,
             NavAction.NextPlatform,
-            NavAction.ToggleAccountPanel,
-            NavAction.ToggleSystemPanel,
             NavAction.ToggleAchievementsPanel,
             -> {
+                // Vita tray Up/Down is a page turn (or a row step). Home fires
+                // [UiOneShot.VitaPageNavigate] / [UiOneShot.Cursor] so the generic click does not
+                // stack on top of the page sample.
+                if (gamepadDispatcher.vitaBubbleLaunchSfx &&
+                    (action == NavAction.Up || action == NavAction.Down)
+                ) {
+                    return
+                }
                 if (shouldSuppressDuplicateCursor(action)) return
                 vibrateCursor()
                 cursorId
             }
 
-            NavAction.Confirm -> okId
+            NavAction.ToggleAccountPanel,
+            NavAction.ToggleSystemPanel,
+            -> return
+
+            NavAction.Confirm ->
+                if (gamepadDispatcher.vitaBubbleLaunchSfx) return else okId
 
             NavAction.Menu ->
                 // Flag is still the pre-toggle state when this action is observed.
@@ -175,7 +307,16 @@ class UiSoundController @Inject constructor(
             NavAction.ToggleGuide ->
                 // Flag is still the pre-toggle state when this action is observed.
                 if (gamepadDispatcher.guideOpen) ngId else okId
-            NavAction.Cancel -> ngId
+            NavAction.Cancel ->
+                // LT/RT window dismiss is [UiOneShot.NavClose] and Vita tray close is
+                // [UiOneShot.VitaMenuClose], both fired from Home; skip the generic click.
+                if (gamepadDispatcher.heroPanelClosesOnCancel ||
+                    gamepadDispatcher.vitaTrayClosesOnCancel
+                ) {
+                    return
+                } else {
+                    ngId
+                }
 
             NavAction.Options,
             NavAction.ScrapeMenu,
@@ -195,6 +336,7 @@ class UiSoundController @Inject constructor(
     }
 
     private fun play(soundId: Int) {
+        if (bootIntroActive) return
         if (soundId == 0) return
         val v = volume.coerceIn(0f, 1f)
         if (v <= 0f) return
@@ -204,12 +346,78 @@ class UiSoundController @Inject constructor(
         }
     }
 
-    /** Short XMB-style tick on each launcher cursor step (independent of UI SFX volume). */
+    /** Loop the matching peel sample while the dog-ear is moving; swap on speed-band change. */
+    private fun playPeel(soundId: Int) {
+        if (bootIntroActive) return
+        if (soundId == 0) return
+        if (soundId == peelSoundId && peelStreamId != 0) return
+        stopPeel()
+        val v = volume.coerceIn(0f, 1f)
+        if (v <= 0f) return
+        peelSoundId = soundId
+        peelStreamId = runCatching {
+            soundPool?.play(soundId, v, v, /* priority */ 2, /* loop */ -1, /* rate */ 1f)
+        }.getOrNull() ?: 0
+    }
+
+    private fun stopPeel() {
+        stopPeelSample()
+        stopPeelHaptic()
+    }
+
+    private fun stopPeelSample() {
+        val stream = peelStreamId
+        peelStreamId = 0
+        peelSoundId = 0
+        if (stream != 0) runCatching { soundPool?.stop(stream) }
+    }
+
+    /**
+     * Buzz under the peel drag, restarted whenever the drag crosses into another speed band, so
+     * a slow pull ticks lazily and a fast one rasps. Independent of UI SFX volume, like the
+     * cursor tick.
+     */
+    private fun vibratePeel(band: PeelHaptic) {
+        val vibrator = vibrator ?: return
+        if (peelHaptic == band) return
+        peelHaptic = band
+        val amplitude = if (vibrator.hasAmplitudeControl()) {
+            band.amplitude
+        } else {
+            VibrationEffect.DEFAULT_AMPLITUDE
+        }
+        runCatching {
+            vibrator.vibrateHaptic(
+                VibrationEffect.createWaveform(
+                    band.timings,
+                    intArrayOf(0, amplitude),
+                    /* repeat from */ 0,
+                ),
+            )
+        }.onFailure { peelHaptic = null }
+    }
+
+    private fun stopPeelHaptic() {
+        if (peelHaptic == null) return
+        peelHaptic = null
+        runCatching { vibrator?.cancel() }
+    }
+
+    /**
+     * Short XMB-style tick on each launcher cursor step (independent of UI SFX volume).
+     *
+     * Android 13+ drops unattributed vibrations, and a lot of handhelds no-op
+     * [VibrationEffect.EFFECT_TICK], so this always sends a classified pulse and falls
+     * back to a one-shot if the predefined tick is rejected.
+     */
     private fun vibrateCursor() {
         val vibrator = vibrator ?: return
-        runCatching {
-            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
-        }
+        val pulse = cursorPulse(vibrator.hasAmplitudeControl())
+        val tick = runCatching {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        }.getOrNull()
+        runCatching { vibrator.vibrateHaptic(tick ?: pulse) }
+            .recoverCatching { vibrator.vibrateHaptic(pulse) }
     }
 
     private fun ensurePool() {
@@ -217,7 +425,7 @@ class UiSoundController @Inject constructor(
         val pool = runCatching {
             SoundPool.Builder()
                 // Hold-repeat can fire cursor every ~70ms; keep enough streams that clicks stay audible.
-                .setMaxStreams(8)
+                .setMaxStreams(10)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         // GAME (not SONIFICATION): handhelds/TV often keep the system stream muted
@@ -228,10 +436,22 @@ class UiSoundController @Inject constructor(
                 )
                 .build()
                 .also { created ->
-                    cursorId = created.loadQuietly(R.raw.snd_cursor)
-                    okId = created.loadQuietly(R.raw.snd_system_ok)
-                    ngId = created.loadQuietly(R.raw.snd_system_ng)
+                    cursorId = created.loadQuietly(R.raw.selection)
+                    okId = created.loadQuietly(R.raw.select)
+                    ngId = created.loadQuietly(R.raw.nav_back)
                     notificationId = created.loadQuietly(R.raw.notif_banner)
+                    netplayInviteId = created.loadQuietly(R.raw.error_popup)
+                    friendsTabId = created.loadQuietly(R.raw.nav_friend)
+                    profileTabId = created.loadQuietly(R.raw.profile_tab)
+                    navCloseId = created.loadQuietly(R.raw.nav_close)
+                    bubbleLaunchId = created.loadQuietly(R.raw.bubble_launch)
+                    bootVitaId = created.loadQuietly(R.raw.boot_vita)
+                    bootXmbId = created.loadQuietly(R.raw.boot_3)
+                    peelMidId = created.loadQuietly(R.raw.peel_mid)
+                    peelFastId = created.loadQuietly(R.raw.peel_fast)
+                    vitaPageId = created.loadQuietly(R.raw.vita_page_navigate)
+                    vitaOpenId = created.loadQuietly(R.raw.vita_open)
+                    vitaMenuCloseId = created.loadQuietly(R.raw.vita_menu_close)
                 }
         }.getOrNull()
         soundPool = pool
@@ -243,4 +463,49 @@ class UiSoundController @Inject constructor(
     private companion object {
         const val CURSOR_DEBOUNCE_MS = 30L
     }
+}
+
+/** One-shot used when [VibrationEffect.EFFECT_TICK] is missing or silent. */
+internal fun cursorPulse(hasAmplitudeControl: Boolean): VibrationEffect =
+    VibrationEffect.createOneShot(
+        CURSOR_PULSE_MS,
+        if (hasAmplitudeControl) CURSOR_PULSE_AMPLITUDE else VibrationEffect.DEFAULT_AMPLITUDE,
+    )
+
+/**
+ * Classifies menu ticks as hardware / touch feedback so Android 13+ does not drop them.
+ * API 29 (minSdk) still uses the unattributed [Vibrator.vibrate] overload.
+ */
+internal fun Vibrator.vibrateHaptic(effect: VibrationEffect) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        vibrate(
+            effect,
+            VibrationAttributes.Builder()
+                .setUsage(VibrationAttributes.USAGE_HARDWARE_FEEDBACK)
+                .build(),
+        )
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        vibrate(
+            effect,
+            VibrationAttributes.Builder()
+                .setUsage(VibrationAttributes.USAGE_TOUCH)
+                .build(),
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        vibrate(effect)
+    }
+}
+
+private const val CURSOR_PULSE_MS = 16L
+private const val CURSOR_PULSE_AMPLITUDE = 88
+
+/**
+ * Looping peel buzz, one per drag speed band. [timings] is an off/on pair repeated forever, so
+ * the pulse rate rises with the drag: a lazy tick at [Slow], a rasp at [Fast].
+ */
+private enum class PeelHaptic(val timings: LongArray, val amplitude: Int) {
+    Slow(longArrayOf(86L, 34L), 60),
+    Mid(longArrayOf(44L, 30L), 112),
+    Fast(longArrayOf(14L, 22L), 180),
 }

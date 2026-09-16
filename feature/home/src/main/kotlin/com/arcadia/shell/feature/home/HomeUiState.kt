@@ -1,13 +1,22 @@
 package com.arcadia.shell.feature.home
 
+import com.arcadia.shell.datastore.CustomTheme
+import com.arcadia.shell.datastore.DEFAULT_BOOT_ANIMATION_ID
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_COLUMNS
 import com.arcadia.shell.datastore.DEFAULT_HOME_SHORTCUT_GRID_ROWS
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.GameArtAlignment
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.LocalProfile
+import com.arcadia.shell.datastore.NewsOutlet
 import com.arcadia.shell.datastore.TrailerDisplayMode
+import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.launcher.music.MusicAlbum
 import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.launcher.music.NowPlayingState
+import com.arcadia.shell.launcher.notifications.ShellNotification
+import com.arcadia.shell.launcher.photos.DevicePhoto
+import com.arcadia.shell.launcher.photos.PhotoAccess
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.PlatformSummary
@@ -21,7 +30,7 @@ enum class TabKind { All, Favorites, Recent, Apps, Platform }
  * RSS / RA / legacy GameSelector are opened from XMB drills or retained for dual layouts.
  */
 enum class HomePage {
-    /** Gaming / emulation news (XOrA News). */
+    /** Gaming / emulation news (XOrA NOW). */
     RssFeed,
     /** XOrA XMB home — Profiles, Settings, Games, Media, Music, Network. */
     Home,
@@ -82,6 +91,33 @@ data class ShortcutTargetPickerUiState(
     val selected: Game? get() = candidates.getOrNull(selectedIndex)
 }
 
+/** Which panel of the Vita pin picker has the stick. */
+enum class ShortcutPickerPane {
+    Platforms,
+    Content,
+    Search,
+}
+
+/**
+ * Two-panel pin picker for an empty Vita bubble: the platforms the player actually has on the
+ * XMB down the left (Android included), that platform's ROMs / apps as cards on the right, and a
+ * search field over the grid.
+ *
+ * [results] is already filtered by [platformIndex] and [query] — the sheet renders it as-is so
+ * the focus index and the visible cards can never disagree.
+ */
+data class ShortcutPickerUiState(
+    val platforms: List<PlatformSummary>,
+    val platformIndex: Int = 0,
+    val query: String = "",
+    val results: List<Game> = emptyList(),
+    val itemIndex: Int = 0,
+    val pane: ShortcutPickerPane = ShortcutPickerPane.Platforms,
+) {
+    val platform: PlatformSummary? get() = platforms.getOrNull(platformIndex)
+    val selected: Game? get() = results.getOrNull(itemIndex)
+}
+
 data class HomeHubUiState(
     val section: HomeHubSection = HomeHubSection.ShardMenu,
     val shard: HomeShard = HomeShard.Continue,
@@ -104,16 +140,39 @@ data class HomeHubUiState(
      * and skips the tile-size step — used by the Vita bubble tray.
      */
     val vitaShortcutPinMode: Boolean = false,
+    /** Isolated confirm page after a Vita bubble flips into the game. */
+    val vitaShortcutLaunch: VitaShortcutLaunchUi? = null,
+    /** Bubble currently flipping into the launch page. */
+    val vitaShortcutDepartingIndex: Int? = null,
+    /** A was pressed on the launch page: the LiveArea start gate peels itself off. */
+    val vitaShortcutPeelRequested: Boolean = false,
+    /**
+     * Bubble picked up for repositioning (hold a bubble, or A in edit mode). While set, the
+     * D-pad / stick and finger drags move the bubble between slots instead of moving focus.
+     */
+    val vitaShortcutMoveIndex: Int? = null,
     /** Absolute path to custom wallpaper, or null for the bundled default. */
     val wallpaperPath: String? = null,
+    val wallpaperAlignX: Float = 0f,
+    val wallpaperAlignY: Float = 0f,
+    /** Display → Particle effects. When false the XMB backdrop is wallpaper only. */
+    val particlesEnabled: Boolean = true,
     /** Absolute path to custom BGM, or null for the bundled default. */
     val customBgmPath: String? = null,
+    /** Optional second track that plays while the Vita shortcut tray is open. */
+    val vitaTrayBgmPath: String? = null,
     /** Most recently played non-app game for the Continue shard. */
     val continueGame: Game? = null,
-    /** True while the Themes editor sheet is open (always hosted on the Activity window). */
+    /** True while the Customize sheet is open (always hosted on the Activity window). */
     val themesOpen: Boolean = false,
-    /** Tab shown when [themesOpen] is true — Customize for wallpaper/BGM, Presets for packs. */
-    val themesSheetTab: ThemesSheetTab = ThemesSheetTab.Customize,
+    /** Left-nav section shown when [themesOpen] is true. */
+    val themesSheetTab: CustomizeSection = CustomizeSection.PresetThemes,
+    /** Saved wallpaper + BGM combos for Customize → Custom Themes. */
+    val customThemes: List<CustomTheme> = emptyList(),
+    /** Selected boot animation id for Customize → Boot Animations. */
+    val bootAnimationId: String = DEFAULT_BOOT_ANIMATION_ID,
+    /** Absolute path to the player's own boot clip, when they added one. */
+    val bootAnimationPath: String? = null,
     /** True while the add-shortcut chooser is open (always hosted on the Activity window). */
     val addShortcutOpen: Boolean = false,
     /** Non-null while choosing tile size after a pin type was selected. */
@@ -122,6 +181,22 @@ data class HomeHubUiState(
     val pendingShortcutSpan: ShortcutSpan = ShortcutSpan.Default,
     /** Non-null while picking a library game or Android app to pin. */
     val shortcutTargetPicker: ShortcutTargetPickerUiState? = null,
+    /** Vita bubble pin picker. Non-null while the platform / ROM browser is up. */
+    val shortcutPicker: ShortcutPickerUiState? = null,
+) {
+    /** True while the LiveArea peel page (or its departing bubble) owns the screen. */
+    val vitaLaunchPageOpen: Boolean
+        get() = vitaShortcutLaunch != null || vitaShortcutDepartingIndex != null
+}
+
+/** Isolated Vita shortcut launch page — wallpaper + one game icon + title. */
+data class VitaShortcutLaunchUi(
+    val shortcut: HomeShortcut,
+    val wallpaperPath: String?,
+    val iconPath: String?,
+    val game: Game? = null,
+    val artAlignX: Float = 0f,
+    val artAlignY: Float = 0f,
 )
 
 /** Idle trailer overlay for the hero pane. */
@@ -129,7 +204,10 @@ data class HeroTrailerState(
     val active: Boolean = false,
     /** Encoded trailer string from [com.arcadia.shell.model.TrailerRefs]. */
     val trailerUrl: String? = null,
-    val displayMode: TrailerDisplayMode = TrailerDisplayMode.FullBackground,
+    val displayMode: TrailerDisplayMode = TrailerDisplayMode.InIcon,
+    val iconIdleMedia: GameIconIdleMedia = GameIconIdleMedia.Trailer,
+    /** Screenshot / fanart paths for Game Icon idle media. */
+    val screenshotPaths: List<String> = emptyList(),
 )
 
 data class LibraryTab(
@@ -139,6 +217,12 @@ data class LibraryTab(
     val platformId: String? = null,
     val gameCount: Int = 0,
 )
+
+/** One piece of an article body, in document order, for the reader window. */
+sealed interface ArticleBlock {
+    data class Text(val text: String) : ArticleBlock
+    data class Image(val url: String) : ArticleBlock
+}
 
 data class RssFeedItem(
     val id: String,
@@ -151,7 +235,18 @@ data class RssFeedItem(
     val description: String? = null,
     /** Direct video URL or YouTube watch/embed URL when the item includes one. */
     val videoUrl: String? = null,
+    /** Full body as paragraphs and images, when the feed ships one. */
+    val blocks: List<ArticleBlock> = emptyList(),
 )
+
+/** Columns in the XOrA NOW article grid — the nav model and the pane must agree. */
+const val NEWS_GRID_COLUMNS = 3
+
+/** Which band of XOrA NOW has the stick. */
+enum class NewsFocus {
+    Outlets,
+    Articles,
+}
 
 data class RssUiState(
     val isLoading: Boolean = false,
@@ -159,9 +254,23 @@ data class RssUiState(
     val selectedIndex: Int = 0,
     val error: String? = null,
     val feedTitle: String? = null,
+    /** Source bubbles across the header; always at least the seeded set. */
+    val outlets: List<NewsOutlet> = emptyList(),
+    val outletIndex: Int = 0,
+    val focus: NewsFocus = NewsFocus.Articles,
+    /** Non-null while the reader window is up. */
+    val openArticle: RssFeedItem? = null,
+    /** True while the add-source prompt is showing. */
+    val addOutletOpen: Boolean = false,
 ) {
     val selectedItem: RssFeedItem? get() = items.getOrNull(selectedIndex)
     val isEmpty: Boolean get() = !isLoading && error == null && items.isEmpty()
+    val outlet: NewsOutlet? get() = outlets.getOrNull(outletIndex)
+
+    /** The add bubble sits after the sources, so focus runs one past the list. */
+    val outletSlotCount: Int get() = outlets.size + 1
+    val addBubbleFocused: Boolean
+        get() = focus == NewsFocus.Outlets && outletIndex >= outlets.size
 }
 
 /**
@@ -225,12 +334,20 @@ data class HomeUiState(
     val homeHub: HomeHubUiState = HomeHubUiState(),
     /** Classic XOrA XMB navigation state for [HomePage.Home]. */
     val xoraXmb: XoraXmbUiState = XoraXmbUiState(),
+    /** Emulator display prefs. Aspect mode applies in-game only, never to the XMB backdrop. */
+    val xoraEmulator: XoraEmulatorSettings = XoraEmulatorSettings(),
     val tabs: List<LibraryTab> = emptyList(),
     val selectedTabIndex: Int = 0,
     val games: List<Game> = emptyList(),
     val selectedGameIndex: Int = 0,
+    /** Game ids the user hid from library lists. */
+    val hiddenGameIds: Set<String> = emptySet(),
+    /** Platform editor → Library → Show hidden games. */
+    val showHiddenGames: Boolean = false,
+    /** Per-game cover pan inside the Game Icon. */
+    val gameArtAlignments: Map<String, GameArtAlignment> = emptyMap(),
     /** Single-screen vertical selector vs dual-screen horizontal XMB. */
-    val displayMode: DisplayMode = DisplayMode.Dual,
+    val displayMode: DisplayMode = DisplayMode.Single,
     /** Column count for the RSS feed grid (nav math + layout). */
     val gridColumns: Int = 3,
     val scanProgress: ScanProgress = ScanProgress(),
@@ -253,16 +370,26 @@ data class HomeUiState(
         emptyList(),
     val notificationUnreadCount: Int = 0,
     val notificationHistorySelectedIndex: Int = 0,
+    /** Toast currently occupying the Friends pill slot. */
+    val activeNotification: ShellNotification? = null,
+    /** True while a toast is occupying the Friends pill slot. */
+    val activeNotificationPresent: Boolean = false,
     /** RT profile card chrome (status, favorite game, pickers). */
     val systemProfile: SystemProfileCardState = SystemProfileCardState(),
     val achievementsPanelExpanded: Boolean = false,
     val achievements: AchievementsUiState = AchievementsUiState(),
     /** What the Music category is browsing and what is playing. */
     val music: MusicUiState = MusicUiState(),
+    /** Media → Photos gallery, viewer, and edit / delete flows. */
+    val photos: PhotosUiState = PhotosUiState(),
+    /** XOrA Network → Dashboard tile board (account, friends, games, RA). */
+    val dashboard: XoraDashboardUiState = XoraDashboardUiState(),
     val trailer: HeroTrailerState = HeroTrailerState(),
     val rss: RssUiState = RssUiState(),
     val guide: GuideUiState = GuideUiState(),
     val startSettings: StartSettingsUiState = StartSettingsUiState(),
+    /** Settings → Update window (check GitHub, download, install). */
+    val systemUpdate: SystemUpdateUiState = SystemUpdateUiState(),
     val insight: GameInsightUiState = GameInsightUiState(),
     val raLibrary: RaLibraryUiState = RaLibraryUiState(),
     /** Recent + favourite titles for the expanded account panel quick-launch list. */
@@ -274,6 +401,20 @@ data class HomeUiState(
     val profileEditRequest: Int = 0,
     /** Wake/resume greeting overlay on the primary display. */
     val welcomeBackOpen: Boolean = false,
+    /** Cold-start boot clip overlay (fully closed → opened). */
+    val bootIntroOpen: Boolean = false,
+    /** First-run Home coach marks after onboarding and the boot clip. */
+    val tutorial: HomeTutorialUiState = HomeTutorialUiState(),
+    /** Gamepad / caller asked the boot overlay to skip to the white fade. */
+    val bootIntroSkip: Boolean = false,
+    /**
+     * False while the boot clip is still playing so XMB icons stay hidden, then true to bounce
+     * them in as the white plate fades.
+     */
+    val homeIntroReveal: Boolean = true,
+    /** Latest online netplay invite waiting for Accept / Decline. */
+    val pendingNetplayInvite: NetplayInvitePrompt? = null,
+    val netplayInvitePromptOpen: Boolean = false,
 ) {
     val selectedGame: Game? get() = games.getOrNull(selectedGameIndex)
 
@@ -282,6 +423,27 @@ data class HomeUiState(
     val guideOpen: Boolean get() = guide.open
 
     val startSettingsOpen: Boolean get() = startSettings.open
+
+    /** LT social capsule + RT profile bubble stay hidden over Start / Advanced Settings. */
+    val hideHomePillChrome: Boolean
+        get() = shouldHideHomePillChrome(startSettingsOpen = startSettingsOpen)
+
+    val systemUpdateOpen: Boolean get() = systemUpdate.open
+
+    /**
+     * A pop-up is standing over the shell and the background behind it is meant to recede — the
+     * CRT DIM pass, plus a blur under it, so the card reads as the only thing in focus.
+     *
+     * This is only about windows that obscure the shell. A song's Background Media uses the same
+     * CRT texture as a *surface treatment* and must never blur, so it is deliberately absent here.
+     */
+    val backdropObscuredByPopup: Boolean
+        get() = startSettingsOpen ||
+            homeHub.themesOpen ||
+            systemUpdateOpen ||
+            notificationHistoryOpen ||
+            welcomeBackOpen ||
+            netplayInvitePromptOpen
 
     /**
      * True when there are neither ROM folders nor a synced Apps tab yet. Apps alone are enough to
@@ -297,7 +459,19 @@ data class HomeUiState(
         get() = accountPanelExpanded || systemPanelExpanded || achievementsPanelExpanded
 }
 
+/** Join/decline copy for an online netplay invite popup. */
+data class NetplayInvitePrompt(
+    val hostName: String,
+    val gameTitle: String,
+    val sessionCode: String,
+    val platformId: String = "",
+    val coreName: String = "",
+    val fromUsername: String = "",
+)
+
 sealed interface HomeEvent {
+    /** Hand a device video to whichever app the player already uses for video. */
+    data class OpenVideoFile(val uri: String) : HomeEvent
     data class ShowMessage(val message: String) : HomeEvent
     data class ShowError(val message: String) : HomeEvent
     data object OpenSettings : HomeEvent
@@ -305,11 +479,29 @@ sealed interface HomeEvent {
     data object LinkDiscordAccount : HomeEvent
     /** Music browsing needs the runtime audio permission before MediaStore returns anything. */
     data class RequestAudioAccess(val permission: String) : HomeEvent
+    /** Photo Viewer needs the runtime image permission before MediaStore returns anything. */
+    data class RequestImageAccess(val permissions: List<String>) : HomeEvent
+    /** MediaStore deletion consent — launched as an IntentSender from the primary Activity. */
+    data class RequestPhotoDelete(val intentSender: android.content.IntentSender) : HomeEvent
     data class OpenGameOptions(val gameId: String) : HomeEvent
     /** Select button: ROM options (customize + saves + scrape) for [gameId]. */
     data class OpenScrapeMenu(val gameId: String) : HomeEvent
+    /** Select on a system card: same editor chrome as a ROM, for that console. */
+    data class OpenPlatformEditor(val platformId: String) : HomeEvent
+    /** Select / Options on an album or track: cover art and background media. */
+    data class OpenMusicEditor(
+        val mediaId: String,
+        val title: String,
+        val kind: MusicEditorKind,
+        val albumId: String? = null,
+        val subtitle: String? = null,
+    ) : HomeEvent
     /** Best-effort: reorder the shell task to the front when Guide opens. */
     data object BringShellToFront : HomeEvent
+    /** Open system settings so XOrA can install the downloaded APK. */
+    data object RequestUnknownAppSources : HomeEvent
+    /** Launch the package installer for a FileProvider APK URI. */
+    data class InstallApk(val uri: android.net.Uri) : HomeEvent
 }
 
 /**
@@ -322,7 +514,15 @@ sealed interface HomeMediaPickerRequest {
     data object ShortcutGif : HomeMediaPickerRequest
     data object Wallpaper : HomeMediaPickerRequest
     data object Bgm : HomeMediaPickerRequest
-    data object ProfileAvatar : HomeMediaPickerRequest
+
+    /** Optional second track for the Vita shortcut tray. */
+    data object TrayBgm : HomeMediaPickerRequest
+
+    /** User-supplied cold-start clip for Customize -> Boot Animation. */
+    data object BootAnimation : HomeMediaPickerRequest
+
+    /** Local profile picture from the Photos picker or the Files app. */
+    data class ProfileAvatar(val source: PhotoImportSource) : HomeMediaPickerRequest
 
     /** Photo / GIF to attach to the open Discord DM. */
     data object DiscordAttachment : HomeMediaPickerRequest
@@ -330,14 +530,27 @@ sealed interface HomeMediaPickerRequest {
     /** Banner art for a console card in the system picker. */
     data class PlatformBanner(val platformId: String) : HomeMediaPickerRequest
     data class GameBoxArt(val gameId: String) : HomeMediaPickerRequest
+    data class GameShortcutIcon(val gameId: String) : HomeMediaPickerRequest
     data class GameBackground(val gameId: String) : HomeMediaPickerRequest
     data class GameSoundBite(val gameId: String) : HomeMediaPickerRequest
+    data class GameIdleVideo(val gameId: String) : HomeMediaPickerRequest
+    data class GameScreenshots(val gameId: String) : HomeMediaPickerRequest
+    data class ShortcutIcon(val shortcutId: String) : HomeMediaPickerRequest
+    data class MusicCover(val mediaId: String) : HomeMediaPickerRequest
+    data class MusicWallpaper(val mediaId: String) : HomeMediaPickerRequest
+
+    /** Gallery still for the Games column Folder_IMG window. */
+    data object HomeFolderImage : HomeMediaPickerRequest
 }
 
-/**
- * External browser / Custom Tab launches that must start from the primary Activity (not a
- * Presentation). Same hoist pattern as [HomeMediaPickerRequest].
- */
+/** Where the user wants to pick a profile photo from. */
+enum class PhotoImportSource {
+    /** System Photos / Android photo picker. */
+    PhotosApp,
+    /** Android Files / DocumentsUI. */
+    FilesApp,
+}
+
 /** Music browsing plus the shared Now Playing state behind the pill and the player page. */
 data class MusicUiState(
     val albums: List<MusicAlbum> = emptyList(),
@@ -348,11 +561,128 @@ data class MusicUiState(
     /** False until the user grants audio access; the browse rungs stay empty until then. */
     val hasAudioAccess: Boolean = true,
     val nowPlaying: NowPlayingState = NowPlayingState(),
+    /** Custom still / GIF / video behind the XMB while [nowPlaying] has a track. */
+    val nowPlayingBackdropPath: String? = null,
+    /** Volume for track background video audio; the song itself uses Now Playing volume. */
+    val backdropAudioVolume: Float = 0f,
+    /**
+     * Display toggle: while a track plays on the Music column, show cover art plus the
+     * bundled wave Multiply mask.
+     */
+    val categoryArtBackdropEnabled: Boolean = true,
 ) {
     /** Cover art for whichever music rung is focused, used as the XMB backdrop. */
     val nowPlayingArtPath: String? get() = nowPlaying.track?.albumArtUri
 }
 
+/** Order of rows in the Photo Viewer's Options popup. */
+enum class PhotoOption(val label: String) {
+    View("View"),
+    Edit("Edit"),
+    MarkFavorite("Mark as Favorite"),
+    Delete("Delete"),
+    ShareToNetwork("Share to XOrA Network"),
+}
+
+/** Tools along the bottom of the non-destructive photo edit screen. */
+enum class PhotoEditTool(val label: String) {
+    RotateLeft("Rotate left"),
+    RotateRight("Rotate right"),
+    Crop("Crop"),
+    Reset("Reset"),
+    Save("Save"),
+    Cancel("Cancel"),
+}
+
+/** Center-crop presets the edit screen cycles through. Null aspect = no crop. */
+val PHOTO_CROP_PRESETS: List<Pair<String, Float?>> = listOf(
+    "Off" to null,
+    "1:1" to 1f,
+    "4:3" to 4f / 3f,
+    "16:9" to 16f / 9f,
+)
+
+/** Non-destructive edit session for one photo. Nothing is written until Save. */
+data class PhotoEditUiState(
+    val photo: DevicePhoto,
+    /** Multiples of 90, applied before crop. */
+    val rotationDeg: Int = 0,
+    val cropIndex: Int = 0,
+    val toolIndex: Int = 0,
+    val saving: Boolean = false,
+) {
+    val cropAspect: Float? get() = PHOTO_CROP_PRESETS[cropIndex].second
+    val cropLabel: String get() = PHOTO_CROP_PRESETS[cropIndex].first
+}
+
+/** Media → Photos: gallery, fullscreen viewer, slideshow, options popup, edit + delete flows. */
+data class PhotosUiState(
+    val photos: List<DevicePhoto> = emptyList(),
+    val focusedIndex: Int = 0,
+    val isLoading: Boolean = false,
+    /** Null until the rung has been opened once and access was checked. */
+    val access: PhotoAccess? = null,
+    /** MediaStore bucket id when opened from a Folder_Photo row; null is the full library. */
+    val albumFilter: String? = null,
+    val albumTitle: String? = null,
+    /** MediaStore ids the user favourited (persisted in preferences, never in the files). */
+    val favoriteIds: Set<String> = emptySet(),
+    val loadError: String? = null,
+    val optionsOpen: Boolean = false,
+    val optionIndex: Int = 0,
+    val fullscreenOpen: Boolean = false,
+    /** Fullscreen chrome fades after a pause and returns on any input. */
+    val fullscreenControlsVisible: Boolean = true,
+    val slideshowActive: Boolean = false,
+    val deleteConfirmOpen: Boolean = false,
+    /** True when the destructive button holds controller focus in the confirm dialog. */
+    val deleteConfirmDeleteFocused: Boolean = false,
+    val edit: PhotoEditUiState? = null,
+) {
+    val focusedPhoto: DevicePhoto? get() = photos.getOrNull(focusedIndex)
+    val focusedIsFavorite: Boolean get() = focusedPhoto?.id?.let { it in favoriteIds } == true
+    val pageCount: Int get() = if (photos.isEmpty()) 1 else (photos.size + PHOTO_PAGE_SIZE - 1) / PHOTO_PAGE_SIZE
+    val currentPage: Int get() = focusedIndex / PHOTO_PAGE_SIZE
+    /** Options / viewer / edit / delete sit above the gallery and must clear LT/RT chrome. */
+    val chromeOverlayOpen: Boolean
+        get() = optionsOpen || fullscreenOpen || deleteConfirmOpen || edit != null
+}
+
+/**
+ * One row of five per gallery page. The tray is a filmstrip under the picture now rather than a
+ * second grid competing with it, so the page steps by a row instead of by a block.
+ */
+const val PHOTO_GRID_COLUMNS = 5
+const val PHOTO_GRID_ROWS = 1
+const val PHOTO_PAGE_SIZE = PHOTO_GRID_COLUMNS * PHOTO_GRID_ROWS
+
+/** Everything the Photo Viewer pane can ask the shell to do (touch and gamepad funnel here). */
+sealed interface PhotoPaneCommand {
+    data class Focus(val index: Int) : PhotoPaneCommand
+    data class Open(val index: Int) : PhotoPaneCommand
+    data object OpenOptions : PhotoPaneCommand
+    data object CloseOptions : PhotoPaneCommand
+    data class FocusOption(val index: Int) : PhotoPaneCommand
+    data class ActivateOption(val index: Int) : PhotoPaneCommand
+    data object StartSlideshow : PhotoPaneCommand
+    data object CloseViewer : PhotoPaneCommand
+    data object NextPhoto : PhotoPaneCommand
+    data object PreviousPhoto : PhotoPaneCommand
+    data object RevealControls : PhotoPaneCommand
+    data class FocusDeleteChoice(val delete: Boolean) : PhotoPaneCommand
+    data object ConfirmDelete : PhotoPaneCommand
+    data object CancelDelete : PhotoPaneCommand
+    data class FocusEditTool(val index: Int) : PhotoPaneCommand
+    data class ActivateEditTool(val index: Int) : PhotoPaneCommand
+    data object RequestAccess : PhotoPaneCommand
+    data object Retry : PhotoPaneCommand
+    data object Back : PhotoPaneCommand
+}
+
+/**
+ * External browser / Custom Tab launches that must start from the primary Activity (not a
+ * Presentation). Same hoist pattern as [HomeMediaPickerRequest].
+ */
 sealed interface HomeExternalAuthRequest {
     data object SteamOpenId : HomeExternalAuthRequest
     /** Spotify Authorization Code + PKCE (Custom Tab → sora://spotify-auth). */

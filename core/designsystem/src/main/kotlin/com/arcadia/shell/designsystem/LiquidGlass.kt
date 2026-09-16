@@ -1,12 +1,6 @@
 package com.arcadia.shell.designsystem
 
 import android.os.Build
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -17,7 +11,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -80,7 +73,7 @@ object ArcadiaGlass {
         get() = LocalArcadiaGlass.current
 
     /** Nominal frost radius passed to Haze when a backdrop source is available. */
-    val DefaultBlur: Dp = 18.dp
+    val DefaultBlur: Dp = 8.dp
 
     val PillShape: Shape = RoundedCornerShape(percent = 50)
     val PanelShape: Shape = RoundedCornerShape(18.dp)
@@ -147,6 +140,40 @@ enum class GlassIntensity {
     Strong,
 }
 
+/**
+ * Shared chrome for Friends / Profile / Achievement (and matching) modals:
+ * darker tinted glass, Haze blur of whatever sits *directly* under the plate,
+ * 30dp corners by default, and the X4 Y4 B4 S0 50% drop shadow.
+ */
+object XoraModalGlass {
+    val Shape: Shape = RoundedCornerShape(30.dp)
+    val Blur: Dp = 18.dp
+    val Scrim: Color = Color.Black.copy(alpha = 0.24f)
+    val Edge: Color = Color.White.copy(alpha = 0.38f)
+    val EdgeWidth: Dp = 2.5.dp
+    val Shadow: Dp = 4.dp
+}
+
+fun Modifier.xoraModalGlass(
+    shape: Shape = XoraModalGlass.Shape,
+    shimmer: Boolean = true,
+): Modifier = this
+    .xoraForegroundShadow(
+        shape = shape,
+        offset = XoraModalGlass.Shadow,
+        blur = XoraModalGlass.Shadow,
+    )
+    .liquidGlass(
+        shape = shape,
+        tone = GlassTone.OverMedia,
+        intensity = GlassIntensity.Strong,
+        blurRadius = XoraModalGlass.Blur,
+        shimmer = shimmer,
+        hazeFrost = Color.Black.copy(alpha = 0.38f),
+    )
+    .background(XoraModalGlass.Scrim, shape)
+    .border(XoraModalGlass.EdgeWidth, XoraModalGlass.Edge, shape)
+
 @Composable
 fun rememberGlassTokens(tone: GlassTone = GlassTone.Surface): ArcadiaGlassTokens {
     val theme = LocalArcadiaGlass.current
@@ -184,6 +211,34 @@ fun Modifier.arcadiaHazeSource(zIndex: Float = 0f): Modifier = composed {
 }
 
 /**
+ * Full-bleed backdrop blur for a modal's scrim — the shell behind a sheet going soft, with no
+ * plate chrome (no rim, no sheen) because the scrim is not a surface, it is the room dimming.
+ *
+ * Falls back to [tint] alone where no [LocalArcadiaHaze] source is registered (a pane that never
+ * marked a backdrop, or a display the haze state does not cover), which still reads correctly —
+ * just without the blur.
+ */
+fun Modifier.arcadiaBackdropBlur(
+    blurRadius: Dp,
+    tint: Color,
+): Modifier = composed {
+    val hazeState = LocalArcadiaHaze.current
+    if (hazeState == null || blurRadius <= 0.dp) {
+        return@composed this.background(tint)
+    }
+    // Not remembered: both arguments change every frame while the scrim animates, so a keyed
+    // remember would allocate the same object it does here and add lookup on top.
+    val style = HazeStyle(
+        backgroundColor = Color.Unspecified,
+        tints = listOf(HazeTint(tint)),
+        blurRadius = blurRadius,
+        noiseFactor = 0f,
+        fallbackTint = HazeTint(tint),
+    )
+    hazeEffect(state = hazeState, style = style)
+}
+
+/**
  * Clear liquid-glass plate: backdrop blur (via Haze when sourced), near-clear neutral fill,
  * white specular rim, soft top highlight. No brand-color wash.
  *
@@ -196,6 +251,7 @@ fun Modifier.liquidGlass(
     intensity: GlassIntensity = GlassIntensity.Standard,
     blurRadius: Dp = ArcadiaGlass.DefaultBlur,
     shimmer: Boolean = false,
+    hazeFrost: Color? = null,
 ): Modifier = composed {
     val tokens = rememberGlassTokens(tone)
     val hazeState = LocalArcadiaHaze.current
@@ -221,32 +277,22 @@ fun Modifier.liquidGlass(
         alpha = (plateTint.alpha * (2f - opacityBoost)).coerceIn(0.04f, 0.55f),
     )
 
-    val hazeStyle = remember(tone, blurRadius, intensity) {
-        clearHazeStyle(
+    val hazeStyle = remember(tone, blurRadius, intensity, hazeFrost) {
+        val base = clearHazeStyle(
             tone = tone,
             blurRadius = blurRadius,
             intensity = intensity,
         )
+        if (hazeFrost != null) {
+            base.copy(tints = listOf(HazeTint(hazeFrost)))
+        } else {
+            base
+        }
     }
 
-    // Several of these plates sit on chrome that is always on screen, so the sheen has to stop
-    // with the rest of the shell rather than redrawing the blur forever.
-    val ambientActive = rememberAmbientMotionActive()
-    val highlightAlpha = if (shimmer && ambientActive) {
-        val transition = rememberInfiniteTransition(label = "glassSheen")
-        val pulse by transition.animateFloat(
-            initialValue = 0.55f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 3_600, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "glassSheenPulse",
-        )
-        pulse
-    } else {
-        1f
-    }
+    // Sheen used to pulse on a vsync infinite transition. Dual 1080p AMOLED (AYN Thor)
+    // redrew every glass plate forever for a highlight nobody clocks. Static looks the same.
+    val highlightAlpha = 1f
 
     var chain = this.clip(shape)
     if (hazeState != null) {

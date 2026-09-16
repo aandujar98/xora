@@ -4,6 +4,7 @@
  * Also captures memory maps for RetroAchievements (rcheevos).
  */
 #include "libretro.h"
+#include "xora_gba_link.h"
 #include "xora_hw_gl.h"
 #include "xora_ra_memory.h"
 
@@ -11,7 +12,9 @@
 
 #include <android/log.h>
 #include <dlfcn.h>
+#include <elf.h>
 #include <jni.h>
+#include <link.h>
 #include <zlib.h>
 
 #include <atomic>
@@ -19,9 +22,12 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstring>
+#include <deque>
+#include <dirent.h>
 #include <map>
 #include <mutex>
 #include <string>
+#include <sys/stat.h>
 #include <vector>
 
 #define LOG_TAG "XoraLibretro"
@@ -78,11 +84,18 @@ struct CoreApi {
 
 namespace {
 
+void xora_gba_sio_on_poll();
+void xora_gba_sio_reset();
+void xora_gba_sio_drop_hook();
+void resolve_core_io_registers();
+
 CoreApi g_api;
 std::mutex g_mutex;
 std::string g_system_dir;
 std::string g_save_dir;
+std::string g_core_path;
 std::string g_last_error;
+std::string g_core_message;
 /** Kept for the loaded game lifetime — cores may retain path / buffer pointers. */
 std::string g_rom_path;
 std::vector<uint8_t> g_rom_buffer;
@@ -116,12 +129,22 @@ std::mutex g_frame_mutex;
 std::vector<int16_t> g_audio;
 std::mutex g_audio_mutex;
 
-// Port 0: buttons bitmask (RETRO_DEVICE_ID_JOYPAD_*), axes LX/LY/RX/RY in [-0x7fff, 0x7fff]
-std::atomic<uint16_t> g_pad_buttons{0};
-std::atomic<int16_t> g_axis_lx{0};
-std::atomic<int16_t> g_axis_ly{0};
-std::atomic<int16_t> g_axis_rx{0};
-std::atomic<int16_t> g_axis_ry{0};
+// Ports 0–1: buttons bitmask (RETRO_DEVICE_ID_JOYPAD_*), axes LX/LY/RX/RY in [-0x7fff, 0x7fff]
+std::atomic<uint16_t> g_pad_buttons[4]{{0}, {0}, {0}, {0}};
+std::atomic<int16_t> g_axis_lx[4]{{0}, {0}, {0}, {0}};
+std::atomic<int16_t> g_axis_ly[4]{{0}, {0}, {0}, {0}};
+std::atomic<int16_t> g_axis_rx[4]{{0}, {0}, {0}, {0}};
+std::atomic<int16_t> g_axis_ry[4]{{0}, {0}, {0}, {0}};
+std::atomic<int16_t> g_pointer_x{0};
+std::atomic<int16_t> g_pointer_y{0};
+std::atomic<int16_t> g_pointer_pressed{0};
+
+// Device IDs from SET_CONTROLLER_INFO (core-specific subclasses, not always JOYPAD).
+constexpr unsigned kMaxControllerPorts = 4;
+unsigned g_port_device[kMaxControllerPorts] = {
+    RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD};
+unsigned g_controller_ports = 0;
+bool g_plugging_controllers = false;
 
 // Core options (SET_VARIABLES / GET_VARIABLE). Overrides win over core defaults.
 std::mutex g_vars_mutex;
@@ -131,6 +154,71 @@ std::map<std::string, std::string> g_var_defaults;
 std::map<std::string, std::string> g_var_query_cache;
 std::atomic<bool> g_vars_updated{false};
 std::string g_netplay_username = "Player";
+
+// Libretro netpacket (env 78) — gpSP Game Link / RFU rides this, not a host-IP core option.
+retro_netpacket_callback g_netpacket{};
+std::atomic<bool> g_netpacket_set{false};
+std::atomic<bool> g_netpacket_started{false};
+uint16_t g_netpacket_local_id = 0;
+struct NetpacketIo {
+    uint16_t client_id = 0;
+    int flags = 0;
+    std::vector<uint8_t> data;
+};
+std::mutex g_netpacket_io_mutex;
+std::deque<NetpacketIo> g_netpacket_incoming;
+std::deque<NetpacketIo> g_netpacket_outgoing;
+
+void netpacket_reset_unlocked() {
+    if (g_netpacket_started.load(std::memory_order_relaxed) && g_netpacket.stop) {
+        g_netpacket.stop();
+    }
+    g_netpacket_started.store(false, std::memory_order_relaxed);
+    g_netpacket_local_id = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_netpacket_io_mutex);
+        g_netpacket_incoming.clear();
+        g_netpacket_outgoing.clear();
+    }
+}
+
+void netpacket_clear_interface() {
+    netpacket_reset_unlocked();
+    g_netpacket = retro_netpacket_callback{};
+    g_netpacket_set.store(false, std::memory_order_relaxed);
+}
+
+void RETRO_CALLCONV netpacket_send(int flags, const void* buf, size_t len, uint16_t client_id) {
+    if ((!buf || len == 0) && (flags & RETRO_NETPACKET_FLUSH_HINT)) {
+        return;
+    }
+    if (!buf || len == 0) return;
+    if (len > 64 * 1024) len = 64 * 1024;
+    NetpacketIo packet;
+    packet.client_id = client_id;
+    packet.flags = flags;
+    packet.data.assign(static_cast<const uint8_t*>(buf), static_cast<const uint8_t*>(buf) + len);
+    std::lock_guard<std::mutex> lock(g_netpacket_io_mutex);
+    if (g_netpacket_outgoing.size() > 256) g_netpacket_outgoing.pop_front();
+    g_netpacket_outgoing.push_back(std::move(packet));
+}
+
+void netpacket_deliver_incoming() {
+    std::deque<NetpacketIo> batch;
+    {
+        std::lock_guard<std::mutex> lock(g_netpacket_io_mutex);
+        batch.swap(g_netpacket_incoming);
+    }
+    if (!g_netpacket.receive) return;
+    for (const auto& packet : batch) {
+        if (packet.data.empty()) continue;
+        g_netpacket.receive(packet.data.data(), packet.data.size(), packet.client_id);
+    }
+}
+
+void RETRO_CALLCONV netpacket_poll_receive() {
+    netpacket_deliver_incoming();
+}
 
 bool g_game_loaded = false;
 double g_fps = 60.0;
@@ -147,6 +235,9 @@ void clear_memory_maps() {
     g_mmap_descriptors.clear();
     g_mmap_addrspaces.clear();
     g_mmap = retro_memory_map{};
+    // Keep Game Link I/O pokes across SET_MEMORY_MAPS; a full SIO reset used to
+    // unplug the cable mid-session whenever the core refreshed maps.
+    xora_gba_sio_drop_hook();
 }
 
 template <typename T>
@@ -187,6 +278,49 @@ bool read_rom_file(const char* path, std::vector<uint8_t>& out, std::string& err
     return true;
 }
 
+bool path_is_directory(const char* path) {
+    if (!path || !path[0]) return false;
+    struct stat st {};
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+bool gba_cart_extension(const std::string& ext) {
+    return ext == "gba" || ext == "agb" || ext == "mb" || ext == "bin" || ext == "elf";
+}
+
+std::string path_extension(const std::string& path);
+
+bool first_gba_cart_in_directory(const char* dir, std::string& found) {
+    if (!dir || !dir[0]) return false;
+    DIR* handle = opendir(dir);
+    if (!handle) return false;
+    std::string zip_fallback;
+    while (dirent* entry = readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+        const std::string ext = path_extension(name);
+        const std::string full = std::string(dir) + "/" + name;
+        if (gba_cart_extension(ext)) {
+            found = full;
+            closedir(handle);
+            return true;
+        }
+        if (zip_fallback.empty() && ext == "zip") zip_fallback = full;
+    }
+    closedir(handle);
+    if (!zip_fallback.empty()) {
+        found = zip_fallback;
+        return true;
+    }
+    return false;
+}
+
+bool bytes_look_like_zip(const std::vector<uint8_t>& bytes) {
+    return bytes.size() >= 4 &&
+        bytes[0] == 'P' && bytes[1] == 'K' &&
+        bytes[2] == 0x03 && bytes[3] == 0x04;
+}
+
 bool rom_file_exists(const char* path) {
     FILE* file = std::fopen(path, "rb");
     if (!file) return false;
@@ -207,6 +341,13 @@ std::string path_extension(const std::string& path) {
     const auto dot = base.find_last_of('.');
     if (dot == std::string::npos || dot == 0) return "";
     return to_lower_copy(base.substr(dot + 1));
+}
+
+/** Azahar / melonDS mmap the cart. Never copy a 1 GB .cci into RAM as a fallback. */
+bool skip_buffer_fallback(const std::string& ext) {
+    return ext == "cci" || ext == "3ds" || ext == "cxi" || ext == "cia" ||
+        ext == "3dsx" || ext == "app" || ext == "zcci" || ext == "zcxi" ||
+        ext == "z3dsx" || ext == "nds" || ext == "dsi";
 }
 
 std::string path_directory(const std::string& path) {
@@ -481,27 +622,201 @@ size_t audio_sample_batch(const int16_t* data, size_t frames) {
     return frames;
 }
 
-void input_poll() {}
+void input_poll() {
+    xora_gba_sio_on_poll();
+}
+
+bool is_multiplayer_adapter(const char* desc);
+
+bool is_pad_device(unsigned id, const char* desc) {
+    if (id == RETRO_DEVICE_NONE) return false;
+    const unsigned base = id & RETRO_DEVICE_MASK;
+    if (base == RETRO_DEVICE_MOUSE || base == RETRO_DEVICE_POINTER ||
+        base == RETRO_DEVICE_KEYBOARD || base == RETRO_DEVICE_LIGHTGUN) {
+        return false;
+    }
+    if (!desc || !desc[0]) {
+        return base == RETRO_DEVICE_JOYPAD || base == RETRO_DEVICE_ANALOG;
+    }
+    const std::string d = to_lower_copy(desc);
+    if (d.find("none") != std::string::npos) return false;
+    if (d.find("zapper") != std::string::npos || d.find("scope") != std::string::npos ||
+        d.find("justifier") != std::string::npos || d.find("guncon") != std::string::npos ||
+        d.find("lightgun") != std::string::npos || d.find("mouse") != std::string::npos ||
+        d.find("paddle") != std::string::npos || d.find("tablet") != std::string::npos ||
+        d.find("keyboard") != std::string::npos) {
+        return false;
+    }
+    // A multitap on port 2 replaces the P2 pad. Netplay writes joypad bits to that
+    // port, so the adapter must never be the plugged device.
+    if (is_multiplayer_adapter(desc)) return false;
+    return true;
+}
+
+bool is_multiplayer_adapter(const char* desc) {
+    if (!desc || !desc[0]) return false;
+    const std::string d = to_lower_copy(desc);
+    return d.find("multitap") != std::string::npos ||
+           d.find("four score") != std::string::npos ||
+           d.find("fourscore") != std::string::npos ||
+           d.find("4-player") != std::string::npos ||
+           d.find("4 player") != std::string::npos ||
+           d.find("teamplayer") != std::string::npos ||
+           d.find("team player") != std::string::npos ||
+           d.find("4-way") != std::string::npos ||
+           d.find("4 way") != std::string::npos;
+}
+
+int pad_device_score(unsigned port, unsigned id, const char* desc) {
+    (void)port;
+    const std::string d = desc ? to_lower_copy(desc) : "";
+    if (is_multiplayer_adapter(desc)) return -1;
+    if (d.find("gamepad") != std::string::npos) return 90;
+    if (d.find("gamecube") != std::string::npos) return 88;
+    if (d.find("playstation controller") != std::string::npos) return 85;
+    if (d.find("standard") != std::string::npos) return 85;
+    if (d.find("joypad") != std::string::npos || d.find("retropad") != std::string::npos) return 80;
+    if (d.find("dualshock") != std::string::npos) return 70;
+    if (d.find("analog controller") != std::string::npos) return 70;
+    if (d.find("controller") != std::string::npos) return 55;
+    if (d == "auto") return 20;
+    const unsigned base = id & RETRO_DEVICE_MASK;
+    if (base == RETRO_DEVICE_ANALOG) return 45;
+    if (base == RETRO_DEVICE_JOYPAD) return 40;
+    return 10;
+}
+
+void reset_port_devices() {
+    g_controller_ports = 0;
+    for (unsigned i = 0; i < kMaxControllerPorts; ++i) {
+        g_port_device[i] = RETRO_DEVICE_JOYPAD;
+    }
+}
+
+void apply_controller_info(const retro_controller_info* ports) {
+    if (!ports) return;
+    unsigned count = 0;
+    for (unsigned port = 0; port < kMaxControllerPorts; ++port) {
+        const retro_controller_info& info = ports[port];
+        if (!info.types || info.num_types == 0) break;
+        unsigned best_id = RETRO_DEVICE_JOYPAD;
+        int best_score = -1;
+        const char* best_desc = "";
+        for (unsigned i = 0; i < info.num_types; ++i) {
+            const retro_controller_description& type = info.types[i];
+            if (!is_pad_device(type.id, type.desc)) continue;
+            const int score = pad_device_score(port, type.id, type.desc);
+            if (score > best_score) {
+                best_score = score;
+                best_id = type.id;
+                best_desc = type.desc ? type.desc : "";
+            }
+        }
+        g_port_device[port] = best_id;
+        count = port + 1;
+        ALOGI("Controller port %u device %u (%s)", port, best_id, best_desc);
+    }
+    if (count > 0) {
+        const unsigned fill = g_port_device[0];
+        for (unsigned port = count; port < kMaxControllerPorts; ++port) {
+            g_port_device[port] = fill;
+        }
+        g_controller_ports = kMaxControllerPorts;
+    }
+}
+
+int16_t analog_x_or_dpad(unsigned port) {
+    const int16_t axis = g_axis_lx[port].load(std::memory_order_relaxed);
+    if (axis != 0) return axis;
+    const uint16_t buttons = g_pad_buttons[port].load(std::memory_order_relaxed);
+    if (buttons & (1u << RETRO_DEVICE_ID_JOYPAD_LEFT)) return -0x7fff;
+    if (buttons & (1u << RETRO_DEVICE_ID_JOYPAD_RIGHT)) return 0x7fff;
+    return 0;
+}
+
+int16_t analog_y_or_dpad(unsigned port) {
+    const int16_t axis = g_axis_ly[port].load(std::memory_order_relaxed);
+    if (axis != 0) return axis;
+    const uint16_t buttons = g_pad_buttons[port].load(std::memory_order_relaxed);
+    if (buttons & (1u << RETRO_DEVICE_ID_JOYPAD_UP)) return -0x7fff;
+    if (buttons & (1u << RETRO_DEVICE_ID_JOYPAD_DOWN)) return 0x7fff;
+    return 0;
+}
+
+void plug_controllers() {
+    if (g_plugging_controllers || !g_api.set_controller_port_device) return;
+    g_plugging_controllers = true;
+    const unsigned d0 = g_port_device[0];
+    for (unsigned port = 0; port < kMaxControllerPorts; ++port) {
+        const unsigned id = (g_controller_ports > port) ? g_port_device[port] : d0;
+        g_api.set_controller_port_device(port, id);
+    }
+    ALOGI("Plugged P1–P4 devices %u %u %u %u (ports=%u)",
+          d0,
+          g_port_device[1],
+          g_port_device[2],
+          g_port_device[3],
+          g_controller_ports);
+    g_plugging_controllers = false;
+}
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port != 0) return 0;
-    if (device == RETRO_DEVICE_JOYPAD) {
-        // Cores that negotiated GET_INPUT_BITMASKS query all buttons in one call.
+    if (port >= kMaxControllerPorts) return 0;
+    // Cores pass SET_CONTROLLER_INFO subclasses (NES Gamepad, DualShock, GC pad).
+    // The API requires masking to the generic RetroPad / analog type.
+    const unsigned masked = device & RETRO_DEVICE_MASK;
+    const uint16_t buttons = g_pad_buttons[port].load(std::memory_order_relaxed);
+    if (masked == RETRO_DEVICE_JOYPAD) {
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) {
-            return static_cast<int16_t>(g_pad_buttons.load(std::memory_order_relaxed) & 0xffff);
+            return static_cast<int16_t>(buttons);
         }
         if (id > 15) return 0;
-        return (g_pad_buttons.load(std::memory_order_relaxed) >> id) & 1;
+        return (buttons >> id) & 1;
     }
-    if (device == RETRO_DEVICE_ANALOG) {
+    if (masked == RETRO_DEVICE_ANALOG) {
         if (index == RETRO_DEVICE_INDEX_ANALOG_LEFT) {
-            if (id == RETRO_DEVICE_ID_ANALOG_X) return g_axis_lx.load(std::memory_order_relaxed);
-            if (id == RETRO_DEVICE_ID_ANALOG_Y) return g_axis_ly.load(std::memory_order_relaxed);
+            if (id == RETRO_DEVICE_ID_ANALOG_X) return analog_x_or_dpad(port);
+            if (id == RETRO_DEVICE_ID_ANALOG_Y) return analog_y_or_dpad(port);
         }
         if (index == RETRO_DEVICE_INDEX_ANALOG_RIGHT) {
-            if (id == RETRO_DEVICE_ID_ANALOG_X) return g_axis_rx.load(std::memory_order_relaxed);
-            if (id == RETRO_DEVICE_ID_ANALOG_Y) return g_axis_ry.load(std::memory_order_relaxed);
+            if (id == RETRO_DEVICE_ID_ANALOG_X) return g_axis_rx[port].load(std::memory_order_relaxed);
+            if (id == RETRO_DEVICE_ID_ANALOG_Y) return g_axis_ry[port].load(std::memory_order_relaxed);
         }
+        if (index == RETRO_DEVICE_INDEX_ANALOG_BUTTON) {
+            if (id > 15) return 0;
+            return (buttons >> id) & 1 ? 0x7fff : 0;
+        }
+    }
+    if (masked == RETRO_DEVICE_POINTER) {
+        if (index != 0) return 0;
+        if (id == RETRO_DEVICE_ID_POINTER_X) {
+            return g_pointer_x.load(std::memory_order_relaxed);
+        }
+        if (id == RETRO_DEVICE_ID_POINTER_Y) {
+            return g_pointer_y.load(std::memory_order_relaxed);
+        }
+        if (id == RETRO_DEVICE_ID_POINTER_PRESSED) {
+            return g_pointer_pressed.load(std::memory_order_relaxed);
+        }
+        if (id == RETRO_DEVICE_ID_POINTER_COUNT) {
+            return g_pointer_pressed.load(std::memory_order_relaxed) ? 1 : 0;
+        }
+        if (id == RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN) {
+            return g_pointer_pressed.load(std::memory_order_relaxed) ? 0 : 1;
+        }
+        return 0;
+    }
+    if (masked == RETRO_DEVICE_MOUSE) {
+        if (id == RETRO_DEVICE_ID_MOUSE_X) {
+            return g_pointer_x.load(std::memory_order_relaxed);
+        }
+        if (id == RETRO_DEVICE_ID_MOUSE_Y) {
+            return g_pointer_y.load(std::memory_order_relaxed);
+        }
+        if (id == RETRO_DEVICE_ID_MOUSE_LEFT) {
+            return g_pointer_pressed.load(std::memory_order_relaxed);
+        }
+        return 0;
     }
     return 0;
 }
@@ -561,6 +876,11 @@ bool environment(unsigned cmd, void* data) {
             cb->log = log_printf;
             return true;
         }
+        case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION: {
+            if (!data) return false;
+            *static_cast<unsigned*>(data) = 2;
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_VARIABLE: {
             if (!data) return false;
             auto* var = static_cast<retro_variable*>(data);
@@ -600,6 +920,49 @@ bool environment(unsigned cmd, void* data) {
             }
             return true;
         }
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS: {
+            if (!data) return false;
+            const auto* defs = static_cast<const retro_core_option_definition*>(data);
+            std::lock_guard<std::mutex> lock(g_vars_mutex);
+            for (; defs && defs->key; ++defs) {
+                g_var_defaults[defs->key] = defs->default_value ? defs->default_value : "";
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL: {
+            if (!data) return false;
+            const auto* intl = static_cast<const retro_core_options_intl*>(data);
+            const auto* defs = intl->us;
+            std::lock_guard<std::mutex> lock(g_vars_mutex);
+            for (; defs && defs->key; ++defs) {
+                g_var_defaults[defs->key] = defs->default_value ? defs->default_value : "";
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: {
+            if (!data) return false;
+            const auto* v2 = static_cast<const retro_core_options_v2*>(data);
+            const auto* defs = v2->definitions;
+            std::lock_guard<std::mutex> lock(g_vars_mutex);
+            for (; defs && defs->key; ++defs) {
+                g_var_defaults[defs->key] = defs->default_value ? defs->default_value : "";
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: {
+            if (!data) return false;
+            const auto* intl = static_cast<const retro_core_options_v2_intl*>(data);
+            const auto* v2 = intl->us ? intl->us : intl->local;
+            const auto* defs = v2 ? v2->definitions : nullptr;
+            std::lock_guard<std::mutex> lock(g_vars_mutex);
+            for (; defs && defs->key; ++defs) {
+                g_var_defaults[defs->key] = defs->default_value ? defs->default_value : "";
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
+        case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK:
+            return true;
         case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: {
             if (!data) return false;
             *static_cast<bool*>(data) = g_vars_updated.exchange(false);
@@ -618,17 +981,48 @@ bool environment(unsigned cmd, void* data) {
             if (data) *static_cast<bool*>(data) = true;
             return true;
         }
+        case RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS: {
+            if (!data) return false;
+            // NES/SNES/N64/PS/GC expose up to 4 sockets; we drive all of them.
+            *static_cast<unsigned*>(data) = 4u;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
+            if (!data) return false;
+            *static_cast<uint64_t*>(data) =
+                (1ULL << RETRO_DEVICE_JOYPAD) |
+                (1ULL << RETRO_DEVICE_ANALOG) |
+                (1ULL << RETRO_DEVICE_POINTER) |
+                (1ULL << RETRO_DEVICE_MOUSE);
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
             if (!data) return false;
             return xora_hw::preferred_hw_context(static_cast<unsigned*>(data));
         }
+        case RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT:
+            // Azahar/Citra call this before SET_HW_RENDER on the OpenGL path.
+            return true;
         case RETRO_ENVIRONMENT_SET_HW_RENDER: {
             if (!data) return false;
             auto* cb = static_cast<retro_hw_render_callback*>(data);
             if (!xora_hw::accept_hw_render(cb)) {
-                ALOGW("SET_HW_RENDER rejected (unsupported or EGL init failed)");
+                ALOGW("SET_HW_RENDER rejected (type=%d — unsupported or EGL init failed)",
+                      static_cast<int>(cb->context_type));
+                if (cb->context_type == RETRO_HW_CONTEXT_VULKAN && g_core_message.empty()) {
+                    g_core_message =
+                        "Azahar asked for Vulkan. XOrA uses OpenGL ES — set Graphics API to OpenGL.";
+                }
                 return false;
             }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO: {
+            if (!data) return false;
+            apply_controller_info(static_cast<const retro_controller_info*>(data));
+            // Dolphin (and others) refresh this after load_game. Re-plug then so P2
+            // gets the core's GameCube/NES/SNES/PS pad, not a generic RetroPad.
+            if (g_game_loaded) plug_controllers();
             return true;
         }
         case RETRO_ENVIRONMENT_SET_MEMORY_MAPS: {
@@ -659,13 +1053,44 @@ bool environment(unsigned cmd, void* data) {
             *static_cast<const retro_game_info_ext**>(data) = ext_ptr;
             return true;
         }
+        case RETRO_ENVIRONMENT_SET_MESSAGE: {
+            if (!data) return true;
+            const auto* msg = static_cast<const retro_message*>(data);
+            if (msg && msg->msg && msg->msg[0]) {
+                g_core_message = msg->msg;
+                ALOGI("SET_MESSAGE: %s", msg->msg);
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_MESSAGE_EXT: {
+            if (!data) return true;
+            const auto* msg = static_cast<const retro_message_ext*>(data);
+            if (msg && msg->msg && msg->msg[0]) {
+                g_core_message = msg->msg;
+                ALOGI("SET_MESSAGE_EXT: %s", msg->msg);
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE: {
+            if (!data) return false;
+            const auto* cb = static_cast<const retro_netpacket_callback*>(data);
+            if (!cb->start || !cb->receive) return false;
+            g_netpacket = *cb;
+            g_netpacket_set.store(true, std::memory_order_relaxed);
+            ALOGI("SET_NETPACKET_INTERFACE accepted (protocol %s)",
+                  cb->protocol_version ? cb->protocol_version : "core");
+            return true;
+        }
         default:
             return false;
     }
 }
 
 void unload_unlocked() {
+    netpacket_clear_interface();
+    xora_gba_link_stop();
     xora_host_memory_destroy();
+    xora_gba_sio_reset();
     clear_memory_maps();
     if (g_api.handle && g_game_loaded && g_api.unload_game) {
         g_api.unload_game();
@@ -680,7 +1105,9 @@ void unload_unlocked() {
         g_api = CoreApi{};
     }
     g_pixel_fmt = PixelFmt::Xrgb1555;
+    reset_port_devices();
     g_rom_path.clear();
+    g_core_path.clear();
     g_rom_buffer.clear();
     g_rom_buffer.shrink_to_fit();
     g_content_overrides.clear();
@@ -724,6 +1151,104 @@ bool load_symbols(void* handle) {
 }
 
 }  // namespace
+
+uint16_t xora_host_pad_buttons(int port) {
+    if (port < 0 || port >= static_cast<int>(kMaxControllerPorts)) return 0;
+    return g_pad_buttons[port].load(std::memory_order_relaxed);
+}
+
+void xora_host_publish_frame_argb(int width, int height, const uint32_t* pixels) {
+    if (width <= 0 || height <= 0 || !pixels) return;
+    std::lock_guard<std::mutex> lock(g_frame_mutex);
+    g_frame_w = width;
+    g_frame_h = height;
+    g_frame_rgba.assign(
+        pixels,
+        pixels + static_cast<size_t>(width) * static_cast<size_t>(height)
+    );
+}
+
+void xora_host_push_stereo_s16(const int16_t* samples, size_t count) {
+    if (!samples || count == 0) return;
+    std::lock_guard<std::mutex> lock(g_audio_mutex);
+    g_audio.insert(g_audio.end(), samples, samples + count);
+}
+
+void xora_host_set_timing(double fps, double sample_rate) {
+    if (fps > 1.0) g_fps = fps;
+    if (sample_rate > 1.0) g_sample_rate = sample_rate;
+}
+
+bool xora_host_load_gba_rom(const char* path, std::vector<uint8_t>& out, std::string& error) {
+    out.clear();
+    constexpr const char* kGbaZipExts = "gba|agb|bin|mb|elf";
+
+    auto unzip_if_needed = [&](const std::vector<uint8_t>& bytes, const std::string& src) -> bool {
+        const bool zip = bytes_look_like_zip(bytes) || path_extension(src) == "zip";
+        if (!zip) {
+            if (bytes.size() < 0xC0) {
+                error = "GBA cart is too small: " + src;
+                return false;
+            }
+            out = bytes;
+            return true;
+        }
+        std::vector<uint8_t> inner;
+        std::string inner_name;
+        std::string zip_error;
+        if (!extract_zip_entry(bytes, kGbaZipExts, inner, inner_name, zip_error)) {
+            error = zip_error.empty() ? ("Could not unzip GBA cart: " + src) : zip_error;
+            return false;
+        }
+        if (inner.size() < 0xC0) {
+            error = "Unzipped GBA cart is too small: " + inner_name;
+            return false;
+        }
+        ALOGI("GBA lockstep cart from zip '%s' (%zu bytes)", inner_name.c_str(), inner.size());
+        out = std::move(inner);
+        return true;
+    };
+
+    auto load_file = [&](const char* file_path) -> bool {
+        if (!file_path || !file_path[0]) return false;
+        std::string read_error;
+        std::vector<uint8_t> bytes;
+        if (!read_rom_file(file_path, bytes, read_error)) {
+            error = read_error;
+            return false;
+        }
+        return unzip_if_needed(std::move(bytes), file_path);
+    };
+
+    // Libretro already extracted the cart (zip → .gba). Reuse those bytes so
+    // lockstep never fopen()s a folder like "ROM Directory" or a zip mGBA
+    // cannot open (this build has no libzip).
+    if (!g_rom_buffer.empty()) {
+        const std::string src = !g_rom_path.empty() ? g_rom_path : (path ? path : "loaded ROM");
+        return unzip_if_needed(g_rom_buffer, src);
+    }
+
+    if (path && path[0] && path_is_directory(path)) {
+        std::string cart;
+        if (first_gba_cart_in_directory(path, cart)) {
+            ALOGW("GBA lockstep path was a folder; using %s", cart.c_str());
+            if (load_file(cart.c_str())) return true;
+        } else {
+            error = std::string("GBA Game Link needs a .gba/.zip file, not the folder ") + path;
+            return false;
+        }
+    } else if (load_file(path)) {
+        return true;
+    }
+
+    if (!g_rom_path.empty() && (!path || g_rom_path != path) && load_file(g_rom_path.c_str())) {
+        return true;
+    }
+    if (error.empty()) {
+        error = "No GBA cart bytes for Game Link";
+    }
+    return false;
+}
 
 extern "C" void get_core_memory_info(uint32_t id, rc_libretro_core_memory_info_t* info) {
     if (!info) return;
@@ -819,6 +1344,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadCore(
     const char* save_c = save_dir ? env->GetStringUTFChars(save_dir, nullptr) : nullptr;
     g_system_dir = sys_c ? sys_c : "";
     g_save_dir = save_c ? save_c : "";
+    g_core_path = core_c ? core_c : "";
 
     void* handle = dlopen(core_c, RTLD_LOCAL | RTLD_NOW);
     if (sys_c) env->ReleaseStringUTFChars(system_dir, sys_c);
@@ -845,9 +1371,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadCore(
     g_api.set_input_poll(input_poll);
     g_api.set_input_state(input_state);
     g_api.init();
-    if (g_api.set_controller_port_device) {
-        g_api.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
-    }
+    plug_controllers();
 
     ALOGI("Core loaded (api %u)", g_api.api_version ? g_api.api_version() : 0u);
     return JNI_TRUE;
@@ -869,6 +1393,7 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadGame(
     g_rom_path = path_c ? path_c : "";
     env->ReleaseStringUTFChars(rom_path, path_c);
     g_rom_buffer.clear();
+    g_core_message.clear();
     clear_game_info_ext();
 
     if (g_rom_path.empty()) {
@@ -984,28 +1509,43 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadGame(
 
     bool ok = attempt_load(!need_fullpath && !g_rom_buffer.empty());
     // Fallback: some Android cores mis-report need_fullpath or accept either form.
+    // Never slurp a 1 GB 3DS cart into RAM — Azahar mmaps the path and rejects buffers.
     if (!ok) {
         ALOGW("Primary load failed; trying alternate path/buffer strategy");
         if (need_fullpath) {
-            if (g_rom_buffer.empty() && !from_archive) {
-                std::string read_error;
-                if (!read_rom_file(g_rom_path.c_str(), g_rom_buffer, read_error)) {
-                    ALOGW("Fallback buffer read failed: %s", read_error.c_str());
+            if (!skip_buffer_fallback(ext)) {
+                if (g_rom_buffer.empty() && !from_archive) {
+                    std::string read_error;
+                    if (!read_rom_file(g_rom_path.c_str(), g_rom_buffer, read_error)) {
+                        ALOGW("Fallback buffer read failed: %s", read_error.c_str());
+                    }
                 }
+                if (!g_rom_buffer.empty()) ok = attempt_load(true);
             }
-            if (!g_rom_buffer.empty()) ok = attempt_load(true);
         } else {
             ok = attempt_load(false);
         }
     }
 
     if (!ok) {
-        g_last_error = std::string("retro_load_game failed (core=") +
-            (info.library_name ? info.library_name : "?") +
-            ", ext=" + ext +
-            ", bytes=" + std::to_string(g_rom_buffer.size()) +
-            (from_archive ? ", from_zip" : "") +
-            ")";
+        if (!g_core_message.empty()) {
+            g_last_error = g_core_message;
+        } else if (skip_buffer_fallback(ext) &&
+            (ext == "cci" || ext == "3ds" || ext == "cxi" || ext == "cia" ||
+                ext == "3dsx" || ext == "zcci" || ext == "zcxi")) {
+            g_last_error =
+                "Azahar could not open this cart. It needs a decrypted .cci "
+                "(a decrypted .3ds of the same CCI image also works). Encrypted "
+                "1:1 dumps fail — Azahar removed encrypted load. Homebrew .3dsx "
+                "is fine. XOrA cannot decrypt carts.";
+        } else {
+            g_last_error = std::string("retro_load_game failed (core=") +
+                (info.library_name ? info.library_name : "?") +
+                ", ext=" + ext +
+                ", bytes=" + std::to_string(g_rom_buffer.size()) +
+                (from_archive ? ", from_zip" : "") +
+                ")";
+        }
         ALOGE("%s path=%s", g_last_error.c_str(), g_rom_path.c_str());
         g_rom_path.clear();
         g_rom_buffer.clear();
@@ -1015,6 +1555,8 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeLoadGame(
     }
 
     g_game_loaded = true;
+    plug_controllers();
+    resolve_core_io_registers();
     unsigned hw_w = 640;
     unsigned hw_h = 480;
     if (g_api.get_system_av_info) {
@@ -1060,18 +1602,441 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeUnload(JNIEnv*, jclass) {
 extern "C" JNIEXPORT void JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeRunFrame(JNIEnv*, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (xora_gba_link_active()) {
+        xora_gba_link_run_frame();
+        return;
+    }
     if (g_api.handle && g_game_loaded && g_api.run) {
         // Keep the EGL context current for GLES cores on this emu thread.
         if (xora_hw::is_active()) {
             xora_hw::ensure_context(0, 0);
         }
+        if (g_netpacket_started.load(std::memory_order_relaxed)) {
+            netpacket_deliver_incoming();
+            if (g_netpacket.poll) g_netpacket.poll();
+        }
         g_api.run();
     }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaLinkStart(
+    JNIEnv* env,
+    jclass,
+    jstring rom_path,
+    jint players,
+    jint local_slot
+) {
+    if (!rom_path) return JNI_FALSE;
+    const char* path = env->GetStringUTFChars(rom_path, nullptr);
+    if (!path) return JNI_FALSE;
+    std::string error;
+    bool ok = false;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        ok = xora_gba_link_start(path, static_cast<int>(players), static_cast<int>(local_slot) - 1, error);
+        if (!ok && !error.empty()) g_last_error = error;
+    }
+    env->ReleaseStringUTFChars(rom_path, path);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaLinkStop(JNIEnv*, jclass) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    xora_gba_link_stop();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaLinkActive(JNIEnv*, jclass) {
+    return xora_gba_link_active() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketAvailable(JNIEnv*, jclass) {
+    return g_netpacket_set.load(std::memory_order_relaxed) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketStart(
+    JNIEnv*,
+    jclass,
+    jint local_client_id
+) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_netpacket_set.load(std::memory_order_relaxed) || !g_netpacket.start) {
+        g_last_error = "This core did not publish a netpacket interface";
+        return JNI_FALSE;
+    }
+    const uint16_t client_id = static_cast<uint16_t>(local_client_id & 0xFFFF);
+    if (g_netpacket_started.load(std::memory_order_relaxed)) {
+        if (g_netpacket_local_id == client_id) return JNI_TRUE;
+        if (g_netpacket.stop) g_netpacket.stop();
+        g_netpacket_started.store(false, std::memory_order_relaxed);
+    }
+    g_netpacket_local_id = client_id;
+    g_netpacket.start(client_id, netpacket_send, netpacket_poll_receive);
+    g_netpacket_started.store(true, std::memory_order_relaxed);
+    ALOGI("netpacket start client_id=%u", static_cast<unsigned>(client_id));
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketStop(JNIEnv*, jclass) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    netpacket_reset_unlocked();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketPeerConnected(
+    JNIEnv*,
+    jclass,
+    jint client_id
+) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_netpacket_started.load(std::memory_order_relaxed)) return JNI_FALSE;
+    if (!g_netpacket.connected) return JNI_TRUE;
+    const bool ok = g_netpacket.connected(static_cast<uint16_t>(client_id & 0xFFFF));
+    ALOGI("netpacket connected client_id=%d accepted=%d", static_cast<int>(client_id), ok ? 1 : 0);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketPeerDisconnected(
+    JNIEnv*,
+    jclass,
+    jint client_id
+) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_netpacket_started.load(std::memory_order_relaxed) || !g_netpacket.disconnected) return;
+    g_netpacket.disconnected(static_cast<uint16_t>(client_id & 0xFFFF));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketIncoming(
+    JNIEnv* env,
+    jclass,
+    jint from_client_id,
+    jbyteArray data
+) {
+    if (!data) return;
+    const jsize length = env->GetArrayLength(data);
+    if (length <= 0) return;
+    NetpacketIo packet;
+    packet.client_id = static_cast<uint16_t>(from_client_id & 0xFFFF);
+    packet.data.resize(static_cast<size_t>(length));
+    env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte*>(packet.data.data()));
+    std::lock_guard<std::mutex> lock(g_netpacket_io_mutex);
+    if (g_netpacket_incoming.size() > 512) g_netpacket_incoming.pop_front();
+    g_netpacket_incoming.push_back(std::move(packet));
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeNetpacketDrainOutgoing(JNIEnv* env, jclass) {
+    std::deque<NetpacketIo> batch;
+    {
+        std::lock_guard<std::mutex> lock(g_netpacket_io_mutex);
+        batch.swap(g_netpacket_outgoing);
+    }
+    jclass byteArrayClass = env->FindClass("[B");
+    if (!byteArrayClass) return nullptr;
+    jobjectArray arr = env->NewObjectArray(static_cast<jsize>(batch.size()), byteArrayClass, nullptr);
+    if (!arr) return nullptr;
+    jsize index = 0;
+    for (const auto& packet : batch) {
+        const jsize n = static_cast<jsize>(4 + packet.data.size());
+        jbyteArray item = env->NewByteArray(n);
+        if (!item) continue;
+        std::vector<jbyte> packed(static_cast<size_t>(n));
+        packed[0] = static_cast<jbyte>((packet.client_id >> 8) & 0xFF);
+        packed[1] = static_cast<jbyte>(packet.client_id & 0xFF);
+        packed[2] = static_cast<jbyte>((packet.flags >> 8) & 0xFF);
+        packed[3] = static_cast<jbyte>(packet.flags & 0xFF);
+        if (!packet.data.empty()) {
+            std::memcpy(packed.data() + 4, packet.data.data(), packet.data.size());
+        }
+        env->SetByteArrayRegion(item, 0, n, packed.data());
+        env->SetObjectArrayElement(arr, index++, item);
+        env->DeleteLocalRef(item);
+    }
+    return arr;
+}
+
+// Game Link: poke GBA I/O (mmap, or gpSP's hidden io_registers) so the cart sees a
+// plugged cable even before Player 2 joins. gpSP's Pokemon handshake never fills
+// SIOMULTI1 for Kirby / Mario Kart; 0xFFFF there is "no Game Link cable".
+namespace {
+
+constexpr uint32_t kGbaIoBase = 0x04000000u;
+constexpr size_t kGbaIoMinLen = 0x204u;
+constexpr int kGbaRegSiomulti0 = 0x120 / 2;
+constexpr int kGbaRegSiocnt = 0x128 / 2;
+constexpr int kGbaRegSiomltSend = 0x12A / 2;
+constexpr int kGbaRegRcnt = 0x134 / 2;
+constexpr uint16_t kGbaSiocntMulti = 0x2000u;
+constexpr uint16_t kGbaSiocntModeMask = 0x3000u;
+
+std::atomic<bool> g_sio_link_on{false};
+std::atomic<int> g_sio_local_id{0};
+std::atomic<uint16_t> g_sio_multi[4]{{0xFFFF}, {0xFFFF}, {0xFFFF}, {0xFFFF}};
+bool g_sio_logged_hook = false;
+uint16_t* g_core_io_registers = nullptr;
+
+bool so_path_matches(const char* loaded, const std::string& want) {
+    if (!loaded || !loaded[0] || want.empty()) return false;
+    if (want == loaded) return true;
+    if (std::strstr(loaded, "gpsp_libretro") && want.find("gpsp") != std::string::npos) {
+        return true;
+    }
+    const char* slash = std::strrchr(loaded, '/');
+    const char* file = slash ? slash + 1 : loaded;
+    auto pos = want.rfind('/');
+    const std::string want_file = pos == std::string::npos ? want : want.substr(pos + 1);
+    return want_file == file;
+}
+
+template <typename Ehdr, typename Shdr, typename Sym>
+uintptr_t elf_symbol_value(FILE* file, const char* symbol) {
+    Ehdr eh{};
+    if (std::fseek(file, 0, SEEK_SET) != 0) return 0;
+    if (std::fread(&eh, sizeof(eh), 1, file) != 1) return 0;
+    if (eh.e_shoff == 0 || eh.e_shentsize != sizeof(Shdr) || eh.e_shnum == 0) return 0;
+    std::vector<Shdr> sections(eh.e_shnum);
+    if (std::fseek(file, static_cast<long>(eh.e_shoff), SEEK_SET) != 0) return 0;
+    if (std::fread(sections.data(), sizeof(Shdr), eh.e_shnum, file) != eh.e_shnum) return 0;
+    for (const auto& sec : sections) {
+        if (sec.sh_type != SHT_SYMTAB && sec.sh_type != SHT_DYNSYM) continue;
+        if (sec.sh_entsize != sizeof(Sym) || sec.sh_link >= eh.e_shnum) continue;
+        const Shdr& strsec = sections[sec.sh_link];
+        if (strsec.sh_size == 0 || strsec.sh_size > 8 * 1024 * 1024) continue;
+        std::vector<char> strings(static_cast<size_t>(strsec.sh_size) + 1, 0);
+        if (std::fseek(file, static_cast<long>(strsec.sh_offset), SEEK_SET) != 0) continue;
+        if (std::fread(strings.data(), 1, static_cast<size_t>(strsec.sh_size), file) !=
+            static_cast<size_t>(strsec.sh_size)) {
+            continue;
+        }
+        const size_t count = static_cast<size_t>(sec.sh_size / sizeof(Sym));
+        if (count == 0 || count > 2 * 1024 * 1024) continue;
+        std::vector<Sym> syms(count);
+        if (std::fseek(file, static_cast<long>(sec.sh_offset), SEEK_SET) != 0) continue;
+        if (std::fread(syms.data(), sizeof(Sym), count, file) != count) continue;
+        for (const auto& sym : syms) {
+            if (sym.st_name == 0 || sym.st_name >= strsec.sh_size) continue;
+            if (std::strcmp(strings.data() + sym.st_name, symbol) != 0) continue;
+            if (sym.st_shndx == SHN_UNDEF || sym.st_value == 0) continue;
+            return static_cast<uintptr_t>(sym.st_value);
+        }
+    }
+    return 0;
+}
+
+uintptr_t elf_symbol_offset(const char* path, const char* symbol) {
+    if (!path || !path[0] || !symbol) return 0;
+    FILE* file = std::fopen(path, "rb");
+    if (!file) return 0;
+    unsigned char ident[EI_NIDENT]{};
+    const size_t n = std::fread(ident, 1, sizeof(ident), file);
+    uintptr_t value = 0;
+    if (n == sizeof(ident) && ident[EI_MAG0] == ELFMAG0 && ident[EI_MAG1] == ELFMAG1 &&
+        ident[EI_MAG2] == ELFMAG2 && ident[EI_MAG3] == ELFMAG3) {
+        if (ident[EI_CLASS] == ELFCLASS64) {
+            value = elf_symbol_value<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>(file, symbol);
+        } else if (ident[EI_CLASS] == ELFCLASS32) {
+            value = elf_symbol_value<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>(file, symbol);
+        }
+    }
+    std::fclose(file);
+    return value;
+}
+
+struct IoSymSearch {
+    const std::string* so_path = nullptr;
+    uintptr_t offset = 0;
+    uint16_t* result = nullptr;
+};
+
+int find_io_registers_phdr(dl_phdr_info* info, size_t, void* data) {
+    auto* search = static_cast<IoSymSearch*>(data);
+    if (!search || !search->so_path || !info) return 0;
+    if (!so_path_matches(info->dlpi_name, *search->so_path)) return 0;
+    if (search->offset == 0) return 0;
+    search->result = reinterpret_cast<uint16_t*>(
+        static_cast<uintptr_t>(info->dlpi_addr) + search->offset);
+    return 1;
+}
+
+void resolve_core_io_registers() {
+    g_core_io_registers = nullptr;
+    if (g_api.handle) {
+        if (void* p = dlsym(g_api.handle, "io_registers")) {
+            g_core_io_registers = static_cast<uint16_t*>(p);
+            ALOGI("GBA I/O: dlsym io_registers at %p", static_cast<void*>(p));
+            return;
+        }
+        dlerror();
+    }
+    if (g_core_path.empty()) return;
+    const uintptr_t offset = elf_symbol_offset(g_core_path.c_str(), "io_registers");
+    if (offset == 0) {
+        ALOGW("GBA I/O: io_registers not in %s", g_core_path.c_str());
+        return;
+    }
+    IoSymSearch search;
+    search.so_path = &g_core_path;
+    search.offset = offset;
+    dl_iterate_phdr(find_io_registers_phdr, &search);
+    g_core_io_registers = search.result;
+    if (g_core_io_registers) {
+        ALOGI("GBA I/O: ELF io_registers at %p (offset 0x%lx)",
+              static_cast<void*>(g_core_io_registers),
+              static_cast<unsigned long>(offset));
+    } else {
+        ALOGW("GBA I/O: loaded gpSP image not found for ELF io_registers");
+    }
+}
+
+uint16_t* gba_io_regs() {
+    for (const auto& desc : g_mmap_descriptors) {
+        if (desc.start == kGbaIoBase && desc.ptr && desc.len >= kGbaIoMinLen) {
+            return static_cast<uint16_t*>(desc.ptr);
+        }
+    }
+    return g_core_io_registers;
+}
+
+void gba_sio_apply_io(uint16_t* io) {
+    if (!io) return;
+    const int id = g_sio_local_id.load(std::memory_order_relaxed);
+    if (id >= 0 && id < 4) {
+        io[kGbaRegSiomltSend] = g_sio_multi[id].load(std::memory_order_relaxed);
+    }
+    for (int i = 0; i < 4; ++i) {
+        uint16_t word = g_sio_multi[i].load(std::memory_order_relaxed);
+        if (word == 0xFFFF && g_sio_link_on.load(std::memory_order_relaxed) && i < 2) {
+            word = 0;
+        }
+        io[kGbaRegSiomulti0 + i] = word;
+    }
+
+    uint16_t rcnt = io[kGbaRegRcnt];
+    rcnt = static_cast<uint16_t>((rcnt & ~0x0004u) | 0x000Au); // SI=0, SD=1, SO=1
+    io[kGbaRegRcnt] = rcnt;
+
+    uint16_t cnt = io[kGbaRegSiocnt];
+    if ((cnt & kGbaSiocntModeMask) == kGbaSiocntMulti) {
+        // Keep BUSY (bit 7) and ERROR (bit 6).
+        cnt = static_cast<uint16_t>(cnt & ~0x003Cu); // SI, SD, ID
+        cnt = static_cast<uint16_t>(cnt | 0x0008u | ((id & 3) << 4));
+        if (id != 0) {
+            cnt = static_cast<uint16_t>(cnt | 0x0004u);
+        } else {
+            cnt = static_cast<uint16_t>(cnt & ~0x0004u);
+        }
+    } else {
+        cnt = static_cast<uint16_t>(cnt & ~0x0004u);
+    }
+    io[kGbaRegSiocnt] = cnt;
+}
+
+void gba_sio_refresh(uint16_t* io) {
+    if (!io || !g_sio_link_on.load(std::memory_order_relaxed)) return;
+    if (!g_sio_logged_hook) {
+        g_sio_logged_hook = true;
+        ALOGI("GBA Game Link: writing SIOMULTI/SIOCNT/RCNT on mapped I/O only");
+    }
+    gba_sio_apply_io(io);
+}
+
+void xora_gba_sio_drop_hook() {
+    g_sio_logged_hook = false;
+}
+
+void xora_gba_sio_reset() {
+    xora_gba_sio_drop_hook();
+    g_sio_link_on.store(false, std::memory_order_relaxed);
+    g_sio_local_id.store(0, std::memory_order_relaxed);
+    g_core_io_registers = nullptr;
+    for (auto& slot : g_sio_multi) slot.store(0xFFFF, std::memory_order_relaxed);
+}
+
+void xora_gba_sio_on_poll() {
+    if (!g_sio_link_on.load(std::memory_order_relaxed)) return;
+    uint16_t* io = gba_io_regs();
+    if (!io) return;
+    const int id = g_sio_local_id.load(std::memory_order_relaxed);
+    if (id >= 0 && id < 4) {
+        g_sio_multi[id].store(io[kGbaRegSiomltSend], std::memory_order_relaxed);
+    }
+    gba_sio_refresh(io);
+}
+
+}  // namespace
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioRead(JNIEnv* env, jclass) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    uint16_t* io = gba_io_regs();
+    if (!io) return nullptr;
+    uint16_t cnt = io[kGbaRegSiocnt];
+    jint packed[2] = {
+        static_cast<jint>(io[kGbaRegSiomltSend]),
+        static_cast<jint>(cnt),
+    };
+    jintArray out = env->NewIntArray(2);
+    if (!out) return nullptr;
+    env->SetIntArrayRegion(out, 0, 2, packed);
+    return out;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioApply(
+    JNIEnv* env,
+    jclass,
+    jintArray multi,
+    jint local_id
+) {
+    if (!multi) return;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    uint16_t* io = gba_io_regs();
+    if (!io) return;
+    jsize n = env->GetArrayLength(multi);
+    if (n < 4) return;
+    jint slots[4];
+    env->GetIntArrayRegion(multi, 0, 4, slots);
+    const int id = local_id < 0 ? 0 : (local_id > 3 ? 3 : local_id);
+    g_sio_local_id.store(id, std::memory_order_relaxed);
+    for (int i = 0; i < 4; ++i) {
+        g_sio_multi[i].store(static_cast<uint16_t>(slots[i] & 0xFFFF), std::memory_order_relaxed);
+    }
+    g_sio_link_on.store(true, std::memory_order_relaxed);
+    gba_sio_refresh(io);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioSetEnabled(
+    JNIEnv*,
+    jclass,
+    jboolean enabled
+) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_sio_link_on.store(enabled == JNI_TRUE, std::memory_order_relaxed);
+    if (enabled != JNI_TRUE) return;
+    uint16_t* io = gba_io_regs();
+    if (io) gba_sio_refresh(io);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeGbaSioMapped(JNIEnv*, jclass) {
+    return gba_io_regs() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeReset(JNIEnv*, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (xora_gba_link_active()) {
+        xora_gba_link_reset();
+        return;
+    }
     if (g_api.handle && g_game_loaded && g_api.reset) g_api.reset();
 }
 
@@ -1085,11 +2050,43 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeSetPadState(
     jshort rx,
     jshort ry
 ) {
-    g_pad_buttons.store(static_cast<uint16_t>(buttons & 0xFFFF), std::memory_order_relaxed);
-    g_axis_lx.store(lx, std::memory_order_relaxed);
-    g_axis_ly.store(ly, std::memory_order_relaxed);
-    g_axis_rx.store(rx, std::memory_order_relaxed);
-    g_axis_ry.store(ry, std::memory_order_relaxed);
+    g_pad_buttons[0].store(static_cast<uint16_t>(buttons & 0xFFFF), std::memory_order_relaxed);
+    g_axis_lx[0].store(lx, std::memory_order_relaxed);
+    g_axis_ly[0].store(ly, std::memory_order_relaxed);
+    g_axis_rx[0].store(rx, std::memory_order_relaxed);
+    g_axis_ry[0].store(ry, std::memory_order_relaxed);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeSetPadStatePort(
+    JNIEnv*,
+    jclass,
+    jint port,
+    jint buttons,
+    jshort lx,
+    jshort ly,
+    jshort rx,
+    jshort ry
+) {
+    if (port < 0 || port >= static_cast<int>(kMaxControllerPorts)) return;
+    g_pad_buttons[port].store(static_cast<uint16_t>(buttons & 0xFFFF), std::memory_order_relaxed);
+    g_axis_lx[port].store(lx, std::memory_order_relaxed);
+    g_axis_ly[port].store(ly, std::memory_order_relaxed);
+    g_axis_rx[port].store(rx, std::memory_order_relaxed);
+    g_axis_ry[port].store(ry, std::memory_order_relaxed);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativeSetPointerState(
+    JNIEnv*,
+    jclass,
+    jshort x,
+    jshort y,
+    jboolean pressed
+) {
+    g_pointer_x.store(x, std::memory_order_relaxed);
+    g_pointer_y.store(y, std::memory_order_relaxed);
+    g_pointer_pressed.store(pressed ? 1 : 0, std::memory_order_relaxed);
 }
 
 extern "C" JNIEXPORT jintArray JNICALL
@@ -1123,11 +2120,13 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeDrainAudio(JNIEnv* env, jcl
 
 extern "C" JNIEXPORT jdouble JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeGetFps(JNIEnv*, jclass) {
+    if (xora_gba_link_active()) return xora_gba_link_fps();
     return g_fps;
 }
 
 extern "C" JNIEXPORT jdouble JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeGetSampleRate(JNIEnv*, jclass) {
+    if (xora_gba_link_active()) return xora_gba_link_sample_rate();
     return g_sample_rate;
 }
 
@@ -1158,12 +2157,20 @@ Java_com_arcadia_shell_libretro_LibretroNative_nativeUnserialize(
     if (len <= 0) return JNI_FALSE;
     std::vector<uint8_t> buf(static_cast<size_t>(len));
     env->GetByteArrayRegion(data, 0, len, reinterpret_cast<jbyte*>(buf.data()));
-    return g_api.unserialize(buf.data(), buf.size()) ? JNI_TRUE : JNI_FALSE;
+    if (!g_api.unserialize(buf.data(), buf.size())) return JNI_FALSE;
+    plug_controllers();
+    return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_arcadia_shell_libretro_LibretroNative_nativeLastError(JNIEnv* env, jclass) {
     return env->NewStringUTF(g_last_error.c_str());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arcadia_shell_libretro_LibretroNative_nativePlugControllers(JNIEnv*, jclass) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_game_loaded) plug_controllers();
 }
 
 extern "C" JNIEXPORT void JNICALL

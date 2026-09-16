@@ -138,28 +138,52 @@ object RaHashRules {
     /**
      * Nintendo DS / DSi custom hash: 0x160 header + ARM9 + ARM7 + 0xA00 icon/title.
      * See rcheevos `rc_hash_nintendo_ds`.
+     *
+     * Reads only the slices RA needs so a 128–512MB dump does not have to sit in the heap.
      */
-    fun hashNintendoDs(rom: ByteArray): ByteArray? {
-        if (rom.size < 512) return null
-
-        var offset = 0
-        // SuperCard 512-byte prefix
-        if (rom.size > 512 &&
-            rom[0] == 0x2E.toByte() && rom[1] == 0x00.toByte() &&
-            rom[2] == 0x00.toByte() && rom[3] == 0xEA.toByte() &&
-            rom[0xB0] == 0x44.toByte() && rom[0xB1] == 0x46.toByte() &&
-            rom[0xB2] == 0x96.toByte() && rom[0xB3] == 0x00.toByte()
-        ) {
-            offset = 512
+    fun hashNintendoDs(rom: ByteArray): ByteArray? =
+        hashNintendoDs(rom.size.toLong()) { position, length ->
+            val start = position.toInt().coerceAtLeast(0)
+            if (start >= rom.size || length <= 0) {
+                ByteArray(0)
+            } else {
+                rom.copyOfRange(start, (start + length).coerceAtMost(rom.size))
+            }
         }
-        if (rom.size < offset + 512) return null
 
-        fun u32(at: Int): Int {
-            val i = offset + at
-            return (rom[i].toInt() and 0xFF) or
-                ((rom[i + 1].toInt() and 0xFF) shl 8) or
-                ((rom[i + 2].toInt() and 0xFF) shl 16) or
-                ((rom[i + 3].toInt() and 0xFF) shl 24)
+    fun hashNintendoDs(
+        fileSize: Long,
+        read: (position: Long, length: Int) -> ByteArray,
+    ): ByteArray? {
+        if (fileSize < 512L) return null
+
+        fun slice(position: Long, length: Int): ByteArray {
+            if (length <= 0 || position >= fileSize) return ByteArray(0)
+            val want = minOf(length.toLong(), fileSize - position).toInt()
+            return read(position, want)
+        }
+
+        var offset = 0L
+        val prefix = slice(0, 0xB4)
+        // SuperCard 512-byte prefix
+        if (fileSize > 512L &&
+            prefix.size > 0xB3 &&
+            prefix[0] == 0x2E.toByte() && prefix[1] == 0x00.toByte() &&
+            prefix[2] == 0x00.toByte() && prefix[3] == 0xEA.toByte() &&
+            prefix[0xB0] == 0x44.toByte() && prefix[0xB1] == 0x46.toByte() &&
+            prefix[0xB2] == 0x96.toByte() && prefix[0xB3] == 0x00.toByte()
+        ) {
+            offset = 512L
+        }
+        if (fileSize < offset + 512L) return null
+
+        fun u32(at: Int): Long {
+            val bytes = slice(offset + at, 4)
+            if (bytes.size < 4) return -1L
+            return (bytes[0].toLong() and 0xFF) or
+                ((bytes[1].toLong() and 0xFF) shl 8) or
+                ((bytes[2].toLong() and 0xFF) shl 16) or
+                ((bytes[3].toLong() and 0xFF) shl 24)
         }
 
         val arm9Addr = u32(0x20)
@@ -167,26 +191,29 @@ object RaHashRules {
         val arm7Addr = u32(0x30)
         val arm7Size = u32(0x3C)
         val iconAddr = u32(0x68)
-
-        if (arm9Size.toLong() + arm7Size.toLong() > 16L * 1024 * 1024) return null
-        if (arm9Size < 0 || arm7Size < 0) return null
+        if (arm9Addr < 0L || arm9Size < 0L || arm7Addr < 0L || arm7Size < 0L || iconAddr < 0L) {
+            return null
+        }
+        if (arm9Size + arm7Size > 16L * 1024 * 1024) return null
 
         val arm9Start = offset + arm9Addr
         val arm7Start = offset + arm7Addr
         val iconStart = offset + iconAddr
-        if (arm9Start < 0 || arm7Start < 0 || iconStart < 0) return null
-        if (arm9Start + arm9Size > rom.size) return null
-        if (arm7Start + arm7Size > rom.size) return null
+        if (arm9Start + arm9Size > fileSize) return null
+        if (arm7Start + arm7Size > fileSize) return null
 
         val md5 = java.security.MessageDigest.getInstance("MD5")
-        md5.update(rom, offset, NDS_HEADER_HASH_BYTES)
-        if (arm9Size > 0) md5.update(rom, arm9Start, arm9Size)
-        if (arm7Size > 0) md5.update(rom, arm7Start, arm7Size)
+        val header = slice(offset, NDS_HEADER_HASH_BYTES)
+        if (header.size < NDS_HEADER_HASH_BYTES) return null
+        md5.update(header)
+        if (arm9Size > 0) md5.update(slice(arm9Start, arm9Size.toInt()))
+        if (arm7Size > 0) md5.update(slice(arm7Start, arm7Size.toInt()))
 
         val icon = ByteArray(NDS_ICON_BYTES)
-        val available = (rom.size - iconStart).coerceAtLeast(0).coerceAtMost(NDS_ICON_BYTES)
+        val available = (fileSize - iconStart).coerceAtLeast(0L).coerceAtMost(NDS_ICON_BYTES.toLong()).toInt()
         if (available > 0) {
-            System.arraycopy(rom, iconStart, icon, 0, available)
+            val iconBytes = slice(iconStart, available)
+            System.arraycopy(iconBytes, 0, icon, 0, iconBytes.size.coerceAtMost(NDS_ICON_BYTES))
         }
         md5.update(icon)
         return md5.digest()
@@ -207,7 +234,7 @@ object RaHashRules {
      */
     val UNSUPPORTED_CUSTOM_HASH_PLATFORMS: Set<String> = setOf(
         "saturn", "segacd",
-        "gamecube", "wii", "wiiu", "3ds", "switch",
+        "wiiu", "3ds", "switch",
         "pcenginecd", "neogeocd", "jaguarcd",
     )
 

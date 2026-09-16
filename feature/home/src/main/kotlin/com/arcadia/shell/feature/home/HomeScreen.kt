@@ -1,7 +1,6 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -20,7 +19,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -30,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.feature.home.component.ButtonHintBar
 import com.arcadia.shell.feature.home.component.hintsForGuide
 import com.arcadia.shell.feature.home.component.hintsForPage
@@ -60,6 +64,12 @@ fun HomeScreen(
     onSelectRssItem: (Int) -> Unit,
     onOpenRssItem: (Int) -> Unit,
     onRetryRss: () -> Unit,
+    onSelectNewsOutlet: (Int) -> Unit = {},
+    onAddNewsOutlet: () -> Unit = {},
+    onDismissAddNewsOutlet: () -> Unit = {},
+    onSubmitNewsOutlet: (String, String) -> Unit = { _, _ -> },
+    onCloseRssArticle: () -> Unit = {},
+    onOpenRssInBrowser: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onToggleAccountPanel: () -> Unit,
     onToggleSystemPanel: () -> Unit,
@@ -75,17 +85,29 @@ fun HomeScreen(
     onClearCustomStatus: () -> Unit = {},
     onSelectRaLibraryIndex: (Int) -> Unit,
     onSelectRaLibraryTab: (RaLibraryTab) -> Unit,
+    onToggleRaSortMenu: () -> Unit = {},
     onSelectRaPlatformFilter: (String?) -> Unit,
     onActivateRaLibrary: () -> Unit,
     onRetryRaLibrary: () -> Unit,
+    onSelectRaCheevoIndex: (Int) -> Unit = {},
+    onCloseRaGameDetail: () -> Unit = {},
+    onSelectRaFollowingIndex: (Int) -> Unit = {},
+    onToggleRaCompare: () -> Unit = {},
     onSelectHomeShard: (HomeShard) -> Unit = {},
     onActivateHomeShard: (HomeShard) -> Unit = {},
     onSelectHomeShortcut: (Int) -> Unit = {},
     onActivateHomeShortcut: (Int) -> Unit = {},
+    onLaunchVitaShortcut: () -> Unit = {},
+    onVitaPeelSpeed: (VitaPeelDragSpeed?) -> Unit = {},
     onAddHomeShortcut: () -> Unit = {},
+    onHoldHomeShortcut: (Int) -> Unit = {},
+    onMoveHomeShortcutTo: (Int) -> Unit = {},
+    onDropHomeShortcutMove: () -> Unit = {},
     onSelectXoraCategory: (Int) -> Unit = {},
     onSelectXoraItem: (Int) -> Unit = {},
     onActivateXoraItem: () -> Unit = {},
+    onDrillOutXora: () -> Unit = {},
+    onShiftVitaShortcutPage: (Int) -> Unit = {},
     onToggleNowPlaying: () -> Unit = {},
     onSkipPreviousTrack: () -> Unit = {},
     onSkipNextTrack: () -> Unit = {},
@@ -101,6 +123,12 @@ fun HomeScreen(
     onShopComingSoon: () -> Unit = {},
     onUploadComingSoon: () -> Unit = {},
     onDismissAddShortcut: () -> Unit = {},
+    onDismissShortcutPinPicker: () -> Unit = {},
+    onSelectShortcutPickerPlatform: (Int) -> Unit = {},
+    onSelectShortcutPickerItem: (Int) -> Unit = {},
+    onConfirmShortcutPicker: () -> Unit = {},
+    onShortcutPickerQueryChange: (String) -> Unit = {},
+    onFocusShortcutPickerPane: (ShortcutPickerPane) -> Unit = {},
     onPinRecentShortcut: () -> Unit = {},
     onPinAndroidShortcut: () -> Unit = {},
     onPinPictureShortcut: () -> Unit = {},
@@ -117,26 +145,31 @@ fun HomeScreen(
     onFocusShortcutCustomizeChrome: (ShortcutCustomizeChrome) -> Unit = {},
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
-    onRequestLocalAvatar: () -> Unit,
+    onRequestLocalAvatar: (PhotoImportSource) -> Unit,
     onUseRaAvatar: () -> Unit,
     onUseDiscordAvatar: () -> Unit,
+    onUseXoraAvatar: () -> Unit,
+    onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit,
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit,
     onLoginRetroAchievements: (username: String, password: String) -> Unit,
     onLoginRetroAchievementsWithApiKey: (username: String, apiKey: String) -> Unit,
     onSignOutRetroAchievements: () -> Unit,
+    onPhotoCommand: (PhotoPaneCommand) -> Unit = {},
+    onDashboardCommand: (DashboardCommand) -> Unit = {},
+    /**
+     * Live playback position, ticking every ~250ms while music plays — kept out of [state] so
+     * the Now Playing pane can animate smoothly without recomposing the rest of the XMB.
+     */
+    nowPlayingPositionMs: Long = 0L,
     modifier: Modifier = Modifier,
 ) {
     val contentTween = arcadiaTween<Float>(ArcadiaMotion.Medium)
-    val launchProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-        label = "libraryLaunchChrome",
-    )
-    val libraryChromeAlpha = 1f - launchProgress
-    val librarySlidePx = launchProgress * 96f
+    val cinematic = rememberLaunchCinematic(state.isLaunching)
+    val launchProgress = cinematic.chrome
 
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         AnimatedContent(
@@ -171,25 +204,44 @@ fun HomeScreen(
                         ) {
                             HomePageContent(
                                 state = state,
+                                nowPlayingPositionMs = nowPlayingPositionMs,
                                 onSelectTab = onSelectTab,
                                 onSelectGame = onSelectGame,
                                 onLaunchGame = onLaunchGame,
                                 onSelectRssItem = onSelectRssItem,
                                 onOpenRssItem = onOpenRssItem,
                                 onRetryRss = onRetryRss,
+                                onSelectNewsOutlet = onSelectNewsOutlet,
+                                onAddNewsOutlet = onAddNewsOutlet,
+                                onDismissAddNewsOutlet = onDismissAddNewsOutlet,
+                                onSubmitNewsOutlet = onSubmitNewsOutlet,
+                                onCloseRssArticle = onCloseRssArticle,
+                                onOpenRssInBrowser = onOpenRssInBrowser,
                                 onSelectRaLibraryIndex = onSelectRaLibraryIndex,
                                 onSelectRaLibraryTab = onSelectRaLibraryTab,
+                                onToggleRaSortMenu = onToggleRaSortMenu,
                                 onSelectRaPlatformFilter = onSelectRaPlatformFilter,
                                 onActivateRaLibrary = onActivateRaLibrary,
                                 onRetryRaLibrary = onRetryRaLibrary,
+                                onSelectRaCheevoIndex = onSelectRaCheevoIndex,
+                                onCloseRaGameDetail = onCloseRaGameDetail,
+                                onSelectRaFollowingIndex = onSelectRaFollowingIndex,
+                                onToggleRaCompare = onToggleRaCompare,
                                 onSelectHomeShard = onSelectHomeShard,
                                 onActivateHomeShard = onActivateHomeShard,
                                 onSelectHomeShortcut = onSelectHomeShortcut,
                                 onActivateHomeShortcut = onActivateHomeShortcut,
+                                onLaunchVitaShortcut = onLaunchVitaShortcut,
+                                onVitaPeelSpeed = onVitaPeelSpeed,
                                 onAddHomeShortcut = onAddHomeShortcut,
+                                onHoldHomeShortcut = onHoldHomeShortcut,
+                                onMoveHomeShortcutTo = onMoveHomeShortcutTo,
+                                onDropHomeShortcutMove = onDropHomeShortcutMove,
                                 onSelectXoraCategory = onSelectXoraCategory,
                                 onSelectXoraItem = onSelectXoraItem,
                                 onActivateXoraItem = onActivateXoraItem,
+                                onDrillOutXora = onDrillOutXora,
+                                onShiftVitaShortcutPage = onShiftVitaShortcutPage,
                                 onToggleNowPlaying = onToggleNowPlaying,
                                 onSkipPreviousTrack = onSkipPreviousTrack,
                                 onSkipNextTrack = onSkipNextTrack,
@@ -212,7 +264,10 @@ fun HomeScreen(
                                 onRequestLocalAvatar = onRequestLocalAvatar,
                                 onUseRaAvatar = onUseRaAvatar,
                                 onUseDiscordAvatar = onUseDiscordAvatar,
+                                onUseXoraAvatar = onUseXoraAvatar,
+                                onXoraPresenceMode = onXoraPresenceMode,
                                 onClearAvatar = onClearAvatar,
+                                onClearNotifications = onClearNotifications,
                                 onFriendSearchChange = onFriendSearchChange,
                                 onReplyDraftChange = onReplyDraftChange,
                                 onSelectAchievementsTab = onSelectAchievementsTab,
@@ -230,6 +285,12 @@ fun HomeScreen(
                                 onShopComingSoon = onShopComingSoon,
                                 onUploadComingSoon = onUploadComingSoon,
                                 onDismissAddShortcut = onDismissAddShortcut,
+                                onDismissShortcutPinPicker = onDismissShortcutPinPicker,
+                                onSelectShortcutPickerPlatform = onSelectShortcutPickerPlatform,
+                                onSelectShortcutPickerItem = onSelectShortcutPickerItem,
+                                onConfirmShortcutPicker = onConfirmShortcutPicker,
+                                onShortcutPickerQueryChange = onShortcutPickerQueryChange,
+                                onFocusShortcutPickerPane = onFocusShortcutPickerPane,
                                 onPinRecentShortcut = onPinRecentShortcut,
                                 onPinAndroidShortcut = onPinAndroidShortcut,
                                 onPinPictureShortcut = onPinPictureShortcut,
@@ -244,40 +305,63 @@ fun HomeScreen(
                                 onAdjustShortcutColumns = onAdjustShortcutColumns,
                                 onAdjustShortcutRows = onAdjustShortcutRows,
                                 onFocusShortcutCustomizeChrome = onFocusShortcutCustomizeChrome,
+                                onPhotoCommand = onPhotoCommand,
+                                onDashboardCommand = onDashboardCommand,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
-                    } else if (state.homePage == HomePage.RaLibrary) {
+                    } else if (
+                        // XOrA NOW owns the whole screen the way RA does. Left in the hero branch
+                        // it drew under a HeroPane, which is the split header the page showed.
+                        state.homePage == HomePage.RaLibrary ||
+                        state.homePage == HomePage.RssFeed
+                    ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .graphicsLayer {
-                                    alpha = libraryChromeAlpha
-                                    translationY = librarySlidePx
-                                },
+                                .graphicsLayer { alpha = 1f - launchProgress },
                         ) {
                             HomePageContent(
                                 state = state,
+                                nowPlayingPositionMs = nowPlayingPositionMs,
                                 onSelectTab = onSelectTab,
                                 onSelectGame = onSelectGame,
                                 onLaunchGame = onLaunchGame,
                                 onSelectRssItem = onSelectRssItem,
                                 onOpenRssItem = onOpenRssItem,
                                 onRetryRss = onRetryRss,
+                                onSelectNewsOutlet = onSelectNewsOutlet,
+                                onAddNewsOutlet = onAddNewsOutlet,
+                                onDismissAddNewsOutlet = onDismissAddNewsOutlet,
+                                onSubmitNewsOutlet = onSubmitNewsOutlet,
+                                onCloseRssArticle = onCloseRssArticle,
+                                onOpenRssInBrowser = onOpenRssInBrowser,
                                 onSelectRaLibraryIndex = onSelectRaLibraryIndex,
                                 onSelectRaLibraryTab = onSelectRaLibraryTab,
+                                onToggleRaSortMenu = onToggleRaSortMenu,
                                 onSelectRaPlatformFilter = onSelectRaPlatformFilter,
                                 onActivateRaLibrary = onActivateRaLibrary,
                                 onRetryRaLibrary = onRetryRaLibrary,
+                                onSelectRaCheevoIndex = onSelectRaCheevoIndex,
+                                onCloseRaGameDetail = onCloseRaGameDetail,
+                                onSelectRaFollowingIndex = onSelectRaFollowingIndex,
+                                onToggleRaCompare = onToggleRaCompare,
                                 onSelectHomeShard = onSelectHomeShard,
                                 onActivateHomeShard = onActivateHomeShard,
                                 onSelectHomeShortcut = onSelectHomeShortcut,
                                 onActivateHomeShortcut = onActivateHomeShortcut,
+                                onLaunchVitaShortcut = onLaunchVitaShortcut,
+                                onVitaPeelSpeed = onVitaPeelSpeed,
                                 onAddHomeShortcut = onAddHomeShortcut,
+                                onHoldHomeShortcut = onHoldHomeShortcut,
+                                onMoveHomeShortcutTo = onMoveHomeShortcutTo,
+                                onDropHomeShortcutMove = onDropHomeShortcutMove,
                                 onSelectXoraCategory = onSelectXoraCategory,
                                 onSelectXoraItem = onSelectXoraItem,
                                 onActivateXoraItem = onActivateXoraItem,
+                                onDrillOutXora = onDrillOutXora,
+                                onShiftVitaShortcutPage = onShiftVitaShortcutPage,
                                 onToggleNowPlaying = onToggleNowPlaying,
                                 onSkipPreviousTrack = onSkipPreviousTrack,
                                 onSkipNextTrack = onSkipNextTrack,
@@ -300,7 +384,10 @@ fun HomeScreen(
                                 onRequestLocalAvatar = onRequestLocalAvatar,
                                 onUseRaAvatar = onUseRaAvatar,
                                 onUseDiscordAvatar = onUseDiscordAvatar,
+                                onUseXoraAvatar = onUseXoraAvatar,
+                                onXoraPresenceMode = onXoraPresenceMode,
                                 onClearAvatar = onClearAvatar,
+                                onClearNotifications = onClearNotifications,
                                 onFriendSearchChange = onFriendSearchChange,
                                 onReplyDraftChange = onReplyDraftChange,
                                 onSelectAchievementsTab = onSelectAchievementsTab,
@@ -318,6 +405,12 @@ fun HomeScreen(
                                 onShopComingSoon = onShopComingSoon,
                                 onUploadComingSoon = onUploadComingSoon,
                                 onDismissAddShortcut = onDismissAddShortcut,
+                                onDismissShortcutPinPicker = onDismissShortcutPinPicker,
+                                onSelectShortcutPickerPlatform = onSelectShortcutPickerPlatform,
+                                onSelectShortcutPickerItem = onSelectShortcutPickerItem,
+                                onConfirmShortcutPicker = onConfirmShortcutPicker,
+                                onShortcutPickerQueryChange = onShortcutPickerQueryChange,
+                                onFocusShortcutPickerPane = onFocusShortcutPickerPane,
                                 onPinRecentShortcut = onPinRecentShortcut,
                                 onPinAndroidShortcut = onPinAndroidShortcut,
                                 onPinPictureShortcut = onPinPictureShortcut,
@@ -361,7 +454,10 @@ fun HomeScreen(
                             onRequestLocalAvatar = onRequestLocalAvatar,
                             onUseRaAvatar = onUseRaAvatar,
                             onUseDiscordAvatar = onUseDiscordAvatar,
+                            onUseXoraAvatar = onUseXoraAvatar,
+                            onXoraPresenceMode = onXoraPresenceMode,
                             onClearAvatar = onClearAvatar,
+                            onClearNotifications = onClearNotifications,
                             onFriendSearchChange = onFriendSearchChange,
                             onReplyDraftChange = onReplyDraftChange,
                             onSelectAchievementsTab = onSelectAchievementsTab,
@@ -379,6 +475,7 @@ fun HomeScreen(
                             profileAvatarModel = state.profileAvatarModel,
                             raConfigured = state.achievements.credentials.isConfigured,
                             discordLinked = state.socialMenu.discord.avatarAvailable,
+                            xoraSignedIn = state.dashboard.network.signedIn,
                             accountPanelExpanded = state.accountPanelExpanded,
                             systemPanelExpanded = state.systemPanelExpanded,
                             achievementsPanelExpanded = state.achievementsPanelExpanded,
@@ -391,14 +488,19 @@ fun HomeScreen(
                             systemProfile = state.systemProfile,
                             trailer = state.trailer,
                             isLaunching = state.isLaunching,
+                            vitaLaunchOpen = state.homeHub.vitaLaunchPageOpen,
+                            startSettingsOpen = state.startSettingsOpen,
                             rssItem = state.rss.selectedItem.takeIf {
                                 state.homePage == HomePage.RssFeed
                             },
                             showHomeWallpaper = state.homePage == HomePage.Home,
                             homeWallpaperPath = state.homeHub.wallpaperPath,
+                            wallpaperAlignX = state.homeHub.wallpaperAlignX,
+                            wallpaperAlignY = state.homeHub.wallpaperAlignY,
                             onToggleAccountPanel = onToggleAccountPanel,
                             onToggleSystemPanel = onToggleSystemPanel,
                                 onOpenNotifications = onOpenNotifications,
+                            activeNotificationPresent = state.activeNotificationPresent,
                             onToggleAchievementsPanel = onToggleAchievementsPanel,
                             onSelectSocialTab = onSelectSocialTab,
                             onSelectAccountRow = onSelectAccountRow,
@@ -414,7 +516,10 @@ fun HomeScreen(
                             onRequestLocalAvatar = onRequestLocalAvatar,
                             onUseRaAvatar = onUseRaAvatar,
                             onUseDiscordAvatar = onUseDiscordAvatar,
+                            onUseXoraAvatar = onUseXoraAvatar,
+                            onXoraPresenceMode = onXoraPresenceMode,
                             onClearAvatar = onClearAvatar,
+                            onClearNotifications = onClearNotifications,
                             onFriendSearchChange = onFriendSearchChange,
                             onReplyDraftChange = onReplyDraftChange,
                             onSelectAchievementsTab = onSelectAchievementsTab,
@@ -426,25 +531,44 @@ fun HomeScreen(
 
                         HomePageContent(
                             state = state,
+                            nowPlayingPositionMs = nowPlayingPositionMs,
                             onSelectTab = onSelectTab,
                             onSelectGame = onSelectGame,
                             onLaunchGame = onLaunchGame,
                             onSelectRssItem = onSelectRssItem,
                             onOpenRssItem = onOpenRssItem,
                             onRetryRss = onRetryRss,
+                            onSelectNewsOutlet = onSelectNewsOutlet,
+                            onAddNewsOutlet = onAddNewsOutlet,
+                            onDismissAddNewsOutlet = onDismissAddNewsOutlet,
+                            onSubmitNewsOutlet = onSubmitNewsOutlet,
+                            onCloseRssArticle = onCloseRssArticle,
+                            onOpenRssInBrowser = onOpenRssInBrowser,
                             onSelectRaLibraryIndex = onSelectRaLibraryIndex,
                             onSelectRaLibraryTab = onSelectRaLibraryTab,
+                            onToggleRaSortMenu = onToggleRaSortMenu,
                             onSelectRaPlatformFilter = onSelectRaPlatformFilter,
                             onActivateRaLibrary = onActivateRaLibrary,
                             onRetryRaLibrary = onRetryRaLibrary,
+                            onSelectRaCheevoIndex = onSelectRaCheevoIndex,
+                            onCloseRaGameDetail = onCloseRaGameDetail,
+                            onSelectRaFollowingIndex = onSelectRaFollowingIndex,
+                            onToggleRaCompare = onToggleRaCompare,
                             onSelectHomeShard = onSelectHomeShard,
                             onActivateHomeShard = onActivateHomeShard,
                             onSelectHomeShortcut = onSelectHomeShortcut,
                             onActivateHomeShortcut = onActivateHomeShortcut,
+                            onLaunchVitaShortcut = onLaunchVitaShortcut,
+                            onVitaPeelSpeed = onVitaPeelSpeed,
                             onAddHomeShortcut = onAddHomeShortcut,
+                            onHoldHomeShortcut = onHoldHomeShortcut,
+                            onMoveHomeShortcutTo = onMoveHomeShortcutTo,
+                            onDropHomeShortcutMove = onDropHomeShortcutMove,
                             onSelectXoraCategory = onSelectXoraCategory,
                             onSelectXoraItem = onSelectXoraItem,
                             onActivateXoraItem = onActivateXoraItem,
+                            onDrillOutXora = onDrillOutXora,
+                            onShiftVitaShortcutPage = onShiftVitaShortcutPage,
                             onToggleNowPlaying = onToggleNowPlaying,
                             onSkipPreviousTrack = onSkipPreviousTrack,
                             onSkipNextTrack = onSkipNextTrack,
@@ -460,6 +584,12 @@ fun HomeScreen(
                             onShopComingSoon = onShopComingSoon,
                             onUploadComingSoon = onUploadComingSoon,
                             onDismissAddShortcut = onDismissAddShortcut,
+                            onDismissShortcutPinPicker = onDismissShortcutPinPicker,
+                            onSelectShortcutPickerPlatform = onSelectShortcutPickerPlatform,
+                            onSelectShortcutPickerItem = onSelectShortcutPickerItem,
+                            onConfirmShortcutPicker = onConfirmShortcutPicker,
+                            onShortcutPickerQueryChange = onShortcutPickerQueryChange,
+                            onFocusShortcutPickerPane = onFocusShortcutPickerPane,
                             onPinRecentShortcut = onPinRecentShortcut,
                             onPinAndroidShortcut = onPinAndroidShortcut,
                             onPinPictureShortcut = onPinPictureShortcut,
@@ -477,10 +607,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(GRID_WEIGHT)
-                                .graphicsLayer {
-                                    alpha = libraryChromeAlpha
-                                    translationY = librarySlidePx
-                                },
+                                .graphicsLayer { alpha = 1f - launchProgress },
                         )
                     }
 
@@ -490,22 +617,21 @@ fun HomeScreen(
                             hints = when {
                                 state.guideOpen -> hintsForGuide()
                                 state.startSettingsOpen -> hintsForStartSettings()
-                                state.accountPanelExpanded -> hintsForSocialMenu()
+                                state.accountPanelExpanded ->
+                                    hintsForSocialMenu(state.socialMenu.managingCircle)
                                 state.systemPanelExpanded -> hintsForSystemMenu()
                                 else -> hintsForPage(
                                     page = state.homePage,
                                     displayMode = state.displayMode,
                                     homeHub = state.homeHub,
                                     xmbDepth = state.xoraXmb.depth,
+                                    raGameDetailOpen = state.raLibrary.gameDetailOpen,
                                 )
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 40.dp, max = 72.dp)
-                                .graphicsLayer {
-                                    alpha = libraryChromeAlpha
-                                    translationY = librarySlidePx
-                                },
+                                .graphicsLayer { alpha = 1f - launchProgress },
                         )
                     }
                 }
@@ -523,25 +649,45 @@ fun HomeScreen(
 @Composable
 fun HomePageContent(
     state: HomeUiState,
+    /** Live playback position — see [HomeScreen]'s parameter of the same name. */
+    nowPlayingPositionMs: Long = 0L,
     onSelectTab: (Int) -> Unit,
     onSelectGame: (Int) -> Unit,
     onLaunchGame: (Int) -> Unit,
     onSelectRssItem: (Int) -> Unit,
     onOpenRssItem: (Int) -> Unit,
     onRetryRss: () -> Unit,
+    onSelectNewsOutlet: (Int) -> Unit = {},
+    onAddNewsOutlet: () -> Unit = {},
+    onDismissAddNewsOutlet: () -> Unit = {},
+    onSubmitNewsOutlet: (String, String) -> Unit = { _, _ -> },
+    onCloseRssArticle: () -> Unit = {},
+    onOpenRssInBrowser: () -> Unit = {},
     onSelectRaLibraryIndex: (Int) -> Unit = {},
     onSelectRaLibraryTab: (RaLibraryTab) -> Unit = {},
+    onToggleRaSortMenu: () -> Unit = {},
     onSelectRaPlatformFilter: (String?) -> Unit = {},
     onActivateRaLibrary: () -> Unit = {},
     onRetryRaLibrary: () -> Unit = {},
+    onSelectRaCheevoIndex: (Int) -> Unit = {},
+    onCloseRaGameDetail: () -> Unit = {},
+    onSelectRaFollowingIndex: (Int) -> Unit = {},
+    onToggleRaCompare: () -> Unit = {},
     onSelectHomeShard: (HomeShard) -> Unit = {},
     onActivateHomeShard: (HomeShard) -> Unit = {},
     onSelectHomeShortcut: (Int) -> Unit = {},
     onActivateHomeShortcut: (Int) -> Unit = {},
+    onLaunchVitaShortcut: () -> Unit = {},
+    onVitaPeelSpeed: (VitaPeelDragSpeed?) -> Unit = {},
     onAddHomeShortcut: () -> Unit = {},
+    onHoldHomeShortcut: (Int) -> Unit = {},
+    onMoveHomeShortcutTo: (Int) -> Unit = {},
+    onDropHomeShortcutMove: () -> Unit = {},
     onSelectXoraCategory: (Int) -> Unit = {},
     onSelectXoraItem: (Int) -> Unit = {},
     onActivateXoraItem: () -> Unit = {},
+    onDrillOutXora: () -> Unit = {},
+    onShiftVitaShortcutPage: (Int) -> Unit = {},
     onToggleNowPlaying: () -> Unit = {},
     onSkipPreviousTrack: () -> Unit = {},
     onSkipNextTrack: () -> Unit = {},
@@ -561,10 +707,13 @@ fun HomePageContent(
     onClearCustomStatus: () -> Unit = {},
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit = { _, _ -> },
     onSelectAvatarPreset: (presetId: String) -> Unit = {},
-    onRequestLocalAvatar: () -> Unit = {},
+    onRequestLocalAvatar: (PhotoImportSource) -> Unit = {},
     onUseRaAvatar: () -> Unit = {},
     onUseDiscordAvatar: () -> Unit = {},
+    onUseXoraAvatar: () -> Unit = {},
+    onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit = {},
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit = {},
@@ -581,6 +730,12 @@ fun HomePageContent(
     onShopComingSoon: () -> Unit = {},
     onUploadComingSoon: () -> Unit = {},
     onDismissAddShortcut: () -> Unit = {},
+    onDismissShortcutPinPicker: () -> Unit = {},
+    onSelectShortcutPickerPlatform: (Int) -> Unit = {},
+    onSelectShortcutPickerItem: (Int) -> Unit = {},
+    onConfirmShortcutPicker: () -> Unit = {},
+    onShortcutPickerQueryChange: (String) -> Unit = {},
+    onFocusShortcutPickerPane: (ShortcutPickerPane) -> Unit = {},
     onPinRecentShortcut: () -> Unit = {},
     onPinAndroidShortcut: () -> Unit = {},
     onPinPictureShortcut: () -> Unit = {},
@@ -595,6 +750,8 @@ fun HomePageContent(
     onAdjustShortcutColumns: (Int) -> Unit = {},
     onAdjustShortcutRows: (Int) -> Unit = {},
     onFocusShortcutCustomizeChrome: (ShortcutCustomizeChrome) -> Unit = {},
+    onPhotoCommand: (PhotoPaneCommand) -> Unit = {},
+    onDashboardCommand: (DashboardCommand) -> Unit = {},
     showWallpaperBackdrop: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -621,9 +778,11 @@ fun HomePageContent(
                     val trayOpen = state.homeHub.vitaShortcutTrayOpen
                     XoraHomeXmbPane(
                         state = state,
+                        nowPlayingPositionMs = nowPlayingPositionMs,
                         onSelectCategory = onSelectXoraCategory,
                         onSelectItem = onSelectXoraItem,
                         onActivateItem = onActivateXoraItem,
+                        onDrillOut = onDrillOutXora,
                         onToggleAccountPanel = onToggleAccountPanel,
                         onToggleSystemPanel = onToggleSystemPanel,
                         onOpenNotifications = onOpenNotifications,
@@ -641,36 +800,97 @@ fun HomePageContent(
                         onRequestLocalAvatar = onRequestLocalAvatar,
                         onUseRaAvatar = onUseRaAvatar,
                         onUseDiscordAvatar = onUseDiscordAvatar,
+                        onUseXoraAvatar = onUseXoraAvatar,
+                        onXoraPresenceMode = onXoraPresenceMode,
                         onClearAvatar = onClearAvatar,
+                        onClearNotifications = onClearNotifications,
                         onFriendSearchChange = onFriendSearchChange,
                         onReplyDraftChange = onReplyDraftChange,
                         onSelectAchievementsTab = onSelectAchievementsTab,
                         onLoginRetroAchievements = onLoginRetroAchievements,
                         onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
                         onSignOutRetroAchievements = onSignOutRetroAchievements,
+                        onPhotoCommand = onPhotoCommand,
+                        onDashboardCommand = onDashboardCommand,
+                        onSelectRaLibraryIndex = onSelectRaLibraryIndex,
+                        onSelectRaLibraryTab = onSelectRaLibraryTab,
+                        onToggleRaSortMenu = onToggleRaSortMenu,
+                        onSelectRaPlatformFilter = onSelectRaPlatformFilter,
+                        onActivateRaLibrary = onActivateRaLibrary,
+                        onRetryRaLibrary = onRetryRaLibrary,
+                        onSelectRaCheevoIndex = onSelectRaCheevoIndex,
+                        onCloseRaGameDetail = onCloseRaGameDetail,
+                        onSelectRaFollowingIndex = onSelectRaFollowingIndex,
+                        onToggleRaCompare = onToggleRaCompare,
                         onToggleNowPlaying = onToggleNowPlaying,
                         onSkipPreviousTrack = onSkipPreviousTrack,
                         onSkipNextTrack = onSkipNextTrack,
                         onToggleShuffle = onToggleShuffle,
                         onToggleRepeat = onToggleRepeat,
                         // Dual: LT/RT live on the Hero role; Single: chrome sits on the XMB itself.
-                        showPillChrome = state.displayMode == DisplayMode.Single,
+                        showPillChrome = state.displayMode == DisplayMode.Single &&
+                            !state.hideHomePillChrome,
                         modifier = Modifier.fillMaxSize(),
                         overlayContent = {
+                            val launch = state.homeHub.vitaShortcutLaunch
+                            val departingIndex = state.homeHub.vitaShortcutDepartingIndex
+                            // White fade sits under the zooming bubble so the flip can dissolve
+                            // into the launch plate once it covers the panel.
+                            VitaShortcutLaunchPage(
+                                visible = trayOpen && (launch != null || departingIndex != null),
+                                launch = launch,
+                                homeWallpaperPath = state.homeHub.wallpaperPath,
+                                peelRequested = state.homeHub.vitaShortcutPeelRequested,
+                                onPeelSpeed = onVitaPeelSpeed,
+                                holdWhite = departingIndex != null,
+                                isLaunching = state.isLaunching,
+                                wallpaperAlignX = state.homeHub.wallpaperAlignX,
+                                wallpaperAlignY = state.homeHub.wallpaperAlignY,
+                                onConfirm = {
+                                    onActivateHomeShortcut(state.homeHub.shortcutIndex)
+                                },
+                                onPeeled = onLaunchVitaShortcut,
+                                modifier = Modifier.fillMaxSize(),
+                            )
                             VitaShortcutTray(
                                 visible = trayOpen,
                                 shortcuts = state.homeHub.shortcuts,
                                 selectedIndex = state.homeHub.shortcutIndex,
                                 editMode = state.homeHub.shortcutsEditMode,
-                                xmbCategoryIndex = state.xoraXmb.categoryIndex,
+                                departingIndex = departingIndex,
+                                suppressIdleBubbles = launch != null,
+                                moveIndex = state.homeHub.vitaShortcutMoveIndex,
                                 onSelect = onSelectHomeShortcut,
                                 onActivate = onActivateHomeShortcut,
                                 onAddSlot = onAddHomeShortcut,
+                                onPageSwipe = onShiftVitaShortcutPage,
+                                onBeginMove = onHoldHomeShortcut,
+                                onMoveTo = onMoveHomeShortcutTo,
+                                onDropMove = onDropHomeShortcutMove,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         },
                     )
-                    if (state.homeHub.addShortcutOpen) {
+                    val pinPicker = state.homeHub.shortcutPicker
+                    // Keep the last picker so the sheet can animate out after the state clears.
+                    var lastPinPicker by remember { mutableStateOf(pinPicker) }
+                    SideEffect { if (pinPicker != null) lastPinPicker = pinPicker }
+                    val shownPinPicker = pinPicker ?: lastPinPicker
+                    if (shownPinPicker != null) {
+                        // Vita bubbles use the platform / ROM browser; the type chooser below is
+                        // still the Home board's path, which also pins pictures and GIFs.
+                        ShortcutPinPickerSheet(
+                            picker = shownPinPicker,
+                            visible = pinPicker != null,
+                            onDismiss = onDismissShortcutPinPicker,
+                            onSelectPlatform = onSelectShortcutPickerPlatform,
+                            onSelectItem = onSelectShortcutPickerItem,
+                            onConfirm = onConfirmShortcutPicker,
+                            onQueryChange = onShortcutPickerQueryChange,
+                            onFocusPane = onFocusShortcutPickerPane,
+                        )
+                    }
+                    if (pinPicker == null && state.homeHub.addShortcutOpen) {
                         AddShortcutSheet(
                             picker = state.homeHub.shortcutTargetPicker,
                             pendingKind = state.homeHub.pendingShortcutKind,
@@ -707,6 +927,12 @@ fun HomePageContent(
                 onSelectItem = onSelectRssItem,
                 onOpenItem = onOpenRssItem,
                 onRetry = onRetryRss,
+                onSelectOutlet = onSelectNewsOutlet,
+                onAddOutlet = onAddNewsOutlet,
+                onDismissAddOutlet = onDismissAddNewsOutlet,
+                onSubmitOutlet = onSubmitNewsOutlet,
+                onCloseArticle = onCloseRssArticle,
+                onOpenInBrowser = onOpenRssInBrowser,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -714,9 +940,14 @@ fun HomePageContent(
                 state = state,
                 onSelectIndex = onSelectRaLibraryIndex,
                 onSelectTab = onSelectRaLibraryTab,
+                onToggleSortMenu = onToggleRaSortMenu,
                 onSelectPlatformFilter = onSelectRaPlatformFilter,
                 onActivate = onActivateRaLibrary,
                 onRetry = onRetryRaLibrary,
+                onSelectCheevoIndex = onSelectRaCheevoIndex,
+                onCloseGameDetail = onCloseRaGameDetail,
+                onSelectFollowingIndex = onSelectRaFollowingIndex,
+                onToggleCompare = onToggleRaCompare,
                 modifier = Modifier.fillMaxSize(),
             )
         }

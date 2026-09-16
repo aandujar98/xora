@@ -16,7 +16,9 @@ keystore.properties
 .kotlin/
 .testshots/
 .tmp_logos/
-dist/
+# Local mGBA tree (cloned at build time for GBA Game Link).
+core/libretro/src/main/cpp/.mgba-fetch/
+core/libretro/src/main/cpp/third_party/mgba/
 
 # Local build / crash junk
 *.log

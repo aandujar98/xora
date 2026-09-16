@@ -3,6 +3,7 @@
 #include <android/log.h>
 #include <cstring>
 #include <optional>
+#include <string>
 #include <vector>
 
 #define LOG_TAG "SoraDiscord"
@@ -214,8 +215,10 @@ void DiscordBridge::Authorize() {
         discordpp::AuthorizationArgs args;
         args.SetClientId(static_cast<uint64_t>(appId_));
         // Communication scopes include presence + DM messaging for in-launcher chat.
-        auto scopes = discordpp::Client::GetDefaultCommunicationScopes();
-        LOGI("Authorize: communication scopes=%s", scopes.c_str());
+        auto defaultScopes = discordpp::Client::GetDefaultCommunicationScopes();
+        std::string scopes = defaultScopes.c_str();
+        scopes.append(" guilds guilds.members.read");
+        LOGI("Authorize: communication+guild scopes=%s", scopes.c_str());
         args.SetScopes(scopes);
 
         discordpp::AuthorizationCodeChallenge challenge;
@@ -469,8 +472,9 @@ std::string DiscordBridge::BuildFriendsPayloadUnlocked() {
                     name = user->DisplayName();
                     if (name.empty()) name = user->Username();
                     try {
+                        // Prefer GIF so animated Discord pfps play in the LT social pill.
                         avatarUrl = user->AvatarUrl(
-                            discordpp::UserHandle::AvatarType::Png,
+                            discordpp::UserHandle::AvatarType::Gif,
                             discordpp::UserHandle::AvatarType::Png);
                     } catch (...) {
                         avatarUrl.clear();
@@ -482,16 +486,35 @@ std::string DiscordBridge::BuildFriendsPayloadUnlocked() {
                             avatarUrl += std::to_string(user->Id());
                             avatarUrl += '/';
                             avatarUrl += *hashOpt;
-                            avatarUrl += ".png";
+                            avatarUrl +=
+                                hashOpt->rfind("a_", 0) == 0 ? ".gif" : ".png";
                         }
                     }
                 }
                 if (name.empty()) name = std::to_string(rel.Id());
-                // Escape tabs/newlines in display names / URLs.
+                std::string gameName;
+                if (user) {
+                    try {
+                        auto activity = user->GameActivity();
+                        if (activity) {
+                            gameName = activity->Name();
+                            if (gameName.empty()) {
+                                auto details = activity->Details();
+                                if (details) gameName = *details;
+                            }
+                        }
+                    } catch (...) {
+                        gameName.clear();
+                    }
+                }
+                // Escape tabs/newlines in display names / URLs / game titles.
                 for (char& c : name) {
                     if (c == '\t' || c == '\n' || c == '\r') c = ' ';
                 }
                 for (char& c : avatarUrl) {
+                    if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+                }
+                for (char& c : gameName) {
                     if (c == '\t' || c == '\n' || c == '\r') c = ' ';
                 }
                 out += std::to_string(rel.Id());
@@ -501,6 +524,8 @@ std::string DiscordBridge::BuildFriendsPayloadUnlocked() {
                 out += label;
                 out += '\t';
                 out += avatarUrl;
+                out += '\t';
+                out += gameName;
                 out += '\n';
             }
         } catch (const std::exception& e) {
@@ -543,9 +568,11 @@ void DiscordBridge::SetActivity(
         if (appId_ > 0) {
             activity.SetApplicationId(std::optional<uint64_t>(static_cast<uint64_t>(appId_)));
         }
-        if (name) activity.SetName(std::string(name));
-        if (state) activity.SetState(std::string(state));
-        if (details) activity.SetDetails(std::string(details));
+        if (name && name[0]) activity.SetName(std::string(name));
+        // Discord requires state/details to be 2–128 characters when set. Empty strings fail
+        // the whole UpdateRichPresence call (0.2.215 sent state="" for menus).
+        if (state && strlen(state) >= 2) activity.SetState(std::string(state));
+        if (details && strlen(details) >= 2) activity.SetDetails(std::string(details));
 
         if (startSecs > 0 || endSecs > 0) {
             discordpp::ActivityTimestamps ts;

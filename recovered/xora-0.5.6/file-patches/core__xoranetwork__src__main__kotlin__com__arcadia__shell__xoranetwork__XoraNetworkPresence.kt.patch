@@ -1,0 +1,35 @@
+diff --git a/core/xoranetwork/src/main/kotlin/com/arcadia/shell/xoranetwork/XoraNetworkPresence.kt b/core/xoranetwork/src/main/kotlin/com/arcadia/shell/xoranetwork/XoraNetworkPresence.kt
+--- a/core/xoranetwork/src/main/kotlin/com/arcadia/shell/xoranetwork/XoraNetworkPresence.kt
++++ b/core/xoranetwork/src/main/kotlin/com/arcadia/shell/xoranetwork/XoraNetworkPresence.kt
+@@ -85,6 +85,31 @@
+     else -> "Online"
+ }
+ 
++/**
++ * Prefix a status carries when the player has a song on rather than a game. Friends' launchers
++ * split on " by " to get the track and the artist back out.
++ */
++const val XORA_LISTENING_PREFIX = "Listening to "
++
++/** Builds the status line a playing song publishes. */
++fun encodeXoraListening(title: String, artist: String): String {
++    val song = title.trim()
++    if (song.isEmpty()) return ""
++    val by = artist.trim()
++    return if (by.isEmpty()) "$XORA_LISTENING_PREFIX$song" else "$XORA_LISTENING_PREFIX$song by $by"
++}
++
++/** Track and artist from a "Listening to …" status, or null when it is not one. */
++fun parseXoraListening(status: String): Pair<String, String>? {
++    val raw = status.trim()
++    if (!raw.startsWith(XORA_LISTENING_PREFIX, ignoreCase = true)) return null
++    val body = raw.substring(XORA_LISTENING_PREFIX.length).trim()
++    if (body.isEmpty()) return null
++    val split = body.lastIndexOf(" by ")
++    if (split <= 0) return body to ""
++    return body.substring(0, split).trim() to body.substring(split + 4).trim()
++}
++
+ fun encodeXoraStatus(mode: XoraPresenceMode, playingLine: String?): String = when (mode) {
+     XoraPresenceMode.Invisible -> ""
+     XoraPresenceMode.Away -> "Away"

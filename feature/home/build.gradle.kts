@@ -35,12 +35,15 @@ dependencies {
     implementation(project(":core:display"))
     implementation(project(":core:retroachievements"))
     implementation(project(":core:scraper"))
+    implementation(project(":core:xoranetwork"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.browser)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    // ProcessLifecycleOwner: video players must pause when the whole app leaves the foreground.
+    implementation(libs.androidx.lifecycle.process)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
@@ -63,4 +66,6 @@ dependencies {
     implementation(libs.androidx.hilt.navigation.compose)
 
     implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation(libs.junit)
 }

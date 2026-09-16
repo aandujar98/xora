@@ -13,9 +13,11 @@ import androidx.core.content.ContextCompat
 import com.arcadia.shell.datastore.ShellPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -54,6 +56,8 @@ data class MusicTrack(
     val source: MusicSource = MusicSource.Device,
     /** Playback context this track belongs to, so Spotify can keep queue order. */
     val contextUri: String? = null,
+    /** Album / playlist id used for custom album art and editor rows. */
+    val albumId: String? = null,
 )
 
 /**
@@ -68,6 +72,10 @@ class MusicLibrary @Inject constructor(
     @ApplicationContext private val context: Context,
     private val preferences: ShellPreferences,
 ) {
+    private val embeddedArtRoot = File(context.filesDir, "music_art/embedded")
+    private val folderCoverCache = mutableMapOf<String, String?>()
+    @Volatile private var lastResolvedFolderPath: String? = null
+    @Volatile private var folderReadyRetried = false
     fun hasAudioAccess(): Boolean = ContextCompat.checkSelfPermission(
         context,
         audioPermission(),
@@ -81,7 +89,12 @@ class MusicLibrary @Inject constructor(
 
     suspend fun albums(): List<MusicAlbum> = withContext(Dispatchers.IO) {
         val folder = musicFolderPath()
-        if (folder != null) return@withContext folderAlbums(folder)
+        if (folder != null) {
+            val fromDisk = folderAlbums(folder)
+            if (fromDisk.isNotEmpty()) return@withContext fromDisk
+            // Filesystem walk can miss the folder right after boot; MediaStore still has paths.
+            return@withContext mediaStoreAlbumsUnder(folder)
+        }
         if (!hasAudioAccess()) return@withContext emptyList()
         val projection = arrayOf(
             MediaStore.Audio.Albums._ID,
@@ -106,7 +119,7 @@ class MusicLibrary @Inject constructor(
                     id = id.toString(),
                     title = cursor.getString(titleCol)?.takeIf { it.isNotBlank() } ?: "Unknown album",
                     artist = cursor.getString(artistCol)?.takeIf { it.isNotBlank() } ?: "Unknown artist",
-                    artUri = albumArtUri(id),
+                    artUri = albumArtUriIfPresent(id),
                     trackCount = cursor.getInt(countCol),
                 )
             }
@@ -116,7 +129,9 @@ class MusicLibrary @Inject constructor(
     suspend fun tracks(albumId: String): List<MusicTrack> = withContext(Dispatchers.IO) {
         val folder = musicFolderPath()
         if (folder != null) {
-            return@withContext folderTracks(folder).filter { albumKey(it) == albumId }
+            val fromDisk = folderTracks(folder).filter { albumKey(it) == albumId }
+            if (fromDisk.isNotEmpty()) return@withContext fromDisk
+            return@withContext mediaStoreTracksUnder(folder).filter { albumKey(it) == albumId }
         }
         if (!hasAudioAccess()) return@withContext emptyList()
         val projection = arrayOf(
@@ -142,7 +157,11 @@ class MusicLibrary @Inject constructor(
     suspend fun allTracks(limit: Int = ALL_TRACKS_LIMIT): List<MusicTrack> =
         withContext(Dispatchers.IO) {
             val folder = musicFolderPath()
-            if (folder != null) return@withContext folderTracks(folder).take(limit)
+            if (folder != null) {
+                val fromDisk = folderTracks(folder)
+                if (fromDisk.isNotEmpty()) return@withContext fromDisk.take(limit)
+                return@withContext mediaStoreTracksUnder(folder).take(limit)
+            }
             if (!hasAudioAccess()) return@withContext emptyList()
             val projection = arrayOf(
                 MediaStore.Audio.Media._ID,
@@ -163,11 +182,74 @@ class MusicLibrary @Inject constructor(
             }.getOrDefault(emptyList())
         }
 
+    private suspend fun storedMusicFolderPath(): String? =
+        preferences.settings.first().musicLibraryPath?.trim()?.takeIf { it.isNotBlank() }
+
+    /**
+     * Returns the linked Music folder. Storage volumes can appear a second or two after process
+     * start, so a cold launch must retry before treating the saved path as gone.
+     */
     private suspend fun musicFolderPath(): String? {
-        val path = preferences.settings.first().musicLibraryPath?.trim().orEmpty()
-        if (path.isBlank()) return null
+        val path = storedMusicFolderPath() ?: return null
+        if (path != lastResolvedFolderPath) {
+            lastResolvedFolderPath = path
+            folderReadyRetried = false
+        }
         val dir = File(path)
-        return if (dir.isDirectory) dir.absolutePath else null
+        if (dir.isDirectory) return dir.absolutePath
+        if (!folderReadyRetried) {
+            folderReadyRetried = true
+            repeat(FOLDER_READY_ATTEMPTS) {
+                delay(FOLDER_READY_RETRY_MS)
+                if (dir.isDirectory) return dir.absolutePath
+            }
+        }
+        // Keep the saved path so MediaStore can still filter by DATA even when File() cannot
+        // see the directory yet (all-files access late, SD card remount).
+        return dir.absolutePath
+    }
+
+    @Suppress("DEPRECATION")
+    private fun mediaStoreTracksUnder(folderPath: String): List<MusicTrack> {
+        if (!hasAudioAccess()) return emptyList()
+        val prefix = folderPath.trimEnd('/') + "/"
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.DURATION,
+        )
+        return runCatching {
+            context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DATA} LIKE ?",
+                arrayOf("$prefix%"),
+                "${MediaStore.Audio.Media.TITLE} ASC",
+            ).useRows { cursor -> cursor.readTrack() }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun mediaStoreAlbumsUnder(folderPath: String): List<MusicAlbum> {
+        val tracks = mediaStoreTracksUnder(folderPath)
+        if (tracks.isEmpty()) return emptyList()
+        return tracks
+            .groupBy { albumKey(it) }
+            .map { (key, songs) ->
+                val first = songs.first()
+                MusicAlbum(
+                    id = key,
+                    title = first.albumTitle.ifBlank { "Unknown album" },
+                    artist = songs.map { it.artist }.distinct()
+                        .singleOrNull()
+                        ?: "Various artists",
+                    artUri = songs.firstNotNullOfOrNull { it.albumArtUri },
+                    trackCount = songs.size,
+                )
+            }
+            .sortedBy { it.title.lowercase() }
     }
 
     private fun folderAlbums(rootPath: String): List<MusicAlbum> {
@@ -182,7 +264,7 @@ class MusicLibrary @Inject constructor(
                     artist = songs.map { it.artist }.distinct()
                         .singleOrNull()
                         ?: "Various artists",
-                    artUri = first.albumArtUri,
+                    artUri = songs.firstNotNullOfOrNull { it.albumArtUri },
                     trackCount = songs.size,
                 )
             }
@@ -192,6 +274,7 @@ class MusicLibrary @Inject constructor(
     private fun folderTracks(rootPath: String): List<MusicTrack> {
         val root = File(rootPath)
         if (!root.isDirectory) return emptyList()
+        folderCoverCache.clear()
         return root.walkTopDown()
             .filter { it.isFile && it.extension.lowercase() in AUDIO_EXTENSIONS }
             .mapNotNull { file -> readFileTrack(file) }
@@ -209,27 +292,56 @@ class MusicLibrary @Inject constructor(
             val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                 ?.takeIf { it.isNotBlank() }
                 ?: "Unknown artist"
-            val album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
-                ?.takeIf { it.isNotBlank() }
-                ?: file.parentFile?.name
+            // Folder membership decides the album, not the embedded tag: dropping already-tagged
+            // singles from different releases into one folder is how a user builds a custom
+            // album, and each file's own ID3 album would otherwise keep them apart.
+            val album = file.parentFile?.name?.takeIf { it.isNotBlank() }
+                ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                    ?.takeIf { it.isNotBlank() }
                 ?: "Unknown album"
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
                 ?: 0L
+            val embedded = retriever.embeddedPicture?.let { bytes -> cacheEmbeddedArt(file, bytes) }
+            val folderCover = file.parentFile?.let { coverForDirectory(it) }
             MusicTrack(
                 id = "file:${file.absolutePath}",
                 title = title,
                 artist = artist,
                 albumTitle = album,
-                albumArtUri = null,
+                albumArtUri = embedded ?: folderCover,
                 durationMs = duration,
                 contentUri = Uri.fromFile(file).toString(),
+                albumId = "folder:${album.lowercase().trim()}",
             )
         } catch (_: Exception) {
             null
         } finally {
             runCatching { retriever.release() }
         }
+    }
+
+    private fun coverForDirectory(dir: File): String? {
+        val key = dir.absolutePath
+        if (key in folderCoverCache) return folderCoverCache[key]
+        val found = MusicFolderArt.findCover(dir)
+        folderCoverCache[key] = found
+        return found
+    }
+
+    private fun cacheEmbeddedArt(file: File, bytes: ByteArray): String? {
+        if (bytes.size < 64) return null
+        val digest = MessageDigest.getInstance("SHA-1")
+            .digest("${file.absolutePath}:${file.lastModified()}:${bytes.size}".toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val extension = MusicFolderArt.extensionForImage(bytes)
+        val target = File(embeddedArtRoot, "${digest.take(2)}/$digest.$extension")
+        if (target.isFile && target.length() > 0L) return target.absolutePath
+        return runCatching {
+            target.parentFile?.mkdirs()
+            target.writeBytes(bytes)
+            target.absolutePath
+        }.getOrNull()
     }
 
     private fun albumKey(track: MusicTrack): String =
@@ -248,17 +360,31 @@ class MusicLibrary @Inject constructor(
             title = getString(titleCol)?.takeIf { it.isNotBlank() } ?: "Unknown track",
             artist = getString(artistCol)?.takeIf { it.isNotBlank() } ?: "Unknown artist",
             albumTitle = getString(albumCol).orEmpty(),
-            albumArtUri = albumArtUri(getLong(albumIdCol)),
+            albumArtUri = albumArtUriIfPresent(getLong(albumIdCol)),
             durationMs = getLong(durationCol),
             contentUri = ContentUris.withAppendedId(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 id,
             ).toString(),
+            albumId = getLong(albumIdCol).toString(),
         )
     }
 
-    private fun albumArtUri(albumId: Long): String =
-        ContentUris.withAppendedId(ALBUM_ART_BASE, albumId).toString()
+    /**
+     * MediaStore always mints an album-art URI, even when no image exists. Opening the stream
+     * is the only reliable check — a missing cover would otherwise paint a broken tile and skip
+     * the network scrape that could fill it.
+     */
+    private fun albumArtUriIfPresent(albumId: Long): String? {
+        val uri = ContentUris.withAppendedId(ALBUM_ART_BASE, albumId)
+        val readable = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val header = ByteArray(4)
+                stream.read(header) >= 2
+            } == true
+        }.getOrDefault(false)
+        return uri.toString().takeIf { readable }
+    }
 
     private inline fun <T> Cursor?.useRows(read: (Cursor) -> T): List<T> {
         this ?: return emptyList()
@@ -275,6 +401,8 @@ class MusicLibrary @Inject constructor(
         private val ALBUM_ART_BASE: Uri = Uri.parse("content://media/external/audio/albumart")
         /** Songs rung is a browse list, not a full library dump. */
         private const val ALL_TRACKS_LIMIT = 500
+        private const val FOLDER_READY_ATTEMPTS = 4
+        private const val FOLDER_READY_RETRY_MS = 400L
         private val AUDIO_EXTENSIONS = setOf(
             "mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "wma", "alac",
         )

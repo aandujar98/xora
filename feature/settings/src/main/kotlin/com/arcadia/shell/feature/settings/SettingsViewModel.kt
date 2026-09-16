@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.settings
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -10,13 +11,22 @@ import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.PlatformEmulatorChoice
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ThemeMode
+import com.arcadia.shell.datastore.VisualPerformanceMode
 import com.arcadia.shell.datastore.TrailerDisplayMode
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.launcher.BuiltInPlayers
+import com.arcadia.shell.launcher.DetectedEmulatorApp
+import com.arcadia.shell.launcher.DetectedExternalPlayers
 import com.arcadia.shell.launcher.InstalledPlayerProbe
+import com.arcadia.shell.launcher.InstalledApp
+import com.arcadia.shell.launcher.InstalledAppCatalog
 import com.arcadia.shell.launcher.InstalledAppSync
 import com.arcadia.shell.launcher.PlayerSeeder
+import com.arcadia.shell.launcher.resolveAndroidAppInclusion
+import com.arcadia.shell.launcher.toggleAndroidAppInclusion
+import com.arcadia.shell.datastore.AndroidAppInclusionMode
 import com.arcadia.shell.launcher.RetroArchCoreCatalog
 import com.arcadia.shell.launcher.RetroArchPackages
 import com.arcadia.shell.launcher.conversations.ConversationRepository
@@ -52,6 +62,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val storageAccess: StorageAccess,
     private val rootManager: LibraryRootManager,
     private val scanner: LibraryScanner,
@@ -69,12 +80,14 @@ class SettingsViewModel @Inject constructor(
     private val coreStore: CoreStore,
     private val xoraCatalog: XoraCoreCatalog,
     private val installedAppSync: InstalledAppSync,
+    private val installedAppCatalog: InstalledAppCatalog,
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
     private val transientMessage = MutableStateFlow<String?>(null)
     private val raBusy = MutableStateFlow(false)
     private val appSyncBusy = MutableStateFlow(false)
+    private val launchableAndroidApps = MutableStateFlow<List<InstalledApp>>(emptyList())
     private val raError = MutableStateFlow<String?>(null)
     private val raPendingWebApiUser = MutableStateFlow<String?>(null)
 
@@ -86,20 +99,40 @@ class SettingsViewModel @Inject constructor(
         preferences.platformEmulatorChoices,
     ) { players, platformSettings, summaries, settings, emulatorChoices ->
         val selectedByPlatform = platformSettings.associate { it.platformId to it.selectedPlayerId }
-        summaries.map { summary ->
-            val platformId = summary.platform.id
-            val preferredId = emulatorChoices[platformId]?.playerId
-                ?: selectedByPlatform[platformId]
-                ?: BuiltInPlayers.RETROARCH_N64_PLAYER_ID.takeIf {
-                    platformId == "n64" && settings.n64UseMupen64PlusNext
-                }
-            platformChoice(
-                summary = summary,
+        val extraIds = DetectedExternalPlayers.extraPlatformIds(players)
+        val allSummaries = buildList {
+            addAll(summaries)
+            extraIds.forEach { platformId ->
+                if (summaries.any { it.platform.id == platformId }) return@forEach
+                val platform = PlatformCatalog.byId(platformId) ?: return@forEach
+                add(PlatformSummary(platform = platform, gameCount = 0))
+            }
+        }.sortedBy { it.platform.displayName }
+        PlayersBundle(
+            platformChoices = allSummaries.map { summary ->
+                val platformId = summary.platform.id
+                val preferredId = emulatorChoices[platformId]?.playerId
+                    ?: selectedByPlatform[platformId]
+                    ?: BuiltInPlayers.RETROARCH_N64_PLAYER_ID.takeIf {
+                        platformId == "n64" && settings.n64UseMupen64PlusNext
+                    }
+                platformChoice(
+                    summary = summary,
+                    players = players,
+                    preferredPlayerId = preferredId,
+                )
+            },
+            detectedApps = DetectedExternalPlayers.appsFromPlayers(
                 players = players,
-                preferredPlayerId = preferredId,
-            )
-        }
+                appLabel = { probe.appLabel(it) },
+            ),
+        )
     }
+
+    private data class PlayersBundle(
+        val platformChoices: List<PlatformPlayerChoice>,
+        val detectedApps: List<DetectedEmulatorApp>,
+    )
 
     private val storageFlow = combine(
         rootManager.observeRoots(),
@@ -177,7 +210,7 @@ class SettingsViewModel @Inject constructor(
         configFlow,
         scanner.progress,
         libraryRepository.observeGames(),
-    ) { storage, choices, config, progress, games ->
+    ) { storage, players, config, progress, games ->
         SettingsUiState(
             hasStorageAccess = storage.hasAccess,
             roots = storage.roots,
@@ -185,7 +218,8 @@ class SettingsViewModel @Inject constructor(
             gameCount = games.count { !it.isAndroidApp },
             androidAppCount = games.count { it.isAndroidApp },
             scanProgress = progress,
-            platformChoices = choices,
+            platformChoices = players.platformChoices,
+            detectedEmulatorApps = players.detectedApps,
             settings = config.settings,
             credentials = config.credentials,
             retroAchievements = config.retroAchievements,
@@ -237,16 +271,22 @@ class SettingsViewModel @Inject constructor(
         val raPrefs: com.arcadia.shell.datastore.RetroAchievementsSettings,
     )
 
+    private val androidAppsFlow = combine(
+        appSyncBusy,
+        launchableAndroidApps,
+    ) { busy, apps -> busy to apps }
+
     val uiState: StateFlow<SettingsUiState> = combine(
         baseUiState,
         raUiFlow,
         xoraStatusFlow,
-        appSyncBusy,
-    ) { base, ra, xora, syncingApps ->
+        androidAppsFlow,
+    ) { base, ra, xora, android ->
         val (busy, error, pending) = ra
         val uniqueCores = xora.cores.distinctBy { it.core }
         base.copy(
-            isSyncingApps = syncingApps,
+            isSyncingApps = android.first,
+            launchableAndroidApps = android.second,
             raAuthBusy = busy,
             raAuthError = error,
             raPendingWebApiUsername = pending,
@@ -261,24 +301,20 @@ class SettingsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
+    init {
+        loadLaunchableAndroidApps()
+    }
+
     private fun platformChoice(
         summary: PlatformSummary,
         players: List<Player>,
         preferredPlayerId: String?,
-    ): PlatformPlayerChoice {
-        val candidates = players.filter { summary.platform.id in it.platformIds }
-        // Mirrors GameLauncher: explicit choice, else first installed candidate.
-        val effective = candidates.firstOrNull { it.uniqueId == preferredPlayerId }
-            ?: probe.installedPlayers(candidates).firstOrNull()
-
-        return PlatformPlayerChoice(
-            summary = summary,
-            candidates = candidates,
-            selectedPlayerId = preferredPlayerId,
-            effectivePlayer = effective,
-            isInstalled = effective?.let { probe.isInstalled(it) } == true,
-        )
-    }
+    ): PlatformPlayerChoice = buildPlatformPlayerChoice(
+        summary = summary,
+        players = players,
+        preferredPlayerId = preferredPlayerId,
+        probe = probe,
+    )
 
     fun allFilesAccessIntent(): Intent = storageAccess.allFilesAccessIntent()
 
@@ -291,6 +327,7 @@ class SettingsViewModel @Inject constructor(
     fun refresh() {
         conversationRepository.refreshListenerEnabled()
         refreshTrigger.value += 1
+        loadLaunchableAndroidApps()
     }
 
     fun addFilesystemRoot(path: String) {
@@ -302,6 +339,54 @@ class SettingsViewModel @Inject constructor(
                 }
                 .onFailure { transientMessage.value = it.message }
             refresh()
+        }
+    }
+
+    /**
+     * Folders the Videos and Photos tabs should read from. The read permission is taken
+     * persistably, so the choice survives a reboot rather than dying with this process.
+     */
+    val videoFolders: kotlinx.coroutines.flow.StateFlow<List<MediaFolderChoice>> =
+        preferences.videoFolderUris
+            .map { uris -> uris.sorted().map { MediaFolderChoice(it, mediaFolderLabel(it)) } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val photoFolders: kotlinx.coroutines.flow.StateFlow<List<MediaFolderChoice>> =
+        preferences.photoFolderUris
+            .map { uris -> uris.sorted().map { MediaFolderChoice(it, mediaFolderLabel(it)) } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun addVideoFolder(treeUri: Uri) = addMediaFolder(treeUri, video = true)
+
+    fun addPhotoFolder(treeUri: Uri) = addMediaFolder(treeUri, video = false)
+
+    fun removeVideoFolder(uri: String) {
+        viewModelScope.launch { preferences.removeVideoFolderUri(uri) }
+    }
+
+    fun removePhotoFolder(uri: String) {
+        viewModelScope.launch { preferences.removePhotoFolderUri(uri) }
+    }
+
+    private fun addMediaFolder(treeUri: Uri, video: Boolean) {
+        viewModelScope.launch {
+            val held = runCatching {
+                appContext.contentResolver.takePersistableUriPermission(
+                    treeUri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }.isSuccess
+            if (!held) {
+                transientMessage.value = "Couldn't keep access to that folder."
+                return@launch
+            }
+            if (video) {
+                preferences.addVideoFolderUri(treeUri.toString())
+                transientMessage.value = "Videos will include ${mediaFolderLabel(treeUri.toString())}."
+            } else {
+                preferences.addPhotoFolderUri(treeUri.toString())
+                transientMessage.value = "Photos will include ${mediaFolderLabel(treeUri.toString())}."
+            }
         }
     }
 
@@ -336,10 +421,54 @@ class SettingsViewModel @Inject constructor(
             // Apply straight away: turning it off prunes the mirrored rows.
             runCatching { installedAppSync.refresh() }
             transientMessage.value = if (enabled) {
-                "Installed apps will appear on the Apps tab."
+                "Installed apps will appear on the Android platform."
             } else {
                 "Installed apps removed from the library."
             }
+        }
+    }
+
+    fun includeAllAndroidApps() {
+        viewModelScope.launch {
+            preferences.setAndroidAppInclusion(AndroidAppInclusionMode.All)
+            runCatching { installedAppSync.refresh() }
+            transientMessage.value = "Every launchable app is on the Android platform."
+        }
+    }
+
+    fun toggleAndroidAppIncluded(packageName: String, selected: Boolean) {
+        viewModelScope.launch {
+            val settings = preferences.settings.first()
+            val allPackages = launchableAndroidApps.value.map { it.packageName }.toSet()
+            val (mode, allowlist) = toggleAndroidAppInclusion(
+                mode = settings.androidAppInclusionMode,
+                allowlist = settings.androidAppAllowlist,
+                allPackages = allPackages,
+                packageName = packageName,
+                selected = selected,
+            )
+            preferences.setAndroidAppInclusion(mode, allowlist)
+            runCatching { installedAppSync.refresh() }
+        }
+    }
+
+    fun setAndroidAppAllowlist(packages: Set<String>) {
+        viewModelScope.launch {
+            val allPackages = launchableAndroidApps.value.map { it.packageName }.toSet()
+            val (mode, allowlist) = resolveAndroidAppInclusion(
+                allPackages,
+                packages,
+            )
+            preferences.setAndroidAppInclusion(mode, allowlist)
+            runCatching { installedAppSync.refresh() }
+        }
+    }
+
+    private fun loadLaunchableAndroidApps() {
+        viewModelScope.launch {
+            launchableAndroidApps.value = runCatching {
+                installedAppCatalog.listLaunchableApps()
+            }.getOrDefault(emptyList())
         }
     }
 
@@ -414,8 +543,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Re-syncs bundled launch recipes and reports how many emulators / RetroArch cores are present.
-     * Sideloaded apps like Cemu then appear in Choose Emulator without restarting SORA.
+     * Rebuilds bundled launch recipes from the apps installed on this device and reports
+     * how many standalone emulators / RetroArch cores are present.
      */
     fun scanEmulators() {
         viewModelScope.launch {
@@ -496,6 +625,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setXoraBezelOpacity(opacity) }
     }
 
+    fun setXoraAudioVolume(volume: Float) {
+        viewModelScope.launch { preferences.setXoraAudioVolume(volume) }
+    }
+
     fun setXoraNetplayEnabled(enabled: Boolean) {
         viewModelScope.launch { preferences.setXoraNetplayEnabled(enabled) }
     }
@@ -518,6 +651,30 @@ class SettingsViewModel @Inject constructor(
 
     fun setXoraNetplayHostAddress(address: String) {
         viewModelScope.launch { preferences.setXoraNetplayHostAddress(address) }
+    }
+
+    fun setXoraNdsWfcServer(server: com.arcadia.shell.datastore.NdsWfcServer) {
+        viewModelScope.launch { preferences.setXoraNdsWfcServer(server) }
+    }
+
+    fun setXoraNdsWfcCustomDns(dns: String) {
+        viewModelScope.launch { preferences.setXoraNdsWfcCustomDns(dns) }
+    }
+
+    fun setXoraAzaharLobbyApiUrl(url: String) {
+        viewModelScope.launch { preferences.setXoraAzaharLobbyApiUrl(url) }
+    }
+
+    fun setXoraThreeDsPretendoPrep(enabled: Boolean) {
+        viewModelScope.launch { preferences.setXoraThreeDsPretendoPrep(enabled) }
+    }
+
+    fun setXoraPspAdhocEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferences.setXoraPspAdhocEnabled(enabled) }
+    }
+
+    fun setXoraPspAdhocIsServer(enabled: Boolean) {
+        viewModelScope.launch { preferences.setXoraPspAdhocIsServer(enabled) }
     }
 
     fun setRaEnabled(enabled: Boolean) {
@@ -577,8 +734,16 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setDisplayMode(mode) }
     }
 
+    fun setShowHiddenGames(enabled: Boolean) {
+        viewModelScope.launch { preferences.setShowHiddenGames(enabled) }
+    }
+
     fun setBgmVolume(volume: Float) {
         viewModelScope.launch { preferences.setBgmVolume(volume) }
+    }
+
+    fun setMusicVolume(volume: Float) {
+        viewModelScope.launch { preferences.setMusicVolume(volume) }
     }
 
     fun setMusicLibraryPath(path: String?) {
@@ -591,6 +756,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { preferences.setThemeMode(mode) }
+    }
+
+    fun setVisualPerformanceMode(mode: VisualPerformanceMode) {
+        viewModelScope.launch { preferences.setVisualPerformanceMode(mode) }
     }
 
     fun setXmbTitleStyle(style: XmbTitleStyle) {
@@ -620,6 +789,14 @@ class SettingsViewModel @Inject constructor(
 
     fun setTrailerDisplayMode(mode: TrailerDisplayMode) {
         viewModelScope.launch { preferences.setTrailerDisplayMode(mode) }
+    }
+
+    fun setGameIconIdleMedia(media: GameIconIdleMedia) {
+        viewModelScope.launch { preferences.setGameIconIdleMedia(media) }
+    }
+
+    fun setMusicCategoryArtBackdrop(enabled: Boolean) {
+        viewModelScope.launch { preferences.setMusicCategoryArtBackdrop(enabled) }
     }
 
     fun setScreenScraperCredentials(user: String, password: String) {
@@ -739,6 +916,21 @@ class SettingsViewModel @Inject constructor(
     fun openDiscordDeveloperPortalIntent(): Intent =
         discordRichPresence.openDeveloperPortalIntent()
 
+    fun linkDiscordAccount(activity: Activity) {
+        discordRichPresence.attachHostActivity(activity)
+        discordRichPresence.startAccountLinking(activity)
+        transientMessage.value = "Opening Discord sign-in…"
+    }
+
+    fun signOutDiscord() {
+        discordRichPresence.signOutAccount()
+        transientMessage.value = "Signed out of Discord."
+    }
+
+    fun signInDiscordUnavailable() {
+        transientMessage.value = "Could not start Discord sign-in."
+    }
+
     fun listDirectories(path: String): List<java.io.File> =
         runCatching {
             java.io.File(path).listFiles()
@@ -751,3 +943,12 @@ class SettingsViewModel @Inject constructor(
         transientMessage.value = null
     }
 }
+
+/** One folder the player pointed a media tab at. */
+data class MediaFolderChoice(val uri: String, val label: String)
+
+/** Last path segment of a SAF tree uri, which is what the folder is actually called. */
+private fun mediaFolderLabel(uri: String): String =
+    uri.substringAfterLast("%2F", "")
+        .ifBlank { uri.substringAfterLast('/', "") }
+        .ifBlank { uri }

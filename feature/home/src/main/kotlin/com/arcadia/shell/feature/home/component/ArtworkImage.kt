@@ -45,6 +45,7 @@ fun ArtworkImage(
     contentScale: ContentScale = ContentScale.Crop,
     cacheInMemory: Boolean = true,
     decodeMaxEdgePx: Int = THUMB_DECODE_MAX_EDGE_PX,
+    alignment: Alignment = Alignment.Center,
 ) {
     val platformContext = LocalPlatformContext.current
     val imageData = remember(path) { resolveImageData(platformContext, path) }
@@ -67,6 +68,7 @@ fun ArtworkImage(
             .build(),
         contentDescription = contentDescription,
         contentScale = contentScale,
+        alignment = alignment,
         modifier = modifier,
     )
 }

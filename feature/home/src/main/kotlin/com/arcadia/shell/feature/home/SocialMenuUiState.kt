@@ -10,16 +10,17 @@ import com.arcadia.shell.launcher.conversations.NotificationConversation
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordFriendEntry
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
+import com.arcadia.shell.xoranetwork.XoraNetworkClient
 
 /**
  * Pages inside the LT social overlay.
- * Pinned Friends stay above the tab bar; LB/RB (and L/R) cycle Discord / Steam / XOrA Network.
+ * Pinned Friends stay above the tab bar; LB/RB (and L/R) cycle XOrA Network / Discord / Steam.
  */
 enum class SocialMenuTab {
+    /** XOrA Network — friends, presence, and website DMs. */
+    XoraNetwork,
     Discord,
     Steam,
-    /** XOrA Network — notification-listener conversations & local network inbox. */
-    XoraNetwork,
 }
 
 enum class SocialPresence {
@@ -75,7 +76,8 @@ data class CircleMemberUi(
 )
 
 /**
- * Focusable rows inside the expanded LT social menu (flat list for U/D within the active tab).
+ * Focusable rows inside the expanded LT social menu. Notifications, then a horizontal pin row,
+ * then a vertical friend / conversation list. See [accountPanelAfterAction].
  */
 sealed interface AccountPanelRow {
     /** Opens the LT notification center (recent banners + message inbox). */
@@ -90,8 +92,11 @@ sealed interface AccountPanelRow {
     data class RemoveFromCircle(val pin: CirclePin) : AccountPanelRow
     data class SteamFriend(val steamId: String) : AccountPanelRow
     data class DiscordFriend(val userId: String) : AccountPanelRow
+    data class XoraFriend(val username: String) : AccountPanelRow
 
     data object SteamConfigure : AccountPanelRow
+    /** Opens XOrA Network Dashboard so the user can sign in. */
+    data object XoraNetworkSignIn : AccountPanelRow
     /** Opens system Notification Listener settings so conversations can appear. */
     data object EnableNotificationAccess : AccountPanelRow
     data class Conversation(val key: String) : AccountPanelRow
@@ -105,6 +110,8 @@ sealed interface AccountPanelRow {
     data object DiscordDmSend : AccountPanelRow
     /** Closes the in-launcher Discord DM pane. */
     data object DiscordDmClose : AccountPanelRow
+    data object XoraDmSend : AccountPanelRow
+    data object XoraDmClose : AccountPanelRow
 }
 
 data class ConversationReplyUiState(
@@ -113,13 +120,15 @@ data class ConversationReplyUiState(
 )
 
 data class SocialMenuUiState(
-    val tab: SocialMenuTab = SocialMenuTab.Discord,
+    val tab: SocialMenuTab = SocialMenuTab.XoraNetwork,
     val steam: SteamFriendsUiState = SteamFriendsUiState(),
     val discord: DiscordSocialUiState = DiscordSocialUiState(),
     val conversations: ConversationsUiState = ConversationsUiState(),
     val reply: ConversationReplyUiState = ConversationReplyUiState(),
     /** In-launcher Discord DM thread (Social SDK messaging). */
     val discordDm: DiscordDmThreadUiState = DiscordDmThreadUiState(),
+    val xoraNetwork: com.arcadia.shell.xoranetwork.XoraNetworkState =
+        com.arcadia.shell.xoranetwork.XoraNetworkState(),
     /** Persisted mixed Pinned Friends pins (max [CIRCLE_FRIEND_LIMIT]). */
     val circlePins: List<CirclePin> = emptyList(),
     /** When true, friend lists show add/remove pin controls. */
@@ -135,6 +144,8 @@ data class SocialMenuUiState(
 
     val isDiscordDmOpen: Boolean get() = discordDm.peerUserId != null
 
+    val isXoraDmOpen: Boolean get() = xoraNetwork.dm.isOpen
+
     val circleSlotsFilled: Int get() = circlePins.size.coerceAtMost(CIRCLE_FRIEND_LIMIT)
 
     val circlePinKeys: Set<String> get() = circlePins.mapTo(mutableSetOf()) { it.key }
@@ -144,7 +155,9 @@ data class SocialMenuUiState(
 
     /** Online Steam + Discord friends for the header badge. */
     val friendsBadgeCount: Int
-        get() = steam.onlineCount + discord.friends.count { it.isOnline }
+        get() = steam.onlineCount +
+            discord.friends.count { it.isOnline } +
+            xoraNetwork.onlineFriendCount
 
     /** Notification conversations for the header messages badge. */
     val messagesBadgeCount: Int
@@ -168,6 +181,17 @@ data class SocialMenuUiState(
             val q = friendSearchQuery.trim()
             return discord.friends.filter {
                 q.isEmpty() || it.displayName.contains(q, ignoreCase = true)
+            }
+        }
+
+    val filteredXoraFriends: List<com.arcadia.shell.xoranetwork.XoraFriend>
+        get() {
+            val q = friendSearchQuery.trim()
+            return xoraNetwork.acceptedFriends.filter {
+                q.isEmpty() ||
+                    it.displayName.contains(q, ignoreCase = true) ||
+                    it.username.contains(q, ignoreCase = true) ||
+                    it.status.contains(q, ignoreCase = true)
             }
         }
 
@@ -205,7 +229,55 @@ data class SocialMenuUiState(
                 hasUnread = unread,
             )
         }
+        CirclePinSource.XoraNetwork -> {
+            val friend = xoraNetwork.acceptedFriends.firstOrNull {
+                it.username.equals(pin.id, ignoreCase = true)
+            }
+            val unread = xoraNetwork.dm.peerUsername.equals(pin.id, ignoreCase = true) &&
+                xoraNetwork.dm.messages.isNotEmpty()
+            CircleMemberUi(
+                pin = pin,
+                displayName = friend?.displayName ?: pin.id,
+                avatarUrl = friend?.resolvedAvatarUrl
+                    ?: XoraNetworkClient.avatarUrlFor(pin.id),
+                presence = xoraFriendPresence(friend),
+                activityLabel = xoraFriendActivity(friend),
+                hasUnread = unread,
+            )
+        }
     }
+}
+
+fun xoraFriendPresence(friend: com.arcadia.shell.xoranetwork.XoraFriend?): SocialPresence {
+    if (friend == null || !friend.online) return SocialPresence.Offline
+    val raw = friend.status.trim()
+    return when {
+        raw.equals("Away", ignoreCase = true) -> SocialPresence.Away
+        raw.equals("Busy", ignoreCase = true) -> SocialPresence.Busy
+        raw.startsWith("Playing ", ignoreCase = true) -> SocialPresence.InGame
+        else -> SocialPresence.Online
+    }
+}
+
+fun xoraFriendActivity(friend: com.arcadia.shell.xoranetwork.XoraFriend?): String? {
+    if (friend == null || !friend.online) return null
+    val raw = friend.status.trim()
+    return when {
+        raw.isBlank() || raw.equals("Online", ignoreCase = true) -> "Online"
+        else -> raw
+    }
+}
+
+/**
+ * Sort weight for the All Friends page: in a game first, then anyone otherwise reachable, then
+ * the offline block. Lower sorts earlier.
+ */
+fun friendPresenceRank(presence: SocialPresence): Int = when (presence) {
+    SocialPresence.InGame -> 0
+    SocialPresence.Online -> 1
+    SocialPresence.Away -> 2
+    SocialPresence.Busy -> 3
+    SocialPresence.Offline -> 4
 }
 
 fun discordFriendPresence(friend: DiscordFriendEntry?): SocialPresence = when (friend?.group) {
@@ -215,11 +287,15 @@ fun discordFriendPresence(friend: DiscordFriendEntry?): SocialPresence = when (f
     else -> SocialPresence.Offline
 }
 
-fun discordFriendActivity(friend: DiscordFriendEntry?): String? = when (friend?.group) {
-    "online_game" -> "In XOrA"
-    "online_elsewhere" -> "Online"
-    null -> null
-    else -> "Offline"
+fun discordFriendActivity(friend: DiscordFriendEntry?): String? {
+    val game = friend?.currentGame?.trim()?.takeIf { it.isNotBlank() }
+    if (game != null) return game
+    return when (friend?.group) {
+        "online_game" -> "In a game"
+        "online_elsewhere" -> "Online"
+        null -> null
+        else -> "Offline"
+    }
 }
 
 /**
@@ -230,7 +306,7 @@ sealed interface SystemPanelRow {
     data object Notifications : SystemPanelRow
     /** Activity / custom status bubble. */
     data object Status : SystemPanelRow
-    /** Favorite RetroAchievements game (plus placeholder when unset). */
+    /** Favorite library game (plus placeholder when unset). */
     data object FavoriteGame : SystemPanelRow
     data object EditProfile : SystemPanelRow
     /** Recently played title shown in the expanded RT card. */
@@ -242,19 +318,19 @@ sealed interface SystemPanelRow {
     data object AllSettings : SystemPanelRow
     /** Clear the pinned favorite (only while the favorite picker is open). */
     data object ClearFavorite : SystemPanelRow
-    /** One RetroAchievements completion-progress game in the favorite picker. */
-    data class RaFavoritePick(val gameId: Int) : SystemPanelRow
+    /** One ROM from the local library in the favorite picker. */
+    data class LibraryFavoritePick(val gameId: String) : SystemPanelRow
 }
 
 fun buildSystemPanelRows(
     jumpBackGames: List<String> = emptyList(),
     favoritePickerOpen: Boolean = false,
-    favoritePickerGameIds: List<Int> = emptyList(),
+    favoritePickerGameIds: List<String> = emptyList(),
 ): List<SystemPanelRow> =
     if (favoritePickerOpen) {
         buildList {
             add(SystemPanelRow.ClearFavorite)
-            favoritePickerGameIds.forEach { add(SystemPanelRow.RaFavoritePick(it)) }
+            favoritePickerGameIds.forEach { add(SystemPanelRow.LibraryFavoritePick(it)) }
         }
     } else {
         buildList {

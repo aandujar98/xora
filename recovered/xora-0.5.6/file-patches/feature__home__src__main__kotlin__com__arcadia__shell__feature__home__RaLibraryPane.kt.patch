@@ -1,0 +1,120 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/RaLibraryPane.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/RaLibraryPane.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/RaLibraryPane.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/RaLibraryPane.kt
+@@ -1133,6 +1133,8 @@
+ private val RaRowFocusInset = 28.dp
+ private const val RaUnpickedAlpha = 0.25f
+ private val RaInfoBarHeight = 88.dp
++/** The friend card's variant, which has no points capsule to make room for. */
++private val RaInfoBarCompactHeight = 68.dp
+ private val RaHardcoreFill = Brush.verticalGradient(listOf(Color(0xFFFFD35A), Color(0xFFFF8A1F)))
+ private val CheevoHardcoreEdge = Color(0xFFFFC95E)
+ 
+@@ -1557,12 +1559,39 @@
+  */
+ @Composable
+ private fun RaCheevoInfoBar(cheevo: RaAchievement, compareLine: String?) {
++    RaCheevoInfoBarContent(
++        badgeUrl = cheevo.badgeUrl,
++        title = cheevo.title,
++        description = compareLine ?: cheevo.description,
++        points = cheevo.points,
++        hardcore = cheevo.earnedHardcore,
++        dayLabel = formatRaEarnedDate(cheevo.earnedAt),
++    )
++}
++
++/**
++ * The bar itself, on plain values so a friend's Profile Card can show the very same window for a
++ * badge it is inspecting (Figma 987:2420) rather than growing a second one that drifts from it.
++ */
++@Composable
++internal fun RaCheevoInfoBarContent(
++    badgeUrl: String,
++    title: String,
++    description: String,
++    /** Null drops the points capsule — the Profile Card already states the friend's score. */
++    points: Int?,
++    hardcore: Boolean,
++    dayLabel: String?,
++    modifier: Modifier = Modifier,
++    /** Shallower bar and smaller badge, for the card that sits it directly under itself. */
++    compact: Boolean = false,
++) {
+     val shape = RoundedCornerShape(16.dp)
+     val context = LocalContext.current
+     Row(
+-        modifier = Modifier
++        modifier = modifier
+             .fillMaxWidth()
+-            .height(RaInfoBarHeight)
++            .height(if (compact) RaInfoBarCompactHeight else RaInfoBarHeight)
+             .xoraForegroundShadow(shape = shape, offset = 4.dp, blur = 8.dp)
+             .clip(shape)
+             .background(
+@@ -1577,15 +1606,15 @@
+         horizontalArrangement = Arrangement.spacedBy(12.dp),
+     ) {
+         AsyncImage(
+-            model = ImageRequest.Builder(context).data(cheevo.badgeUrl).crossfade(80).build(),
+-            contentDescription = cheevo.title,
++            model = ImageRequest.Builder(context).data(badgeUrl).crossfade(80).build(),
++            contentDescription = title,
+             contentScale = ContentScale.Crop,
+             modifier = Modifier
+-                .size(58.dp)
++                .size(if (compact) 44.dp else 58.dp)
+                 .clip(RoundedCornerShape(8.dp))
+                 .border(
+                     2.dp,
+-                    if (cheevo.earnedHardcore) CheevoHardcoreEdge else CheevoEarnedEdge,
++                    if (hardcore) CheevoHardcoreEdge else CheevoEarnedEdge,
+                     RoundedCornerShape(8.dp),
+                 ),
+         )
+@@ -1595,7 +1624,7 @@
+         ) {
+             val softShadow = raSoftTextShadow()
+             Text(
+-                text = cheevo.title,
++                text = title,
+                 style = androidx.compose.ui.text.TextStyle(
+                     fontFamily = XoraFonts.XmbLabel,
+                     fontWeight = FontWeight.Bold,
+@@ -1607,7 +1636,7 @@
+                 overflow = TextOverflow.Ellipsis,
+             )
+             Text(
+-                text = compareLine ?: cheevo.description,
++                text = description,
+                 style = androidx.compose.ui.text.TextStyle(
+                     fontFamily = XoraFonts.XmbLabel,
+                     fontSize = 14.sp,
+@@ -1622,11 +1651,13 @@
+             horizontalAlignment = Alignment.End,
+             verticalArrangement = Arrangement.spacedBy(2.dp),
+         ) {
+-            RaInfoPill(
+-                text = "${cheevo.points} PTS",
+-                modifier = Modifier.offset(y = -RaPointsPillLift),
+-            )
+-            if (cheevo.earnedHardcore) {
++            if (points != null) {
++                RaInfoPill(
++                    text = "$points PTS",
++                    modifier = Modifier.offset(y = -RaPointsPillLift),
++                )
++            }
++            if (hardcore) {
+                 XoraOutlinedText(
+                     text = "HARDCORE",
+                     fontFamily = XoraFonts.Title,
+@@ -1637,7 +1668,7 @@
+                     outlineWidth = 2.dp,
+                 )
+             }
+-            formatRaEarnedDate(cheevo.earnedAt)?.let { day ->
++            dayLabel?.let { day ->
+                 XoraOutlinedText(
+                     text = day,
+                     fontFamily = XoraFonts.Title,

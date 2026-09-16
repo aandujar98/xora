@@ -93,6 +93,11 @@ class LibraryHashCoordinator @Inject constructor(
             .lowercase()
         if (extension == "7z") return false
         if (game.platformId in RaHashRules.UNSUPPORTED_CUSTOM_HASH_PLATFORMS) return false
+        if (game.platformId in RaNintendoDiscHash.PLATFORMS &&
+            extension in RaNintendoDiscHash.UNSUPPORTED_EXTENSIONS
+        ) {
+            return false
+        }
         if (game.platformId in RaHashRules.DISC_HASH_PLATFORMS &&
             extension in RaDiscHash.UNSUPPORTED_DISC_EXTENSIONS
         ) {

@@ -1,17 +1,20 @@
 package com.arcadia.shell.feature.home.component.xmb
 
+import com.arcadia.shell.designsystem.ArcadiaArt
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -26,6 +29,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.feature.home.XmbHoverGlow
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.model.Game
@@ -70,11 +75,6 @@ fun XmbGameTile(
         animationSpec = focusDp,
         label = "xmbTileBorder",
     )
-    val elevation by animateFloatAsState(
-        targetValue = if (focused) 14f else 0f,
-        animationSpec = focusFloat,
-        label = "xmbTileElevation",
-    )
     val shape = RoundedCornerShape(14.dp)
     val glow = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
     val rim = Color.White.copy(alpha = 0.95f)
@@ -82,14 +82,27 @@ fun XmbGameTile(
     Box(
         modifier = modifier
             .width(baseWidth)
+            .aspectRatio(CASE_ASPECT)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
                 this.alpha = alpha
-                shadowElevation = elevation
-                this.shape = shape
-                clip = false
-            }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        XmbHoverGlow(
+            enabled = focused,
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer {
+                    scaleX = 1.5f
+                    scaleY = 1.5f
+                },
+        )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .xoraForegroundShadow(shape)
             .drawWithContent {
                 drawContent()
                 if (focused) {
@@ -131,7 +144,8 @@ fun XmbGameTile(
                 .aspectRatio(CASE_ASPECT),
         )
     }
+    }
 }
 
 /** PSP / Vita case proportions — width:height ≈ 2:3. */
-private const val CASE_ASPECT = 2f / 3f
+private const val CASE_ASPECT = ArcadiaArt.BoxArtAspect

@@ -1,19 +1,37 @@
 package com.arcadia.shell.feature.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.TransformOrigin
+import com.arcadia.shell.designsystem.supportsGlassBlurEffect
+import com.arcadia.shell.input.UiOneShot
+import kotlin.math.exp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -24,7 +42,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,23 +65,31 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraSwipeDirection
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.inverted
 import com.arcadia.shell.designsystem.rememberAmbientMotionActive
+import com.arcadia.shell.designsystem.rememberThrottledAmbientUnit
+import com.arcadia.shell.designsystem.xoraSwipeNavigate
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.THUMB_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.launcher.InstalledAppSync
 import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.HomeShortcutKind
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 // Every measurement below is in Figma artboard units and is scaled by `unit` at layout time,
 // so the tray keeps the designed proportions on any panel.
@@ -74,15 +106,10 @@ private const val NAME_TEXT_SIZE = 32f
 private const val PAGE_DOT_DIAMETER = 34f
 private const val PAGE_DOT_PITCH = 59f
 private const val PAGE_DOT_CENTER_X = 72f
-private const val XMB_ROW_ICON = 52f
-private const val XMB_ROW_PITCH = 94f
-private const val XMB_ROW_BOTTOM = 1047.8f
 
-/** How far a bubble may sway from its slot when the device is tilted. */
-private const val TILT_SHIFT_FRACTION = 0.115f
+/** How far a page-turn bounce hops, as a fraction of the bubble diameter. */
+private const val BUBBLE_JIGGLE_LIFT = 0.10f
 
-private val VitaSkyTop = Color(0xFF2ACBFD)
-private val VitaSkyBottom = Color(0xFFDEF9FF)
 private val RingGradientTop = Color.White
 private val RingGradientBottom = Color(0xFFB5EFFF)
 private val SelectionHalo = Color(0xB3E4FAFF)
@@ -92,21 +119,39 @@ private val NamePillInnerGlow = Color(0x80FFFFFF)
 private val PageDotIdle = Color(0x33FFFFFF)
 private val PageDotActive = Color(0xD9FFFFFF)
 
-// The bottom row sits on the pale end of the sky, so the glyphs read dark rather than white.
-private val XmbRowActive = Color(0xE6102734)
-private val XmbRowIdle = Color(0x80102734)
-
 /** Sits under icons with transparent corners so every slot still reads as a glass bubble. */
 private val BubbleFill = Color(0x4D0E2230)
 
 /** A page holds three staggered rows, matching the bubble grid in the design. */
 private val VITA_TRAY_ROW_CAPACITIES = intArrayOf(3, 4, 3)
 internal const val VITA_TRAY_PAGE_SIZE = 10
+private const val VitaBubbleFlipDeg = 360f
+internal const val VitaBubbleDepartMs = 1_000
+/** End scale so a 233u bubble covers a 1920u panel and keeps going into the wallpaper. */
+private const val VitaBubbleZoom = 11f
+/** Flip occupies the first half-second; zoom occupies the second. */
+private const val VitaTwirlEnd = 0.5f
+private const val VitaZoomStart = 0.5f
+private const val VitaBubbleFadeStart = 0.75f
+private val VitaBubbleDepartEasing = LinearEasing
+private val VitaBubbleEchoLags = FloatArray(24) { i ->
+    val t = (i + 1f) / 24f
+    t * t * 0.28f
+}
+
+private fun vitaTwirl(t: Float): Float =
+    FastOutSlowInEasing.transform((t / VitaTwirlEnd).coerceIn(0f, 1f))
+
+private fun vitaZoom(t: Float): Float =
+    FastOutSlowInEasing.transform(
+        ((t - VitaZoomStart) / (1f - VitaZoomStart)).coerceIn(0f, 1f),
+    )
 
 /**
- * PS Vita LiveArea-style shortcut field: staggered bubbles over a wave sky, the focused bubble
- * ringed and named, page dots down the left edge, and the XMB category row peeking along the
- * bottom. Bubbles sway with the device's gyroscope.
+ * PS Vita LiveArea-style shortcut field: staggered bubbles over the live wallpaper (no tray
+ * backdrop), the focused bubble ringed and named, page dots down the left edge. Opens with a
+ * slide-down; each bubble then lands on its own slightly staggered bounce. Closes by sliding
+ * up. Pages move vertically. Bubbles sway with the device's gyroscope.
  */
 @Composable
 fun VitaShortcutTray(
@@ -114,19 +159,26 @@ fun VitaShortcutTray(
     shortcuts: List<HomeShortcut>,
     selectedIndex: Int,
     editMode: Boolean,
-    xmbCategoryIndex: Int,
     onSelect: (Int) -> Unit,
     onActivate: (Int) -> Unit,
     onAddSlot: () -> Unit,
+    onPageSwipe: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
+    departingIndex: Int? = null,
+    suppressIdleBubbles: Boolean = false,
+    /** Bubble picked up for repositioning, or null when nothing is being moved. */
+    moveIndex: Int? = null,
+    onBeginMove: (Int) -> Unit = {},
+    onMoveTo: (Int) -> Unit = {},
+    onDropMove: () -> Unit = {},
 ) {
     val enter = slideInVertically(
-        animationSpec = arcadiaTween(ArcadiaMotion.Slow),
-        initialOffsetY = { -it / 3 },
-    ) + fadeIn(arcadiaTween(ArcadiaMotion.Slow))
+        animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+        initialOffsetY = { -it },
+    ) + fadeIn(arcadiaTween(ArcadiaMotion.Medium))
     val exit = slideOutVertically(
         animationSpec = arcadiaTween(ArcadiaMotion.Medium),
-        targetOffsetY = { -it / 3 },
+        targetOffsetY = { -it },
     ) + fadeOut(arcadiaTween(ArcadiaMotion.Medium))
 
     val includeAdd = editMode || shortcuts.isEmpty()
@@ -134,7 +186,6 @@ fun VitaShortcutTray(
     val focus = selectedIndex.coerceIn(0, slots.lastIndex.coerceAtLeast(0))
     val pageCount = vitaTrayPageCount(slots.size)
     val page = (focus / VITA_TRAY_PAGE_SIZE).coerceIn(0, pageCount - 1)
-    val rows = remember(slots.size, page) { vitaTrayPageRows(slots.size, page) }
 
     AnimatedVisibility(
         visible = visible,
@@ -142,14 +193,22 @@ fun VitaShortcutTray(
         exit = exit,
         modifier = modifier,
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            WaveSky(
-                topColor = VitaSkyTop,
-                bottomColor = VitaSkyBottom,
-                field = VitaWaveField,
-                modifier = Modifier.fillMaxSize(),
-            )
-
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .xoraSwipeNavigate(
+                    enabled = departingIndex == null && !suppressIdleBubbles,
+                    horizontal = false,
+                    vertical = true,
+                    onSwipe = { direction ->
+                        when (direction.inverted()) {
+                            XoraSwipeDirection.Down -> onPageSwipe(1)
+                            XoraSwipeDirection.Up -> onPageSwipe(-1)
+                            else -> Unit
+                        }
+                    },
+                ),
+        ) {
             val unit = min(
                 maxWidth.value / XORA_DESIGN_WIDTH,
                 maxHeight.value / XORA_DESIGN_HEIGHT,
@@ -159,105 +218,384 @@ fun VitaShortcutTray(
             // Also drops the sensor when the shell is backgrounded with the tray still open.
             val sway = visible && rememberAmbientMotionActive()
             val tilt = rememberDeviceTilt(active = sway)
+            val density = LocalDensity.current
+            val bubblePx = with(density) { bubbleDiameter.toPx() }
             val motion = rememberVitaBubbleMotion(
                 count = slots.size,
                 tilt = tilt,
-                maxShiftPx = with(LocalDensity.current) {
-                    bubbleDiameter.toPx() * TILT_SHIFT_FRACTION
-                },
+                maxShiftPx = bubblePx * VITA_BUBBLE_TILT_SHIFT_FRACTION,
                 enabled = sway,
             )
+            val landing = rememberVitaBubbleLanding(
+                count = slots.size,
+                dropPx = bubblePx * 0.42f,
+            )
+            // Page turns hop the field up and down. Keyed on the focused page, so moving the
+            // cursor inside a page leaves the bubbles alone.
+            val jiggle = rememberVitaBubbleJiggle(
+                count = slots.size,
+                page = page,
+                enabled = sway,
+            )
+            val idleRock = rememberThrottledAmbientUnit(cycleMs = VITA_BUBBLE_ROCK_CYCLE_MS)
 
-            rows.forEachIndexed { rowIndex, row ->
-                val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
-                row.forEachIndexed { column, slotIndex ->
-                    val columnShift = (column - ((row.size - 1) / 2f)) * COLUMN_PITCH
-                    VitaBubble(
-                        slot = slots[slotIndex],
-                        selected = slotIndex == focus,
-                        diameter = bubbleDiameter,
-                        glass = glass,
-                        offsetProvider = { motion.offsetAt(slotIndex) },
-                        onClick = {
-                            onSelect(slotIndex)
-                            when (slots[slotIndex]) {
-                                is VitaShortcutSlot.Filled -> onActivate(slotIndex)
-                                VitaShortcutSlot.Add -> onAddSlot()
-                            }
-                        },
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .offset(x = (columnShift * unit).dp, y = (rowShift * unit).dp),
-                    )
-                }
+            // Finger travel for the bubble currently picked up; dropped back to zero on release
+            // and whenever the move ends from the controller.
+            var dragOffset by remember { mutableStateOf(Offset.Zero) }
+            LaunchedEffect(moveIndex) {
+                if (moveIndex == null) dragOffset = Offset.Zero
             }
 
-            // Drawn after every bubble so the focused name always reads over its neighbours.
-            rows.forEachIndexed { rowIndex, row ->
-                val focusColumn = row.indexOf(focus)
-                if (focusColumn < 0) return@forEachIndexed
-                val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
-                val columnShift = (focusColumn - ((row.size - 1) / 2f)) * COLUMN_PITCH
-                val pillCentre = rowShift + (BUBBLE_DIAMETER / 2f) + NAME_PILL_GAP +
-                    (NAME_PILL_HEIGHT / 2f)
-                SoftwareNamePill(
-                    label = slots[focus].label(editMode),
-                    unit = unit,
-                    minWidth = bubbleDiameter,
-                    offsetProvider = { motion.offsetAt(focus) },
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .offset(x = (columnShift * unit).dp, y = (pillCentre * unit).dp),
-                )
+            val pageSlide = tween<IntOffset>(ArcadiaMotion.Medium)
+            val pageFade = tween<Float>(ArcadiaMotion.Fast)
+            val crowdAlpha by animateFloatAsState(
+                targetValue = if (departingIndex != null || suppressIdleBubbles) 0f else 1f,
+                animationSpec = arcadiaTween(ArcadiaMotion.Fast),
+                label = "vitaCrowdHide",
+            )
+            AnimatedContent(
+                targetState = page,
+                transitionSpec = {
+                    val down = targetState > initialState
+                    val enter = slideInVertically(pageSlide) { if (down) it else -it } +
+                        fadeIn(pageFade)
+                    val exit = slideOutVertically(pageSlide) { if (down) -it else it } +
+                        fadeOut(pageFade)
+                    enter togetherWith exit
+                },
+                label = "vitaTrayPage",
+                modifier = Modifier.fillMaxSize(),
+            ) { shownPage ->
+                val rows = vitaTrayPageRows(slots.size, shownPage)
+                // Slot centres relative to the field centre, in pixels — used to work out which
+                // slot a dragged bubble is currently over.
+                val slotCentres = remember(rows, unit, density) {
+                    buildMap {
+                        rows.forEachIndexed { rowIndex, row ->
+                            val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
+                            row.forEachIndexed { column, slotIndex ->
+                                val columnShift = (column - ((row.size - 1) / 2f)) * COLUMN_PITCH
+                                put(
+                                    slotIndex,
+                                    Offset(
+                                        x = columnShift * unit * density.density,
+                                        y = rowShift * unit * density.density,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    rows.forEachIndexed { rowIndex, row ->
+                        val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
+                        row.forEachIndexed { column, slotIndex ->
+                            val columnShift = (column - ((row.size - 1) / 2f)) * COLUMN_PITCH
+                            val moving = slotIndex == moveIndex
+                            VitaBubble(
+                                slot = slots[slotIndex],
+                                selected = slotIndex == focus,
+                                departing = slotIndex == departingIndex,
+                                moving = moving,
+                                diameter = bubbleDiameter,
+                                glass = glass,
+                                offsetProvider = {
+                                    val tiltShift = motion.offsetAt(slotIndex)
+                                    val bounce = jiggle.liftAt(slotIndex) * bubblePx * BUBBLE_JIGGLE_LIFT
+                                    val drag = if (moving) dragOffset else Offset.Zero
+                                    Offset(
+                                        tiltShift.x + drag.x,
+                                        tiltShift.y + landing.offsetY(slotIndex) + bounce + drag.y,
+                                    )
+                                },
+                                leanProvider = {
+                                    val lean = motion.leanAt(slotIndex)
+                                    val idle = if (sway) {
+                                        vitaBubbleIdleLean(slotIndex, idleRock.floatValue)
+                                    } else {
+                                        0f
+                                    }
+                                    Offset(lean.x + idle, lean.y)
+                                },
+                                interactive = departingIndex == null && !suppressIdleBubbles,
+                                onClick = {
+                                    onSelect(slotIndex)
+                                    when (slots[slotIndex]) {
+                                        is VitaShortcutSlot.Filled -> onActivate(slotIndex)
+                                        VitaShortcutSlot.Add -> onAddSlot()
+                                    }
+                                },
+                                onLongPress = {
+                                    if (slots[slotIndex] is VitaShortcutSlot.Filled) {
+                                        onBeginMove(slotIndex)
+                                    }
+                                },
+                                onDrag = if (moving) {
+                                    { delta ->
+                                        dragOffset += delta
+                                        val here = slotCentres[slotIndex] ?: Offset.Zero
+                                        val pointer = here + dragOffset
+                                        val target = nearestVitaSlot(
+                                            centres = slotCentres,
+                                            point = pointer,
+                                            limit = shortcuts.size,
+                                        )
+                                        if (target != null && target != slotIndex) {
+                                            // Keep the bubble under the finger as the field reflows.
+                                            val there = slotCentres[target] ?: here
+                                            dragOffset += here - there
+                                            onMoveTo(target)
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
+                                onDragEnd = {
+                                    dragOffset = Offset.Zero
+                                    onDropMove()
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .offset(x = (columnShift * unit).dp, y = (rowShift * unit).dp)
+                                    .zIndex(if (moving) 2f else 0f)
+                                    .graphicsLayer {
+                                        if (slotIndex != departingIndex) alpha = crowdAlpha
+                                        clip = false
+                                    },
+                            )
+                        }
+                    }
+
+                    // Drawn after every bubble so the focused name always reads over its neighbours.
+                    rows.forEachIndexed { rowIndex, row ->
+                        val focusColumn = row.indexOf(focus)
+                        if (focusColumn < 0 ||
+                            departingIndex == focus ||
+                            suppressIdleBubbles
+                        ) {
+                            return@forEachIndexed
+                        }
+                        val rowShift = (rowIndex - ((rows.size - 1) / 2f)) * ROW_PITCH
+                        val columnShift = (focusColumn - ((row.size - 1) / 2f)) * COLUMN_PITCH
+                        val pillCentre = rowShift + (BUBBLE_DIAMETER / 2f) + NAME_PILL_GAP +
+                            (NAME_PILL_HEIGHT / 2f)
+                        SoftwareNamePill(
+                            label = if (moveIndex == focus) {
+                                "Place with A · B cancels"
+                            } else {
+                                slots[focus].label(editMode)
+                            },
+                            unit = unit,
+                            minWidth = bubbleDiameter,
+                            offsetProvider = {
+                                val tiltShift = motion.offsetAt(focus)
+                                Offset(tiltShift.x, tiltShift.y + landing.offsetY(focus))
+                            },
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .offset(x = (columnShift * unit).dp, y = (pillCentre * unit).dp),
+                        )
+                    }
+                }
             }
 
             PageDots(
                 count = pageCount,
                 current = page,
                 unit = unit,
-                modifier = Modifier.align(Alignment.CenterStart),
-            )
-
-            XmbCategoryRow(
-                selectedIndex = xmbCategoryIndex,
-                unit = unit,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = ((XORA_DESIGN_HEIGHT - XMB_ROW_BOTTOM) * unit).dp),
+                    .align(Alignment.CenterStart)
+                    .graphicsLayer { alpha = crowdAlpha },
             )
         }
     }
 }
 
+/** Nearest slot to [point] among [centres], considering only slots below [limit]. */
+private fun nearestVitaSlot(
+    centres: Map<Int, Offset>,
+    point: Offset,
+    limit: Int,
+): Int? = centres.entries
+    .filter { it.key < limit }
+    .minByOrNull { (_, centre) -> (centre - point).getDistanceSquared() }
+    ?.key
+
+/** Half-period of the highlighted bubble's idle pulse. */
+private const val VITA_BUBBLE_PULSE_MS = 640
+
+/**
+ * One leg of the bubble's idle pulse, as a [State] so the read stays inside the caller's
+ * `graphicsLayer` block. Parked bubbles get a constant and no running transition at all.
+ */
+@Composable
+private fun vitaBubblePulse(
+    active: Boolean,
+    still: Float,
+    swing: Float,
+    label: String,
+): State<Float> =
+    if (active) {
+        rememberInfiniteTransition(label = "$label-loop").animateFloat(
+            initialValue = still,
+            targetValue = swing,
+            animationSpec = infiniteRepeatable(
+                animation = tween(VITA_BUBBLE_PULSE_MS, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = label,
+        )
+    } else {
+        remember(still) { mutableFloatStateOf(still) }
+    }
+
 @Composable
 private fun VitaBubble(
     slot: VitaShortcutSlot,
     selected: Boolean,
+    departing: Boolean,
     diameter: Dp,
     glass: ImageBitmap,
     offsetProvider: () -> Offset,
+    /** Sway, idle rock and page-turn wobble, combined; `x` turns the dome, `y` pitches it. */
+    leanProvider: () -> Offset,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    interactive: Boolean = true,
+    /** True while this bubble is the one being repositioned. */
+    moving: Boolean = false,
+    onLongPress: () -> Unit = {},
+    /** Non-null only while [moving]; receives finger deltas in pixels. */
+    onDrag: ((Offset) -> Unit)? = null,
+    onDragEnd: () -> Unit = {},
 ) {
     val ringWidth = diameter * (SELECTION_RING_WIDTH / BUBBLE_DIAMETER)
+    val interaction = remember { MutableInteractionSource() }
+    val depart by animateFloatAsState(
+        targetValue = if (departing) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = VitaBubbleDepartMs,
+            easing = VitaBubbleDepartEasing,
+        ),
+        label = "vitaBubbleDepart",
+    )
+    val hovered by interaction.collectIsHoveredAsState()
+    val highlighted = (selected || hovered) && depart < 0.05f && interactive
+    // A picked-up bubble lifts off the field so it reads as held rather than merely focused.
+    val liftScale by animateFloatAsState(
+        targetValue = if (moving) 1.16f else 1f,
+        animationSpec = arcadiaTween(ArcadiaMotion.Fast),
+        label = "vitaBubbleLift",
+    )
+    // Only the highlighted bubble pulses. The transition used to be built for every bubble with
+    // its target equal to its start when unhighlighted — a no-op swing that still asks for a
+    // frame at display rate, once per bubble, for as long as the tray is open.
+    val pulsing = highlighted && rememberAmbientMotionActive()
+    val pulseScale by vitaBubblePulse(pulsing, 1f, 1.045f, "vitaBubblePulseScale")
+    val pulseLift by vitaBubblePulse(pulsing, 0f, -0.035f, "vitaBubblePulseLift")
+    val canBlur = supportsGlassBlurEffect()
     Box(
         modifier = modifier
             .size(diameter + ringWidth)
             .graphicsLayer {
                 val shift = offsetProvider()
                 translationX = shift.x
-                translationY = shift.y
+                translationY = shift.y + (diameter.toPx() * pulseLift)
+                scaleX = pulseScale * liftScale
+                scaleY = pulseScale * liftScale
+                // Perspective, so a lean reads as a dome turning rather than an ellipse.
+                cameraDistance = VITA_BUBBLE_CAMERA_DISTANCE * density
+                // Handed back to the depart flip, which owns the rotation once a bubble launches.
+                val settle = 1f - depart
+                val lean = leanProvider()
+                rotationY = (lean.x * VITA_BUBBLE_TILT_DEG * settle)
+                    .coerceIn(-VITA_BUBBLE_TILT_DEG, VITA_BUBBLE_TILT_DEG)
+                rotationX = (-lean.y * VITA_BUBBLE_TILT_DEG * settle)
+                    .coerceIn(-VITA_BUBBLE_TILT_DEG, VITA_BUBBLE_TILT_DEG)
+                clip = false
             }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
+            .then(
+                if (interactive && onDrag != null) {
+                    // While held, the bubble follows the finger and the field reflows under it.
+                    Modifier.pointerInput(onDrag) {
+                        detectDragGestures(
+                            onDragEnd = onDragEnd,
+                            onDragCancel = onDragEnd,
+                        ) { change, delta ->
+                            change.consume()
+                            onDrag(delta)
+                        }
+                    }
+                } else if (interactive) {
+                    Modifier
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            onClick = onClick,
+                        )
+                        .pointerInput(onLongPress) {
+                            detectTapGestures(onLongPress = { onLongPress() })
+                        }
+                } else {
+                    Modifier
+                },
             ),
         contentAlignment = Alignment.Center,
     ) {
+        if (depart > 0.02f) {
+            val echoCount = VitaBubbleEchoLags.size
+            for (index in echoCount - 1 downTo 0) {
+                val lag = VitaBubbleEchoLags[index]
+                val echoT = (depart - lag).coerceIn(0f, 1f)
+                if (echoT <= 0.001f) continue
+                val trailT = index / (echoCount - 1f).coerceAtLeast(1f)
+                val twirl = vitaTwirl(echoT)
+                val zoom = vitaZoom(echoT)
+                val fade = (exp(-2.8f * trailT * trailT) * 0.34f * (1f - echoT * 0.22f))
+                    .coerceAtLeast(0.02f)
+                val liveScale = 1f + VitaBubbleZoom * zoom
+                val feather = 1.08f + 0.22f * trailT
+                val echoScale = liveScale * feather
+                Box(
+                    modifier = Modifier
+                        .size(diameter)
+                        .graphicsLayer {
+                            rotationY = VitaBubbleFlipDeg * twirl
+                            scaleX = echoScale
+                            scaleY = echoScale
+                            alpha = fade
+                            cameraDistance = 8f * density
+                            transformOrigin = TransformOrigin.Center
+                            clip = false
+                            compositingStrategy = CompositingStrategy.Offscreen
+                            if (canBlur) {
+                                renderEffect = BlurEffect(
+                                    6f + 16f * trailT,
+                                    6f + 16f * trailT,
+                                    TileMode.Decal,
+                                )
+                            }
+                        }
+                        .clip(CircleShape)
+                        .background(Color.White),
+                )
+            }
+        }
         Box(
             modifier = Modifier
                 .size(diameter)
+                .graphicsLayer {
+                    val twirl = vitaTwirl(depart)
+                    val zoom = vitaZoom(depart)
+                    rotationY = VitaBubbleFlipDeg * twirl
+                    scaleX = 1f + VitaBubbleZoom * zoom
+                    scaleY = 1f + VitaBubbleZoom * zoom
+                    alpha = 1f - ((depart - VitaBubbleFadeStart) / (1f - VitaBubbleFadeStart))
+                        .coerceIn(0f, 1f)
+                    cameraDistance = 8f * density
+                    transformOrigin = TransformOrigin.Center
+                    clip = false
+                }
                 .drawBehind {
                     if (!selected) return@drawBehind
                     val haloRadius = size.minDimension * 0.68f
@@ -284,7 +622,15 @@ private fun VitaBubble(
                 .background(BubbleFill)
                 .drawWithContent {
                     drawContent()
+                    // The highlight slides against the lean, the way a fixed light source would
+                    // travel across real glass as it turns.
+                    val lean = leanProvider()
+                    val travel = size.minDimension * VITA_BUBBLE_SHEEN_TRAVEL
                     withTransform({
+                        translate(
+                            -lean.x.coerceIn(-1f, 1f) * travel,
+                            -lean.y.coerceIn(-1f, 1f) * travel,
+                        )
                         rotate(BUBBLE_GLASS_ROTATION)
                         val factor = (size.width * (BUBBLE_GLASS_DIAMETER / BUBBLE_DIAMETER)) /
                             glass.width
@@ -329,7 +675,7 @@ private fun VitaBubble(
             }
         }
 
-        if (selected) {
+        if (selected && depart < 0.2f) {
             Box(
                 modifier = Modifier
                     .size(diameter + ringWidth)
@@ -431,30 +777,6 @@ private fun PageDots(
     }
 }
 
-/** The XMB categories waiting behind the tray, shown along the bottom edge as in the design. */
-@Composable
-private fun XmbCategoryRow(
-    selectedIndex: Int,
-    unit: Float,
-    modifier: Modifier = Modifier,
-) {
-    val categories = XoraXmbCategory.entries
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(((XMB_ROW_PITCH - XMB_ROW_ICON) * unit).dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        categories.forEachIndexed { index, category ->
-            XmbVectorIcon(
-                icon = category.toXmbIcon(),
-                tint = if (index == selectedIndex) XmbRowActive else XmbRowIdle,
-                size = (XMB_ROW_ICON * unit).dp,
-                outlined = false,
-            )
-        }
-    }
-}
-
 private sealed class VitaShortcutSlot {
     data class Filled(val shortcut: HomeShortcut) : VitaShortcutSlot()
 
@@ -479,8 +801,63 @@ private fun buildVitaShortcutSlots(
     return if (includeAdd) items + VitaShortcutSlot.Add else items
 }
 
+/**
+ * Slot next to [from] in the staggered tray grid, or null at an edge.
+ *
+ * Rows hold 3 / 4 / 3, so a vertical step keeps the horizontal position proportionally — the same
+ * mapping the focus cursor uses — and steps onto the next page when it runs out of rows.
+ */
+internal fun vitaTrayNeighbourSlot(slotCount: Int, from: Int, dx: Int, dy: Int): Int? {
+    if (slotCount <= 0 || from !in 0 until slotCount) return null
+    val page = from / VITA_TRAY_PAGE_SIZE
+    val rows = vitaTrayPageRows(slotCount, page)
+    val rowIndex = rows.indexOfFirst { from in it }
+    if (rowIndex < 0) return null
+    val row = rows[rowIndex]
+    val column = row.indexOf(from).coerceAtLeast(0)
+
+    if (dx != 0) {
+        val next = column + dx
+        return row.getOrNull(next)
+    }
+    if (dy == 0) return null
+
+    fun land(targetRows: List<List<Int>>, targetRowIndex: Int): Int? {
+        val targetRow = targetRows.getOrNull(targetRowIndex) ?: return null
+        val mapped = if (row.size <= 1 || targetRow.size <= 1) {
+            0
+        } else {
+            ((column.toFloat() / (row.size - 1)) * (targetRow.size - 1)).roundToInt()
+        }
+        return targetRow.getOrNull(mapped.coerceIn(0, targetRow.lastIndex))
+    }
+
+    val samePage = land(rows, rowIndex + dy)
+    if (samePage != null) return samePage
+    val nextPage = page + dy
+    if (nextPage !in 0 until vitaTrayPageCount(slotCount)) return null
+    val nextRows = vitaTrayPageRows(slotCount, nextPage)
+    if (nextRows.isEmpty()) return null
+    return land(nextRows, if (dy > 0) 0 else nextRows.lastIndex)
+}
+
 internal fun vitaTrayPageCount(slotCount: Int): Int =
     if (slotCount <= 0) 1 else ((slotCount + VITA_TRAY_PAGE_SIZE - 1) / VITA_TRAY_PAGE_SIZE)
+
+/** Page turns play the GitHub `vita-page-navigate` sample; same-page row steps stay on the cursor tick. */
+internal fun vitaTrayVerticalOneShot(crossedPage: Boolean): UiOneShot =
+    if (crossedPage) UiOneShot.VitaPageNavigate else UiOneShot.Cursor
+
+/** Opening the tray plays `vita_open.wav`; already-open (edit / swipe while open) stays silent. */
+internal fun vitaTrayOpenOneShot(alreadyOpen: Boolean): UiOneShot? =
+    if (alreadyOpen) null else UiOneShot.VitaOpen
+
+/**
+ * Peel-into-game zoom sting (`boot_vita.wav`). Plays once when the dog-ear starts moving
+ * or A auto-peels; later peel rasps / the launch handoff stay silent on this cue.
+ */
+internal fun vitaPeelZoomOneShot(alreadyStarted: Boolean): UiOneShot? =
+    if (alreadyStarted) null else UiOneShot.BootVita
 
 /**
  * Slot indices for [page], grouped into the staggered rows the design uses. Indices are absolute

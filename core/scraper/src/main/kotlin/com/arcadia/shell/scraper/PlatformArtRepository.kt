@@ -29,13 +29,14 @@ import javax.inject.Singleton
  */
 @Singleton
 class PlatformArtRepository @Inject constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
     private val screenScraper: ScreenScraperClient,
     private val mediaCache: MediaCache,
     private val preferences: ShellPreferences,
     private val json: Json,
 ) {
     private val indexFile = File(context.filesDir, "platform_art/index.json")
+    private val bundledDir = File(context.filesDir, "platform_art_bundled")
     private val mutex = Mutex()
     private val art = MutableStateFlow<Map<String, String>>(emptyMap())
     private var failedUntil = mapOf<String, Long>()
@@ -43,7 +44,9 @@ class PlatformArtRepository @Inject constructor(
     val artByPlatformId: StateFlow<Map<String, String>> = art.asStateFlow()
 
     init {
+        runCatching { seedBundledArt() }
         runCatching { loadIndex() }
+        runCatching { applyBundledArt() }
     }
 
     /**
@@ -64,7 +67,8 @@ class PlatformArtRepository @Inject constructor(
 
             for (platformId in unique) {
                 val existing = current[platformId]
-                if (existing != null && File(existing).isFile && File(existing).length() > 0L) {
+                val existingFile = existing?.let(::File)
+                if (existingFile != null && existingFile.isFile && existingFile.length() > 0L) {
                     continue
                 }
                 if (existing != null) {
@@ -126,6 +130,43 @@ class PlatformArtRepository @Inject constructor(
             mediaCache.fetchImage(bare)?.let { return it }
         }
         return null
+    }
+
+    /** Copy shipped system banners out of assets so Coil can load a real file path. */
+    private fun seedBundledArt() {
+        bundledDir.mkdirs()
+        val assets = context.assets
+        val names = assets.list(BundledPlatformArt.ASSET_DIR).orEmpty()
+        for (name in names) {
+            if (!name.endsWith(".png", ignoreCase = true)) continue
+            val stem = name.substringBeforeLast('.')
+            if (stem !in BundledPlatformArt.PLATFORM_IDS) continue
+            val target = File(bundledDir, BundledPlatformArt.assetNameFor(stem))
+            if (target.isFile && target.length() > 0L) continue
+            runCatching {
+                assets.open("${BundledPlatformArt.ASSET_DIR}/$name").use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+            }.onFailure { Log.w(TAG, "Failed to seed bundled platform art $name", it) }
+        }
+    }
+
+    private fun bundledArt(): Map<String, String> =
+        bundledDir.listFiles()
+            ?.filter { file ->
+                file.isFile &&
+                    file.length() > 0L &&
+                    file.extension.equals("png", ignoreCase = true) &&
+                    file.nameWithoutExtension in BundledPlatformArt.PLATFORM_IDS
+            }
+            ?.associate { it.nameWithoutExtension to it.absolutePath }
+            .orEmpty()
+
+    /** Official PLATFORMS banners win over ScreenScraper; user imports still overlay later. */
+    private fun applyBundledArt() {
+        val bundled = bundledArt()
+        if (bundled.isEmpty()) return
+        art.value = art.value + bundled
     }
 
     private fun loadIndex() {

@@ -64,8 +64,7 @@ class DisplayOverlayWindow(
         if (!OverlayPermission.isGranted(outerContext)) return false
 
         val display = outerContext.getSystemService(DisplayManager::class.java)
-            ?.getDisplay(displayId)
-            ?.takeIf { it.isValid }
+            ?.resolveDisplay(displayId)
             ?: return false
 
         val displayContext = outerContext.createDisplayContext(display)
@@ -118,14 +117,15 @@ class DisplayOverlayWindow(
         WindowManager.LayoutParams.MATCH_PARENT,
         WindowManager.LayoutParams.MATCH_PARENT,
         OVERLAY_TYPE,
-        // NOT_FOCUSABLE keeps keys and gamepad input flowing to the game while touch still lands
-        // here. LAYOUT_NO_LIMITS lets the panel run under the second screen's cutouts and bars.
+        // NOT_FOCUSABLE keeps keys and gamepad input flowing to the second screen's app while
+        // touch still lands here. LAYOUT_NO_LIMITS lets the panel run under the cutouts and bars.
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
         PixelFormat.TRANSLUCENT,
     ).apply {
         gravity = Gravity.TOP or Gravity.START
+        DisplayRefresh.applyToLayoutParams(this)
     }
 
     private companion object {

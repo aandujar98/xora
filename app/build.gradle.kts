@@ -25,8 +25,24 @@ android {
         minSdk = 29
         targetSdk = 37
         // Bump for every Desktop sideload so PackageManager accepts the update.
-        versionCode = 92
-        versionName = "0.2.15"
+        // v0.3.14 (0.3.0 revisions: 1 = 321, 2 = 322, 3 = 323, 4 = 324; 0.3.1 = 325;
+        // 0.3.2 r1 = 326, r2 = 327; 0.3.3 = 328; 0.3.4 = 329; 0.3.5 = 330; 0.3.6 = 331;
+        // 0.3.7 = 332; 0.3.8 = 333; 0.3.9 = 334; 0.3.10 = 335; 0.3.11 = 336;
+        // 0.3.12 = 337; 0.3.13 = 338; 0.3.14 = 339; 0.3.15 = 340; 0.3.16 = 341;
+        // 0.3.17 = 342; 0.3.18 = 343; 0.3.19 = 344; 0.3.20 = 345; 0.3.21 = 346;
+        // 0.3.22 = 347; 0.3.23 = 348; 0.3.24 = 349; 0.3.25 = 350; 0.3.26 = 351;
+        // 0.3.27 = 352; 0.3.28 = 353; 0.3.29 = 354; 0.3.30 = 355; 0.3.31 = 356;
+        // 0.3.32 = 357; 0.3.33 = 358; 0.3.34 = 359; 0.3.35 = 360; 0.3.36 = 361;
+        // 0.3.37 = 362; 0.3.38 = 363; 0.3.39 = 364; 0.3.40 = 365; 0.3.41 = 366; 0.3.42 = 367;
+        // 0.3.43 = 368; 0.3.44 = 369; 0.3.45 = 370; 0.3.46 = 371; 0.3.47 = 372;
+        // 0.3.48 = 373; 0.3.51 = 376; 0.3.52 = 377; 0.3.53 = 378; 0.3.5 = 379;
+        // 0.3.6 = 380; 0.3.7 = 381; 0.3.8 = 382; 0.3.9 = 383; 0.3.10 = 384; 0.3.11 = 385;
+        // 0.3.12 = 386; 0.3.13 = 387; 0.3.14 = 388; 0.3.15 = 389; 0.3.16 = 390; 0.3.17 = 391;
+        // 0.3.18 = 392; 0.3.19 = 393; 0.3.20 = 394; 0.3.21 = 395; 0.3.22 = 396; 0.3.23 = 397;
+        // 0.3.24 = 398; 0.3.25 = 399; 0.3.26 = 400; 0.3.27 = 401; 0.3.28 = 402; 0.3.29 = 403;
+        // 0.3.30 = 404; 0.3.31 = 405).
+        versionCode = 443
+        versionName = "0.5.6"
         // Deep-link scheme for Discord Social SDK AuthenticationActivity.
         manifestPlaceholders["discordApplicationId"] = "1531690290526683176"
     }
@@ -112,6 +128,7 @@ dependencies {
     implementation(project(":core:retroachievements"))
     implementation(project(":core:input"))
     implementation(project(":core:scraper"))
+    implementation(project(":core:xoranetwork"))
     implementation(project(":feature:home"))
     implementation(project(":feature:settings"))
 
@@ -121,6 +138,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.process)
+    implementation(libs.androidx.media)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

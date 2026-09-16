@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.arcadia.shell.datastore.GAME_ART_ALIGN_STEP
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
@@ -40,6 +41,7 @@ import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.libretro.GameSaveKind
 import com.arcadia.shell.model.Game
+import com.arcadia.shell.model.RomSoundBiteLocator
 import com.arcadia.shell.scraper.ScraperPreference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
@@ -63,13 +65,27 @@ fun RomOptionsSheet(
     navActions: Flow<NavAction>,
     onDismiss: () -> Unit,
     onToggleFavorite: (Boolean) -> Unit,
+    hidden: Boolean = false,
+    onToggleHidden: (Boolean) -> Unit = {},
+    artAlignX: Float = 0f,
+    artAlignY: Float = 0f,
+    onNudgeCover: (Float, Float) -> Unit = { _, _ -> },
+    onResetCover: () -> Unit = {},
     onPickBoxArt: () -> Unit,
+    onPickShortcutIcon: () -> Unit = {},
     onPickBackground: () -> Unit,
     onPickSoundBite: () -> Unit,
+    onPickIdleVideo: () -> Unit,
+    onPickScreenshots: () -> Unit = {},
     onClearBoxArt: () -> Unit,
+    onClearShortcutIcon: () -> Unit = {},
     onClearBackground: () -> Unit,
     onClearSoundBite: () -> Unit,
+    onClearIdleVideo: () -> Unit,
+    onClearScreenshots: () -> Unit = {},
     onPreviewSoundBite: () -> Unit,
+    idleVideoPath: String? = null,
+    screenshotCount: Int = 0,
     onImportSaves: () -> Unit,
     onDeleteSave: (GameSaveEntry) -> Unit,
     onSetGamePreference: (ScraperPreference) -> Unit,
@@ -158,13 +174,22 @@ fun RomOptionsSheet(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            FilterChip(
-                selected = game.favorite,
-                onClick = { onToggleFavorite(!game.favorite) },
-                label = {
-                    Text(if (game.favorite) "Favourited ★" else "Add to favourites")
-                },
-            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = game.favorite,
+                    onClick = { onToggleFavorite(!game.favorite) },
+                    label = {
+                        Text(if (game.favorite) "Favourited ★" else "Add to favourites")
+                    },
+                )
+                FilterChip(
+                    selected = hidden,
+                    onClick = { onToggleHidden(!hidden) },
+                    label = {
+                        Text(if (hidden) "Hidden from library" else "Hide from library")
+                    },
+                )
+            }
 
             SectionLabel("Customize")
             MediaRow(
@@ -180,13 +205,69 @@ fun RomOptionsSheet(
                 onClear = onClearBackground.takeIf { !game.heroImagePath.isNullOrBlank() },
             )
             MediaRow(
-                title = "Sound bite",
-                status = pathStatus(game.soundBitePath),
-                onChange = onPickSoundBite,
-                onClear = onClearSoundBite.takeIf { !game.soundBitePath.isNullOrBlank() },
-                onExtra = onPreviewSoundBite.takeIf { !game.soundBitePath.isNullOrBlank() },
-                extraLabel = "Preview",
+                title = "Shortcut icon",
+                status = pathStatus(game.shortcutIconPath),
+                onChange = onPickShortcutIcon,
+                onClear = onClearShortcutIcon.takeIf { !game.shortcutIconPath.isNullOrBlank() },
             )
+            val hasSoundBite = RomSoundBiteLocator.resolve(game) != null ||
+                !game.soundBitePath.isNullOrBlank()
+            MediaRow(
+                title = "Sound bite",
+                status = soundBiteStatus(game),
+                onChange = onPickSoundBite,
+                onClear = onClearSoundBite.takeIf { hasSoundBite },
+                onExtra = onPreviewSoundBite.takeIf { hasSoundBite },
+                extraLabel = "Preview",
+                clearLabel = "Remove",
+            )
+            TextButton(
+                onClick = onClearSoundBite,
+                enabled = hasSoundBite,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Remove sound bite")
+            }
+            MediaRow(
+                title = "Idle video",
+                status = pathStatus(idleVideoPath),
+                onChange = onPickIdleVideo,
+                onClear = onClearIdleVideo.takeIf { !idleVideoPath.isNullOrBlank() },
+            )
+            MediaRow(
+                title = "Idle screenshots",
+                status = if (screenshotCount == 0) {
+                    "None — stills and GIFs cycle when Game Icon idle is Screenshots"
+                } else {
+                    "$screenshotCount file${if (screenshotCount == 1) "" else "s"}"
+                },
+                onChange = onPickScreenshots,
+                onClear = onClearScreenshots.takeIf { screenshotCount > 0 },
+            )
+
+            SectionLabel("Cover position")
+            Text(
+                text = "Pan box art inside the Game Icon. Does not move the plate.",
+                style = MaterialTheme.typography.bodySmall,
+                color = glass.contentMuted,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { onNudgeCover(-GAME_ART_ALIGN_STEP, 0f) }) { Text("Left") }
+                TextButton(onClick = { onNudgeCover(0f, -GAME_ART_ALIGN_STEP) }) { Text("Up") }
+                TextButton(onClick = { onNudgeCover(0f, GAME_ART_ALIGN_STEP) }) { Text("Down") }
+                TextButton(onClick = { onNudgeCover(GAME_ART_ALIGN_STEP, 0f) }) { Text("Right") }
+                TextButton(onClick = onResetCover) { Text("Reset") }
+            }
+            if (artAlignX != 0f || artAlignY != 0f) {
+                Text(
+                    text = "Offset ${"%.2f".format(Locale.US, artAlignX)}, ${"%.2f".format(Locale.US, artAlignY)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = glass.contentMuted,
+                )
+            }
 
             SectionLabel("Save files")
             Text(
@@ -319,6 +400,7 @@ private fun MediaRow(
     onClear: (() -> Unit)?,
     onExtra: (() -> Unit)? = null,
     extraLabel: String = "",
+    clearLabel: String = "Clear",
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(text = title, style = MaterialTheme.typography.titleSmall)
@@ -338,7 +420,7 @@ private fun MediaRow(
                 TextButton(onClick = onExtra) { Text(extraLabel) }
             }
             if (onClear != null) {
-                TextButton(onClick = onClear) { Text("Clear") }
+                TextButton(onClick = onClear) { Text(clearLabel) }
             }
         }
     }
@@ -393,6 +475,12 @@ private fun PreferenceChips(
 private fun pathStatus(path: String?): String =
     if (path.isNullOrBlank()) "Not set" else path.substringAfterLast('/')
 
+private fun soundBiteStatus(game: Game): String {
+    if (!game.soundBitePath.isNullOrBlank()) return pathStatus(game.soundBitePath)
+    val sidecar = RomSoundBiteLocator.resolve(game) ?: return "Not set — drop Game name.mp3 in the ROMs folder"
+    return "ROMs folder · ${sidecar.substringAfterLast('/')}"
+}
+
 private fun formatSaveMeta(entry: GameSaveEntry): String {
     val size = formatBytes(entry.sizeBytes)
     val kind = when (entry.kind) {
@@ -441,9 +529,11 @@ fun ScrapeOptionsSheet(
         onPickBoxArt = {},
         onPickBackground = {},
         onPickSoundBite = {},
+        onPickIdleVideo = {},
         onClearBoxArt = {},
         onClearBackground = {},
         onClearSoundBite = {},
+        onClearIdleVideo = {},
         onPreviewSoundBite = {},
         onImportSaves = {},
         onDeleteSave = {},

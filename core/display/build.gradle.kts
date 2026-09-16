@@ -38,5 +38,7 @@ dependencies {
     implementation(libs.androidx.savedstate)
     implementation(libs.androidx.savedstate.compose)
 
+    testImplementation(libs.junit)
+
     implementation(libs.kotlinx.coroutines.android)
 }

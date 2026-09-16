@@ -10,7 +10,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Imports per-ROM custom box art, background (hero), and sound bites into app-private storage.
+ * Imports per-ROM (and per-album / per-track) custom box art, background (hero / wallpaper,
+ * still or video), idle trailers, and sound bites into app-private storage.
  */
 @Singleton
 class GameCustomMediaStore @Inject constructor(
@@ -22,17 +23,77 @@ class GameCustomMediaStore @Inject constructor(
     suspend fun importBoxArt(gameId: String, uri: Uri): String =
         importNamed(uri, stemFor(gameId, "box"), defaultExt = "jpg", imageOnly = true)
 
+    suspend fun importShortcutIcon(gameId: String, uri: Uri): String =
+        importNamed(uri, stemFor(gameId, "icon"), defaultExt = "png", imageOnly = true)
+
     suspend fun importBackground(gameId: String, uri: Uri): String =
         importNamed(uri, stemFor(gameId, "hero"), defaultExt = "jpg", imageOnly = false)
 
     suspend fun importSoundBite(gameId: String, uri: Uri): String =
         importNamed(uri, stemFor(gameId, "bite"), defaultExt = "mp3", imageOnly = false)
 
+    suspend fun importIdleVideo(gameId: String, uri: Uri): String =
+        importNamed(uri, stemFor(gameId, "idle"), defaultExt = "mp4", imageOnly = false)
+
     fun clearBoxArt(gameId: String) = clearStem(stemFor(gameId, "box"))
+
+    fun clearShortcutIcon(gameId: String) = clearStem(stemFor(gameId, "icon"))
 
     fun clearBackground(gameId: String) = clearStem(stemFor(gameId, "hero"))
 
     fun clearSoundBite(gameId: String) = clearStem(stemFor(gameId, "bite"))
+
+    fun clearIdleVideo(gameId: String) = clearStem(stemFor(gameId, "idle"))
+
+    fun findBoxArt(gameId: String): String? = findStem(stemFor(gameId, "box"))
+
+    fun findBackground(gameId: String): String? = findStem(stemFor(gameId, "hero"))
+
+    fun findIdleVideo(gameId: String): String? = findStem(stemFor(gameId, "idle"))
+
+    /**
+     * User-picked Game Select stills (PNG/JPG/WebP/GIF). Each import appends; GIFs keep
+     * animating for the idle hold, then the compositor fades to the next file.
+     */
+    suspend fun importScreenshot(gameId: String, uri: Uri): String = withContext(Dispatchers.IO) {
+        val dir = screenshotDir(gameId)
+        val nextIndex = (dir.listFiles()
+            ?.mapNotNull { it.nameWithoutExtension.toIntOrNull() }
+            ?.maxOrNull() ?: -1) + 1
+        val extension = guessExtension(uri, defaultExt = "jpg", imageOnly = true)
+        val fileName = "%03d.%s".format(nextIndex, extension)
+        val target = File(dir, fileName)
+        val temp = File(dir, "$fileName.part")
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            temp.outputStream().use { output -> input.copyTo(output) }
+        } ?: error("Could not read the selected file.")
+        if (temp.length() == 0L) {
+            temp.delete()
+            error("Selected file was empty.")
+        }
+        if (target.exists()) target.delete()
+        if (!temp.renameTo(target)) {
+            temp.copyTo(target, overwrite = true)
+            temp.delete()
+        }
+        target.absolutePath
+    }
+
+    fun listScreenshots(gameId: String): List<String> =
+        screenshotDir(gameId).listFiles()
+            ?.filter { it.isFile && it.extension.lowercase() in IMAGE_EXTS && it.length() > 0L }
+            ?.sortedBy { it.name }
+            ?.map { it.absolutePath }
+            .orEmpty()
+
+    fun clearScreenshots(gameId: String) {
+        val dir = screenshotDir(gameId)
+        runCatching { dir.listFiles()?.forEach { it.delete() } }
+        runCatching { dir.delete() }
+    }
+
+    private fun screenshotDir(gameId: String): File =
+        File(root, stemFor(gameId, "shots")).also { it.mkdirs() }
 
     private fun stemFor(gameId: String, kind: String): String {
         val safe = gameId.lowercase().replace(Regex("[^a-z0-9._-]"), "_").take(80)
@@ -44,6 +105,12 @@ class GameCustomMediaStore @Inject constructor(
             ?.filter { it.isFile && it.name.startsWith("$stem.") }
             ?.forEach { it.delete() }
     }
+
+    private fun findStem(stem: String): String? =
+        root.listFiles()
+            ?.filter { it.isFile && it.name.startsWith("$stem.") && it.length() > 0L }
+            ?.maxByOrNull { it.lastModified() }
+            ?.absolutePath
 
     private suspend fun importNamed(
         uri: Uri,
@@ -92,6 +159,10 @@ class GameCustomMediaStore @Inject constructor(
             mime.contains("webp") -> "webp"
             mime.contains("gif") -> "gif"
             mime.contains("jpeg") || mime.contains("jpg") -> "jpg"
+            mime.contains("mp4") || mime.contains("mpeg4") -> "mp4"
+            mime.contains("webm") -> "webm"
+            mime.contains("matroska") || mime.contains("mkv") -> "mkv"
+            mime.contains("quicktime") -> "mov"
             mime.contains("mpeg") || mime.contains("mp3") -> "mp3"
             mime.contains("ogg") -> "ogg"
             mime.contains("wav") -> "wav"

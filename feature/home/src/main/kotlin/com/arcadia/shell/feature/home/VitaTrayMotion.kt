@@ -6,6 +6,9 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.view.Surface
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -19,18 +22,52 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** Beyond this much tilt (radians) the bubbles are already at full deflection. */
 private const val TILT_FULL_SCALE_RADIANS = 0.42f
+
+/** Degrees a Vita glass bubble turns at full lean. */
+internal const val VITA_BUBBLE_TILT_DEG = 13f
+
+/** Perspective for the lean, in the same density-scaled units Compose uses for cameraDistance. */
+internal const val VITA_BUBBLE_CAMERA_DISTANCE = 6f
+
+/**
+ * How far the glass sheen slides against the lean, as a fraction of the bubble. Kept under the
+ * 3% the sheen asset oversizes the bubble by, so its own edge never slides into view.
+ */
+internal const val VITA_BUBBLE_SHEEN_TRAVEL = 0.03f
+
+/** How far a bubble may sway from its slot when the device is tilted. */
+internal const val VITA_BUBBLE_TILT_SHIFT_FRACTION = 0.115f
 
 /**
  * How fast the neutral pose chases the current pose, in units of "fraction per second".
  * Holding the device at an angle drifts back to rest; only fresh motion deflects the bubbles.
  */
 private const val TILT_REST_RELAX_PER_SECOND = 0.85f
+
+/**
+ * Below this a reading is sensor noise and the rest baseline's own residue rather than a tilt.
+ * At [VITA_BUBBLE_TILT_SHIFT_FRACTION] of a bubble it is well under a pixel of sway, so nothing
+ * visible is lost — but it lets a device at rest report a true zero and park the frame loop.
+ */
+private const val TILT_DEADZONE = 0.02f
+
+/** One tilt axis, clamped to the sway range, with sub-threshold noise flattened to a true zero. */
+internal fun tiltDeadzoned(raw: Float): Float {
+    val clamped = raw.coerceIn(-1f, 1f)
+    return if (abs(clamped) < TILT_DEADZONE) 0f else clamped
+}
 
 private const val SPRING_STIFFNESS = 52f
 private const val SPRING_DAMPING_RATIO = 0.34f
@@ -159,9 +196,14 @@ private class TiltListener(
             restY += (pose.y - restY) * relax
         }
 
+        // Deadzoned, so a device lying still publishes exactly Offset.Zero. The rest baseline is
+        // a low-pass chasing the pose, so its residue lands near zero but never on it, and the
+        // sensor re-injects noise every sample — which meant the spring loop's park guard could
+        // never fire and the shell asked for a frame at display rate forever. Structural
+        // equality on the State makes the repeated Zero writes free.
         output.value = Offset(
-            x = ((pose.x - restX) / TILT_FULL_SCALE_RADIANS).coerceIn(-1f, 1f),
-            y = ((pose.y - restY) / TILT_FULL_SCALE_RADIANS).coerceIn(-1f, 1f),
+            x = tiltDeadzoned((pose.x - restX) / TILT_FULL_SCALE_RADIANS),
+            y = tiltDeadzoned((pose.y - restY) / TILT_FULL_SCALE_RADIANS),
         )
     }
 
@@ -201,12 +243,25 @@ private class TiltListener(
 @Stable
 class VitaBubbleMotion(val count: Int) {
     private val offsets: List<MutableState<Offset>> = List(count) { mutableStateOf(Offset.Zero) }
+    private val leans: List<MutableState<Offset>> = List(count) { mutableStateOf(Offset.Zero) }
 
     fun offsetAt(index: Int): Offset =
         if (index in 0 until count) offsets[index].value else Offset.Zero
 
+    /**
+     * How far bubble [index] has swayed from its slot, as a fraction of its own amplitude, each
+     * component roughly `-1..1`. Kept separate from [offsetAt] because the bubble turns toward the
+     * direction it is travelling, and that rotation must not scale with the panel's pixel density.
+     */
+    fun leanAt(index: Int): Offset =
+        if (index in 0 until count) leans[index].value else Offset.Zero
+
     internal fun setOffset(index: Int, value: Offset) {
         offsets[index].value = value
+    }
+
+    internal fun setLean(index: Int, value: Offset) {
+        leans[index].value = value
     }
 }
 
@@ -226,7 +281,10 @@ fun rememberVitaBubbleMotion(
 
     LaunchedEffect(motion, tilt, maxShiftPx, enabled) {
         if (!enabled || count == 0 || maxShiftPx <= 0f) {
-            for (i in 0 until count) motion.setOffset(i, Offset.Zero)
+            for (i in 0 until count) {
+                motion.setOffset(i, Offset.Zero)
+                motion.setLean(i, Offset.Zero)
+            }
             return@LaunchedEffect
         }
         val posX = FloatArray(count)
@@ -273,19 +331,87 @@ fun rememberVitaBubbleMotion(
                         moving = true
                     }
                     motion.setOffset(i, Offset(posX[i], posY[i]))
+                    motion.setLean(i, Offset(posX[i] / amplitude, posY[i] / amplitude))
                 }
             }
 
             if (!moving) {
                 // Everything has come to rest. Stop asking for frames — otherwise a tray left open
                 // on a desk would redraw at display rate forever — and wait for the next movement.
-                snapshotFlow { tilt.value }
-                    .first { it.x != 0f || it.y != 0f }
+                // The wake test is "the tilt changed", not "the tilt is non-zero": a device propped
+                // at an angle the springs have already caught up with is at rest too, and testing
+                // for non-zero there returned immediately and spun the loop at display rate.
+                val settledAt = tilt.value
+                snapshotFlow { tilt.value }.first { it != settledAt }
                 lastFrame = 0L
             }
         }
     }
     return motion
+}
+
+/**
+ * Per-bubble drop-in. Each bubble starts above its slot and springs into place with its own
+ * delay and slightly detuned bounce, so they land close together instead of in lockstep.
+ */
+@Stable
+class VitaBubbleLanding(val count: Int, initialY: Float) {
+    private val ys = List(count) { Animatable(initialY) }
+
+    fun offsetY(index: Int): Float =
+        if (index in 0 until count) ys[index].value else 0f
+
+    suspend fun animateToRest(index: Int, stiffnessScale: Float, damping: Float) {
+        if (index !in 0 until count) return
+        ys[index].animateTo(
+            targetValue = 0f,
+            animationSpec = spring(
+                dampingRatio = damping,
+                stiffness = Spring.StiffnessMediumLow * stiffnessScale,
+            ),
+        )
+    }
+}
+
+@Composable
+fun rememberVitaBubbleLanding(
+    count: Int,
+    dropPx: Float,
+): VitaBubbleLanding {
+    val landing = remember(count, dropPx) { VitaBubbleLanding(count, -dropPx) }
+    LaunchedEffect(landing) {
+        if (count == 0 || dropPx <= 0f) return@LaunchedEffect
+        coroutineScope {
+            for (i in 0 until count) {
+                launch {
+                    delay(bubbleLandDelayMs(i))
+                    landing.animateToRest(
+                        index = i,
+                        stiffnessScale = bubbleDetune(i),
+                        damping = 0.58f + ((bubbleDetune(i) - 1f) * 0.12f),
+                    )
+                }
+            }
+        }
+    }
+    return landing
+}
+
+/** Top row first, then a light left-to-right cascade, with a few milliseconds of jitter. */
+private fun bubbleLandDelayMs(index: Int): Long {
+    val local = index % VITA_TRAY_PAGE_SIZE
+    val row = when {
+        local < 3 -> 0
+        local < 7 -> 1
+        else -> 2
+    }
+    val col = when {
+        local < 3 -> local
+        local < 7 -> local - 3
+        else -> local - 7
+    }
+    val jitter = (local * 13 + 5) % 11
+    return row * 18L + col * 8L + jitter
 }
 
 /** Golden-ratio walk: a stable, well-spread spread of values in `0.75..1.25` without a PRNG. */
@@ -297,4 +423,85 @@ private fun bubbleDetune(index: Int): Float {
 private fun bubbleAmplitude(index: Int): Float {
     val fraction = (index * 0.3819660f) % 1f
     return 0.78f + (fraction * 0.44f)
+}
+
+/** One full left-right rock of the idle lean. */
+const val VITA_BUBBLE_ROCK_CYCLE_MS = 5_200
+
+/** Lean the idle rock reaches, as a fraction of a full sway. */
+private const val BUBBLE_IDLE_ROCK_LEAN = 0.34f
+
+/**
+ * Slow left-right rock, added on top of the gyro lean so the bubbles still read as glass domes
+ * on a device that never moves — a TV box, or a tablet on a stand. Each bubble sits at its own
+ * point in the cycle, so the field breathes rather than marching in step.
+ *
+ * [cycleUnit] is `0..1` through [VITA_BUBBLE_ROCK_CYCLE_MS], from
+ * [com.arcadia.shell.designsystem.rememberThrottledAmbientUnit].
+ */
+fun vitaBubbleIdleLean(index: Int, cycleUnit: Float): Float {
+    val phase = (cycleUnit + (index * 0.6180339f)) % 1f
+    return sin(phase * 2f * PI.toFloat()) * BUBBLE_IDLE_ROCK_LEAN
+}
+
+/** How long a page-turn wobble takes to die out. */
+internal const val VITA_BUBBLE_JIGGLE_SECONDS = 0.66f
+private const val JIGGLE_HZ = 4.6f
+private const val JIGGLE_DECAY = 5.4f
+/** Lean the wobble opens with, as a fraction of a full sway. */
+private const val JIGGLE_LEAN = 0.9f
+/** Each bubble starts its wobble this much later than the one before it. */
+private const val JIGGLE_STAGGER_SECONDS = 0.018f
+
+/**
+ * Decaying up-down bounce per bubble, replayed from the start every time the page changes.
+ * Read through [liftAt] and added to the slot offset, so a page turn hops the field instead
+ * of sliding to a dead stop.
+ */
+@Stable
+class VitaBubbleJiggle(val count: Int) {
+    private val leans: List<MutableState<Float>> = List(count) { mutableStateOf(0f) }
+
+    fun leanAt(index: Int): Float =
+        if (index in 0 until count) leans[index].value else 0f
+
+    /** Same waveform as [leanAt], kept as a named lift so callers bounce on Y. */
+    fun liftAt(index: Int): Float = leanAt(index)
+
+    internal fun setLean(index: Int, value: Float) {
+        leans[index].value = value
+    }
+}
+
+@Composable
+fun rememberVitaBubbleJiggle(count: Int, page: Int, enabled: Boolean): VitaBubbleJiggle {
+    val jiggle = remember(count) { VitaBubbleJiggle(count) }
+
+    LaunchedEffect(jiggle, page, enabled) {
+        if (!enabled || count == 0) {
+            for (i in 0 until count) jiggle.setLean(i, 0f)
+            return@LaunchedEffect
+        }
+        val start = withFrameNanos { it }
+        while (true) {
+            val now = withFrameNanos { it }
+            val elapsed = (now - start) / 1_000_000_000f
+            // Settling to exactly zero matters: a bubble left a fraction of a degree off would
+            // hold that lean until the next page turn.
+            if (elapsed >= VITA_BUBBLE_JIGGLE_SECONDS) {
+                for (i in 0 until count) jiggle.setLean(i, 0f)
+                return@LaunchedEffect
+            }
+            for (i in 0 until count) jiggle.setLean(i, vitaBubbleJiggleLean(i, elapsed))
+        }
+    }
+    return jiggle
+}
+
+/** Lean bubble [index] carries [elapsedSeconds] into a page-turn wobble. */
+internal fun vitaBubbleJiggleLean(index: Int, elapsedSeconds: Float): Float {
+    val local = index % VITA_TRAY_PAGE_SIZE
+    val t = elapsedSeconds - (local * JIGGLE_STAGGER_SECONDS)
+    if (t <= 0f) return 0f
+    return sin(t * JIGGLE_HZ * 2f * PI.toFloat()) * JIGGLE_LEAN * exp(-JIGGLE_DECAY * t)
 }

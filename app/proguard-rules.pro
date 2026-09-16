@@ -2,10 +2,30 @@
 # so component names must survive shrinking even with no static reference.
 -keep class com.arcadia.shell.launcher.** { *; }
 
+# XOrA Network Nakama DTOs are decoded through reified kotlinx.serialization — R8 must keep them.
+-keep class com.arcadia.shell.xoranetwork.** { *; }
+-keepclassmembers class com.arcadia.shell.xoranetwork.** { *; }
+-keepattributes RuntimeVisibleAnnotations, AnnotationDefault
+-keepclassmembers class kotlinx.serialization.json.** {
+    *** Companion;
+}
+-keepclasseswithmembers class ** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# XMB sealed actions are matched with `is` in the home cross; keep the hierarchy.
+-keep class com.arcadia.shell.feature.home.XoraXmbAction { *; }
+-keep class com.arcadia.shell.feature.home.XoraXmbAction$* { *; }
+
 # Notification listener is bound by the system via the manifest component name.
 -keep class com.arcadia.shell.conversations.ShellNotificationListenerService { *; }
 
-# Discord Social SDK (optional partner AAR) + JNI status callback.
+# Media session host — started from Application when device Now Playing has a track.
+-keep class com.arcadia.shell.music.MusicPlaybackService { *; }
+
+# Libretro JNI entry points (including netplay port-2 pad).
+-keep class com.arcadia.shell.libretro.LibretroNative { *; }
+
 -keep class com.discord.socialsdk.** { *; }
 -keepclassmembers class com.arcadia.shell.launcher.discord.DiscordSocialSdkBridge {
     native <methods>;

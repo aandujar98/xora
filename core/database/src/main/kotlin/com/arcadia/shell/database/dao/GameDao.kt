@@ -187,6 +187,9 @@ interface GameDao {
     @Query("UPDATE games SET logoImagePath = :path WHERE id = :id")
     suspend fun setLogoImagePath(id: String, path: String?)
 
+    @Query("UPDATE games SET shortcutIconPath = :path WHERE id = :id")
+    suspend fun setShortcutIconPath(id: String, path: String?)
+
     @Query("UPDATE games SET soundBitePath = :path WHERE id = :id")
     suspend fun setSoundBitePath(id: String, path: String?)
 

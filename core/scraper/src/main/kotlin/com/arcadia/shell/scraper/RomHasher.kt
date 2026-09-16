@@ -65,8 +65,19 @@ class RomHasher @Inject constructor(
             return@withContext null
         }
 
+        if (platformId in RaNintendoDiscHash.PLATFORMS) {
+            return@withContext hashNintendoDisc(game, extension, platformId)
+        }
+
         if (platformId in RaHashRules.DISC_HASH_PLATFORMS) {
             return@withContext hashDisc(game, extension, platformId)
+        }
+
+        if (
+            (platformId in RaHashRules.NDS_PLATFORMS || extension in RaHashRules.NDS_EXTENSIONS) &&
+            extension != "zip"
+        ) {
+            return@withContext hashNdsSeekable(game)
         }
 
         runCatching {
@@ -119,6 +130,54 @@ class RomHasher @Inject constructor(
             if (fromPfd != null) return fromPfd
         }
         return game.sizeBytes.takeIf { it > 0L } ?: 0L
+    }
+
+    private fun hashNintendoDisc(game: Game, extension: String, platformId: String): RomHashes? {
+        if (extension in RaNintendoDiscHash.UNSUPPORTED_EXTENSIONS) {
+            Log.i(TAG, "Nintendo disc container .$extension not hashable on-device for $platformId")
+            return null
+        }
+        val openPath = game.filePath ?: game.documentUri ?: run {
+            Log.w(TAG, "No path/URI for Nintendo disc hash: ${game.fileName}")
+            return null
+        }
+        val openFile = fileAccess.openResolver(game.filePath, game.documentUri)
+        return runCatching {
+            val md5 = RaNintendoDiscHash.hash(platformId, openPath, extension, openFile)
+            if (md5 == null) {
+                Log.w(TAG, "Nintendo disc hash failed for ${game.fileName} ($platformId)")
+                return@runCatching null
+            }
+            val hashes = RomHashes(
+                crc32 = "00000000",
+                md5 = md5.toHex(),
+                sha1 = "0".repeat(40),
+                hashedBytes = game.sizeBytes,
+            )
+            Log.i(TAG, "Disc-hashed ${game.fileName} platform=$platformId md5=${hashes.md5}")
+            hashes
+        }.onFailure {
+            Log.e(TAG, "Nintendo disc hash failed for ${game.fileName}: ${it.message}", it)
+        }.getOrNull()
+    }
+
+    private fun hashNdsSeekable(game: Game): RomHashes? {
+        val src = fileAccess.openPrimary(game.filePath, game.documentUri) ?: return null
+        return src.use { seekable ->
+            val digest = RaHashRules.hashNintendoDs(seekable.size()) { position, length ->
+                seekable.readFully(position, length)
+            }
+            if (digest == null) {
+                Log.w(TAG, "NDS custom hash failed for ${game.fileName} (size=${seekable.size()})")
+                return@use null
+            }
+            RomHashes(
+                crc32 = "00000000",
+                md5 = digest.toHex(),
+                sha1 = "0".repeat(40),
+                hashedBytes = seekable.size(),
+            )
+        }
     }
 
     private fun hashDisc(game: Game, extension: String, platformId: String): RomHashes? {

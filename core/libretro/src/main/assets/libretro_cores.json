@@ -20,6 +20,7 @@
     { "platformId": "nds", "core": "melonds", "label": "melonDS", "license": "GPLv3" },
     { "platformId": "nds", "core": "melondsds", "label": "melonDS DS", "license": "GPLv3" },
     { "platformId": "nds", "core": "desmume", "label": "DeSmuME", "license": "GPLv2" },
+    { "platformId": "3ds", "core": "azahar", "label": "Azahar", "license": "GPLv2" },
     { "platformId": "3ds", "core": "citra", "label": "Citra", "license": "GPLv2" },
     { "platformId": "3ds", "core": "citra2018", "label": "Citra 2018", "license": "GPLv2" },
     { "platformId": "3ds", "core": "panda3ds", "label": "Panda3DS", "license": "GPLv3" },

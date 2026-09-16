@@ -1,0 +1,143 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/GameQuickMenuPane.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/GameQuickMenuPane.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/GameQuickMenuPane.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/GameQuickMenuPane.kt
+@@ -22,6 +22,7 @@
+ import com.arcadia.shell.input.NavAction
+ import com.arcadia.shell.model.Game
+ import com.arcadia.shell.model.TrailerRef
++import com.arcadia.shell.datastore.GAME_ART_ALIGN_STEP
+ import com.arcadia.shell.scraper.ArtSlot
+ import kotlinx.coroutines.flow.Flow
+ 
+@@ -43,6 +44,8 @@
+     data object Rename : QuickMenuMode
+     data object TrailerLink : QuickMenuMode
+     data class ArtPicker(val slot: ArtSlot) : QuickMenuMode
++    /** Nudging a face's artwork inside its frame, entered by tapping that face. */
++    data class PanArt(val slot: ArtSlot) : QuickMenuMode
+ }
+ 
+ private const val PICKER_COLUMNS = 4
+@@ -56,6 +59,11 @@
+     game: Game,
+     customTitle: String?,
+     hidden: Boolean,
++    /** Opened from a Vita bubble rather than the XMB library: the third button unpins. */
++    pinnedToShortcuts: Boolean,
++    /** Where this game's art sits in its frames; pan moves it and the tiles follow live. */
++    artAlignX: Float,
++    artAlignY: Float,
+     trailer: TrailerRef?,
+     manualPath: String?,
+     artPicker: ArtPickerUiState,
+@@ -92,15 +100,25 @@
+             },
+         ),
+         QuickMenuButton(
+-            key = "hide",
+-            label = if (hidden) "Unhide" else "Hide",
+-            onClick = { actions.onToggleHidden(!hidden) },
++            key = "favorite",
++            label = if (game.favorite) "Unfavorite" else "Favorite",
++            onClick = { actions.onToggleFavorite(!game.favorite) },
+         ),
+-        QuickMenuButton(
+-            key = "remove",
+-            label = "Unpin",
+-            onClick = quickActions.onRemoveFromShortcuts,
+-        ),
++        // Third slot belongs to wherever the editor was opened from: a bubble can be unpinned
++        // from the tray, while a library entry can only be hidden from the XMB.
++        if (pinnedToShortcuts) {
++            QuickMenuButton(
++                key = "remove",
++                label = "Unpin",
++                onClick = quickActions.onRemoveFromShortcuts,
++            )
++        } else {
++            QuickMenuButton(
++                key = "hide",
++                label = if (hidden) "Unhide" else "Hide",
++                onClick = { actions.onToggleHidden(!hidden) },
++            )
++        },
+     )
+ 
+     val rows = listOfNotNull(
+@@ -157,13 +175,6 @@
+             onChooseFile = quickActions.onPickManual,
+             onClear = quickActions.onClearManual.takeIf { !manualPath.isNullOrBlank() },
+         ).takeUnless { game.isAndroidApp },
+-        QuickMenuRow(
+-            key = "more",
+-            label = "More Options",
+-            onScrape = null,
+-            onChooseFile = quickActions.onOpenMoreOptions,
+-            onClear = null,
+-        ),
+     )
+ 
+     var focus by remember(game.id) { mutableStateOf(initialQuickMenuFocus(buttons, rows)) }
+@@ -207,6 +218,18 @@
+                     else -> Unit
+                 }
+ 
++                is QuickMenuMode.PanArt -> when (action) {
++                    NavAction.Left -> actions.onNudgeCover(-GAME_ART_ALIGN_STEP, 0f)
++                    NavAction.Right -> actions.onNudgeCover(GAME_ART_ALIGN_STEP, 0f)
++                    NavAction.Up -> actions.onNudgeCover(0f, -GAME_ART_ALIGN_STEP)
++                    NavAction.Down -> actions.onNudgeCover(0f, GAME_ART_ALIGN_STEP)
++                    // X resets the frame, the same key that clears a row in Browse.
++                    NavAction.Options -> actions.onResetCover()
++                    NavAction.Confirm, NavAction.Cancel, NavAction.ScrapeMenu ->
++                        mode = QuickMenuMode.Browse
++                    else -> Unit
++                }
++
+                 is QuickMenuMode.ArtPicker -> when (action) {
+                     NavAction.Cancel, NavAction.ScrapeMenu -> {
+                         mode = QuickMenuMode.Browse
+@@ -257,22 +280,32 @@
+                         path = game.shortcutIcon,
+                         shape = QuickPreviewShape.Bubble,
+                         fallback = game.title.take(2).uppercase(),
++                        onClick = { mode = QuickMenuMode.PanArt(ArtSlot.ShortcutIcon) },
++                        alignX = artAlignX,
++                        alignY = artAlignY,
+                     ),
+                     QuickMenuPreview(
+                         key = "banner",
+                         path = game.boxArtPath ?: game.logoImagePath,
+                         shape = QuickPreviewShape.Banner,
+                         fallback = game.title,
++                        onClick = { mode = QuickMenuMode.PanArt(ArtSlot.BoxArt) },
++                        alignX = artAlignX,
++                        alignY = artAlignY,
+                     ),
+                     QuickMenuPreview(
+                         key = "wallpaper",
+                         path = game.heroImagePath,
+                         shape = QuickPreviewShape.Wallpaper,
+                         fallback = game.platform.displayName,
++                        onClick = { mode = QuickMenuMode.PanArt(ArtSlot.Hero) },
++                        alignX = artAlignX,
++                        alignY = artAlignY,
+                     ),
+                 ),
+                 rows = rows,
+                 focus = focus,
++                panningKey = (mode as? QuickMenuMode.PanArt)?.slot?.previewKey(),
+             )
+ 
+             AnimatedVisibility(
+@@ -319,3 +352,10 @@
+         }
+     }
+ }
++
++/** Which face tile an [ArtSlot] is drawn on, so pan mode can light the right one. */
++private fun ArtSlot.previewKey(): String = when (this) {
++    ArtSlot.ShortcutIcon -> "bubble"
++    ArtSlot.Hero -> "wallpaper"
++    else -> "banner"
++}

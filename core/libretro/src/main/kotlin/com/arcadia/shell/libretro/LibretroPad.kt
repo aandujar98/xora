@@ -46,20 +46,34 @@ object LibretroPad {
         KeyEvent.KEYCODE_ENTER,
         KeyEvent.KEYCODE_NUMPAD_ENTER,
         -> START
-        KeyEvent.KEYCODE_DPAD_UP -> UP
-        KeyEvent.KEYCODE_DPAD_DOWN -> DOWN
-        KeyEvent.KEYCODE_DPAD_LEFT -> LEFT
-        KeyEvent.KEYCODE_DPAD_RIGHT -> RIGHT
+        KeyEvent.KEYCODE_DPAD_UP,
+        KeyEvent.KEYCODE_W,
+        -> UP
+        KeyEvent.KEYCODE_DPAD_DOWN,
+        KeyEvent.KEYCODE_S,
+        -> DOWN
+        KeyEvent.KEYCODE_DPAD_LEFT,
+        KeyEvent.KEYCODE_A,
+        -> LEFT
+        KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_D,
+        -> RIGHT
         KeyEvent.KEYCODE_BUTTON_A,
         KeyEvent.KEYCODE_DPAD_CENTER,
+        KeyEvent.KEYCODE_K,
+        KeyEvent.KEYCODE_X,
         -> A
-        KeyEvent.KEYCODE_BUTTON_X -> X
+        KeyEvent.KEYCODE_BUTTON_X,
+        KeyEvent.KEYCODE_I,
+        -> X
         KeyEvent.KEYCODE_BUTTON_L1 -> L
         KeyEvent.KEYCODE_BUTTON_R1 -> R
         KeyEvent.KEYCODE_BUTTON_L2 -> L2
         KeyEvent.KEYCODE_BUTTON_R2 -> R2
         KeyEvent.KEYCODE_BUTTON_THUMBL -> L3
         KeyEvent.KEYCODE_BUTTON_THUMBR -> R3
+        KeyEvent.KEYCODE_BUTTON_C -> A
+        KeyEvent.KEYCODE_BUTTON_Z -> B
         // Generic HID pads that never get remapped to BUTTON_A/B.
         KeyEvent.KEYCODE_BUTTON_1 -> A
         KeyEvent.KEYCODE_BUTTON_2 -> B
@@ -73,6 +87,13 @@ object LibretroPad {
         KeyEvent.KEYCODE_BUTTON_10 -> R3
         KeyEvent.KEYCODE_BUTTON_11 -> L2
         KeyEvent.KEYCODE_BUTTON_12 -> R2
+        KeyEvent.KEYCODE_BUTTON_13 -> L
+        KeyEvent.KEYCODE_BUTTON_14 -> R
+        KeyEvent.KEYCODE_BUTTON_15 -> L2
+        KeyEvent.KEYCODE_BUTTON_16 -> R2
+        KeyEvent.KEYCODE_Z,
+        KeyEvent.KEYCODE_J,
+        -> B
         else -> null
     }
 
@@ -116,14 +137,51 @@ object LibretroPad {
         else -> KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_")
     }
 
-    /** Connected pads as (id, name). */
+    /**
+     * Anbernic / RG Rotate / gpio-keys often expose D-pad + face buttons as KEYBOARD or
+     * DPAD instead of GAMEPAD. Those still have to count as extra local seats (P2–P4)
+     * and as a joiner's assigned pad.
+     */
+    fun looksLikeHandheldPad(name: String?, sources: Int = 0): Boolean {
+        val dpad = sources and InputDevice.SOURCE_DPAD == InputDevice.SOURCE_DPAD
+        val touch = sources and InputDevice.SOURCE_TOUCHSCREEN == InputDevice.SOURCE_TOUCHSCREEN
+        if (dpad && !touch) return true
+        val n = name.orEmpty().lowercase()
+        if (n.isBlank()) return false
+        if (n.contains("gpio") ||
+            n.contains("retrogame") ||
+            n.contains("joypad") ||
+            n.contains("joystick") ||
+            n.contains("adc") ||
+            n.contains("anbernic") ||
+            n.contains("odroid") ||
+            n.contains("h700") ||
+            n.contains("rk3566") ||
+            n.contains("rk3326") ||
+            n.contains("singleadc") ||
+            n.contains("nvec")
+        ) {
+            return true
+        }
+        return n.contains("rg") && (
+            n.contains("rotate") || n.contains("353") || n.contains("405") ||
+                n.contains("arc") || n.contains("cube") || n.contains("35xx") ||
+                n.contains("28xx") || n.contains("40xx") || n.contains("slide") ||
+                n.contains("flip") || n.contains("503") || n.contains("552") ||
+                n.contains("351") || n.contains("556") || n.contains("476")
+            )
+    }
+
+    /** Connected pads as (id, name). Includes gpio-keys / DPAD handhelds, not only GAMEPAD. */
     fun connectedControllers(): List<Pair<Int, String>> {
+        val ids = runCatching { InputDevice.getDeviceIds() }.getOrNull() ?: return emptyList()
         val out = ArrayList<Pair<Int, String>>()
-        for (id in InputDevice.getDeviceIds()) {
-            val device = InputDevice.getDevice(id) ?: continue
+        for (id in ids) {
+            val device = runCatching { InputDevice.getDevice(id) }.getOrNull() ?: continue
             val sources = device.sources
             val isPad = sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
-                sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
+                sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK ||
+                looksLikeHandheldPad(device.name, sources)
             if (!isPad || device.isVirtual) continue
             val name = device.name?.takeIf { it.isNotBlank() } ?: "Controller $id"
             out += id to name
@@ -134,8 +192,17 @@ object LibretroPad {
     fun matchesPreferredController(device: InputDevice?, preferredName: String): Boolean {
         if (preferredName.isBlank()) return true
         val name = device?.name?.trim().orEmpty()
-        return name.equals(preferredName, ignoreCase = true)
+        if (name.equals(preferredName, ignoreCase = true)) return true
+        // A saved name that is not plugged in must not black-hole every other pad.
+        return connectedControllers().none { it.second.equals(preferredName, ignoreCase = true) }
     }
+
+    /** Netplay (and missing preferred pads) accept every plugged-in controller. */
+    fun acceptsController(
+        device: InputDevice?,
+        preferredName: String,
+        acceptAny: Boolean,
+    ): Boolean = acceptAny || matchesPreferredController(device, preferredName)
 
     fun axisToShort(value: Float, deadzone: Float = 0.15f): Short {
         if (abs(value) < deadzone) return 0
@@ -193,11 +260,234 @@ object LibretroPad {
             (isFromSource(InputDevice.SOURCE_KEYBOARD) &&
                 keyCodeToButton(keyCode, customMappings) != null)
 
-    fun MotionEvent.isFromGameController(): Boolean =
-        isFromSource(InputDevice.SOURCE_GAMEPAD) ||
+    fun MotionEvent.isFromGameController(): Boolean {
+        if (isFromSource(InputDevice.SOURCE_GAMEPAD) ||
             isFromSource(InputDevice.SOURCE_JOYSTICK) ||
             isFromSource(InputDevice.SOURCE_DPAD)
+        ) {
+            return true
+        }
+        val sources = device?.sources ?: source
+        return sources and InputDevice.SOURCE_CLASS_JOYSTICK == InputDevice.SOURCE_CLASS_JOYSTICK
+    }
+
+    fun padButtonFor(event: KeyEvent, customMappings: Map<Int, Int> = emptyMap()): Int? =
+        keyCodeToButton(event.keyCode, customMappings)
+
+    /** ADC joysticks / hats that are not SOURCE_GAMEPAD still have to drive the mixer. */
+    fun MotionEvent.shouldDrivePad(): Boolean {
+        if (isFromGameController()) return true
+        val device = device
+        if (device != null && looksLikeHandheldPad(device.name, device.sources)) return true
+        if (digitalPadFromAxes(this) != 0) return true
+        val (left, right) = readAxes(this)
+        return left.first.toInt() != 0 || left.second.toInt() != 0 ||
+            right.first.toInt() != 0 || right.second.toInt() != 0
+    }
+
+    fun descriptorOf(deviceId: Int): String =
+        runCatching { InputDevice.getDevice(deviceId)?.descriptor }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: "id:$deviceId"
+
+    fun controllerNumberOf(deviceId: Int): Int =
+        runCatching { InputDevice.getDevice(deviceId)?.controllerNumber ?: 0 }.getOrDefault(0)
 
     /** Human-readable names of currently connected game controllers. */
     fun connectedControllerNames(): List<String> = connectedControllers().map { it.second }
+}
+
+/**
+ * Tracks every plugged-in pad separately so local P2 is a second controller, not a
+ * merge into P1. Button and axis InputDevices that share a descriptor stay one player.
+ */
+class LibretroPadMixer {
+    data class Snapshot(
+        val buttons: Int = 0,
+        val lx: Short = 0,
+        val ly: Short = 0,
+        val rx: Short = 0,
+        val ry: Short = 0,
+    ) {
+        fun hasInput(): Boolean =
+            buttons != 0 || lx.toInt() != 0 || ly.toInt() != 0 ||
+                rx.toInt() != 0 || ry.toInt() != 0
+
+        fun merge(other: Snapshot): Snapshot {
+            val magThis = mag()
+            val magOther = other.mag()
+            val analog = if (magOther > magThis) other else this
+            return Snapshot(
+                buttons = buttons or other.buttons,
+                lx = analog.lx,
+                ly = analog.ly,
+                rx = analog.rx,
+                ry = analog.ry,
+            )
+        }
+
+        private fun mag(): Int =
+            kotlin.math.abs(lx.toInt()) + kotlin.math.abs(ly.toInt()) +
+                kotlin.math.abs(rx.toInt()) + kotlin.math.abs(ry.toInt())
+    }
+
+    data class PlayerPads(
+        val p1: Snapshot = Snapshot(),
+        val p2: Snapshot = Snapshot(),
+        val p3: Snapshot = Snapshot(),
+        val p4: Snapshot = Snapshot(),
+    )
+
+    private class DeviceState {
+        var keyButtons: Int = 0
+        var axisButtons: Int = 0
+        var lx: Short = 0
+        var ly: Short = 0
+        var rx: Short = 0
+        var ry: Short = 0
+    }
+
+    private val lock = Any()
+    private val devices = LinkedHashMap<Int, DeviceState>()
+    private val order = ArrayList<Int>()
+
+    fun setDigital(deviceId: Int, buttons: Int) {
+        synchronized(lock) {
+            val state = stateFor(deviceId)
+            state.keyButtons = buttons
+            state.axisButtons = 0
+        }
+    }
+
+    fun keyDown(deviceId: Int, bit: Int) {
+        synchronized(lock) {
+            val state = stateFor(deviceId)
+            state.keyButtons = state.keyButtons or (1 shl bit)
+        }
+    }
+
+    fun keyUp(deviceId: Int, bit: Int) {
+        synchronized(lock) {
+            val state = devices[deviceId] ?: return
+            state.keyButtons = state.keyButtons and (1 shl bit).inv()
+        }
+    }
+
+    fun motion(deviceId: Int, lx: Short, ly: Short, rx: Short, ry: Short, axisButtons: Int) {
+        synchronized(lock) {
+            val state = stateFor(deviceId)
+            state.lx = lx
+            state.ly = ly
+            state.rx = rx
+            state.ry = ry
+            state.axisButtons = axisButtons
+        }
+    }
+
+    fun forget(deviceId: Int) {
+        synchronized(lock) {
+            devices.remove(deviceId)
+            order.remove(deviceId)
+        }
+    }
+
+    /** All local pads OR'd together — netplay sends this as "this player's" input. */
+    fun snapshot(): Snapshot = synchronized(lock) {
+        devices.keys.fold(Snapshot()) { acc, id -> acc.merge(snapshotLocked(id)) }
+    }
+
+    /**
+     * Player 1 = preferred pad, Android controllerNumber 1, or the first gamepad.
+     * Players 2–4 = controllerNumber 2–4 or the next distinct gamepads in order.
+     * Keyboard / unpaired devices fold into P1 so they never steal a later slot.
+     * gpio-keys / Anbernic DPAD devices are extra seats, not P1 leftovers.
+     */
+    fun snapshotPlayers(
+        preferredName: String = "",
+        connected: List<Pair<Int, String>> = LibretroPad.connectedControllers(),
+        descriptorOf: (Int) -> String = LibretroPad::descriptorOf,
+        numberOf: (Int) -> Int = LibretroPad::controllerNumberOf,
+        nameOf: (Int) -> String = { id ->
+            connected.firstOrNull { it.first == id }?.second
+                ?: runCatching { InputDevice.getDevice(id)?.name }.getOrNull().orEmpty()
+        },
+    ): PlayerPads = synchronized(lock) {
+        data class Group(
+            val ids: MutableList<Int> = ArrayList(),
+            var number: Int = 0,
+        )
+
+        val groups = LinkedHashMap<String, Group>()
+        val seen = LinkedHashSet<Int>()
+        order.forEach { seen.add(it) }
+        connected.forEach { seen.add(it.first) }
+        devices.keys.forEach { seen.add(it) }
+
+        for (id in seen) {
+            val key = descriptorOf(id)
+            val group = groups.getOrPut(key) { Group() }
+            group.ids += id
+            val number = numberOf(id)
+            if (group.number == 0 && number > 0) group.number = number
+        }
+
+        val gamepadIds = connected.map { it.first }.toSet()
+        fun Group.displayName(): String =
+            connected.firstOrNull { it.first in ids }?.second.orEmpty()
+        fun Group.isGamepad(): Boolean =
+            ids.any { it in gamepadIds } ||
+                number > 0 ||
+                LibretroPad.looksLikeHandheldPad(displayName()) ||
+                ids.any { LibretroPad.looksLikeHandheldPad(nameOf(it)) }
+
+        fun mergeGroup(group: Group?): Snapshot {
+            if (group == null) return Snapshot()
+            return group.ids.fold(Snapshot()) { acc, id -> acc.merge(snapshotLocked(id)) }
+        }
+
+        val all = groups.values.toList()
+        val pads = all.filter { it.isGamepad() }
+        val extras = all.filter { !it.isGamepad() }
+
+        val preferred = pads.firstOrNull { group ->
+            preferredName.isNotBlank() &&
+                group.displayName().equals(preferredName, ignoreCase = true)
+        }
+        val p1Group = preferred
+            ?: pads.firstOrNull { it.number == 1 }
+            ?: pads.firstOrNull()
+        val remaining = pads.filter { it !== p1Group }
+        val p2Group = remaining.firstOrNull { it.number == 2 } ?: remaining.firstOrNull()
+        val afterP2 = remaining.filter { it !== p2Group }
+        val p3Group = afterP2.firstOrNull { it.number == 3 } ?: afterP2.firstOrNull()
+        val afterP3 = afterP2.filter { it !== p3Group }
+        val p4Group = afterP3.firstOrNull { it.number == 4 } ?: afterP3.firstOrNull()
+
+        val extraSnap = extras.fold(Snapshot()) { acc, group -> acc.merge(mergeGroup(group)) }
+        PlayerPads(
+            p1 = mergeGroup(p1Group).merge(extraSnap),
+            p2 = mergeGroup(p2Group),
+            p3 = mergeGroup(p3Group),
+            p4 = mergeGroup(p4Group),
+        )
+    }
+
+    private fun stateFor(deviceId: Int): DeviceState {
+        return devices.getOrPut(deviceId) {
+            order.add(deviceId)
+            DeviceState()
+        }
+    }
+
+    private fun snapshotLocked(deviceId: Int): Snapshot {
+        val state = devices[deviceId] ?: return Snapshot()
+        return Snapshot(
+            buttons = state.keyButtons or state.axisButtons,
+            lx = state.lx,
+            ly = state.ly,
+            rx = state.rx,
+            ry = state.ry,
+        )
+    }
 }

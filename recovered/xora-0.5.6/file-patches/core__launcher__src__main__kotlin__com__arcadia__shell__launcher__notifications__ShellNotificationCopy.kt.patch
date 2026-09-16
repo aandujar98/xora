@@ -1,0 +1,62 @@
+diff --git a/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotificationCopy.kt b/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotificationCopy.kt
+--- a/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotificationCopy.kt
++++ b/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotificationCopy.kt
+@@ -17,6 +17,21 @@
+     return "$who invited you to play $game"
+ }
+ 
++/** `"Sora is now listening to"` — the first line of the friend-listening toast. */
++fun friendListeningHeadline(displayName: String): String =
++    "${displayName.trim().ifBlank { "A friend" }} is now listening to"
++
++/** "<song> by <artist>", or just the song when no artist came across. */
++fun friendListeningTrackLine(songTitle: String, artist: String): String {
++    val song = songTitle.trim()
++    val by = artist.trim()
++    return when {
++        song.isEmpty() -> ""
++        by.isEmpty() -> song
++        else -> "$song by $by"
++    }
++}
++
+ /** `"Sora just earned a trophy!"` — the friend-unlock toast's headline. */
+ fun friendTrophyHeadline(displayName: String): String =
+     "${displayName.trim().ifBlank { "A friend" }} just earned a trophy!"
+@@ -107,6 +122,36 @@
+         )
+     }
+ 
++    is ShellNotification.FriendListening -> {
++        val networkLabel = when (network) {
++            FriendNetwork.Discord -> "Discord"
++            FriendNetwork.Steam -> "Steam"
++            FriendNetwork.Xora -> "XOrA Network"
++        }
++        ShellNotificationCopy(
++            category = "Friends",
++            body = friendListeningHeadline(displayName),
++            subtitle = listOfNotNull(
++                friendListeningTrackLine(songTitle, artist).takeIf { it.isNotBlank() },
++                networkLabel,
++            ).joinToString(" · "),
++        )
++    }
++
++    is ShellNotification.FriendStatusUpdated -> {
++        val networkLabel = when (network) {
++            FriendNetwork.Discord -> "Discord"
++            FriendNetwork.Steam -> "Steam"
++            FriendNetwork.Xora -> "XOrA Network"
++        }
++        ShellNotificationCopy(
++            category = "Friends",
++            // Their own wording leads; the name rides the subtitle the way a message banner reads.
++            body = status.trim().ifBlank { "Updated their status" },
++            subtitle = "${displayName.trim().ifBlank { "A friend" }} · $networkLabel",
++        )
++    }
++
+     is ShellNotification.FriendPlaying -> {
+         val networkLabel = when (network) {
+             FriendNetwork.Discord -> "Discord"

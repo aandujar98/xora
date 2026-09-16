@@ -45,7 +45,9 @@ fun HomeHubPane(
         if (showWallpaperBackdrop) {
             HomeWallpaper(
                 customPath = hub.wallpaperPath,
-                dim = false,
+                dim = true,
+                alignX = hub.wallpaperAlignX,
+                alignY = hub.wallpaperAlignY,
                 modifier = Modifier.fillMaxSize(),
             )
         }

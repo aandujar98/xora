@@ -1,0 +1,167 @@
+package com.arcadia.shell.libretro
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DualScreenPointerTest {
+
+    @Test
+    fun combinedCenterIsOrigin() {
+        val ptr = DualScreenPointer.mapViewToPointer(
+            viewX = 128f,
+            viewY = 192f,
+            viewW = 256,
+            viewH = 384,
+            contentW = 256,
+            contentH = 384,
+            fill = true,
+            target = DualScreenPointerTarget.Combined,
+            pressed = true,
+        )
+        assertNotNull(ptr)
+        assertEquals(0, ptr!!.x.toInt())
+        assertEquals(0, ptr.y.toInt())
+        assertTrue(ptr.pressed)
+    }
+
+    @Test
+    fun bottomPanelMapsOntoLowerFramebufferHalf() {
+        val top = DualScreenPointer.mapViewToPointer(
+            viewX = 128f,
+            viewY = 0f,
+            viewW = 256,
+            viewH = 192,
+            contentW = 256,
+            contentH = 192,
+            fill = true,
+            target = DualScreenPointerTarget.BottomHalf,
+            pressed = true,
+        )
+        val bottom = DualScreenPointer.mapViewToPointer(
+            viewX = 128f,
+            viewY = 192f,
+            viewW = 256,
+            viewH = 192,
+            contentW = 256,
+            contentH = 192,
+            fill = true,
+            target = DualScreenPointerTarget.BottomHalf,
+            pressed = true,
+        )
+        assertEquals(0, top!!.y.toInt())
+        assertEquals(DualScreenPointer.AXIS_MAX, bottom!!.y.toInt())
+        assertTrue(top.pressed)
+    }
+
+    @Test
+    fun sideBySideBottomPanelMapsOntoRightFramebufferHalf() {
+        val left = DualScreenPointer.mapViewToPointer(
+            viewX = 0f,
+            viewY = 96f,
+            viewW = 320,
+            viewH = 192,
+            contentW = 320,
+            contentH = 192,
+            fill = true,
+            target = DualScreenPointerTarget.BottomRight,
+            pressed = true,
+        )
+        val right = DualScreenPointer.mapViewToPointer(
+            viewX = 320f,
+            viewY = 96f,
+            viewW = 320,
+            viewH = 192,
+            contentW = 320,
+            contentH = 192,
+            fill = true,
+            target = DualScreenPointerTarget.BottomRight,
+            pressed = true,
+        )
+        assertEquals(0, left!!.x.toInt())
+        assertEquals(DualScreenPointer.AXIS_MAX, right!!.x.toInt())
+        assertEquals(0, left.y.toInt())
+        assertTrue(left.pressed)
+    }
+
+    @Test
+    fun topPanelIsNotATouchScreen() {
+        val ptr = DualScreenPointer.mapViewToPointer(
+            viewX = 64f,
+            viewY = 64f,
+            viewW = 256,
+            viewH = 192,
+            contentW = 256,
+            contentH = 192,
+            fill = true,
+            target = DualScreenPointerTarget.TopHalf,
+            pressed = true,
+        )
+        assertNull(ptr)
+    }
+
+    @Test
+    fun letterboxIgnoresBars() {
+        val rect = DualScreenPointer.contentRect(
+            viewW = 400,
+            viewH = 192,
+            contentW = 256,
+            contentH = 192,
+            fill = false,
+        )
+        assertEquals(72, rect[0])
+        assertEquals(0, rect[1])
+        assertEquals(328, rect[2])
+        val outside = DualScreenPointer.mapViewToPointer(
+            viewX = 10f,
+            viewY = 96f,
+            viewW = 400,
+            viewH = 192,
+            contentW = 256,
+            contentH = 192,
+            fill = false,
+            target = DualScreenPointerTarget.BottomHalf,
+            pressed = true,
+        )
+        assertFalse(outside!!.pressed)
+    }
+
+    @Test
+    fun packed3dsBottomMapsOntoCenteredTouchLcd() {
+        val left = DualScreenPointer.mapViewToPackedRect(
+            viewX = 0f,
+            viewY = 120f,
+            viewW = 320,
+            viewH = 240,
+            contentW = 320,
+            contentH = 240,
+            fill = true,
+            frameW = 400,
+            frameH = 480,
+            rect = DualScreenFrameRect(40, 240, 320, 240),
+            pressed = true,
+        )
+        val right = DualScreenPointer.mapViewToPackedRect(
+            viewX = 320f,
+            viewY = 120f,
+            viewW = 320,
+            viewH = 240,
+            contentW = 320,
+            contentH = 240,
+            fill = true,
+            frameW = 400,
+            frameH = 480,
+            rect = DualScreenFrameRect(40, 240, 320, 240),
+            pressed = true,
+        )
+        val span = DualScreenPointer.AXIS_MAX - DualScreenPointer.AXIS_MIN
+        val expectedLeft = (DualScreenPointer.AXIS_MIN + span * (40f / 400f)).toInt()
+        val expectedRight = (DualScreenPointer.AXIS_MIN + span * (360f / 400f)).toInt()
+        assertEquals(expectedLeft, left!!.x.toInt())
+        assertEquals(expectedRight, right!!.x.toInt())
+        assertTrue(left.pressed)
+    }
+}

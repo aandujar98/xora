@@ -5,22 +5,45 @@ import android.media.MediaPlayer
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** One-shot ROM focus sound bite (customized via Select → ROM options). */
 @Singleton
 class GameSoundBitePlayer @Inject constructor() {
     private var player: MediaPlayer? = null
     private var lastPath: String? = null
+    private val _playbackSuppressed = MutableStateFlow(false)
+    private val _holdsBackgroundMusic = MutableStateFlow(false)
+    val playbackSuppressed: StateFlow<Boolean> = _playbackSuppressed.asStateFlow()
+
+    /**
+     * True while a bite is playing or about to play (focus settle). The shell fades BGM out
+     * for the hold, then fades it back in when this returns to false.
+     */
+    val holdsBackgroundMusic: StateFlow<Boolean> = _holdsBackgroundMusic.asStateFlow()
+
+    /**
+     * Launch owns the speakers. While suppressed, [play] is a no-op so the focus pipeline
+     * cannot restart the clip after [stop] clears [lastPath].
+     */
+    fun setPlaybackSuppressed(suppressed: Boolean) {
+        _playbackSuppressed.value = suppressed
+        if (suppressed) stop()
+    }
 
     fun play(path: String?) {
+        if (_playbackSuppressed.value) return
         val file = path?.takeIf { it.isNotBlank() }?.let(::File)
         if (file == null || !file.isFile || file.length() <= 0L) {
             stop()
             return
         }
         if (path == lastPath && player?.isPlaying == true) return
-        stop()
+        stop(releaseBackgroundMusic = false)
         lastPath = path
+        _holdsBackgroundMusic.value = true
         runCatching {
             MediaPlayer().apply {
                 setAudioAttributes(
@@ -42,10 +65,17 @@ class GameSoundBitePlayer @Inject constructor() {
         }.onFailure { stop() }
     }
 
-    fun stop() {
+    /**
+     * @param releaseBackgroundMusic when false, the current clip is cut but BGM stays faded
+     * so a follow-up bite (focus settle) does not pump the soundtrack back in.
+     */
+    fun stop(releaseBackgroundMusic: Boolean = true) {
         runCatching { player?.stop() }
         runCatching { player?.release() }
         player = null
         lastPath = null
+        if (releaseBackgroundMusic) {
+            _holdsBackgroundMusic.value = false
+        }
     }
 }

@@ -1,15 +1,21 @@
 package com.arcadia.shell.feature.settings
 
 import android.app.Activity
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,13 +24,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -33,49 +44,64 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.activity.compose.BackHandler
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.arcadia.shell.datastore.DisplayMode
-import com.arcadia.shell.datastore.DualScreenLayout
+import com.arcadia.shell.datastore.AndroidAppInclusionMode
 import com.arcadia.shell.datastore.ThemeMode
-import com.arcadia.shell.datastore.ThreeDsScreenLayout
+import com.arcadia.shell.datastore.VisualPerformanceMode
+import com.arcadia.shell.datastore.visualPerformanceModeLabel
+import com.arcadia.shell.datastore.visualPerformanceModeSubtitle
+import com.arcadia.shell.launcher.selectedAndroidPackages
 import com.arcadia.shell.datastore.TrailerDisplayMode
+import com.arcadia.shell.datastore.GameIconIdleMedia
 import com.arcadia.shell.datastore.TrailerSourcePreference
-import com.arcadia.shell.datastore.XmbTitleStyle
-import com.arcadia.shell.datastore.XoraAspectMode
-import com.arcadia.shell.datastore.XoraInternalResolution
-import com.arcadia.shell.datastore.label
 import com.arcadia.shell.display.OverlayPermission
 import com.arcadia.shell.launcher.discord.DiscordPresenceCapability
+import com.arcadia.shell.launcher.discord.discordCanSignOut
+import com.arcadia.shell.launcher.discord.discordSettingsSignInLabel
+import com.arcadia.shell.designsystem.readDeviceVisualBudget
 import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LiquidGlassSurface
+import com.arcadia.shell.designsystem.LocalShellTheme
+import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.xoraModalGlass
+import com.arcadia.shell.designsystem.R as DsR
+import com.arcadia.shell.input.NavAction
+import kotlinx.coroutines.flow.Flow
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.model.RootKind
-import com.arcadia.shell.model.ScreenRole
 import kotlin.math.roundToInt
 
 /**
@@ -89,12 +115,105 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     onGoToOnboarding: () -> Unit = {},
     systemSection: @Composable () -> Unit = {},
+    /** Host art — the same settings hero used on the companion display. */
+    backdrop: @Composable BoxScope.() -> Unit = {},
+    padActions: Flow<NavAction>? = null,
+    onPadCapture: (Boolean) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showFolderPicker by remember { mutableStateOf(false) }
     var showMusicFolderPicker by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
+    var section by remember { mutableStateOf(SetupSection.Display) }
+    val scrollState = rememberScrollState()
+    val density = LocalDensity.current
+    val padRegistry = remember { SettingsPadRegistry() }
+    var pad by remember {
+        mutableStateOf(
+            SettingsPadNavState(
+                sectionIndex = 0,
+                zone = SettingsPadZone.Controls,
+                rowIndex = 0,
+                colIndex = 0,
+            ),
+        )
+    }
+    val onBackNow = rememberUpdatedState(onBack)
+    val padNow = rememberUpdatedState(pad)
+    val sectionNow = rememberUpdatedState(section)
+
+    LaunchedEffect(section) {
+        scrollState.scrollTo(0)
+        pad = SettingsPadNavState(
+            sectionIndex = SetupSection.entries.indexOf(section).coerceAtLeast(0),
+            zone = SettingsPadZone.Controls,
+            rowIndex = 0,
+            colIndex = 0,
+        )
+    }
+
+    DisposableEffect(onPadCapture) {
+        onPadCapture(true)
+        onDispose { onPadCapture(false) }
+    }
+    LaunchedEffect(padActions, padRegistry, density) {
+        val flow = padActions ?: return@LaunchedEffect
+        val sections = SetupSection.entries
+        val scrollStep = with(density) { 96.dp.toPx() }
+        flow.collect { action ->
+            val layout = padRegistry.layout()
+            val current = settingsPadCoerce(padNow.value, layout)
+            if (action == NavAction.Cancel || action == NavAction.Menu) {
+                onBackNow.value()
+                return@collect
+            }
+            val focusId = settingsPadFocusId(current, layout)
+            val binding = focusId?.let(padRegistry::binding)
+            if (action == NavAction.Confirm) {
+                when (current.zone) {
+                    SettingsPadZone.Done -> onBackNow.value()
+                    SettingsPadZone.Tabs -> {
+                        pad = settingsPadAfterAction(
+                            current,
+                            NavAction.Confirm,
+                            sections.size,
+                            layout,
+                        )
+                    }
+                    SettingsPadZone.Controls -> binding?.activate?.invoke()
+                }
+                return@collect
+            }
+            val delta = when (action) {
+                NavAction.Left -> -1
+                NavAction.Right -> 1
+                else -> null
+            }
+            if (delta != null && current.zone == SettingsPadZone.Controls) {
+                val adjust = binding?.adjust?.invoke()
+                if (adjust != null) {
+                    adjust(delta)
+                    return@collect
+                }
+            }
+            val next = settingsPadAfterAction(
+                current,
+                action,
+                sections.size,
+                layout,
+            )
+            if (settingsPadShouldScrollPage(current, next, action)) {
+                val pageDelta = if (action == NavAction.Down) scrollStep else -scrollStep
+                scrollState.animateScrollBy(pageDelta)
+                return@collect
+            }
+            pad = next
+            val nextSection = sections[next.sectionIndex]
+            if (nextSection != sectionNow.value) {
+                section = nextSection
+            }
+        }
+    }
 
     BackHandler(onBack = onBack)
 
@@ -150,40 +269,124 @@ fun SettingsScreen(
         exit = fadeOut(enterTween),
         modifier = modifier.fillMaxSize(),
     ) {
+    ArcadiaTheme(darkTheme = true) {
+    val setupScheme = MaterialTheme.colorScheme.copy(
+        onSurface = Color.White,
+        onSurfaceVariant = Color.White,
+        onBackground = Color.White,
+    )
+    MaterialTheme(colorScheme = setupScheme) {
+    val padLayout = padRegistry.layout()
+    val coercedPad = settingsPadCoerce(pad, padLayout)
+    val padFocusId = settingsPadFocusId(coercedPad, padLayout)
+    CompositionLocalProvider(
+        LocalContentColor provides Color.White,
+        LocalSettingsPadFocusId provides padFocusId,
+        LocalSettingsPadRegistry provides padRegistry,
+    ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        // Dim transparent plate so the XMB / wallpaper shows through.
+        backdrop()
+        // Opaque plate so leftover Home chrome cannot show through Setup.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.58f)),
+                .background(Color(0xFF141418)),
         )
-    LazyColumn(
-        state = listState,
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .imePadding(),
-        contentPadding = PaddingValues(horizontal = 32.dp, vertical = 20.dp),
+            .imePadding()
+            .verticalScroll(scrollState)
+            .padding(horizontal = 32.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item(key = "header") {
-            Row(
-                modifier = Modifier.fillMaxWidth().animateItem(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+        run {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(text = "Setup", style = MaterialTheme.typography.headlineMedium)
-                TextButton(onClick = onBack) { Text(text = "Done") }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Image(
+                            painter = painterResource(DsR.drawable.xmb_figma_settings),
+                            contentDescription = null,
+                            modifier = Modifier.size(36.dp),
+                        )
+                        Column {
+                            Text(
+                                text = "Setup",
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontFamily = XoraFonts.Title,
+                                    letterSpacing = XoraFonts.TitleLetterSpacing,
+                                ),
+                                color = Color.White,
+                            )
+                            Text(
+                                text = section.description,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = XoraFonts.Secondary,
+                                ),
+                                color = Color.White,
+                            )
+                        }
+                    }
+                    SettingsPadTarget(
+                        id = SettingsPadIds.Done,
+                        onActivate = onBack,
+                        listed = false,
+                    ) {
+                        TextButton(onClick = onBack) {
+                            Text(
+                                text = "Done",
+                                fontFamily = XoraFonts.XmbLabel,
+                                color = Color.White,
+                            )
+                        }
+                    }
+                }
+                SettingsPadTarget(
+                    id = SettingsPadIds.Tabs,
+                    onActivate = {
+                        pad = coercedPad.copy(
+                            zone = SettingsPadZone.Controls,
+                            rowIndex = 0,
+                            colIndex = 0,
+                        )
+                    },
+                    listed = false,
+                    showFocusBorder = false,
+                ) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(end = 8.dp),
+                ) {
+                    items(SetupSection.entries, key = { it.name }) { entry ->
+                        SetupSectionTab(
+                            section = entry,
+                            selected = entry == section,
+                            focused = padFocusId == SettingsPadIds.Tabs && entry == section,
+                            onClick = { section = entry },
+                        )
+                    }
+                }
+                }
             }
         }
 
         if (state.xoraDownloadRunning || state.message != null || state.xoraDownloadError != null) {
-            item(key = "status_banner") {
+            run {
                 val downloadError = state.xoraDownloadError
                 val bannerMessage = state.message
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .animateItem()
                         .liquidGlass(
                             shape = ArcadiaGlass.PanelShape,
                             tone = GlassTone.Surface,
@@ -219,48 +422,64 @@ fun SettingsScreen(
             }
         }
 
+        if (section == SetupSection.Display) {
         // 1. Appearance — theme + how trailers are presented
-        item(key = "appearance") {
-            SettingsCard(title = "Appearance", modifier = Modifier.animateItem()) {
+        run {
+            SettingsCard(
+                title = "Appearance",
+                iconRes = DsR.drawable.xmb_figma_device,
+                modifier = Modifier,
+            ) {
                 SettingsFieldLabel("Theme")
+                SettingsPadRow("theme") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ThemeMode.entries.forEach { mode ->
-                        FilterChip(
+                        PadChip(
+                            id = "theme_${mode.name}",
                             selected = state.settings.themeMode == mode,
                             onClick = { viewModel.setThemeMode(mode) },
-                            label = {
-                                Text(
-                                    text = when (mode) {
-                                        ThemeMode.System -> "System"
-                                        ThemeMode.Light -> "Light"
-                                        ThemeMode.Dark -> "Dark"
-                                    },
-                                )
+                            label = when (mode) {
+                                ThemeMode.System -> "System"
+                                ThemeMode.Light -> "Light"
+                                ThemeMode.Dark -> "Dark"
                             },
                         )
                     }
                 }
+                }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
-                SettingsFieldLabel("XMB game titles")
+                SettingsFieldLabel("Performance")
+                val deviceBudget = remember(context) { readDeviceVisualBudget(context) }
                 Text(
-                    text = "Clear logos beside box art, or plain text titles.",
+                    text = "Default is Auto: this phone's RAM and memory class pick Performance " +
+                        "or Quality. Performance uses a static wallpaper and skips glass blur, " +
+                        "looping video, and idle trailers.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = state.settings.xmbTitleStyle == XmbTitleStyle.TitleIcons,
-                        onClick = { viewModel.setXmbTitleStyle(XmbTitleStyle.TitleIcons) },
-                        label = { Text(text = "Title icons") },
-                    )
-                    FilterChip(
-                        selected = state.settings.xmbTitleStyle == XmbTitleStyle.Text,
-                        onClick = { viewModel.setXmbTitleStyle(XmbTitleStyle.Text) },
-                        label = { Text(text = "Text") },
-                    )
+                SettingsPadRow("perf") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VisualPerformanceMode.entries.forEach { mode ->
+                            PadChip(
+                                id = "perf_${mode.name}",
+                                selected = state.settings.visualPerformanceMode == mode,
+                                onClick = { viewModel.setVisualPerformanceMode(mode) },
+                                label = visualPerformanceModeLabel(mode),
+                            )
+                        }
+                    }
                 }
+                Text(
+                    text = visualPerformanceModeSubtitle(
+                        mode = state.settings.visualPerformanceMode,
+                        deviceSuggestsLite = deviceBudget.suggestsLiteVisuals,
+                        deviceRamLabel = deviceBudget.usableRamLabel,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
@@ -270,107 +489,146 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = state.settings.trailerDisplayMode ==
-                            TrailerDisplayMode.FullBackground,
-                        onClick = {
-                            viewModel.setTrailerDisplayMode(TrailerDisplayMode.FullBackground)
-                        },
-                        enabled = state.settings.trailerEnabled,
-                        label = { Text(text = "Full background") },
-                    )
-                    FilterChip(
-                        selected = state.settings.trailerDisplayMode ==
-                            TrailerDisplayMode.CornerPip,
-                        onClick = {
-                            viewModel.setTrailerDisplayMode(TrailerDisplayMode.CornerPip)
-                        },
-                        enabled = state.settings.trailerEnabled,
-                        label = { Text(text = "Corner PIP") },
+                SettingsPadRow("trailer_display") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PadChip(
+                            id = "trailer_in_icon",
+                            selected = state.settings.trailerDisplayMode == TrailerDisplayMode.InIcon,
+                            onClick = { viewModel.setTrailerDisplayMode(TrailerDisplayMode.InIcon) },
+                            enabled = state.settings.trailerEnabled,
+                            label = "Game icon",
+                        )
+                        PadChip(
+                            id = "trailer_full_bg",
+                            selected = state.settings.trailerDisplayMode ==
+                                TrailerDisplayMode.FullBackground,
+                            onClick = {
+                                viewModel.setTrailerDisplayMode(TrailerDisplayMode.FullBackground)
+                            },
+                            enabled = state.settings.trailerEnabled,
+                            label = "Full background",
+                        )
+                        PadChip(
+                            id = "trailer_pip",
+                            selected = state.settings.trailerDisplayMode == TrailerDisplayMode.CornerPip,
+                            onClick = { viewModel.setTrailerDisplayMode(TrailerDisplayMode.CornerPip) },
+                            enabled = state.settings.trailerEnabled,
+                            label = "Corner PIP",
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("Game Icon idle")
+                Text(
+                    text = "What fills the focused Game Icon. Screenshots play your stills " +
+                        "and GIFs (add them in the ROM editor), fading every few seconds.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SettingsPadRow("idle_media") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PadChip(
+                            id = "idle_trailer",
+                            selected = state.settings.gameIconIdleMedia == GameIconIdleMedia.Trailer,
+                            onClick = { viewModel.setGameIconIdleMedia(GameIconIdleMedia.Trailer) },
+                            label = "Trailers",
+                        )
+                        PadChip(
+                            id = "idle_screenshot",
+                            selected = state.settings.gameIconIdleMedia == GameIconIdleMedia.Screenshot,
+                            onClick = { viewModel.setGameIconIdleMedia(GameIconIdleMedia.Screenshot) },
+                            label = "Screenshots",
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("Music cover backdrop")
+                Text(
+                    text = "When a song is playing and you are on the Music column, show " +
+                        "that track's cover art with a wave mask composited on top.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = "Cover + wave", style = MaterialTheme.typography.bodyMedium)
+                    PadSwitch(
+                        id = "music_art_backdrop",
+                        checked = state.settings.musicCategoryArtBackdrop,
+                        onCheckedChange = viewModel::setMusicCategoryArtBackdrop,
                     )
                 }
             }
         }
 
         // 2. Library / Layout — display mode, feed grid + second screen
-        item(key = "library_layout") {
-            SettingsCard(title = "Library / Layout", modifier = Modifier.animateItem()) {
-                SettingsFieldLabel("Display mode")
+        run {
+            SettingsCard(
+                title = "Library / Layout",
+                iconRes = DsR.drawable.xmb_figma_folder,
+                modifier = Modifier,
+            ) {
+                SettingsFieldLabel("Library columns: ${state.settings.gridColumns}")
                 Text(
-                    text = "Single screen uses a vertical game selector on one display. Dual screen " +
-                        "splits library and artwork when a second display is available.",
+                    text = "Columns for the RSS feed grid.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = state.settings.displayMode == DisplayMode.Single,
-                        onClick = { viewModel.setDisplayMode(DisplayMode.Single) },
-                        label = { Text(text = "Single screen") },
-                    )
-                    FilterChip(
-                        selected = state.settings.displayMode == DisplayMode.Dual,
-                        onClick = { viewModel.setDisplayMode(DisplayMode.Dual) },
-                        label = { Text(text = "Dual screen") },
-                    )
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-
-                SettingsFieldLabel("Feed columns: ${state.settings.gridColumns}")
-                Text(
-                    text = "Columns for the Home RSS feed grid (LB).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(2, 3, 4, 5, 6).forEach { columns ->
-                        FilterChip(
-                            selected = state.settings.gridColumns == columns,
-                            onClick = { viewModel.setGridColumns(columns) },
-                            label = { Text(text = columns.toString()) },
-                        )
+                SettingsPadRow("grid_cols") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(2, 3, 4, 5, 6).forEach { columns ->
+                            PadChip(
+                                id = "grid_cols_$columns",
+                                selected = state.settings.gridColumns == columns,
+                                onClick = { viewModel.setGridColumns(columns) },
+                                label = columns.toString(),
+                            )
+                        }
                     }
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
-                SettingsFieldLabel("Second screen shows")
-                Text(
-                    text = "Used when Dual screen mode has a second display.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ScreenRole.entries.forEach { role ->
-                        FilterChip(
-                            selected = state.settings.secondaryDisplayRole == role,
-                            onClick = { viewModel.setSecondaryDisplayRole(role) },
-                            enabled = state.settings.displayMode == DisplayMode.Dual,
-                            label = {
-                                Text(
-                                    text = when (role) {
-                                        ScreenRole.Hero -> "Artwork"
-                                        ScreenRole.Grid -> "Library"
-                                    },
-                                )
-                            },
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(text = "Show hidden games", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = "Hidden titles stay in your library. Turn this on to list them " +
+                                "again and unhide from ROM options.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    PadSwitch(
+                        id = "show_hidden_games",
+                        checked = state.settings.showHiddenGames,
+                        onCheckedChange = viewModel::setShowHiddenGames,
+                    )
                 }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-
-                CompanionScreenPermissionRow(
-                    enabled = state.settings.displayMode == DisplayMode.Dual,
-                )
             }
         }
 
+        }
+
+        if (section == SetupSection.Audio) {
         // 3. Audio — BGM + UI SFX
-        item(key = "audio") {
-            SettingsCard(title = "Audio", modifier = Modifier.animateItem()) {
+        run {
+            SettingsCard(
+                title = "Audio",
+                iconRes = DsR.drawable.xmb_figma_music,
+                modifier = Modifier,
+            ) {
                 SettingsFieldLabel("Background music")
                 Text(
                     text = "Looping soundtrack while XOrA is open. Muted at 0%. Pauses when the " +
@@ -388,13 +646,60 @@ fun SettingsScreen(
                     text = "Volume: $percent%",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Slider(
-                    value = draftVolume,
-                    onValueChange = { draftVolume = it },
-                    onValueChangeFinished = { viewModel.setBgmVolume(draftVolume) },
-                    valueRange = 0f..1f,
-                    modifier = Modifier.fillMaxWidth(),
+                SettingsPadTarget(
+                    id = "audio_bgm",
+                    onActivate = { },
+                    onAdjust = { delta ->
+                        val next = (draftVolume + delta * 0.05f).coerceIn(0f, 1f)
+                        draftVolume = next
+                        viewModel.setBgmVolume(next)
+                    },
+                ) {
+                    Slider(
+                        value = draftVolume,
+                        onValueChange = { draftVolume = it },
+                        onValueChangeFinished = { viewModel.setBgmVolume(draftVolume) },
+                        valueRange = 0f..1f,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                SettingsFieldLabel("Library music")
+                Text(
+                    text = "Songs you play from Music / Now Playing. Independent of the theme " +
+                        "soundtrack. Background videos use Background music volume.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                var draftMusic by remember(state.settings.musicVolume) {
+                    mutableFloatStateOf(state.settings.musicVolume)
+                }
+                val musicPercent = (draftMusic * 100f).roundToInt()
+
+                Text(
+                    text = "Volume: $musicPercent%",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                SettingsPadTarget(
+                    id = "audio_music",
+                    onActivate = { },
+                    onAdjust = { delta ->
+                        val next = (draftMusic + delta * 0.05f).coerceIn(0f, 1f)
+                        draftMusic = next
+                        viewModel.setMusicVolume(next)
+                    },
+                ) {
+                    Slider(
+                        value = draftMusic,
+                        onValueChange = { draftMusic = it },
+                        onValueChangeFinished = { viewModel.setMusicVolume(draftMusic) },
+                        valueRange = 0f..1f,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
@@ -415,20 +720,32 @@ fun SettingsScreen(
                     text = "Volume: $sfxPercent%",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Slider(
-                    value = draftSfx,
-                    onValueChange = { draftSfx = it },
-                    onValueChangeFinished = { viewModel.setUiSfxVolume(draftSfx) },
-                    valueRange = 0f..1f,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                SettingsPadTarget(
+                    id = "audio_sfx",
+                    onActivate = { },
+                    onAdjust = { delta ->
+                        val next = (draftSfx + delta * 0.05f).coerceIn(0f, 1f)
+                        draftSfx = next
+                        viewModel.setUiSfxVolume(next)
+                    },
+                ) {
+                    Slider(
+                        value = draftSfx,
+                        onValueChange = { draftSfx = it },
+                        onValueChangeFinished = { viewModel.setUiSfxVolume(draftSfx) },
+                        valueRange = 0f..1f,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
                 SettingsFieldLabel("Music library folder")
                 Text(
-                    text = "Where Music → Playlist / All music look for on-device songs. " +
-                        "Leave empty to use all music indexed on this device.",
+                    text = "Where Music → Playlist / All music look for on-device songs " +
+                        "(mp3, wav, flac, and similar). Leave empty to use all music indexed " +
+                        "on this device. Album artwork is filled automatically from embedded " +
+                        "tags, a cover.jpg in the folder, or an online lookup.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -437,18 +754,32 @@ fun SettingsScreen(
                         ?: "All device music",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                SettingsPadRow("audio_folder") {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = { showMusicFolderPicker = true },
-                        enabled = state.hasStorageAccess,
+                    SettingsPadTarget(
+                        id = "audio_choose_folder",
+                        onActivate = {
+                            if (state.hasStorageAccess) showMusicFolderPicker = true
+                        },
                     ) {
-                        Text(text = "Choose folder")
-                    }
-                    if (!state.settings.musicLibraryPath.isNullOrBlank()) {
-                        OutlinedButton(onClick = { viewModel.setMusicLibraryPath(null) }) {
-                            Text(text = "Use all device music")
+                        Button(
+                            onClick = { showMusicFolderPicker = true },
+                            enabled = state.hasStorageAccess,
+                        ) {
+                            Text(text = "Choose folder")
                         }
                     }
+                    if (!state.settings.musicLibraryPath.isNullOrBlank()) {
+                        SettingsPadTarget(
+                            id = "audio_clear_folder",
+                            onActivate = { viewModel.setMusicLibraryPath(null) },
+                        ) {
+                            OutlinedButton(onClick = { viewModel.setMusicLibraryPath(null) }) {
+                                Text(text = "Use all device music")
+                            }
+                        }
+                    }
+                }
                 }
                 if (!state.hasStorageAccess) {
                     Text(
@@ -460,14 +791,59 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (section == SetupSection.Media) {
+        // Where the Videos and Photos tabs look. Several folders may be chosen for each.
+        run {
+            val videoFolders by viewModel.videoFolders.collectAsStateWithLifecycle()
+            val photoFolders by viewModel.photoFolders.collectAsStateWithLifecycle()
+            val videoFolderPicker = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.OpenDocumentTree(),
+            ) { uri -> uri?.let(viewModel::addVideoFolder) }
+            val photoFolderPicker = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.OpenDocumentTree(),
+            ) { uri -> uri?.let(viewModel::addPhotoFolder) }
+            SettingsCard(
+                title = "Media folders",
+                iconRes = DsR.drawable.xmb_figma_video,
+                modifier = Modifier,
+            ) {
+                Text(
+                    text = "Point the Videos and Photos tabs at particular folders. With none " +
+                        "chosen each tab shows everything on the device, as it does today.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                MediaFolderList(
+                    label = "Video folders",
+                    folders = videoFolders,
+                    addId = "video_folder_add",
+                    onAdd = { videoFolderPicker.launch(null) },
+                    onRemove = viewModel::removeVideoFolder,
+                )
+                MediaFolderList(
+                    label = "Photo folders",
+                    folders = photoFolders,
+                    addId = "photo_folder_add",
+                    onAdd = { photoFolderPicker.launch(null) },
+                    onRemove = viewModel::removePhotoFolder,
+                )
+            }
+        }
+
         // 4. Trailers — scrape / source / idle (display mode lives under Appearance)
-        item(key = "trailers") {
-            SettingsCard(title = "Trailers", modifier = Modifier.animateItem()) {
+        run {
+            SettingsCard(
+                title = "Trailers",
+                iconRes = DsR.drawable.xmb_figma_video,
+                modifier = Modifier,
+            ) {
                 Text(
                     text = "Playnite-style trailers: resolve a YouTube or Steam URL for the " +
                         "selected game, store it, then play muted after " +
                         "${state.settings.trailerIdleSeconds}s idle on the game selector. " +
-                        "Shell music ducks while a trailer plays.",
+                        "Shell music keeps playing at full volume while a trailer is muted.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -477,7 +853,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(text = "Scrape trailers", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
+                    PadSwitch(
+                        id = "trailer_scrape",
                         checked = state.settings.trailerScrapeEnabled,
                         onCheckedChange = viewModel::setTrailerScrapeEnabled,
                     )
@@ -490,25 +867,24 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 SettingsFieldLabel("Trailer source")
+                SettingsPadRow("trailer_src") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TrailerSourcePreference.entries.forEach { preference ->
-                        FilterChip(
+                        PadChip(
+                            id = "trailer_src_${preference.name}",
                             selected = state.settings.trailerSourcePreference == preference,
                             onClick = { viewModel.setTrailerSourcePreference(preference) },
                             enabled = state.settings.trailerScrapeEnabled,
-                            label = {
-                                Text(
-                                    text = when (preference) {
-                                        TrailerSourcePreference.Auto -> "Auto"
-                                        TrailerSourcePreference.YouTube -> "YouTube"
-                                        TrailerSourcePreference.Steam -> "Steam"
-                                        TrailerSourcePreference.ScreenScraper -> "ScreenScraper"
-                                        TrailerSourcePreference.Igdb -> "IGDB"
-                                    },
-                                )
+                            label = when (preference) {
+                                TrailerSourcePreference.Auto -> "Auto"
+                                TrailerSourcePreference.YouTube -> "YouTube"
+                                TrailerSourcePreference.Steam -> "Steam"
+                                TrailerSourcePreference.ScreenScraper -> "ScreenScraper"
+                                TrailerSourcePreference.Igdb -> "IGDB"
                             },
                         )
                     }
+                }
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -516,7 +892,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(text = "Idle trailers", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
+                    PadSwitch(
+                        id = "idle_trailers",
                         checked = state.settings.trailerEnabled,
                         onCheckedChange = viewModel::setTrailerEnabled,
                     )
@@ -525,8 +902,12 @@ fun SettingsScreen(
         }
 
         // 5. Scrapers / Metadata
-        item(key = "scrapers") {
-            SettingsCard(title = "Scrapers / Metadata", modifier = Modifier.animateItem()) {
+        run {
+            SettingsCard(
+                title = "Scrapers / Metadata",
+                iconRes = DsR.drawable.xmb_figma_photo,
+                modifier = Modifier,
+            ) {
                 Text(
                     text = "XOrA looks up artwork from whichever sources you configure. " +
                         "ScreenScraper matches by file hash and is the most accurate, but it also " +
@@ -540,6 +921,7 @@ fun SettingsScreen(
                     label = "SteamGridDB API key",
                     value = state.credentials.steamGridDbKey,
                     onCommit = viewModel::setSteamGridDbKey,
+                    padId = "scraper_sgdb",
                 )
 
                 PairedSecretFields(
@@ -548,6 +930,8 @@ fun SettingsScreen(
                     firstValue = state.credentials.screenScraperUser,
                     secondValue = state.credentials.screenScraperPassword,
                     onCommit = viewModel::setScreenScraperCredentials,
+                    firstPadId = "scraper_ss_user",
+                    secondPadId = "scraper_ss_pass",
                 )
 
                 PairedSecretFields(
@@ -556,6 +940,8 @@ fun SettingsScreen(
                     firstValue = state.credentials.screenScraperDevId,
                     secondValue = state.credentials.screenScraperDevPassword,
                     onCommit = viewModel::setScreenScraperDevCredentials,
+                    firstPadId = "scraper_ss_devid",
+                    secondPadId = "scraper_ss_devpass",
                 )
 
                 PairedSecretFields(
@@ -564,20 +950,22 @@ fun SettingsScreen(
                     firstValue = state.credentials.igdbClientId,
                     secondValue = state.credentials.igdbClientSecret,
                     onCommit = viewModel::setIgdbCredentials,
+                    firstPadId = "scraper_igdb_id",
+                    secondPadId = "scraper_igdb_secret",
                 )
 
-                FilterChip(
+                PadChip(
+                    id = "scrape_after_scan",
                     selected = state.settings.scrapeAfterScan,
                     onClick = { viewModel.setScrapeAfterScan(!state.settings.scrapeAfterScan) },
-                    label = { Text(text = "Fetch artwork automatically after a scan") },
+                    label = "Fetch artwork automatically after a scan",
                 )
 
-                FilterChip(
+                PadChip(
+                    id = "manual_scrape",
                     selected = state.settings.manualScrapeEnabled,
-                    onClick = {
-                        viewModel.setManualScrapeEnabled(!state.settings.manualScrapeEnabled)
-                    },
-                    label = { Text(text = "Download game manuals") },
+                    onClick = { viewModel.setManualScrapeEnabled(!state.settings.manualScrapeEnabled) },
+                    label = "Download game manuals",
                 )
                 Text(
                     text = "Manuals come from ScreenScraper and are the largest media it serves, " +
@@ -587,25 +975,46 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                SettingsPadRow("scrape_actions") {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = viewModel::scrapeNow,
-                        enabled = !state.isScraping && state.gameCount > 0,
+                    SettingsPadTarget(
+                        id = "scrape_now",
+                        onActivate = {
+                            if (!state.isScraping && state.gameCount > 0) viewModel.scrapeNow()
+                        },
                     ) {
-                        Text(text = if (state.isScraping) "Fetching…" else "Fetch artwork now")
-                    }
-                    if (state.isScraping) {
-                        OutlinedButton(onClick = viewModel::cancelScrape) {
-                            Text(text = "Stop")
+                        Button(
+                            onClick = viewModel::scrapeNow,
+                            enabled = !state.isScraping && state.gameCount > 0,
+                        ) {
+                            Text(text = if (state.isScraping) "Fetching…" else "Fetch artwork now")
                         }
                     }
+                    if (state.isScraping) {
+                        SettingsPadTarget(
+                            id = "scrape_stop",
+                            onActivate = viewModel::cancelScrape,
+                        ) {
+                            OutlinedButton(onClick = viewModel::cancelScrape) {
+                                Text(text = "Stop")
+                            }
+                        }
+                    }
+                }
                 }
             }
         }
 
+        }
+
+        if (section == SetupSection.Accounts) {
         // 6. RetroAchievements
-        item(key = "ra") {
-            SettingsCard(title = "RetroAchievements", modifier = Modifier.animateItem()) {
+        run {
+            SettingsCard(
+                title = "RetroAchievements",
+                iconRes = DsR.drawable.xmb_figma_trophy,
+                modifier = Modifier,
+            ) {
                 Text(
                     text = "Shared by the XOrA launcher (XMB · press X) and XOrA Emulator. " +
                         "Sign in with username/password (required for the emulator). " +
@@ -620,7 +1029,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(text = "Enable RetroAchievements", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
+                    PadSwitch(
+                        id = "ra_enable",
                         checked = state.raSettings.enabled,
                         onCheckedChange = viewModel::setRaEnabled,
                     )
@@ -640,7 +1050,8 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Switch(
+                    PadSwitch(
+                        id = "ra_hardcore",
                         checked = state.raSettings.hardcore,
                         onCheckedChange = viewModel::setRaHardcore,
                         enabled = state.raSettings.enabled,
@@ -652,7 +1063,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(text = "Unlock notifications", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
+                    PadSwitch(
+                        id = "ra_unlock_notifs",
                         checked = state.raSettings.unlockNotifications,
                         onCheckedChange = viewModel::setRaUnlockNotifications,
                         enabled = state.raSettings.enabled,
@@ -671,7 +1083,8 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Switch(
+                    PadSwitch(
+                        id = "ra_show_launcher",
                         checked = state.raSettings.showInLauncher,
                         onCheckedChange = viewModel::setRaShowInLauncher,
                         enabled = state.raSettings.enabled,
@@ -683,7 +1096,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(text = "Rich presence text", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
+                    PadSwitch(
+                        id = "ra_rich_presence",
                         checked = state.raSettings.richPresence,
                         onCheckedChange = viewModel::setRaRichPresence,
                         enabled = state.raSettings.enabled,
@@ -705,10 +1119,15 @@ fun SettingsScreen(
                     Text(
                         text = "Signed in as ${state.retroAchievements.username}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color.White,
                     )
-                    OutlinedButton(onClick = viewModel::clearRetroAchievementsCredentials) {
-                        Text(text = "Sign out")
+                    SettingsPadTarget(
+                        id = "ra_sign_out",
+                        onActivate = viewModel::clearRetroAchievementsCredentials,
+                    ) {
+                        OutlinedButton(onClick = viewModel::clearRetroAchievementsCredentials) {
+                            Text(text = "Sign out")
+                        }
                     }
                 }
 
@@ -726,24 +1145,33 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(
-                    onClick = viewModel::hashAllRoms,
-                    enabled = !state.isHashingRoms,
+                SettingsPadTarget(
+                    id = "ra_hash_roms",
+                    onActivate = { if (!state.isHashingRoms) viewModel.hashAllRoms() },
                 ) {
-                    Text(
-                        text = if (state.isHashingRoms) {
-                            "Hashing…"
-                        } else {
-                            "Hash all ROMs"
-                        },
-                    )
+                    Button(
+                        onClick = viewModel::hashAllRoms,
+                        enabled = !state.isHashingRoms,
+                    ) {
+                        Text(
+                            text = if (state.isHashingRoms) {
+                                "Hashing…"
+                            } else {
+                                "Hash all ROMs"
+                            },
+                        )
+                    }
                 }
             }
         }
 
         // 7. Social
-        item(key = "social") {
-            SettingsCard(title = "Social", modifier = Modifier.animateItem()) {
+        run {
+            SettingsCard(
+                title = "Social",
+                iconRes = DsR.drawable.xmb_figma_network,
+                modifier = Modifier,
+            ) {
                 Text(
                     text = "LT opens the social menu. Sign in with Steam for SteamID64; a Steam " +
                         "Web API key is still required once (Steam has no password→API key for " +
@@ -767,18 +1195,25 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(
-                    onClick = {
+                SettingsPadTarget(
+                    id = "social_notif_access",
+                    onActivate = {
                         permissionLauncher.launch(viewModel.notificationListenerSettingsIntent())
                     },
                 ) {
-                    Text(
-                        text = if (state.notificationListenerEnabled) {
-                            "Notification access settings"
-                        } else {
-                            "Notification access for conversations"
+                    OutlinedButton(
+                        onClick = {
+                            permissionLauncher.launch(viewModel.notificationListenerSettingsIntent())
                         },
-                    )
+                    ) {
+                        Text(
+                            text = if (state.notificationListenerEnabled) {
+                                "Notification access settings"
+                            } else {
+                                "Notification access for conversations"
+                            },
+                        )
+                    }
                 }
 
                 SettingsFieldLabel("Sign in with Steam")
@@ -787,8 +1222,9 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(
-                    onClick = {
+                SettingsPadTarget(
+                    id = "social_steam_signin",
+                    onActivate = {
                         val customTabs = androidx.browser.customtabs.CustomTabsIntent.Builder()
                             .setShowTitle(true)
                             .build()
@@ -800,99 +1236,190 @@ fun SettingsScreen(
                         }
                     },
                 ) {
-                    Text(
-                        text = if (state.steamWebApi.steamId64.isNotBlank()) {
-                            "Re-link Steam (ID ${state.steamWebApi.steamId64})"
-                        } else {
-                            "Sign in with Steam"
+                    Button(
+                        onClick = {
+                            val customTabs = androidx.browser.customtabs.CustomTabsIntent.Builder()
+                                .setShowTitle(true)
+                                .build()
+                            runCatching {
+                                customTabs.launchUrl(
+                                    context,
+                                    android.net.Uri.parse(viewModel.steamOpenIdAuthorizationUrl()),
+                                )
+                            }
                         },
-                    )
+                    ) {
+                        Text(
+                            text = if (state.steamWebApi.steamId64.isNotBlank()) {
+                                "Re-link Steam (ID ${state.steamWebApi.steamId64})"
+                            } else {
+                                "Sign in with Steam"
+                            },
+                        )
+                    }
                 }
 
                 SecretField(
                     label = "Steam Web API key",
                     value = state.steamWebApi.apiKey,
                     onCommit = viewModel::setSteamWebApiKey,
+                    padId = "steam_api_key",
                 )
                 var steamIdDraft by remember(state.steamWebApi.steamId64) {
                     mutableStateOf(state.steamWebApi.steamId64)
                 }
-                OutlinedTextField(
-                    value = steamIdDraft,
-                    onValueChange = { steamIdDraft = it },
-                    label = { Text(text = "SteamID64 (from Sign in with Steam)") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused && steamIdDraft != state.steamWebApi.steamId64) {
-                                viewModel.setSteamId64(steamIdDraft)
-                            }
-                        },
-                )
+                val steamIdRequester = remember { FocusRequester() }
+                SettingsPadTarget(
+                    id = "social_steam_id",
+                    onActivate = { steamIdRequester.requestFocus() },
+                ) {
+                    OutlinedTextField(
+                        value = steamIdDraft,
+                        onValueChange = { steamIdDraft = it },
+                        label = { Text(text = "SteamID64 (from Sign in with Steam)") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(steamIdRequester)
+                            .onFocusChanged { focus ->
+                                if (!focus.isFocused && steamIdDraft != state.steamWebApi.steamId64) {
+                                    viewModel.setSteamId64(steamIdDraft)
+                                }
+                            },
+                    )
+                }
 
                 if (state.steamWebApi.apiKey.isNotBlank() || state.steamWebApi.steamId64.isNotBlank()) {
-                    OutlinedButton(onClick = viewModel::clearSteamWebApiCredentials) {
-                        Text(text = "Clear Steam credentials")
+                    SettingsPadTarget(
+                        id = "social_steam_clear",
+                        onActivate = viewModel::clearSteamWebApiCredentials,
+                    ) {
+                        OutlinedButton(onClick = viewModel::clearSteamWebApiCredentials) {
+                            Text(text = "Clear Steam credentials")
+                        }
                     }
                 }
 
                 SettingsFieldLabel("Discord")
+                val discordCanSignIn =
+                    state.discordPresence.capability != DiscordPresenceCapability.SdkMissing &&
+                        state.discordPresence.applicationId.isNotBlank()
+                val discordSignedIn = discordCanSignOut(state.discordPresence)
+                SettingsPadRow("social_discord_auth") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsPadTarget(
+                            id = "social_discord_signin",
+                            onActivate = {
+                                if (discordCanSignIn) {
+                                    val activity = context.settingsHostActivity()
+                                    if (activity != null) {
+                                        viewModel.linkDiscordAccount(activity)
+                                    } else {
+                                        viewModel.signInDiscordUnavailable()
+                                    }
+                                }
+                            },
+                        ) {
+                            Button(
+                                onClick = {
+                                    val activity = context.settingsHostActivity()
+                                    if (activity != null) {
+                                        viewModel.linkDiscordAccount(activity)
+                                    } else {
+                                        viewModel.signInDiscordUnavailable()
+                                    }
+                                },
+                                enabled = discordCanSignIn,
+                            ) {
+                                Text(text = discordSettingsSignInLabel(state.discordPresence))
+                            }
+                        }
+                        if (discordSignedIn) {
+                            SettingsPadTarget(
+                                id = "social_discord_signout",
+                                onActivate = viewModel::signOutDiscord,
+                            ) {
+                                OutlinedButton(onClick = viewModel::signOutDiscord) {
+                                    Text(text = "Sign out of Discord")
+                                }
+                            }
+                        }
+                    }
+                }
                 var discordDraft by remember(state.discordSocial.openUrl) {
                     mutableStateOf(state.discordSocial.openUrl)
                 }
-                OutlinedTextField(
-                    value = discordDraft,
-                    onValueChange = { discordDraft = it },
-                    label = { Text(text = "Discord invite / profile URL") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused && discordDraft != state.discordSocial.openUrl) {
-                                viewModel.setDiscordOpenUrl(discordDraft)
-                            }
-                        },
-                )
+                val discordInviteRequester = remember { FocusRequester() }
+                SettingsPadTarget(
+                    id = "social_discord_invite",
+                    onActivate = { discordInviteRequester.requestFocus() },
+                ) {
+                    OutlinedTextField(
+                        value = discordDraft,
+                        onValueChange = { discordDraft = it },
+                        label = { Text(text = "Discord invite / profile URL") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(discordInviteRequester)
+                            .onFocusChanged { focus ->
+                                if (!focus.isFocused && discordDraft != state.discordSocial.openUrl) {
+                                    viewModel.setDiscordOpenUrl(discordDraft)
+                                }
+                            },
+                    )
+                }
 
                 if (state.discordSocial.hasLink) {
-                    OutlinedButton(onClick = viewModel::clearDiscordOpenUrl) {
-                        Text(text = "Clear Discord link")
+                    SettingsPadTarget(
+                        id = "social_discord_clear",
+                        onActivate = viewModel::clearDiscordOpenUrl,
+                    ) {
+                        OutlinedButton(onClick = viewModel::clearDiscordOpenUrl) {
+                            Text(text = "Clear Discord link")
+                        }
                     }
                 }
 
                 var discordAppIdDraft by remember(state.discordSocial.applicationId) {
                     mutableStateOf(state.discordSocial.applicationId)
                 }
-                OutlinedTextField(
-                    value = discordAppIdDraft,
-                    onValueChange = { discordAppIdDraft = it },
-                    label = { Text(text = "Discord Application ID (Rich Presence)") },
-                    singleLine = true,
-                    supportingText = {
-                        Text(
-                            text = buildString {
-                                append("Status: ${state.discordPresence.connectionLabel}")
-                                append(" · ")
-                                append(state.discordPresence.statusLine)
-                                append(" · ")
-                                append(
-                                    "Default is XOrA's Application ID; override or Clear to disable. " +
-                                        "Public Application ID only — never put a client secret here.",
-                                )
-                            },
-                        )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused &&
-                                discordAppIdDraft != state.discordSocial.applicationId
-                            ) {
-                                viewModel.setDiscordApplicationId(discordAppIdDraft)
-                            }
+                val discordAppIdRequester = remember { FocusRequester() }
+                SettingsPadTarget(
+                    id = "social_discord_app_id",
+                    onActivate = { discordAppIdRequester.requestFocus() },
+                ) {
+                    OutlinedTextField(
+                        value = discordAppIdDraft,
+                        onValueChange = { discordAppIdDraft = it },
+                        label = { Text(text = "Discord Application ID (Rich Presence)") },
+                        singleLine = true,
+                        supportingText = {
+                            Text(
+                                text = buildString {
+                                    append("Status: ${state.discordPresence.connectionLabel}")
+                                    append(" · ")
+                                    append(state.discordPresence.statusLine)
+                                    append(" · ")
+                                    append(
+                                        "Default is XOrA's Application ID; override or Clear to disable. " +
+                                            "Public Application ID only — never put a client secret here.",
+                                    )
+                                },
+                            )
                         },
-                )
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(discordAppIdRequester)
+                            .onFocusChanged { focus ->
+                                if (!focus.isFocused &&
+                                    discordAppIdDraft != state.discordSocial.applicationId
+                                ) {
+                                    viewModel.setDiscordApplicationId(discordAppIdDraft)
+                                }
+                            },
+                    )
+                }
 
                 Text(
                     text = state.discordPresence.detailLine,
@@ -919,14 +1446,23 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
-                        OutlinedButton(
-                            onClick = {
+                        SettingsPadTarget(
+                            id = "social_discord_portal",
+                            onActivate = {
                                 runCatching {
                                     context.startActivity(viewModel.openDiscordDeveloperPortalIntent())
                                 }
                             },
                         ) {
-                            Text(text = "Open Discord Developer Portal")
+                            OutlinedButton(
+                                onClick = {
+                                    runCatching {
+                                        context.startActivity(viewModel.openDiscordDeveloperPortalIntent())
+                                    }
+                                },
+                            ) {
+                                Text(text = "Open Discord Developer Portal")
+                            }
                         }
                     }
                     DiscordPresenceCapability.NeedsAccountLink,
@@ -934,8 +1470,8 @@ fun SettingsScreen(
                     DiscordPresenceCapability.Failed,
                     -> {
                         Text(
-                            text = "Social SDK is in this build. Use Social → Circle/Messages → " +
-                                "Link Discord (redirect ${state.discordPresence.oauthRedirectUri}). " +
+                            text = "Use Sign in with Discord above " +
+                                "(redirect ${state.discordPresence.oauthRedirectUri}). " +
                                 "Public Client must be enabled. Presence is visible to Discord friends.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -960,16 +1496,28 @@ fun SettingsScreen(
                 }
 
                 if (state.discordSocial.hasApplicationId) {
-                    OutlinedButton(onClick = viewModel::clearDiscordApplicationId) {
-                        Text(text = "Clear Application ID")
+                    SettingsPadTarget(
+                        id = "social_discord_app_id_clear",
+                        onActivate = viewModel::clearDiscordApplicationId,
+                    ) {
+                        OutlinedButton(onClick = viewModel::clearDiscordApplicationId) {
+                            Text(text = "Clear Application ID")
+                        }
                     }
                 }
             }
         }
 
+        }
+
+        if (section == SetupSection.Storage) {
         // 8. Storage / Library roots — access, folders, scan
-        item(key = "storage") {
-            SettingsCard(title = "Storage / Library", modifier = Modifier.animateItem()) {
+        run {
+            SettingsCard(
+                title = "Storage / Library",
+                iconRes = DsR.drawable.xmb_figma_folder,
+                modifier = Modifier,
+            ) {
                 SettingsFieldLabel("Storage access")
                 Text(
                     text = if (state.hasStorageAccess) {
@@ -984,8 +1532,13 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (!state.hasStorageAccess) {
-                    Button(onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) }) {
-                        Text(text = "Grant all-files access")
+                    SettingsPadTarget(
+                        id = "storage_grant_access",
+                        onActivate = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) },
+                    ) {
+                        Button(onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) }) {
+                            Text(text = "Grant all-files access")
+                        }
                     }
                 }
 
@@ -999,18 +1552,30 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                SettingsPadRow("storage_add") {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = { showFolderPicker = true },
-                        enabled = state.hasStorageAccess,
+                    SettingsPadTarget(
+                        id = "storage_add_folder",
+                        onActivate = { if (state.hasStorageAccess) showFolderPicker = true },
                     ) {
-                        Text(text = "Add folder")
+                        Button(
+                            onClick = { showFolderPicker = true },
+                            enabled = state.hasStorageAccess,
+                        ) {
+                            Text(text = "Add folder")
+                        }
                     }
-                    OutlinedButton(
-                        onClick = { safPicker.launch(viewModel.openDocumentTreeIntent()) },
+                    SettingsPadTarget(
+                        id = "storage_add_saf",
+                        onActivate = { safPicker.launch(viewModel.openDocumentTreeIntent()) },
                     ) {
-                        Text(text = "Add via document picker")
+                        OutlinedButton(
+                            onClick = { safPicker.launch(viewModel.openDocumentTreeIntent()) },
+                        ) {
+                            Text(text = "Add via document picker")
+                        }
                     }
+                }
                 }
 
                 state.roots.forEach { root ->
@@ -1024,7 +1589,8 @@ fun SettingsScreen(
 
                 SettingsFieldLabel("Scan")
                 Text(
-                    text = "${state.gameCount} games indexed.",
+                    text = "${state.gameCount} games indexed. XOrA scans automatically when " +
+                        "you add a folder and when files change inside it.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (state.scanProgress.isRunning) {
@@ -1036,11 +1602,16 @@ fun SettingsScreen(
                     )
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 } else {
-                    Button(
-                        onClick = viewModel::scanNow,
-                        enabled = state.roots.isNotEmpty(),
+                    SettingsPadTarget(
+                        id = "storage_scan_now",
+                        onActivate = { if (state.roots.isNotEmpty()) viewModel.scanNow() },
                     ) {
-                        Text(text = "Scan now")
+                        Button(
+                            onClick = viewModel::scanNow,
+                            enabled = state.roots.isNotEmpty(),
+                        ) {
+                            Text(text = "Scan now")
+                        }
                     }
                 }
 
@@ -1056,94 +1627,177 @@ fun SettingsScreen(
                         text = "Sync installed apps",
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    Switch(
+                    PadSwitch(
+                        id = "android_sync",
                         checked = state.settings.androidAppSyncEnabled,
                         onCheckedChange = viewModel::setAndroidAppSyncEnabled,
                     )
                 }
                 Text(
                     text = if (state.settings.androidAppSyncEnabled) {
-                        "${state.androidAppCount} apps on the Apps tab. " +
+                        "${state.androidAppCount} apps on the Android platform. " +
                             "Syncs automatically when the shell regains focus."
                     } else {
-                        "Installed apps stay out of the library and the Apps tab."
+                        "Installed apps stay out of the library and the Android platform."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(
-                    onClick = viewModel::syncAndroidAppsNow,
-                    enabled = state.settings.androidAppSyncEnabled && !state.isSyncingApps,
+                SettingsPadTarget(
+                    id = "android_sync_now",
+                    onActivate = {
+                        if (state.settings.androidAppSyncEnabled && !state.isSyncingApps) {
+                            viewModel.syncAndroidAppsNow()
+                        }
+                    },
                 ) {
-                    Text(text = if (state.isSyncingApps) "Syncing…" else "Sync apps now")
+                    Button(
+                        onClick = viewModel::syncAndroidAppsNow,
+                        enabled = state.settings.androidAppSyncEnabled && !state.isSyncingApps,
+                    ) {
+                        Text(text = if (state.isSyncingApps) "Syncing…" else "Sync apps now")
+                    }
+                }
+                if (state.settings.androidAppSyncEnabled) {
+                    var androidAppQuery by remember { mutableStateOf("") }
+                    val selectedPackages = selectedAndroidPackages(
+                        mode = state.settings.androidAppInclusionMode,
+                        allowlist = state.settings.androidAppAllowlist,
+                        allPackages = state.launchableAndroidApps.map { it.packageName }.toSet(),
+                    )
+                    Text(
+                        text = if (state.settings.androidAppInclusionMode ==
+                            AndroidAppInclusionMode.All
+                        ) {
+                            "Every launchable app is included. Uncheck any to switch to a custom list."
+                        } else {
+                            "Only the ticked apps appear on the Android platform."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    AndroidAppPicker(
+                        apps = state.launchableAndroidApps,
+                        selectedPackages = selectedPackages,
+                        query = androidAppQuery,
+                        onQueryChange = { androidAppQuery = it },
+                        onToggle = viewModel::toggleAndroidAppIncluded,
+                        onSelectAll = viewModel::includeAllAndroidApps,
+                        onClear = { viewModel.setAndroidAppAllowlist(emptySet()) },
+                    )
                 }
             }
         }
 
-        // 9. System / Launcher — HOME role (host) + emulators / players
-        item(key = "system_header") {
-            SettingsSectionHeader(
-                title = "System / Launcher",
-                modifier = Modifier.animateItem(),
-            )
         }
 
-        item(key = "system") {
+        if (section == SetupSection.System) {
+        // 9. System / Launcher — HOME role (host) + emulators / players
+        run {
             Column(
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 systemSection()
-                SettingsCard(title = "Onboarding") {
+                SettingsCard(
+                    title = "Onboarding",
+                    iconRes = DsR.drawable.xmb_figma_settings,
+                ) {
                     Text(
                         text = "Replay the first-run welcome flow for display mode, library " +
-                            "folders, and audio tips.",
+                            "folders, Android apps, and audio tips.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    OutlinedButton(onClick = onGoToOnboarding) {
-                        Text(text = "Go to Onboarding")
+                    SettingsPadTarget(
+                        id = "system_onboarding",
+                        onActivate = onGoToOnboarding,
+                    ) {
+                        OutlinedButton(onClick = onGoToOnboarding) {
+                            Text(text = "Go to Onboarding")
+                        }
                     }
                 }
             }
         }
 
-        item(key = "emulators_header") {
-            Text(
-                text = "Emulators",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 4.dp).animateItem(),
-            )
         }
 
-        item(key = "emulators_choose_hint") {
+        if (section == SetupSection.Emulators) {
+        run {
             Text(
                 text = "Tip: on a ROM, press Select → ROM options to customize art, " +
                     "sound bite, and saves, or Choose Emulator to pick " +
                     "an installed app or RetroArch core for the current system.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             )
         }
 
-        item(key = "emulators_scan") {
-            SettingsCard(title = "Detect installed emulators", modifier = Modifier.animateItem()) {
+        run {
+            SettingsCard(
+                title = if (state.detectedEmulatorApps.isEmpty()) {
+                    "Detected emulators"
+                } else {
+                    "Detected emulators (${state.detectedEmulatorApps.size})"
+                },
+                iconRes = DsR.drawable.xmb_figma_game,
+                modifier = Modifier,
+            ) {
                 Text(
-                    text = "Rescan for apps like Cemu, Eden, Dolphin, and RetroArch cores. " +
-                        "Use this after installing a new emulator.",
+                    text = "XOrA watches this device. Installing an emulator adds it here; " +
+                        "uninstalling it removes it.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(onClick = viewModel::scanEmulators) {
-                    Text(text = "Scan for emulators")
+                if (state.detectedEmulatorApps.isEmpty()) {
+                    Text(
+                        text = "None installed yet.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        state.detectedEmulatorApps.forEachIndexed { index, app ->
+                            if (index > 0) {
+                                HorizontalDivider()
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = app.displayName,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White,
+                                )
+                                if (app.platformLabels.isNotEmpty()) {
+                                    Text(
+                                        text = app.platformLabels.joinToString(" · "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                SettingsPadTarget(
+                    id = "emulators_refresh",
+                    onActivate = viewModel::scanEmulators,
+                ) {
+                    Button(onClick = viewModel::scanEmulators) {
+                        Text(text = "Refresh now")
+                    }
                 }
             }
         }
 
-        item(key = "xora_emulator_cores") {
-            SettingsCard(title = "XOrA Emulator (Libretro)", modifier = Modifier.animateItem()) {
+        run {
+            SettingsCard(
+                title = "XOrA Emulator (Libretro)",
+                iconRes = DsR.drawable.xmb_figma_game,
+                modifier = Modifier,
+            ) {
                 Text(
                     text = "Built-in Libretro host. Downloads cores from the Libretro buildbot " +
                         "into app storage (not bundled in the APK). Place BIOS files under " +
@@ -1165,15 +1819,20 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (!state.hasStorageAccess) {
-                    Button(onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) }) {
-                        Text(text = "Allow access to system files")
-                    }
-                } else {
-                    OutlinedButton(
-                        onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) },
-                    ) {
-                        Text(text = "System files access settings")
+                SettingsPadTarget(
+                    id = "emulators_filesystem",
+                    onActivate = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) },
+                ) {
+                    if (!state.hasStorageAccess) {
+                        Button(onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) }) {
+                            Text(text = "Allow access to system files")
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { permissionLauncher.launch(viewModel.allFilesAccessIntent()) },
+                        ) {
+                            Text(text = "System files access settings")
+                        }
                     }
                 }
 
@@ -1199,8 +1858,7 @@ fun SettingsScreen(
                     fontWeight = FontWeight.Medium,
                     color = when {
                         state.xoraDownloadError != null -> MaterialTheme.colorScheme.error
-                        state.xoraDownloadRunning -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.onSurface
+                        else -> Color.White
                     },
                 )
                 if (state.xoraDownloadRunning) {
@@ -1232,17 +1890,22 @@ fun SettingsScreen(
                     )
                 }
 
-                Button(
-                    onClick = viewModel::downloadXoraCores,
-                    enabled = !state.xoraDownloadRunning,
+                SettingsPadTarget(
+                    id = "xora_download_cores",
+                    onActivate = { if (!state.xoraDownloadRunning) viewModel.downloadXoraCores() },
                 ) {
-                    Text(
-                        text = if (state.xoraDownloadRunning) {
-                            "Downloading…"
-                        } else {
-                            "Download missing cores"
-                        },
-                    )
+                    Button(
+                        onClick = viewModel::downloadXoraCores,
+                        enabled = !state.xoraDownloadRunning,
+                    ) {
+                        Text(
+                            text = if (state.xoraDownloadRunning) {
+                                "Downloading…"
+                            } else {
+                                "Download missing cores"
+                            },
+                        )
+                    }
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -1263,7 +1926,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(text = "Enable RetroAchievements", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
+                    PadSwitch(
+                        id = "xora_ra_enable",
                         checked = state.raSettings.enabled,
                         onCheckedChange = viewModel::setRaEnabled,
                     )
@@ -1275,15 +1939,21 @@ fun SettingsScreen(
                     pendingWebApiUsername = state.raPendingWebApiUsername,
                     onPasswordSignIn = viewModel::loginRetroAchievements,
                     onApiKeySignIn = viewModel::setRetroAchievementsCredentials,
+                    padPrefix = "xora_emu_ra",
                 )
                 if (state.retroAchievements.isConfigured) {
                     Text(
                         text = "Signed in as ${state.retroAchievements.username}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color.White,
                     )
-                    OutlinedButton(onClick = viewModel::clearRetroAchievementsCredentials) {
-                        Text(text = "Sign out")
+                    SettingsPadTarget(
+                        id = "xora_emu_ra_sign_out",
+                        onActivate = viewModel::clearRetroAchievementsCredentials,
+                    ) {
+                        OutlinedButton(onClick = viewModel::clearRetroAchievementsCredentials) {
+                            Text(text = "Sign out")
+                        }
                     }
                 }
                 Text(
@@ -1295,119 +1965,32 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(
-                    onClick = viewModel::hashAllRoms,
-                    enabled = !state.isHashingRoms,
+                SettingsPadTarget(
+                    id = "xora_hash_roms",
+                    onActivate = { if (!state.isHashingRoms) viewModel.hashAllRoms() },
                 ) {
-                    Text(text = if (state.isHashingRoms) "Hashing…" else "Hash all ROMs")
-                }
-            }
-        }
-
-        item(key = "xora_display") {
-            val xora = state.xoraEmulator
-            SettingsCard(title = "XOrA · Display (DS / 3DS)", modifier = Modifier.animateItem()) {
-                Text(
-                    text = "Screen layout for dual-screen systems. Applied as Libretro core " +
-                        "options when a game starts (melonDS, Citra, …).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SettingsFieldLabel("Nintendo DS layout")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DualScreenLayout.entries.forEach { layout ->
-                        FilterChip(
-                            selected = xora.ndsScreenLayout == layout,
-                            onClick = { viewModel.setXoraNdsScreenLayout(layout) },
-                            label = { Text(text = layout.label()) },
-                        )
-                    }
-                }
-                SettingsFieldLabel("DS screen gap (${xora.ndsScreenGap}px)")
-                Slider(
-                    value = xora.ndsScreenGap.toFloat(),
-                    onValueChange = { viewModel.setXoraNdsScreenGap(it.roundToInt()) },
-                    valueRange = 0f..64f,
-                    steps = 15,
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                SettingsFieldLabel("Nintendo 3DS layout")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ThreeDsScreenLayout.entries.forEach { layout ->
-                        FilterChip(
-                            selected = xora.threeDsScreenLayout == layout,
-                            onClick = { viewModel.setXora3dsScreenLayout(layout) },
-                            label = { Text(text = layout.label()) },
-                        )
-                    }
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Expand to dual displays",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            text = "Top screen on the primary panel, bottom on the secondary " +
-                                "(clamshell / dual-screen devices).",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = xora.expandDualDisplay,
-                        onCheckedChange = viewModel::setXoraExpandDualDisplay,
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                SettingsFieldLabel("Aspect ratio")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    XoraAspectMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = xora.aspectMode == mode,
-                            onClick = { viewModel.setXoraAspectMode(mode) },
-                            label = { Text(text = mode.label()) },
-                        )
-                    }
-                }
-                if (xora.aspectMode == XoraAspectMode.Integer) {
-                    val scaleLabel = if (xora.integerScale == 0) {
-                        "Auto (largest fit)"
-                    } else {
-                        "${xora.integerScale}×"
-                    }
-                    SettingsFieldLabel("Integer scale · $scaleLabel")
-                    Slider(
-                        value = xora.integerScale.toFloat(),
-                        onValueChange = { viewModel.setXoraIntegerScale(it.roundToInt()) },
-                        valueRange = 0f..6f,
-                        steps = 5,
-                    )
-                }
-                SettingsFieldLabel("Internal resolution (3DS / Citra)")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    XoraInternalResolution.entries.forEach { res ->
-                        FilterChip(
-                            selected = xora.internalResolution == res,
-                            onClick = { viewModel.setXoraInternalResolution(res) },
-                            label = { Text(text = res.label()) },
-                        )
+                    OutlinedButton(
+                        onClick = viewModel::hashAllRoms,
+                        enabled = !state.isHashingRoms,
+                    ) {
+                        Text(text = if (state.isHashingRoms) "Hashing…" else "Hash all ROMs")
                     }
                 }
             }
         }
 
-        item(key = "xora_bezels") {
+        run {
             val xora = state.xoraEmulator
-            SettingsCard(title = "XOrA · System bezels", modifier = Modifier.animateItem()) {
+            SettingsCard(
+                title = "XOrA · System bezels",
+                iconRes = DsR.drawable.xmb_figma_photo,
+                modifier = Modifier,
+            ) {
                 Text(
-                    text = "Draw a system-colored matte and frame around the fitted game " +
-                        "image (Game Boy, DS, CRT-style home consoles, …).",
+                    text = "NSO bezels use the overlay pack layout: `cfg/nso-gba.cfg` points at " +
+                        "`img/nso-gba.png` (and `nso-gba-full` for full screen). Drop the pack’s " +
+                        "`img` folder into XOrA’s overlays directory or next to your ROMs. " +
+                        "Your profile picture replaces the top-left icon.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1417,7 +2000,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(text = "Enable bezels", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
+                    PadSwitch(
+                        id = "xora_bezels",
                         checked = xora.bezelsEnabled,
                         onCheckedChange = viewModel::setXoraBezelsEnabled,
                     )
@@ -1425,153 +2009,129 @@ fun SettingsScreen(
                 SettingsFieldLabel(
                     "Bezel strength (${(xora.bezelOpacity * 100f).roundToInt()}%)",
                 )
-                Slider(
-                    value = xora.bezelOpacity,
-                    onValueChange = viewModel::setXoraBezelOpacity,
-                    valueRange = 0.35f..1f,
-                    enabled = xora.bezelsEnabled,
-                )
-            }
-        }
-
-        item(key = "xora_netplay") {
-            val xora = state.xoraEmulator
-            var nickDraft by remember(xora.netplayNickname) {
-                mutableStateOf(xora.netplayNickname)
-            }
-            var hostDraft by remember(xora.netplayHostAddress) {
-                mutableStateOf(xora.netplayHostAddress)
-            }
-            var portDraft by remember(xora.netplayPort.toString()) {
-                mutableStateOf(xora.netplayPort.toString())
-            }
-            SettingsCard(title = "XOrA · Netplay", modifier = Modifier.animateItem()) {
-                Text(
-                    text = "Enable netplay controls in the in-game pause menu. Nickname is " +
-                        "shared with Libretro cores. Session sync ships incrementally — " +
-                        "Host/Join UI is ready when enabled.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(text = "Enable netplay", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = xora.netplayEnabled,
-                        onCheckedChange = viewModel::setXoraNetplayEnabled,
-                    )
-                }
-                SettingsFieldLabel("Nickname")
-                OutlinedTextField(
-                    value = nickDraft,
-                    onValueChange = { nickDraft = it.take(24) },
-                    singleLine = true,
-                    enabled = xora.netplayEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused) {
-                                viewModel.setXoraNetplayNickname(nickDraft)
-                            }
-                        },
-                )
-                SettingsFieldLabel("Listen port")
-                OutlinedTextField(
-                    value = portDraft,
-                    onValueChange = { raw ->
-                        portDraft = raw.filter { it.isDigit() }.take(5)
+                SettingsPadTarget(
+                    id = "xora_bezel_opacity",
+                    onActivate = { },
+                    onAdjust = { delta ->
+                        viewModel.setXoraBezelOpacity(
+                            (xora.bezelOpacity + delta * 0.05f).coerceIn(0.35f, 1f),
+                        )
                     },
-                    singleLine = true,
-                    enabled = xora.netplayEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused) {
-                                portDraft.toIntOrNull()?.let(viewModel::setXoraNetplayPort)
-                            }
-                        },
-                )
-                SettingsFieldLabel("Default join address")
-                OutlinedTextField(
-                    value = hostDraft,
-                    onValueChange = { hostDraft = it.take(128) },
-                    singleLine = true,
-                    enabled = xora.netplayEnabled,
-                    placeholder = { Text("192.168.1.10") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focus ->
-                            if (!focus.isFocused) {
-                                viewModel.setXoraNetplayHostAddress(hostDraft)
-                            }
-                        },
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(text = "Spectator when joining", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = xora.netplaySpectator,
-                        onCheckedChange = viewModel::setXoraNetplaySpectator,
-                        enabled = xora.netplayEnabled,
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(text = "Prefer relay / MITM", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = xora.netplayUseRelay,
-                        onCheckedChange = viewModel::setXoraNetplayUseRelay,
-                        enabled = xora.netplayEnabled,
+                    Slider(
+                        value = xora.bezelOpacity,
+                        onValueChange = viewModel::setXoraBezelOpacity,
+                        valueRange = 0.35f..1f,
+                        enabled = xora.bezelsEnabled,
                     )
                 }
             }
         }
 
         if (state.platformChoices.isEmpty()) {
-            item(key = "emulators_empty") {
+            run {
                 Text(
-                    text = "Scan a library first and the systems you own will appear here.",
+                    text = "Per-system players appear after a library scan, or as soon as " +
+                        "XOrA detects a standalone emulator.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.animateItem(),
+                    modifier = Modifier,
                 )
             }
         }
 
-        items(items = state.platformChoices, key = { it.summary.platform.id }) { choice ->
+        state.platformChoices.forEach { choice ->
             PlatformPlayerCard(
                 choice = choice,
                 onSelect = { playerId ->
                     viewModel.selectPlayer(choice.summary.platform.id, playerId)
                 },
-                modifier = Modifier.animateItem(),
+                modifier = Modifier,
             )
         }
+        }
+    }
+    }
+    }
     }
     }
     }
 }
 
-@Composable
-private fun SettingsSectionHeader(
-    title: String,
-    modifier: Modifier = Modifier,
+/**
+ * Setup is a long form, so it is split into tabs instead of one endless scroll. Each entry maps
+ * to a contiguous run of cards in the list.
+ */
+private enum class SetupSection(
+    val label: String,
+    val description: String,
+    val iconRes: Int,
 ) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.SemiBold,
-        modifier = modifier.padding(top = 4.dp),
-    )
+    Display("Display", "Theme, trailers, and library text", DsR.drawable.xmb_figma_device),
+    Audio("Audio", "Soundtrack and interface sounds", DsR.drawable.xmb_figma_music),
+    Media("Media", "Trailers and artwork scraping", DsR.drawable.xmb_figma_video),
+    Accounts("Accounts", "RetroAchievements, Steam, and Discord", DsR.drawable.xmb_figma_network),
+    Storage("Storage", "Library folders, scanning, and app sync", DsR.drawable.xmb_figma_folder),
+    System("System", "Home screen role and onboarding", DsR.drawable.xmb_figma_settings),
+    Emulators("Emulators", "Detected apps and per-system players", DsR.drawable.xmb_figma_game),
+}
+
+
+@Composable
+private fun SetupSectionTab(
+    section: SetupSection,
+    selected: Boolean,
+    onClick: () -> Unit,
+    focused: Boolean = false,
+) {
+    val theme = LocalShellTheme.current.colors
+    val shape = ArcadiaGlass.ChipShape
+    Row(
+        modifier = Modifier
+            .then(
+                if (focused) {
+                    Modifier.border(2.dp, Color.White.copy(alpha = 0.88f), shape)
+                } else {
+                    Modifier
+                },
+            )
+            .clip(shape)
+            .background(
+                if (selected) {
+                    Brush.horizontalGradient(
+                        listOf(
+                            theme.focusStart.copy(alpha = 0.42f),
+                            theme.focusEnd.copy(alpha = 0.32f),
+                        ),
+                    )
+                } else {
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.08f),
+                            Color.White.copy(alpha = 0.06f),
+                        ),
+                    )
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Image(
+            painter = painterResource(section.iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            text = section.label,
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontFamily = XoraFonts.XmbLabel,
+            ),
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = Color.White,
+        )
+    }
 }
 
 @Composable
@@ -1581,10 +2141,47 @@ private fun SettingsFieldLabel(
 ) {
     Text(
         text = text,
-        style = MaterialTheme.typography.bodyMedium,
+        style = MaterialTheme.typography.bodyMedium.copy(
+            fontFamily = XoraFonts.XmbLabel,
+        ),
         fontWeight = FontWeight.Medium,
+        color = Color.White,
         modifier = modifier,
     )
+}
+
+@Composable
+private fun PadChip(
+    id: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    label: String,
+) {
+    SettingsPadTarget(id = id, onActivate = { if (enabled) onClick() }) {
+        FilterChip(
+            selected = selected,
+            onClick = onClick,
+            enabled = enabled,
+            label = { Text(text = label) },
+        )
+    }
+}
+
+@Composable
+private fun PadSwitch(
+    id: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+) {
+    SettingsPadTarget(id = id, onActivate = { if (enabled) onCheckedChange(!checked) }) {
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+        )
+    }
 }
 
 /**
@@ -1631,13 +2228,24 @@ private fun CompanionScreenPermissionRow(
                 },
             )
             if (!granted) {
-                OutlinedButton(
-                    enabled = enabled,
-                    onClick = {
-                        runCatching { context.startActivity(OverlayPermission.settingsIntent(context)) }
+                SettingsPadTarget(
+                    id = "companion_overlay_allow",
+                    onActivate = {
+                        if (enabled) {
+                            runCatching {
+                                context.startActivity(OverlayPermission.settingsIntent(context))
+                            }
+                        }
                     },
                 ) {
-                    Text(text = "Allow")
+                    OutlinedButton(
+                        enabled = enabled,
+                        onClick = {
+                            runCatching { context.startActivity(OverlayPermission.settingsIntent(context)) }
+                        },
+                    ) {
+                        Text(text = "Allow")
+                    }
                 }
             }
         }
@@ -1655,24 +2263,29 @@ private fun SecretField(
     label: String,
     value: String,
     onCommit: (String) -> Unit,
+    padId: String,
     modifier: Modifier = Modifier,
 ) {
     var draft by remember(value) { mutableStateOf(value) }
+    val requester = remember { FocusRequester() }
 
-    OutlinedTextField(
-        value = draft,
-        onValueChange = { draft = it },
-        label = { Text(text = label) },
-        singleLine = true,
-        visualTransformation = if (draft.isBlank()) {
-            VisualTransformation.None
-        } else {
-            PasswordVisualTransformation()
-        },
-        modifier = modifier
-            .fillMaxWidth()
-            .onFocusChanged { focus -> if (!focus.isFocused && draft != value) onCommit(draft) },
-    )
+    SettingsPadTarget(id = padId, onActivate = { requester.requestFocus() }) {
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it },
+            label = { Text(text = label) },
+            singleLine = true,
+            visualTransformation = if (draft.isBlank()) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            modifier = modifier
+                .fillMaxWidth()
+                .focusRequester(requester)
+                .onFocusChanged { focus -> if (!focus.isFocused && draft != value) onCommit(draft) },
+        )
+    }
 }
 
 /** Two fields that only make sense together, so they are saved as a pair. */
@@ -1683,42 +2296,62 @@ private fun PairedSecretFields(
     firstValue: String,
     secondValue: String,
     onCommit: (String, String) -> Unit,
+    firstPadId: String,
+    secondPadId: String,
     modifier: Modifier = Modifier,
 ) {
     var first by remember(firstValue) { mutableStateOf(firstValue) }
     var second by remember(secondValue) { mutableStateOf(secondValue) }
+    val firstRequester = remember { FocusRequester() }
+    val secondRequester = remember { FocusRequester() }
 
     val commit = {
         if (first != firstValue || second != secondValue) onCommit(first, second)
     }
 
+    SettingsPadRow(firstPadId) {
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        OutlinedTextField(
-            value = first,
-            onValueChange = { first = it },
-            label = { Text(text = firstLabel) },
-            singleLine = true,
-            modifier = Modifier
-                .weight(1f)
-                .onFocusChanged { focus -> if (!focus.isFocused) commit() },
-        )
-        OutlinedTextField(
-            value = second,
-            onValueChange = { second = it },
-            label = { Text(text = secondLabel) },
-            singleLine = true,
-            visualTransformation = if (second.isBlank()) {
-                VisualTransformation.None
-            } else {
-                PasswordVisualTransformation()
-            },
-            modifier = Modifier
-                .weight(1f)
-                .onFocusChanged { focus -> if (!focus.isFocused) commit() },
-        )
+        SettingsPadTarget(
+            id = firstPadId,
+            onActivate = { firstRequester.requestFocus() },
+            modifier = Modifier.weight(1f),
+        ) {
+            OutlinedTextField(
+                value = first,
+                onValueChange = { first = it },
+                label = { Text(text = firstLabel) },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(firstRequester)
+                    .onFocusChanged { focus -> if (!focus.isFocused) commit() },
+            )
+        }
+        SettingsPadTarget(
+            id = secondPadId,
+            onActivate = { secondRequester.requestFocus() },
+            modifier = Modifier.weight(1f),
+        ) {
+            OutlinedTextField(
+                value = second,
+                onValueChange = { second = it },
+                label = { Text(text = secondLabel) },
+                singleLine = true,
+                visualTransformation = if (second.isBlank()) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(secondRequester)
+                    .onFocusChanged { focus -> if (!focus.isFocused) commit() },
+            )
+        }
+    }
     }
 }
 
@@ -1730,6 +2363,7 @@ internal fun RetroAchievementsSignInFields(
     pendingWebApiUsername: String?,
     onPasswordSignIn: (username: String, password: String) -> Unit,
     onApiKeySignIn: (username: String, apiKey: String) -> Unit,
+    padPrefix: String = "ra",
 ) {
     var username by remember(configured.username, pendingWebApiUsername) {
         mutableStateOf(pendingWebApiUsername ?: configured.username)
@@ -1740,6 +2374,10 @@ internal fun RetroAchievementsSignInFields(
         mutableStateOf(!pendingWebApiUsername.isNullOrBlank())
     }
 
+    val userRequester = remember { FocusRequester() }
+    val passRequester = remember { FocusRequester() }
+    val apiRequester = remember { FocusRequester() }
+
     if (!pendingWebApiUsername.isNullOrBlank()) {
         Text(
             text = "Password accepted for $pendingWebApiUsername. Paste your Web API key from " +
@@ -1747,80 +2385,136 @@ internal fun RetroAchievementsSignInFields(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            label = { Text("Web API key") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        SettingsPadTarget(
+            id = "${padPrefix}_api_key",
+            onActivate = { apiRequester.requestFocus() },
+        ) {
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("Web API key") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth().focusRequester(apiRequester),
+            )
+        }
         error?.let {
             Text(text = it, color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall)
         }
-        Button(
-            onClick = {
-                onApiKeySignIn(pendingWebApiUsername, apiKey)
-                apiKey = ""
+        SettingsPadTarget(
+            id = "${padPrefix}_save_api",
+            onActivate = {
+                if (!isBusy && apiKey.isNotBlank()) {
+                    onApiKeySignIn(pendingWebApiUsername, apiKey)
+                    apiKey = ""
+                }
             },
-            enabled = !isBusy && apiKey.isNotBlank(),
         ) {
-            Text(if (isBusy) "Saving…" else "Save API key")
+            Button(
+                onClick = {
+                    onApiKeySignIn(pendingWebApiUsername, apiKey)
+                    apiKey = ""
+                },
+                enabled = !isBusy && apiKey.isNotBlank(),
+            ) {
+                Text(if (isBusy) "Saving…" else "Save API key")
+            }
         }
         return
     }
 
-    OutlinedTextField(
-        value = username,
-        onValueChange = { username = it },
-        label = { Text("Username") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = password,
-        onValueChange = { password = it },
-        label = { Text("Password") },
-        singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
-        modifier = Modifier.fillMaxWidth(),
-    )
+    SettingsPadTarget(
+        id = "${padPrefix}_username",
+        onActivate = { userRequester.requestFocus() },
+    ) {
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Username") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().focusRequester(userRequester),
+        )
+    }
+    SettingsPadTarget(
+        id = "${padPrefix}_password",
+        onActivate = { passRequester.requestFocus() },
+    ) {
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth().focusRequester(passRequester),
+        )
+    }
     error?.let {
         Text(text = it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall)
     }
-    Button(
-        onClick = {
-            val pass = password
-            password = ""
-            onPasswordSignIn(username, pass)
+    SettingsPadTarget(
+        id = "${padPrefix}_sign_in",
+        onActivate = {
+            if (!isBusy && username.isNotBlank() && password.isNotEmpty()) {
+                val pass = password
+                password = ""
+                onPasswordSignIn(username, pass)
+            }
         },
-        enabled = !isBusy && username.isNotBlank() && password.isNotEmpty(),
     ) {
-        Text(if (isBusy) "Signing in…" else "Sign in")
+        Button(
+            onClick = {
+                val pass = password
+                password = ""
+                onPasswordSignIn(username, pass)
+            },
+            enabled = !isBusy && username.isNotBlank() && password.isNotEmpty(),
+        ) {
+            Text(if (isBusy) "Signing in…" else "Sign in")
+        }
     }
 
-    TextButton(onClick = { showAdvanced = !showAdvanced }, enabled = !isBusy) {
-        Text(if (showAdvanced) "Hide API key option" else "Paste Web API key instead")
+    SettingsPadTarget(
+        id = "${padPrefix}_toggle_api",
+        onActivate = { if (!isBusy) showAdvanced = !showAdvanced },
+    ) {
+        TextButton(onClick = { showAdvanced = !showAdvanced }, enabled = !isBusy) {
+            Text(if (showAdvanced) "Hide API key option" else "Paste Web API key instead")
+        }
     }
     if (showAdvanced) {
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            label = { Text("Web API key") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedButton(
-            onClick = {
-                onApiKeySignIn(username, apiKey)
-                apiKey = ""
-            },
-            enabled = !isBusy && username.isNotBlank() && apiKey.isNotBlank(),
+        SettingsPadTarget(
+            id = "${padPrefix}_api_key_adv",
+            onActivate = { apiRequester.requestFocus() },
         ) {
-            Text(if (isBusy) "Signing in…" else "Sign in with API key")
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("Web API key") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth().focusRequester(apiRequester),
+            )
+        }
+        SettingsPadTarget(
+            id = "${padPrefix}_sign_in_api",
+            onActivate = {
+                if (!isBusy && username.isNotBlank() && apiKey.isNotBlank()) {
+                    onApiKeySignIn(username, apiKey)
+                    apiKey = ""
+                }
+            },
+        ) {
+            OutlinedButton(
+                onClick = {
+                    onApiKeySignIn(username, apiKey)
+                    apiKey = ""
+                },
+                enabled = !isBusy && username.isNotBlank() && apiKey.isNotBlank(),
+            ) {
+                Text(if (isBusy) "Signing in…" else "Sign in with API key")
+            }
         }
     }
 }
@@ -1829,23 +2523,46 @@ internal fun RetroAchievementsSignInFields(
 private fun SettingsCard(
     title: String,
     modifier: Modifier = Modifier,
+    iconRes: Int? = null,
+    focused: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    LiquidGlassSurface(
-        modifier = modifier.fillMaxWidth(),
-        shape = ArcadiaGlass.CardShape,
-        tone = GlassTone.Surface,
-        intensity = GlassIntensity.Standard,
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (focused) {
+                    Modifier.border(2.dp, Color.White.copy(alpha = 0.88f), ArcadiaGlass.CardShape)
+                } else {
+                    Modifier
+                },
+            )
+            .xoraModalGlass(ArcadiaGlass.CardShape, shimmer = false),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (iconRes != null) {
+                    Image(
+                        painter = painterResource(iconRes),
+                        contentDescription = null,
+                        modifier = Modifier.size(26.dp),
+                    )
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = XoraFonts.XmbLabel,
+                    ),
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                )
+            }
             content()
         }
     }
@@ -1861,7 +2578,7 @@ private fun RootRowInline(
     LiquidGlassSurface(
         modifier = modifier.fillMaxWidth(),
         shape = ArcadiaGlass.CardShape,
-        tone = GlassTone.Surface,
+        tone = GlassTone.OverMedia,
         intensity = GlassIntensity.Subtle,
     ) {
         Row(
@@ -1882,7 +2599,12 @@ private fun RootRowInline(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            TextButton(onClick = onRemove) { Text(text = "Remove") }
+            SettingsPadTarget(
+                id = "root_remove_${root.id}",
+                onActivate = onRemove,
+            ) {
+                TextButton(onClick = onRemove) { Text(text = "Remove") }
+            }
         }
     }
 }
@@ -1899,7 +2621,8 @@ private fun PlatformPlayerCard(
     ) {
         if (choice.candidates.isEmpty()) {
             Text(
-                text = "No launch profile ships for this system yet.",
+                text = "No emulator for this system is installed yet. " +
+                    "Install one and XOrA will pick it up automatically.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -1922,16 +2645,72 @@ private fun PlatformPlayerCard(
 
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             choice.candidates.forEach { player ->
-                FilterChip(
+                PadChip(
+                    id = "player_${choice.summary.platform.id}_${player.uniqueId}",
                     selected = choice.selectedPlayerId == player.uniqueId,
                     onClick = {
                         onSelect(
                             if (choice.selectedPlayerId == player.uniqueId) null else player.uniqueId,
                         )
                     },
-                    label = { Text(text = player.name) },
+                    label = player.name,
                 )
             }
         }
+    }
+}
+
+private fun Context.settingsHostActivity(): Activity? {
+    var ctx: Context? = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
+/** One media tab's chosen folders, with a row per folder and an Add button under them. */
+@Composable
+private fun MediaFolderList(
+    label: String,
+    folders: List<MediaFolderChoice>,
+    addId: String,
+    onAdd: () -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    SettingsFieldLabel(label)
+    if (folders.isEmpty()) {
+        Text(
+            text = "No folders chosen — showing everything on the device.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    } else {
+        folders.forEach { folder ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = folder.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingsPadRow("remove_${folder.uri.hashCode()}") {
+                    PadChip(
+                        id = "remove_${folder.uri.hashCode()}",
+                        selected = false,
+                        onClick = { onRemove(folder.uri) },
+                        label = "Remove",
+                    )
+                }
+            }
+        }
+    }
+    SettingsPadRow(addId) {
+        PadChip(id = addId, selected = false, onClick = onAdd, label = "Add folder…")
     }
 }

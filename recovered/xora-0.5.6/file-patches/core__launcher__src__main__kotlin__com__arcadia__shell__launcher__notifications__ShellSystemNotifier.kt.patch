@@ -1,0 +1,24 @@
+diff --git a/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellSystemNotifier.kt b/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellSystemNotifier.kt
+--- a/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellSystemNotifier.kt
++++ b/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellSystemNotifier.kt
+@@ -182,6 +182,8 @@
+         -> NotificationCompat.CATEGORY_MESSAGE
+         is ShellNotification.FriendOnline,
+         is ShellNotification.FriendPlaying,
++        is ShellNotification.FriendStatusUpdated,
++        is ShellNotification.FriendListening,
+         is ShellNotification.FriendAchievementUnlocked,
+         is ShellNotification.XoraFriendRequest,
+         is ShellNotification.XoraNetplayInvite,
+@@ -206,6 +208,11 @@
+                 notification.id.substringBeforeLast(':').ifBlank { notification.id }
+             is ShellNotification.FriendPlaying ->
+                 "friend-playing:${notification.network.name}:${notification.displayName}"
++            // One status row per friend: a new line replaces the last rather than stacking.
++            is ShellNotification.FriendStatusUpdated ->
++                "friend-status:${notification.network.name}:${notification.displayName}"
++            is ShellNotification.FriendListening ->
++                "friend-listening:${notification.network.name}:${notification.displayName}"
+             is ShellNotification.GameDownloading ->
+                 "download:${notification.title}"
+             else -> notification.id

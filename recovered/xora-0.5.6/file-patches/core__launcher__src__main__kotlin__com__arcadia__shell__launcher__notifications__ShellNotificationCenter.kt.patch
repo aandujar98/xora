@@ -1,0 +1,50 @@
+diff --git a/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotificationCenter.kt b/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotificationCenter.kt
+--- a/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotificationCenter.kt
++++ b/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotificationCenter.kt
+@@ -66,6 +66,16 @@
+     private var holdJob: Job? = null
+     @Volatile private var queueGeneration = 0
+ 
++    /**
++     * True while the boot video owns the screen. Banners queue behind it rather than showing over
++     * it, and the backlog plays out once the XMB lands.
++     */
++    private val bootIntroHold = MutableStateFlow(false)
++
++    fun setBootIntroActive(active: Boolean) {
++        bootIntroHold.value = active
++    }
++
+     @Volatile var discordFriendOnlineEnabled: Boolean = true
+     @Volatile var steamFriendOnlineEnabled: Boolean = true
+     @Volatile var xoraFriendOnlineEnabled: Boolean = true
+@@ -97,6 +107,8 @@
+         }
+         scope.launch {
+             for (notification in inbound) {
++                // Nothing shows over the boot video; the queue simply waits it out.
++                bootIntroHold.first { !it }
+                 val gen = queueGeneration
+                 _active.value = notification
+                 holdJob = launch {
+@@ -227,11 +239,20 @@
+ 
+     private fun friendPresenceAllowed(notification: ShellNotification): Boolean = when (notification) {
+         is ShellNotification.FriendPlaying -> friendPlayingEnabled
++        // Same feed as "started a game": what a friend is up to, so it shares that switch.
++        is ShellNotification.FriendListening -> friendPlayingEnabled
+         is ShellNotification.FriendOnline -> when (notification.network) {
+             FriendNetwork.Discord -> discordFriendOnlineEnabled
+             FriendNetwork.Steam -> steamFriendOnlineEnabled
+             FriendNetwork.Xora -> xoraFriendOnlineEnabled
+         }
++        // A status line is presence news too, so it rides the same per-network switch as
++        // coming online rather than needing one of its own.
++        is ShellNotification.FriendStatusUpdated -> when (notification.network) {
++            FriendNetwork.Discord -> discordFriendOnlineEnabled
++            FriendNetwork.Steam -> steamFriendOnlineEnabled
++            FriendNetwork.Xora -> xoraFriendOnlineEnabled
++        }
+         else -> true
+     }
+ 

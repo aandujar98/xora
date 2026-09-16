@@ -1,0 +1,208 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraHomeXmbPane.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraHomeXmbPane.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraHomeXmbPane.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraHomeXmbPane.kt
+@@ -181,20 +181,27 @@
+ ) {
+     val xmb = state.xoraXmb
+     val heroGame = xmb.focusGame?.takeIf {
+-        xmb.depth == XoraXmbDepth.Roms ||
++        xmb.depth.isGameSelect ||
+             xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
+             xmb.selectedItem?.action is XoraXmbAction.LaunchGame
+     }
+     val heroSlideshow = rememberHeroSlideshowPaths(state)
+-    // Playing-track cover + wave stay on the Music column. Browse still paints the
+-    // focused album / song when nothing is playing.
++    val gameMediaPath = xmbGameSelectWallpaperPath(
++        game = heroGame,
++        customWallpaperPath = xmb.selectedItem?.heroPath,
++    )
++    val musicPlaying = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying
++    // The playing track's cover + wave follow you off the Music column, and step aside wherever
++    // a game has art of its own. Browse still paints the focused album / song when nothing plays.
+     val musicBackdrop = musicCategoryBackdrop(
+         category = xmb.category,
+         depth = xmb.depth,
+-        playing = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying,
++        playing = musicPlaying,
++        hasTrack = state.music.nowPlaying.hasTrack,
+         enabled = state.music.categoryArtBackdropEnabled,
+         coverPath = state.music.nowPlayingArtPath,
+         backgroundMediaPath = state.music.nowPlayingBackdropPath,
++        gameMediaPresent = gameMediaPath != null,
+     )
+     val musicArtPath = if (musicBackdrop.showCover) {
+         musicBackdrop.coverPath
+@@ -207,10 +214,7 @@
+             else -> null
+         }
+     }
+-    val backdropArtPath = musicArtPath ?: xmbGameSelectWallpaperPath(
+-        game = heroGame,
+-        customWallpaperPath = xmb.selectedItem?.heroPath,
+-    )
++    val backdropArtPath = musicArtPath ?: gameMediaPath
+     val fullTrailer = state.trailer.active &&
+         state.trailer.displayMode == TrailerDisplayMode.FullBackground
+ 
+@@ -243,6 +247,14 @@
+         animationSpec = tween(durationMillis = XMB_TRAY_BLUR_MS, easing = FastOutSlowInEasing),
+         label = "xmbTrayBlur",
+     )
++    // A pop-up's CRT DIM sits on a blurred shell, so the window is the only thing in focus.
++    // Separate from the tray's blur so a card opened over an open tray does not double it.
++    val popupBlur by animateDpAsState(
++        targetValue = if (state.backdropObscuredByPopup) XMB_POPUP_BLUR_RADIUS else 0.dp,
++        animationSpec = tween(durationMillis = XMB_POPUP_BLUR_MS, easing = FastOutSlowInEasing),
++        label = "xmbPopupBlur",
++    )
++    val backdropBlur = maxOf(trayBlur, popupBlur)
+     // Keep the XMB cross composed under RA so it can zoom out instead of sliding away.
+     var underlayDepth by remember {
+         mutableStateOf(
+@@ -288,7 +300,7 @@
+         Box(
+             modifier = Modifier
+                 .fillMaxSize()
+-                .then(if (trayBlur > 0.dp) Modifier.blur(trayBlur) else Modifier)
++                .then(if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier)
+                 .clipToBounds()
+                 .then(
+                     if (groupForParticles) {
+@@ -322,7 +334,7 @@
+                         xmb.category == XoraXmbCategory.Music &&
+                         !xmb.selectedItem?.heroPath.isNullOrBlank()
+                     )),
+-                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
++                settleMs = if (xmb.depth.isGameSelect) {
+                     XMB_GAME_SELECT_SETTLE_MS
+                 } else {
+                     XMB_FOCUS_SETTLE_MS
+@@ -436,17 +448,22 @@
+                     )
+                     XoraXmbDepth.Systems,
+                     XoraXmbDepth.Roms,
++                    XoraXmbDepth.Favorites,
+                     XoraXmbDepth.DspAccounts,
+                     XoraXmbDepth.MusicAlbums,
+                     XoraXmbDepth.MusicTracks,
++                    XoraXmbDepth.VideoFiles,
+                     -> XoraCardBrowsePane(
+                         items = xmb.items,
+                         selectedIndex = xmb.itemIndex,
+                         mode = when (depth) {
+                             XoraXmbDepth.Systems -> CardBrowseMode.Systems
+-                            XoraXmbDepth.Roms -> CardBrowseMode.Roms
++                            // Favorites is a Game Select screen: same cards, same size.
++                            XoraXmbDepth.Roms, XoraXmbDepth.Favorites -> CardBrowseMode.Roms
+                             XoraXmbDepth.MusicAlbums -> CardBrowseMode.MusicAlbums
+-                            XoraXmbDepth.MusicTracks -> CardBrowseMode.MusicTracks
++                            // A folder of clips reads like a tracklist, so it browses as one.
++                            XoraXmbDepth.MusicTracks, XoraXmbDepth.VideoFiles ->
++                                CardBrowseMode.MusicTracks
+                             else -> CardBrowseMode.DspAccounts
+                         },
+                         onSelectItem = onSelectItem,
+@@ -607,13 +624,24 @@
+     val xmb = state.xoraXmb
+     val heroGame = xmb.focusGame
+     val heroSlideshow = rememberHeroSlideshowPaths(state)
++    val selectedGame = heroGame?.takeIf {
++        xmb.depth.isGameSelect ||
++            xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
++            xmb.selectedItem?.action is XoraXmbAction.LaunchGame
++    }
++    val gameMediaPath = xmbGameSelectWallpaperPath(
++        game = selectedGame,
++        customWallpaperPath = xmb.selectedItem?.heroPath,
++    )
+     val musicBackdrop = musicCategoryBackdrop(
+         category = xmb.category,
+         depth = xmb.depth,
+         playing = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying,
++        hasTrack = state.music.nowPlaying.hasTrack,
+         enabled = state.music.categoryArtBackdropEnabled,
+         coverPath = state.music.nowPlayingArtPath,
+         backgroundMediaPath = state.music.nowPlayingBackdropPath,
++        gameMediaPresent = gameMediaPath != null,
+     )
+     val fullTrailer = state.trailer.active &&
+         state.trailer.displayMode == TrailerDisplayMode.FullBackground
+@@ -693,13 +721,7 @@
+                             xmb.depth == XoraXmbDepth.MusicAlbums ||
+                                 xmb.depth == XoraXmbDepth.MusicTracks
+                         }
+-                        ?: xmbGameSelectWallpaperPath(
+-                            heroGame?.takeIf {
+-                                xmb.depth == XoraXmbDepth.Roms ||
+-                                    xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
+-                                    xmb.selectedItem?.action is XoraXmbAction.LaunchGame
+-                            },
+-                        )
++                        ?: xmbGameSelectWallpaperPath(selectedGame)
+                 },
+                 slideshowPaths = heroSlideshow.takeUnless { musicBackdrop.showCover },
+                 showWaveMask = musicBackdrop.showWaveMask,
+@@ -752,7 +774,7 @@
+         ) {
+             val heroCopy = Triple(
+                 xmb.focusTitle,
+-                if (xmb.depth == XoraXmbDepth.Roms && heroGame != null) {
++                if (xmb.depth.isGameSelect && heroGame != null) {
+                     "Playtime: ${formatXmbPlaytime(heroGame.playTimeMs)}"
+                 } else {
+                     xmb.focusSubtitle
+@@ -767,7 +789,7 @@
+                 heroCopy,
+                 settleMs = XMB_FOCUS_SETTLE_MS,
+             )
+-            val shownCopy = if (xmb.depth == XoraXmbDepth.Roms) {
++            val shownCopy = if (xmb.depth.isGameSelect) {
+                 heroCopy.takeIf { heroGame?.id != null && heroGame.id == settledRomId }
+             } else {
+                 heldCopy
+@@ -1263,6 +1285,7 @@
+     ProfileEditRequestEffect(state.profileEditRequest) { profileEditing = true }
+     val launching = state.isLaunching
+     val launchPageOpen = state.homeHub.vitaLaunchPageOpen
++    val musicPlaying = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying
+     val reduceMotion = rememberReduceMotion()
+     val introSlide = rememberIntroSlide(
+         reveal = state.homeIntroReveal,
+@@ -1395,9 +1418,17 @@
+         // not to whatever the XMB behind the sheet has focused; it leaves once the peel starts.
+         val musicFocused = state.xoraXmb.category == XoraXmbCategory.Music
+         val friendCardOpen = state.friendProfile != null
++        // A playing song keeps its transport in the corner wherever you browse, so the music
++        // stays reachable without walking back to the column that started it.
+         val showMiniPlayer = !launchPageOpen &&
+             !friendCardOpen &&
+-            musicFocused &&
++            // The shortcuts tray is its own screen: the pill leaves rather than sitting blurred
++            // behind it, and comes back on the way out to the XMB.
++            !state.homeHub.vitaShortcutTrayOpen &&
++            // A focused game owns this corner with its trophy card; the pill yields rather than
++            // the two trading the slot between them.
++            !state.xoraXmb.showsGameMedia &&
++            (musicFocused || musicPlaying) &&
+             state.xoraXmb.depth != XoraXmbDepth.NowPlaying &&
+             state.xoraXmb.depth != XoraXmbDepth.RaLibrary
+         val launchPageGame = state.homeHub.vitaShortcutLaunch?.game?.takeIf { !it.isAndroidApp }
+@@ -1407,8 +1438,7 @@
+             launchPageGame != null && launchPageRevealed &&
+                 !state.homeHub.vitaShortcutPeelRequested && !launching
+         } else {
+-            !musicFocused &&
+-                state.xoraXmb.showsAchievementsCard &&
++            state.xoraXmb.showsAchievementsCard &&
+                 state.xoraXmb.depth != XoraXmbDepth.RaLibrary
+         }
+         // Fades in and out with the Music column rather than popping on and off.
+@@ -1511,3 +1541,7 @@
+  */
+ private val XMB_TRAY_BLUR_RADIUS = 18.dp
+ private const val XMB_TRAY_BLUR_MS = 280
++
++/** Softer than the tray's: a card's CRT DIM already carries most of the separation. */
++private val XMB_POPUP_BLUR_RADIUS = 14.dp
++private const val XMB_POPUP_BLUR_MS = 220

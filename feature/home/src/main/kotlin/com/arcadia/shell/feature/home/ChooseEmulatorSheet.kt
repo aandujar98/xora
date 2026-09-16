@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,21 +9,19 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -35,21 +34,24 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.arcadia.shell.designsystem.ArcadiaGlass
-import com.arcadia.shell.designsystem.GlassIntensity
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.arcadia.shell.designsystem.GlassTone
-import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.XoraModalGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.launcher.DetectedEmulator
 import com.arcadia.shell.model.GamePlatform
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.launch
+
+private val WindowFill = Color(0xE6101218)
+private val RowFill = Color(0xCC161A22)
 
 /**
  * Controller-friendly list of installed emulators / RetroArch cores for one system.
+ * Dark modal chrome matches the social card, not a light Material sheet.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChooseEmulatorSheet(
     platform: GamePlatform,
@@ -61,9 +63,7 @@ fun ChooseEmulatorSheet(
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    val glass = rememberGlassTokens(GlassTone.Surface)
+    val glass = rememberGlassTokens(GlassTone.OverMedia)
     val focusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
 
@@ -71,13 +71,6 @@ fun ChooseEmulatorSheet(
         options.indexOfFirst { it.playerId == selectedPlayerId }.coerceAtLeast(0)
     }
     var focusedIndex by remember(options, selectedPlayerId) { mutableIntStateOf(initialIndex) }
-
-    fun dismiss() {
-        scope.launch {
-            sheetState.hide()
-            onDismiss()
-        }
-    }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -101,27 +94,22 @@ fun ChooseEmulatorSheet(
                     focusedIndex = (focusedIndex + 1) % options.size
                 }
                 NavAction.Confirm -> options.getOrNull(focusedIndex)?.let(onSelect)
-                NavAction.Cancel -> dismiss()
+                NavAction.Cancel -> onDismiss()
                 else -> Unit
             }
         }
     }
 
-    ModalBottomSheet(
+    Dialog(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Color.Transparent,
-        contentColor = glass.content,
-        dragHandle = null,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .liquidGlass(
-                    shape = ArcadiaGlass.SheetShape,
-                    tone = GlassTone.Surface,
-                    intensity = GlassIntensity.Strong,
-                )
+                .widthIn(min = 420.dp, max = 560.dp)
+                .fillMaxWidth(0.56f)
+                .xoraModalGlass()
+                .background(WindowFill, XoraModalGlass.Shape)
                 .focusRequester(focusRequester)
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -144,14 +132,14 @@ fun ChooseEmulatorSheet(
                             true
                         }
                         Key.Back, Key.Escape, Key.ButtonB -> {
-                            dismiss()
+                            onDismiss()
                             true
                         }
                         else -> false
                     }
                 }
-                .padding(horizontal = 20.dp)
-                .padding(top = 18.dp, bottom = 28.dp),
+                .padding(horizontal = 22.dp)
+                .padding(top = 20.dp, bottom = 18.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
@@ -201,15 +189,15 @@ fun ChooseEmulatorSheet(
                 TextButton(
                     onClick = {
                         onClear()
-                        dismiss()
+                        onDismiss()
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Use automatic (first installed)")
+                    Text("Use automatic (first installed)", color = glass.content)
                 }
             }
-            TextButton(onClick = ::dismiss, modifier = Modifier.fillMaxWidth()) {
-                Text("Close")
+            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text("Close", color = glass.contentMuted)
             }
             Text(
                 text = "A · Choose   B · Close   U/D · Move",
@@ -227,24 +215,21 @@ private fun EmulatorOptionRow(
     focused: Boolean,
     onClick: () -> Unit,
 ) {
-    val glass = rememberGlassTokens(GlassTone.Surface)
+    val glass = rememberGlassTokens(GlassTone.OverMedia)
+    val shape = RoundedCornerShape(16.dp)
     val borderColor = when {
         focused -> glass.content
         selected -> glass.content.copy(alpha = 0.55f)
-        else -> Color.Transparent
+        else -> Color.White.copy(alpha = 0.12f)
     }
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(RowFill, shape)
             .border(
-                width = if (focused || selected) 2.dp else 0.dp,
+                width = if (focused || selected) 2.dp else 1.dp,
                 color = borderColor,
-                shape = ArcadiaGlass.CardShape,
-            )
-            .liquidGlass(
-                shape = ArcadiaGlass.CardShape,
-                tone = GlassTone.Surface,
-                intensity = if (focused) GlassIntensity.Strong else GlassIntensity.Subtle,
+                shape = shape,
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),

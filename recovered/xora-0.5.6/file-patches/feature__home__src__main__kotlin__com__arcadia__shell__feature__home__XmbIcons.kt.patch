@@ -1,0 +1,36 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbIcons.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbIcons.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbIcons.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbIcons.kt
+@@ -82,6 +82,8 @@
+     Continue,
+     Favorite,
+     Folder,
++    /** Plain folder shell (ICONS-2 Folder.png) — the Games column's Favorites folder. */
++    FolderFavorites,
+     /** Folder shell with the Photo glyph in the window — image albums under Photos. */
+     FolderPhoto,
+     /** Folder shell with the Video glyph in the window — video albums under Videos. */
+@@ -166,6 +168,7 @@
+     XmbIcon.Trophy -> R.drawable.xmb_figma_trophy
+     XmbIcon.Device -> R.drawable.xmb_storage
+     XmbIcon.Folder -> R.drawable.xmb_folder_img
++    XmbIcon.FolderFavorites -> R.drawable.xmb_folder
+     XmbIcon.FolderPhoto -> R.drawable.xmb_folder_photo
+     XmbIcon.FolderVideo -> R.drawable.xmb_folder_video
+     XmbIcon.FolderMusic -> R.drawable.xmb_folder_music
+@@ -201,6 +204,7 @@
+     XmbIcon.Trophy -> 130f to 120f
+     XmbIcon.Device -> 131f to 91f
+     XmbIcon.Folder -> 277f to 196f
++    XmbIcon.FolderFavorites -> 277f to 196f
+     XmbIcon.FolderPhoto -> 222f to 195f
+     XmbIcon.FolderVideo -> 308f to 195f
+     XmbIcon.FolderMusic -> 177f to 195f
+@@ -728,6 +732,7 @@
+         XmbIcon.Continue -> drawPlay(tint, stroke)
+         XmbIcon.Favorite -> drawStar(tint, stroke)
+         XmbIcon.Folder,
++        XmbIcon.FolderFavorites,
+         XmbIcon.FolderPhoto,
+         XmbIcon.FolderVideo,
+         XmbIcon.FolderMusic,

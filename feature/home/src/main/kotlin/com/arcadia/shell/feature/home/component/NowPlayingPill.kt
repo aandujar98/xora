@@ -1,12 +1,16 @@
 package com.arcadia.shell.feature.home.component
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,18 +29,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.arcadia.shell.designsystem.ArcadiaGlass
 import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.launcher.music.NowPlayingState
 
+private val PlayerShape = RoundedCornerShape(20.dp)
+private val ProgressStart = Color(0xFF006FFF)
+private val ProgressEnd = Color(0xFF50D9FF)
+private val ProgressRail = Color.White.copy(alpha = 0.22f)
+
 /**
- * "What's playing" card that stands in for the RetroAchievements pill while Music is focused.
- *
- * Same corner and glass language as the RA pill so the swap reads as one chrome slot changing
- * contents rather than two competing panels.
+ * Compact Now Playing card while Music is focused. Tinted glass, square song art on the
+ * left, and a blue gradient scrubber with a glass playhead — same language as the full player.
  */
 @Composable
 fun NowPlayingPill(
@@ -46,22 +54,22 @@ fun NowPlayingPill(
     val track = state.track
     Row(
         modifier = modifier
-            .width(300.dp)
-            .liquidGlass(
-                shape = RoundedCornerShape(18.dp),
-                tone = GlassTone.OverMedia,
-                intensity = GlassIntensity.Standard,
-            )
-            .padding(10.dp),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+            .width(360.dp)
+            .xoraModalGlass(PlayerShape)
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CoverArt(
             path = track?.albumArtUri,
             fallback = track?.title,
-            size = 48,
+            size = 88,
+            corner = 10,
         )
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Text(
                 text = track?.title ?: "Nothing playing",
                 maxLines = 1,
@@ -69,7 +77,7 @@ fun NowPlayingPill(
                 style = MaterialTheme.typography.titleSmall.copy(
                     fontFamily = XoraFonts.Title,
                     fontWeight = FontWeight.Medium,
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                 ),
                 color = Color.White,
             )
@@ -79,7 +87,7 @@ fun NowPlayingPill(
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = XoraFonts.Secondary,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                 ),
                 color = Color.White.copy(alpha = 0.75f),
             )
@@ -119,29 +127,53 @@ internal fun CoverArt(
     }
 }
 
-/** Filled meter on a dark rail, as the concept draws the scrubber. */
+/** Blue fill from #006FFF → #50D9FF, with a glass disc on the playhead. */
 @Composable
 internal fun ProgressTrack(
     fraction: Float,
     modifier: Modifier = Modifier,
     height: Int = 6,
+    showThumb: Boolean = true,
 ) {
-    Box(
-        modifier = modifier
-            .height(height.dp)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.22f)),
+    val frac = fraction.coerceIn(0f, 1f)
+    val thumb = 14.dp
+    val railH = height.dp
+    BoxWithConstraints(
+        modifier = modifier.height(if (showThumb) 16.dp else railH),
+        contentAlignment = Alignment.CenterStart,
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                .height(height.dp)
+                .fillMaxWidth()
+                .height(railH)
                 .clip(CircleShape)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(Color.White.copy(alpha = 0.95f), Color.White),
-                    ),
-                ),
+                .background(ProgressRail),
         )
+        Box(
+            modifier = Modifier
+                .width(maxWidth * frac)
+                .height(railH)
+                .clip(CircleShape)
+                .background(Brush.horizontalGradient(listOf(ProgressStart, ProgressEnd))),
+        )
+        if (showThumb) {
+            Box(
+                modifier = Modifier
+                    .offset(x = (maxWidth - thumb) * frac)
+                    .size(thumb)
+                    .xoraForegroundShadow(
+                        shape = CircleShape,
+                        offset = 2.dp,
+                        blur = 4.dp,
+                    )
+                    .liquidGlass(
+                        shape = CircleShape,
+                        tone = GlassTone.OverMedia,
+                        intensity = GlassIntensity.Subtle,
+                    )
+                    .border(1.2.dp, Color.White.copy(alpha = 0.78f), CircleShape)
+                    .background(Color.White.copy(alpha = 0.22f), CircleShape),
+            )
+        }
     }
 }

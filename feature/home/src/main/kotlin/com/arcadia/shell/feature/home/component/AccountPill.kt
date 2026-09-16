@@ -8,20 +8,18 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -45,11 +44,27 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.AccountPanelRow
 import com.arcadia.shell.feature.home.CircleMemberUi
 import com.arcadia.shell.feature.home.SocialMenuTab
 import com.arcadia.shell.feature.home.SocialMenuUiState
 import com.arcadia.shell.feature.home.SocialPresence
+
+private val NotificationRed = Color(0xFFFF3B30)
+
+/** Room for the SE glass shadow so AnimatedVisibility cannot crop it. */
+private val FriendsCardShadowGutter = 12.dp
+
+/**
+ * Collapsed LT chrome. 48dp discs keep the stacked-pill silhouette without crowding the corner
+ * (80 / 64 were too large; Figma `56:160` was 73px).
+ */
+private val AvatarSize = 48.dp
+/** Center-to-center step; half of [AvatarSize] so each friend covers half the previous disc. */
+private val AvatarPitch = 24.dp
+private val PillPad = 6.dp
+private val BadgeSize = 22.dp
 
 @Composable
 fun AccountPill(
@@ -65,41 +80,52 @@ fun AccountPill(
     onActivateRow: (Int?) -> Unit,
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
+    onClearNotifications: () -> Unit = {},
+    hideCollapsedChrome: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
-    val pillFriends = remember(socialMenu.circlePins, socialMenu.steam.friends, socialMenu.discord.friends) {
+    val pillFriends = remember(
+        socialMenu.circlePins,
+        socialMenu.steam.friends,
+        socialMenu.discord.friends,
+        socialMenu.xoraNetwork.acceptedFriends,
+        socialMenu.xoraNetwork.friendsLoading,
+    ) {
         circlePillAvatars(socialMenu)
     }
-    val onlineAcross = socialMenu.friendsBadgeCount
-    val extraOnline = (onlineAcross - pillFriends.size).coerceAtLeast(0)
+    // Same tally as the panel's Notifications pill so the collapsed badge cannot disagree.
+    val notificationCount = socialMenu.messagesBadgeCount + socialMenu.recentNotifications.size
     // Use window pixels ÷ current (fitted) density so Auto UI-fit cannot push the panel off-screen.
     val view = LocalView.current
     val density = LocalDensity.current
     val windowCap = remember(view, density) {
         val heightPx = view.rootView.height.takeIf { it > 0 }
             ?: view.resources.displayMetrics.heightPixels
-        with(density) { (heightPx * 0.72f).toDp() }
+        with(density) { (heightPx * 0.90f).toDp() }
     }
 
     BoxWithConstraints(
         modifier = modifier
-            .widthIn(max = if (expanded) 400.dp else 240.dp)
-            .heightIn(max = windowCap + 56.dp),
+            .widthIn(max = if (expanded) 400.dp + FriendsCardShadowGutter else 240.dp)
+            .heightIn(max = windowCap + 24.dp)
+            .graphicsLayer { clip = false },
     ) {
         // Cap against parent constraints and the real window so Auto UI-fit cannot clip LT.
         val panelCap = if (maxHeight.value.isFinite()) {
-            min(windowCap, (maxHeight - 56.dp).coerceAtLeast(120.dp))
+            min(windowCap, (maxHeight - 8.dp).coerceAtLeast(160.dp))
         } else {
             windowCap
         }
         Column(
             horizontalAlignment = Alignment.Start,
-            modifier = Modifier.heightIn(max = maxHeight),
+            modifier = Modifier
+                .heightIn(max = maxHeight)
+                .graphicsLayer { clip = false },
         ) {
             // Collapsed LT chrome hides while the panel is open; Back / LT restores it.
             AnimatedVisibility(
-                visible = !expanded,
+                visible = !expanded && !hideCollapsedChrome,
                 enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
                     animationSpec = arcadiaTween(ArcadiaMotion.Medium),
                     initialScale = 0.92f,
@@ -111,39 +137,59 @@ fun AccountPill(
                     transformOrigin = TransformOrigin(0.1f, 0f),
                 ),
             ) {
-                Row(
-                    modifier = Modifier
-                        .liquidGlass(
-                            shape = ArcadiaGlass.PillShape,
-                            tone = GlassTone.OverMedia,
-                            intensity = GlassIntensity.Standard,
-                        )
-                        .clickable(onClick = onToggle)
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    StackedCircleAvatars(members = pillFriends)
-                    if (extraOnline > 0) {
-                        Text(
-                            text = "+$extraOnline",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = glass.contentMuted,
-                        )
+                Box {
+                    Row(
+                        modifier = Modifier
+                            .xoraForegroundShadow(ArcadiaGlass.PillShape)
+                            .liquidGlass(
+                                shape = ArcadiaGlass.PillShape,
+                                tone = GlassTone.OverMedia,
+                                intensity = GlassIntensity.Strong,
+                                shimmer = true,
+                            )
+                            .clip(ArcadiaGlass.PillShape)
+                            .clickable(onClick = onToggle)
+                            .padding(PillPad),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Avatars only — the Figma pill carries no online-count label.
+                        if (pillFriends.isEmpty()) {
+                            ProfileAvatar(
+                                displayName = profile.displayName,
+                                presetId = profile.avatarPresetId,
+                                size = AvatarSize,
+                                imageModel = profileAvatarModel,
+                                borderColor = Color.Transparent,
+                            )
+                        } else {
+                            StackedCircleAvatars(members = pillFriends)
+                        }
                     }
-                    if (pillFriends.isEmpty()) {
-                        Text(
-                            text = if (onlineAcross > 0) "$onlineAcross online" else "Social",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = glass.contentMuted,
-                        )
+                    if (notificationCount > 0) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 3.dp, y = (-3).dp)
+                                .size(BadgeSize)
+                                .clip(CircleShape)
+                                .background(NotificationRed)
+                                .border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = if (notificationCount > 9) "9+" else "$notificationCount",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                            )
+                        }
                     }
                 }
             }
 
             AnimatedVisibility(
                 visible = expanded,
+                modifier = Modifier.graphicsLayer { clip = false },
                 enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
                     animationSpec = arcadiaTween(ArcadiaMotion.Medium),
                     initialScale = 0.92f,
@@ -166,11 +212,16 @@ fun AccountPill(
                     onActivateRow = onActivateRow,
                     onFriendSearchChange = onFriendSearchChange,
                     onReplyDraftChange = onReplyDraftChange,
+                    onClearNotifications = onClearNotifications,
+                    maxHeight = panelCap,
                     modifier = Modifier
-                        .padding(top = 8.dp)
+                        .padding(
+                            top = 8.dp,
+                            end = FriendsCardShadowGutter,
+                            bottom = FriendsCardShadowGutter,
+                        )
                         .fillMaxWidth()
-                        .heightIn(max = panelCap)
-                        .verticalScroll(rememberScrollState()),
+                        .graphicsLayer { clip = false },
                 )
             }
         }
@@ -180,22 +231,23 @@ fun AccountPill(
 @Composable
 private fun StackedCircleAvatars(members: List<CircleMemberUi>) {
     if (members.isEmpty()) return
-    Row(
-        horizontalArrangement = Arrangement.spacedBy((-12).dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val stackWidth = AvatarSize + AvatarPitch * (members.lastIndex)
+    Box(
+        modifier = Modifier.size(width = stackWidth, height = AvatarSize),
     ) {
         members.forEachIndexed { index, member ->
             Box(
                 modifier = Modifier
-                    .zIndex((members.size - index).toFloat())
-                    .size(36.dp)
+                    .offset(x = AvatarPitch * index)
+                    .zIndex(index.toFloat())
+                    .size(AvatarSize)
                     .clip(CircleShape)
                     .border(1.5.dp, Color(0xFF0C1524), CircleShape),
             ) {
                 ProfileAvatar(
                     displayName = member.displayName,
                     presetId = "preset_0",
-                    size = 36.dp,
+                    size = AvatarSize,
                     imageModel = member.avatarUrl,
                     borderColor = Color.Transparent,
                 )

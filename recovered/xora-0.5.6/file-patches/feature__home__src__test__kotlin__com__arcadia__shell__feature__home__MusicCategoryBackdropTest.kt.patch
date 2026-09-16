@@ -1,0 +1,54 @@
+diff --git a/feature/home/src/test/kotlin/com/arcadia/shell/feature/home/MusicCategoryBackdropTest.kt b/feature/home/src/test/kotlin/com/arcadia/shell/feature/home/MusicCategoryBackdropTest.kt
+--- a/feature/home/src/test/kotlin/com/arcadia/shell/feature/home/MusicCategoryBackdropTest.kt
++++ b/feature/home/src/test/kotlin/com/arcadia/shell/feature/home/MusicCategoryBackdropTest.kt
+@@ -46,7 +46,7 @@
+     }
+ 
+     @Test
+-    fun otherCategoriesKeepTheThemeWallpaper() {
++    fun otherCategoriesKeepTheMusicWhileItPlays() {
+         val backdrop = musicCategoryBackdrop(
+             category = XoraXmbCategory.Games,
+             depth = XoraXmbDepth.Category,
+@@ -54,12 +54,41 @@
+             enabled = true,
+             coverPath = "/sdcard/cover.jpg",
+         )
++        assertTrue(backdrop.showCover)
++        assertTrue(backdrop.showWaveMask)
++        assertEquals("/sdcard/cover.jpg", backdrop.coverPath)
++    }
++
++    @Test
++    fun gameMediaTakesTheBackdropBackOffTheMusicColumn() {
++        val backdrop = musicCategoryBackdrop(
++            category = XoraXmbCategory.Games,
++            depth = XoraXmbDepth.Roms,
++            playing = true,
++            enabled = true,
++            coverPath = "/sdcard/cover.jpg",
++            gameMediaPresent = true,
++        )
+         assertFalse(backdrop.showCover)
+         assertFalse(backdrop.showWaveMask)
+         assertNull(backdrop.coverPath)
+     }
+ 
+     @Test
++    fun musicColumnOutranksGameMedia() {
++        val backdrop = musicCategoryBackdrop(
++            category = XoraXmbCategory.Music,
++            depth = XoraXmbDepth.Category,
++            playing = true,
++            enabled = true,
++            coverPath = "/sdcard/cover.jpg",
++            gameMediaPresent = true,
++        )
++        assertTrue(backdrop.showCover)
++        assertTrue(backdrop.showWaveMask)
++    }
++
++    @Test
+     fun toggleOffLeavesMusicOnTheThemeWallpaper() {
+         val backdrop = musicCategoryBackdrop(
+             category = XoraXmbCategory.Music,

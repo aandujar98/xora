@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.arcadia.shell.model.HomeShortcut
 import com.arcadia.shell.model.HomeShortcutKind
@@ -67,12 +68,81 @@ enum class ThemeMode {
     Dark,
 }
 
+/**
+ * How hard the Home shell should work on glass, wallpaper motion, and idle video.
+ *
+ * [Auto] drops those effects on budget RAM (Galaxy A15-class).
+ * [Quality] keeps the full look unless battery saver is on.
+ * [Smooth] is the Performance choice — always uses the lite path.
+ */
+enum class VisualPerformanceMode {
+    Auto,
+    Quality,
+    Smooth,
+}
+
+/** On-screen order for the Performance picker: Auto, Performance, Quality. */
+val VisualPerformanceChoices: List<VisualPerformanceMode> = listOf(
+    VisualPerformanceMode.Auto,
+    VisualPerformanceMode.Smooth,
+    VisualPerformanceMode.Quality,
+)
+
+/** `null` = Auto, `true` = Performance (lite), `false` = Quality. */
+fun VisualPerformanceMode.liteVisualsOverride(): Boolean? = when (this) {
+    VisualPerformanceMode.Auto -> null
+    VisualPerformanceMode.Quality -> false
+    VisualPerformanceMode.Smooth -> true
+}
+
+fun visualPerformanceModeLabel(mode: VisualPerformanceMode): String = when (mode) {
+    VisualPerformanceMode.Auto -> "Auto"
+    VisualPerformanceMode.Quality -> "Quality"
+    VisualPerformanceMode.Smooth -> "Performance"
+}
+
+fun visualPerformanceModeSubtitle(mode: VisualPerformanceMode): String =
+    visualPerformanceModeSubtitle(
+        mode = mode,
+        deviceSuggestsLite = null,
+        deviceRamLabel = null,
+    )
+
+/**
+ * Auto copy includes the path this device's RAM / memory class selected.
+ * [deviceSuggestsLite] / [deviceRamLabel] come from [com.arcadia.shell.designsystem.DeviceVisualBudget].
+ */
+fun visualPerformanceModeSubtitle(
+    mode: VisualPerformanceMode,
+    deviceSuggestsLite: Boolean?,
+    deviceRamLabel: String?,
+): String = when (mode) {
+    VisualPerformanceMode.Auto -> {
+        val ram = deviceRamLabel?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+        when (deviceSuggestsLite) {
+            true -> "Auto on this device · Performance$ram"
+            false -> "Auto on this device · Quality$ram"
+            null -> "Auto · uses this device's RAM"
+        }
+    }
+    VisualPerformanceMode.Quality -> "Full glass, motion & video wallpaper"
+    VisualPerformanceMode.Smooth -> "Static wallpaper · no blur or idle video"
+}
+
 /** How an idle game trailer is shown on the hero artwork pane. */
 enum class TrailerDisplayMode {
+    /** Trailer replaces the focused Game Icon cover art. */
+    InIcon,
     /** Trailer replaces the full hero artwork behind UI chrome. */
     FullBackground,
     /** Trailer plays in a lower-right picture-in-picture region. */
     CornerPip,
+}
+
+/** What plays inside a focused Game Icon after idle. Trailers stay the default. */
+enum class GameIconIdleMedia {
+    Trailer,
+    Screenshot,
 }
 
 /**
@@ -106,6 +176,16 @@ enum class AvatarSource {
     RetroAchievements,
     /** Linked Discord account's profile picture. */
     Discord,
+    /** Signed-in XOrA Network username + avatar. */
+    XoraNetwork,
+}
+
+/** Which installed Android packages are mirrored onto the Android platform. */
+enum class AndroidAppInclusionMode {
+    /** Every launchable app (except the shell itself). Default for existing installs. */
+    All,
+    /** Only packages in [ShellSettings.androidAppAllowlist]. */
+    Allowlist,
 }
 
 /** How XMB ROM rows show the game title next to box art. */
@@ -122,8 +202,8 @@ data class ShellSettings(
      * effectively decides which screen the user is looking at while navigating.
      */
     val secondaryDisplayRole: ScreenRole = ScreenRole.Hero,
-    /** Single composed layout vs dual-display Presentation split. Defaults to Dual. */
-    val displayMode: DisplayMode = DisplayMode.Dual,
+    /** Single composed layout vs dual-display Presentation split. Home XMB is single-screen. */
+    val displayMode: DisplayMode = DisplayMode.Single,
     /**
      * Auto-detect the panel resolution and scale the whole UI to fit.
      * Defaults to [UiFitMode.Auto].
@@ -149,7 +229,7 @@ data class ShellSettings(
     /**
      * XMB ROM browse: clear-logo title icons vs plain text titles.
      */
-    val xmbTitleStyle: XmbTitleStyle = XmbTitleStyle.TitleIcons,
+    val xmbTitleStyle: XmbTitleStyle = XmbTitleStyle.Text,
     /**
      * Download each game's scanned manual during a metadata scrape, for the companion screen to
      * page through. Off by default: manuals are the largest media ScreenScraper serves, and a big
@@ -157,13 +237,25 @@ data class ShellSettings(
      */
     val manualScrapeEnabled: Boolean = false,
     /**
-     * Mirror launchable Android apps into the library so they appear on the Apps tab and can
-     * be pinned. On by default; turning it off prunes the synced rows on the next sync.
+     * Mirror launchable Android apps into the library so they appear on the Android platform
+     * and the Apps tab. On by default; turning it off prunes the synced rows on the next sync.
      */
     val androidAppSyncEnabled: Boolean = true,
+    /**
+     * [AndroidAppInclusionMode.All] keeps every launchable package. [AndroidAppInclusionMode.Allowlist]
+     * keeps only [androidAppAllowlist] — used after onboarding (or Setup) picks a subset.
+     */
+    val androidAppInclusionMode: AndroidAppInclusionMode = AndroidAppInclusionMode.All,
+    /** Package names included when [androidAppInclusionMode] is [AndroidAppInclusionMode.Allowlist]. */
+    val androidAppAllowlist: Set<String> = emptySet(),
     val lastScanAt: Long = 0,
     /** Looping shell soundtrack volume in the range 0f–1f. Zero mutes. */
     val bgmVolume: Float = DEFAULT_BGM_VOLUME,
+    /**
+     * Library / Now Playing mix in the range 0f–1f. Independent of [bgmVolume], which also
+     * drives track background-video audio while a song is playing.
+     */
+    val musicVolume: Float = DEFAULT_MUSIC_VOLUME,
     /** Navigation / UI one-shot SFX volume in the range 0f–1f. Zero mutes. Independent of BGM. */
     val uiSfxVolume: Float = DEFAULT_UI_SFX_VOLUME,
     /** Light / dark appearance. Defaults to dark to match the classic SORA shell. */
@@ -181,20 +273,36 @@ data class ShellSettings(
     val trailerScrapeEnabled: Boolean = true,
     /** Which provider(s) to use when [trailerScrapeEnabled] is on. */
     val trailerSourcePreference: TrailerSourcePreference = TrailerSourcePreference.Auto,
-    val trailerDisplayMode: TrailerDisplayMode = TrailerDisplayMode.FullBackground,
+    val trailerDisplayMode: TrailerDisplayMode = TrailerDisplayMode.InIcon,
     /** Seconds without input before an idle trailer may start. */
     val trailerIdleSeconds: Int = DEFAULT_TRAILER_IDLE_SECONDS,
+    /** Idle media inside the focused Game Icon. Trailers remain the default. */
+    val gameIconIdleMedia: GameIconIdleMedia = GameIconIdleMedia.Trailer,
     /**
-     * Absolute path to a user-picked Home wallpaper. Null / blank uses the built-in
-     * `sora_home_wallpaper` drawable.
+     * Absolute path to a user-picked Home wallpaper. Null / blank uses the active theme's
+     * backdrop.
      */
     val homeWallpaperPath: String? = null,
+    /** Horizontal wallpaper pan (`-1` left … `1` right), same bias as cover art. */
+    val wallpaperAlignX: Float = 0f,
+    /** Vertical wallpaper pan (`-1` top … `1` bottom). */
+    val wallpaperAlignY: Float = 0f,
+    /**
+     * Absolute path to a gallery still cropped into the Games column Folder_IMG window.
+     * Null / blank shows the checker placeholder.
+     */
+    val homeFolderImagePath: String? = null,
     /**
      * Absolute path to a user-picked looping BGM file. Null / blank uses the active
      * launcher theme's asset BGM when present, otherwise the bundled default
      * soundtrack (`raw/background`).
      */
     val customBgmPath: String? = null,
+    /**
+     * Absolute path to an optional second looping BGM that takes over while the Vita shortcut
+     * tray is open. Null / blank keeps the main shell BGM playing through the tray.
+     */
+    val vitaTrayBgmPath: String? = null,
     /**
      * Absolute path to the Music category's on-device library folder. Null / blank means
      * "all device music" via MediaStore.
@@ -211,12 +319,36 @@ data class ShellSettings(
     val notificationsEnabled: Boolean = true,
     /** Play a short UI chime when a shell notification banner becomes visible. */
     val notificationSoundEnabled: Boolean = true,
+    val discordFriendOnlineNotifications: Boolean = true,
+    val steamFriendOnlineNotifications: Boolean = true,
+    val xoraFriendOnlineNotifications: Boolean = true,
+    /** Banner when a Steam, Discord, or XOrA Network friend starts a game. */
+    val friendPlayingNotifications: Boolean = true,
     /**
      * Legacy: when true and no Choose Emulator entry for N64, launch via RetroArch
      * Mupen64Plus-Next. Superseded by per-platform Choose Emulator; kept so existing
      * installs keep working until the user picks an emulator.
      */
     val n64UseMupen64PlusNext: Boolean = false,
+    /**
+     * When true, games marked hidden still appear in library lists (with a Hidden
+     * subtitle) so they can be unhidden. Off by default.
+     */
+    val showHiddenGames: Boolean = false,
+    /**
+     * Glass / wallpaper / idle-video budget. [VisualPerformanceMode.Auto] goes lite on
+     * 4–6 GB phones so XMB stays responsive.
+     */
+    val visualPerformanceMode: VisualPerformanceMode = VisualPerformanceMode.Auto,
+    /**
+     * When true, a playing track on the Music XMB column uses cover art plus the bundled
+     * wave Multiply mask as the backdrop.
+     */
+    val musicCategoryArtBackdrop: Boolean = true,
+    /** When true, ambient particles drift over the XMB wallpaper. */
+    val xmbParticlesEnabled: Boolean = true,
+    /** When true the shell takes the panel's fastest mode; false pins 60 Hz for battery. */
+    val highRefreshRate: Boolean = true,
 )
 
 /**
@@ -244,15 +376,13 @@ data class LocalProfile(
      * (“Browsing XOrA”, “Playing …”).
      */
     val customStatus: String? = null,
-    /** Pinned RetroAchievements game shown under Favorite Game on the RT card. */
-    val favoriteRaGame: ProfileFavoriteRaGame? = null,
-)
-
-/** Favorite game pinned on the RT profile card (from the user’s RA completion list). */
-data class ProfileFavoriteRaGame(
-    val gameId: Int,
-    val title: String,
-    val imageIconUrl: String = "",
+    /** Library game id pinned under Favorite Game on the RT card. */
+    val favoriteLibraryGameId: String? = null,
+    /**
+     * How this device should appear on XOrA Network: Online, Away, Busy, or Invisible.
+     * Only published while signed in.
+     */
+    val xoraPresenceMode: String = "Online",
 )
 
 data class ScraperCredentials(
@@ -332,6 +462,7 @@ data class DiscordSocialSettings(
 
 /** Public Application ID for SORA (safe to ship; never put a client secret in the app). */
 const val DEFAULT_DISCORD_APPLICATION_ID = "1531690290526683176"
+private const val MAX_DISMISSED_SHELL_NOTIFICATION_IDS = 400
 
 @Singleton
 class ShellPreferences @Inject constructor(
@@ -347,7 +478,7 @@ class ShellPreferences @Inject constructor(
                 ?: ScreenRole.Hero,
             displayMode = prefs[Keys.DISPLAY_MODE]
                 ?.let { name -> runCatching { DisplayMode.valueOf(name) }.getOrNull() }
-                ?: DisplayMode.Dual,
+                ?: DisplayMode.Single,
             uiFitMode = prefs[Keys.UI_FIT_MODE]
                 ?.let { name -> runCatching { UiFitMode.valueOf(name) }.getOrNull() }
                 ?: UiFitMode.Auto,
@@ -362,11 +493,16 @@ class ShellPreferences @Inject constructor(
             gamesSecondarySlot = prefs[Keys.GAMES_SECONDARY_SLOT] ?: "Continue",
             xmbTitleStyle = prefs[Keys.XMB_TITLE_STYLE]
                 ?.let { name -> runCatching { XmbTitleStyle.valueOf(name) }.getOrNull() }
-                ?: XmbTitleStyle.TitleIcons,
+                ?: XmbTitleStyle.Text,
             manualScrapeEnabled = prefs[Keys.MANUAL_SCRAPE_ENABLED] ?: false,
             androidAppSyncEnabled = prefs[Keys.ANDROID_APP_SYNC_ENABLED] ?: true,
+            androidAppInclusionMode = prefs[Keys.ANDROID_APP_INCLUSION_MODE]
+                ?.let { name -> runCatching { AndroidAppInclusionMode.valueOf(name) }.getOrNull() }
+                ?: AndroidAppInclusionMode.All,
+            androidAppAllowlist = decodeStringIdSet(prefs[Keys.ANDROID_APP_ALLOWLIST].orEmpty()),
             lastScanAt = prefs[Keys.LAST_SCAN_AT] ?: 0,
             bgmVolume = prefs[Keys.BGM_VOLUME] ?: DEFAULT_BGM_VOLUME,
+            musicVolume = prefs[Keys.MUSIC_VOLUME] ?: DEFAULT_MUSIC_VOLUME,
             uiSfxVolume = prefs[Keys.UI_SFX_VOLUME] ?: DEFAULT_UI_SFX_VOLUME,
             themeMode = prefs[Keys.THEME_MODE]
                 ?.let { name -> runCatching { ThemeMode.valueOf(name) }.getOrNull() }
@@ -378,17 +514,35 @@ class ShellPreferences @Inject constructor(
                 ?: TrailerSourcePreference.Auto,
             trailerDisplayMode = prefs[Keys.TRAILER_DISPLAY_MODE]
                 ?.let { name -> runCatching { TrailerDisplayMode.valueOf(name) }.getOrNull() }
-                ?: TrailerDisplayMode.FullBackground,
+                ?: TrailerDisplayMode.InIcon,
             trailerIdleSeconds = (prefs[Keys.TRAILER_IDLE_SECONDS] ?: DEFAULT_TRAILER_IDLE_SECONDS)
                 .coerceIn(5, 60),
+            gameIconIdleMedia = prefs[Keys.GAME_ICON_IDLE_MEDIA]
+                ?.let { name -> runCatching { GameIconIdleMedia.valueOf(name) }.getOrNull() }
+                ?: GameIconIdleMedia.Trailer,
             homeWallpaperPath = prefs[Keys.HOME_WALLPAPER_PATH]?.takeIf { it.isNotBlank() },
+            wallpaperAlignX = (prefs[Keys.WALLPAPER_ALIGN_X] ?: 0f).coerceIn(-1f, 1f),
+            wallpaperAlignY = (prefs[Keys.WALLPAPER_ALIGN_Y] ?: 0f).coerceIn(-1f, 1f),
+            homeFolderImagePath = prefs[Keys.HOME_FOLDER_IMAGE_PATH]?.takeIf { it.isNotBlank() },
             customBgmPath = prefs[Keys.CUSTOM_BGM_PATH]?.takeIf { it.isNotBlank() },
+            vitaTrayBgmPath = prefs[Keys.VITA_TRAY_BGM_PATH]?.takeIf { it.isNotBlank() },
             musicLibraryPath = prefs[Keys.MUSIC_LIBRARY_PATH]?.takeIf { it.isNotBlank() },
             shellThemeId = prefs[Keys.SHELL_THEME_ID]?.takeIf { it.isNotBlank() }
                 ?: DEFAULT_SHELL_THEME_ID,
             notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true,
             notificationSoundEnabled = prefs[Keys.NOTIFICATION_SOUND_ENABLED] ?: true,
+            discordFriendOnlineNotifications = prefs[Keys.DISCORD_FRIEND_ONLINE_NOTIFICATIONS] ?: true,
+            steamFriendOnlineNotifications = prefs[Keys.STEAM_FRIEND_ONLINE_NOTIFICATIONS] ?: true,
+            xoraFriendOnlineNotifications = prefs[Keys.XORA_FRIEND_ONLINE_NOTIFICATIONS] ?: true,
+            friendPlayingNotifications = prefs[Keys.FRIEND_PLAYING_NOTIFICATIONS] ?: true,
             n64UseMupen64PlusNext = prefs[Keys.N64_USE_MUPEN64PLUS_NEXT] ?: false,
+            showHiddenGames = prefs[Keys.SHOW_HIDDEN_GAMES] ?: false,
+            visualPerformanceMode = prefs[Keys.VISUAL_PERFORMANCE_MODE]
+                ?.let { name -> runCatching { VisualPerformanceMode.valueOf(name) }.getOrNull() }
+                ?: VisualPerformanceMode.Auto,
+            musicCategoryArtBackdrop = prefs[Keys.MUSIC_CATEGORY_ART_BACKDROP] ?: true,
+            xmbParticlesEnabled = prefs[Keys.XMB_PARTICLES_ENABLED] ?: true,
+            highRefreshRate = prefs[Keys.HIGH_REFRESH_RATE] ?: true,
         )
     }
 
@@ -411,7 +565,7 @@ class ShellPreferences @Inject constructor(
             threeDsScreenLayout = prefs[Keys.XORA_3DS_LAYOUT]
                 ?.let { runCatching { ThreeDsScreenLayout.valueOf(it) }.getOrNull() }
                 ?: ThreeDsScreenLayout.TopBottom,
-            expandDualDisplay = prefs[Keys.XORA_EXPAND_DUAL] ?: false,
+            expandDualDisplay = prefs[Keys.XORA_EXPAND_DUAL] ?: true,
             aspectMode = prefs[Keys.XORA_ASPECT]
                 ?.let { runCatching { XoraAspectMode.valueOf(it) }.getOrNull() }
                 ?: XoraAspectMode.Core,
@@ -420,7 +574,9 @@ class ShellPreferences @Inject constructor(
                 ?.let { runCatching { XoraInternalResolution.valueOf(it) }.getOrNull() }
                 ?: XoraInternalResolution.Native,
             bezelsEnabled = prefs[Keys.XORA_BEZELS_ENABLED] ?: true,
+            blockOverlayWash = prefs[Keys.XORA_BLOCK_OVERLAY_WASH] ?: true,
             bezelOpacity = (prefs[Keys.XORA_BEZEL_OPACITY] ?: 0.88f).coerceIn(0f, 1f),
+            audioVolume = (prefs[Keys.XORA_AUDIO_VOLUME] ?: 1f).coerceIn(0f, 1f),
             netplayEnabled = prefs[Keys.XORA_NETPLAY_ENABLED] ?: false,
             netplayNickname = prefs[Keys.XORA_NETPLAY_NICK]
                 ?.takeIf { it.isNotBlank() } ?: "Player",
@@ -429,8 +585,28 @@ class ShellPreferences @Inject constructor(
             netplaySpectator = prefs[Keys.XORA_NETPLAY_SPECTATOR] ?: false,
             netplayUseRelay = prefs[Keys.XORA_NETPLAY_RELAY] ?: false,
             netplayHostAddress = prefs[Keys.XORA_NETPLAY_HOST].orEmpty(),
+            ndsWfcServer = prefs[Keys.XORA_NDS_WFC]
+                ?.let { runCatching { NdsWfcServer.valueOf(it) }.getOrNull() }
+                ?: NdsWfcServer.Kaeru,
+            ndsWfcCustomDns = prefs[Keys.XORA_NDS_WFC_DNS].orEmpty(),
+            azaharLobbyApiUrl = prefs[Keys.XORA_AZAHAR_LOBBY_API].orEmpty(),
+            threeDsPretendoPrep = prefs[Keys.XORA_3DS_PRETENDO] ?: false,
+            pspAdhocEnabled = prefs[Keys.XORA_PSP_ADHOC] ?: true,
+            pspAdhocIsServer = prefs[Keys.XORA_PSP_ADHOC_SERVER] ?: false,
             preferredControllerName = prefs[Keys.XORA_CONTROLLER_NAME].orEmpty(),
             buttonMappings = decodeButtonMappings(prefs[Keys.XORA_BUTTON_MAPPINGS].orEmpty()),
+        )
+    }
+
+    /** Latest incoming online netplay invite this device should auto-join. */
+    val pendingNetplayJoin: Flow<PendingNetplayJoin> = dataStore.data.map { prefs ->
+        PendingNetplayJoin(
+            code = prefs[Keys.PENDING_NETPLAY_CODE].orEmpty(),
+            platformId = prefs[Keys.PENDING_NETPLAY_PLATFORM].orEmpty(),
+            gameTitle = prefs[Keys.PENDING_NETPLAY_GAME].orEmpty(),
+            fromUsername = prefs[Keys.PENDING_NETPLAY_FROM].orEmpty(),
+            coreName = prefs[Keys.PENDING_NETPLAY_CORE].orEmpty(),
+            createdAtMs = prefs[Keys.PENDING_NETPLAY_AT] ?: 0L,
         )
     }
 
@@ -473,8 +649,6 @@ class ShellPreferences @Inject constructor(
     }
 
     val profile: Flow<LocalProfile> = dataStore.data.map { prefs ->
-        val favoriteId = prefs[Keys.PROFILE_FAVORITE_RA_GAME_ID] ?: 0
-        val favoriteTitle = prefs[Keys.PROFILE_FAVORITE_RA_GAME_TITLE].orEmpty()
         LocalProfile(
             displayName = prefs[Keys.PROFILE_NAME]?.takeIf { it.isNotBlank() } ?: "Player",
             avatarPresetId = prefs[Keys.PROFILE_AVATAR]?.takeIf { it.isNotBlank() } ?: "preset_0",
@@ -483,15 +657,9 @@ class ShellPreferences @Inject constructor(
                 ?: AvatarSource.Default,
             localAvatarFileName = prefs[Keys.PROFILE_AVATAR_FILE]?.takeIf { it.isNotBlank() },
             customStatus = prefs[Keys.PROFILE_CUSTOM_STATUS]?.takeIf { it.isNotBlank() },
-            favoriteRaGame = if (favoriteId > 0 && favoriteTitle.isNotBlank()) {
-                ProfileFavoriteRaGame(
-                    gameId = favoriteId,
-                    title = favoriteTitle,
-                    imageIconUrl = prefs[Keys.PROFILE_FAVORITE_RA_GAME_ICON].orEmpty(),
-                )
-            } else {
-                null
-            },
+            favoriteLibraryGameId = prefs[Keys.PROFILE_FAVORITE_LIBRARY_GAME_ID]
+                ?.takeIf { it.isNotBlank() },
+            xoraPresenceMode = prefs[Keys.XORA_PRESENCE_MODE]?.takeIf { it.isNotBlank() } ?: "Online",
         )
     }
 
@@ -531,12 +699,31 @@ class ShellPreferences @Inject constructor(
     }
 
     /**
+     * Whether the Home coach marks have been finished or skipped since the last onboarding
+     * Finish. [setOnboardingComplete] clears this so every completed wizard run replays them
+     * after the boot clip.
+     */
+    val homeTutorialComplete: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.HOME_TUTORIAL_COMPLETE] ?: false
+    }
+
+    /**
      * Mixed Steam + Discord pins for the LT “Pinned Friends” strip
      * (order preserved, max [CIRCLE_FRIEND_LIMIT]).
      *
      * Prefers [Keys.CIRCLE_PINS] JSON; falls back to legacy Steam-only
      * [Keys.CIRCLE_FRIEND_IDS] comma list.
      */
+    /** User-saved wallpaper + BGM combos, named and reusable from Customize → Custom Themes. */
+    val customThemes: Flow<List<CustomTheme>> = dataStore.data.map { prefs ->
+        decodeCustomThemes(prefs[Keys.CUSTOM_THEMES].orEmpty())
+    }
+
+    /** Selected boot animation id — [DEFAULT_BOOT_ANIMATION_ID] until more are offered. */
+    val bootAnimationId: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.BOOT_ANIMATION_ID]?.trim()?.ifBlank { null } ?: DEFAULT_BOOT_ANIMATION_ID
+    }
+
     val circlePins: Flow<List<CirclePin>> = dataStore.data.map { prefs ->
         val encoded = prefs[Keys.CIRCLE_PINS].orEmpty()
         if (encoded.isNotBlank()) {
@@ -551,6 +738,75 @@ class ShellPreferences @Inject constructor(
                 .take(CIRCLE_FRIEND_LIMIT)
                 .map { CirclePin(source = CirclePinSource.Steam, id = it) }
         }
+    }
+
+    /**
+     * MediaStore ids of photos the user marked as favorites in the Photo Viewer. Stored here so
+     * favorite status never touches the image files themselves.
+     */
+    val favoritePhotoIds: Flow<Set<String>> = dataStore.data.map { prefs ->
+        decodeStringIdSet(prefs[Keys.FAVORITE_PHOTO_IDS].orEmpty())
+    }
+
+    suspend fun setPhotoFavorite(photoId: String, favorite: Boolean) = edit { prefs ->
+        val current = decodeStringIdSet(prefs[Keys.FAVORITE_PHOTO_IDS].orEmpty())
+        val next = if (favorite) current + photoId else current - photoId
+        prefs[Keys.FAVORITE_PHOTO_IDS] = encodeStringIdSet(next)
+    }
+
+    /**
+     * Library game ids the user chose to hide. Hidden titles stay in the database;
+     * they are only filtered from lists unless [ShellSettings.showHiddenGames] is on.
+     */
+    val hiddenGameIds: Flow<Set<String>> = dataStore.data.map { prefs ->
+        decodeStringIdSet(prefs[Keys.HIDDEN_GAME_IDS].orEmpty())
+    }
+
+    suspend fun setGameHidden(gameId: String, hidden: Boolean) = edit { prefs ->
+        val current = decodeStringIdSet(prefs[Keys.HIDDEN_GAME_IDS].orEmpty())
+        val next = if (hidden) current + gameId else current - gameId
+        prefs[Keys.HIDDEN_GAME_IDS] = encodeStringIdSet(next)
+    }
+
+    /** Per-game cover-art pan inside the Game Icon, biases in `-1f..1f`. */
+    val gameArtAlignments: Flow<Map<String, GameArtAlignment>> = dataStore.data.map { prefs ->
+        decodeGameArtAlignments(prefs[Keys.GAME_ART_ALIGNMENTS].orEmpty())
+    }
+
+    suspend fun setGameArtAlignment(gameId: String, alignment: GameArtAlignment?) = edit { prefs ->
+        val current = decodeGameArtAlignments(prefs[Keys.GAME_ART_ALIGNMENTS].orEmpty())
+        val next = if (alignment == null || alignment.isIdentity) {
+            current - gameId
+        } else {
+            current + (gameId to alignment.clamped())
+        }
+        prefs[Keys.GAME_ART_ALIGNMENTS] = encodeGameArtAlignments(next)
+    }
+
+    /**
+     * User-typed names, keyed by game id.
+     *
+     * Deliberately not a database column: the database falls back to a destructive migration, so
+     * adding one would drop every library, playtime and favourite on upgrade. Living out here also
+     * means a re-scrape cannot quietly overwrite a name the user chose by hand.
+     */
+    val gameTitleOverrides: Flow<Map<String, String>> = dataStore.data.map { prefs ->
+        decodeGameTitleOverrides(prefs[Keys.GAME_TITLE_OVERRIDES].orEmpty())
+    }
+
+    suspend fun setGameTitleOverride(gameId: String, title: String?) = edit { prefs ->
+        val current = decodeGameTitleOverrides(prefs[Keys.GAME_TITLE_OVERRIDES].orEmpty())
+        val cleaned = title?.trim()?.takeIf { it.isNotEmpty() }
+        val next = if (cleaned == null) current - gameId else current + (gameId to cleaned)
+        prefs[Keys.GAME_TITLE_OVERRIDES] = encodeGameTitleOverrides(next)
+    }
+
+    suspend fun setShowHiddenGames(enabled: Boolean) = edit {
+        it[Keys.SHOW_HIDDEN_GAMES] = enabled
+    }
+
+    suspend fun setVisualPerformanceMode(mode: VisualPerformanceMode) = edit {
+        it[Keys.VISUAL_PERFORMANCE_MODE] = mode.name
     }
 
     suspend fun setSecondaryDisplayRole(role: ScreenRole) = edit { it[Keys.SECONDARY_ROLE] = role.name }
@@ -596,10 +852,28 @@ class ShellPreferences @Inject constructor(
         it[Keys.ANDROID_APP_SYNC_ENABLED] = enabled
     }
 
+    /**
+     * Stores how installed apps are mirrored. [AndroidAppInclusionMode.All] clears the allowlist
+     * so a later switch back to allowlist starts from an empty pick.
+     */
+    suspend fun setAndroidAppInclusion(
+        mode: AndroidAppInclusionMode,
+        allowlist: Set<String> = emptySet(),
+    ) = edit {
+        it[Keys.ANDROID_APP_INCLUSION_MODE] = mode.name
+        it[Keys.ANDROID_APP_ALLOWLIST] = encodeStringIdSet(
+            if (mode == AndroidAppInclusionMode.All) emptySet() else allowlist,
+        )
+    }
+
     suspend fun setLastScanAt(timestamp: Long) = edit { it[Keys.LAST_SCAN_AT] = timestamp }
 
     suspend fun setBgmVolume(volume: Float) = edit {
         it[Keys.BGM_VOLUME] = volume.coerceIn(0f, 1f)
+    }
+
+    suspend fun setMusicVolume(volume: Float) = edit {
+        it[Keys.MUSIC_VOLUME] = volume.coerceIn(0f, 1f)
     }
 
     suspend fun setUiSfxVolume(volume: Float) = edit {
@@ -630,14 +904,51 @@ class ShellPreferences @Inject constructor(
         it[Keys.TRAILER_IDLE_SECONDS] = seconds.coerceIn(5, 60)
     }
 
+    suspend fun setGameIconIdleMedia(media: GameIconIdleMedia) = edit {
+        it[Keys.GAME_ICON_IDLE_MEDIA] = media.name
+    }
+
+    suspend fun setXmbParticlesEnabled(enabled: Boolean) = edit {
+        it[Keys.XMB_PARTICLES_ENABLED] = enabled
+    }
+
+    suspend fun setHighRefreshRate(enabled: Boolean) = edit {
+        it[Keys.HIGH_REFRESH_RATE] = enabled
+    }
+
+    suspend fun setMusicCategoryArtBackdrop(enabled: Boolean) = edit {
+        it[Keys.MUSIC_CATEGORY_ART_BACKDROP] = enabled
+    }
+
     suspend fun setHomeWallpaperPath(path: String?) = edit {
         if (path.isNullOrBlank()) it.remove(Keys.HOME_WALLPAPER_PATH)
         else it[Keys.HOME_WALLPAPER_PATH] = path
     }
 
+    suspend fun setWallpaperAlignment(alignment: GameArtAlignment?) = edit { prefs ->
+        val next = (alignment ?: GameArtAlignment()).clamped()
+        if (next.isIdentity) {
+            prefs.remove(Keys.WALLPAPER_ALIGN_X)
+            prefs.remove(Keys.WALLPAPER_ALIGN_Y)
+        } else {
+            prefs[Keys.WALLPAPER_ALIGN_X] = next.x
+            prefs[Keys.WALLPAPER_ALIGN_Y] = next.y
+        }
+    }
+
+    suspend fun setHomeFolderImagePath(path: String?) = edit {
+        if (path.isNullOrBlank()) it.remove(Keys.HOME_FOLDER_IMAGE_PATH)
+        else it[Keys.HOME_FOLDER_IMAGE_PATH] = path
+    }
+
     suspend fun setCustomBgmPath(path: String?) = edit {
         if (path.isNullOrBlank()) it.remove(Keys.CUSTOM_BGM_PATH)
         else it[Keys.CUSTOM_BGM_PATH] = path
+    }
+
+    suspend fun setVitaTrayBgmPath(path: String?) = edit {
+        if (path.isNullOrBlank()) it.remove(Keys.VITA_TRAY_BGM_PATH)
+        else it[Keys.VITA_TRAY_BGM_PATH] = path
     }
 
     suspend fun setMusicLibraryPath(path: String?) = edit {
@@ -656,6 +967,22 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setNotificationSoundEnabled(enabled: Boolean) = edit {
         it[Keys.NOTIFICATION_SOUND_ENABLED] = enabled
+    }
+
+    suspend fun setDiscordFriendOnlineNotifications(enabled: Boolean) = edit {
+        it[Keys.DISCORD_FRIEND_ONLINE_NOTIFICATIONS] = enabled
+    }
+
+    suspend fun setSteamFriendOnlineNotifications(enabled: Boolean) = edit {
+        it[Keys.STEAM_FRIEND_ONLINE_NOTIFICATIONS] = enabled
+    }
+
+    suspend fun setXoraFriendOnlineNotifications(enabled: Boolean) = edit {
+        it[Keys.XORA_FRIEND_ONLINE_NOTIFICATIONS] = enabled
+    }
+
+    suspend fun setFriendPlayingNotifications(enabled: Boolean) = edit {
+        it[Keys.FRIEND_PLAYING_NOTIFICATIONS] = enabled
     }
 
     suspend fun setN64UseMupen64PlusNext(enabled: Boolean) = edit {
@@ -694,8 +1021,33 @@ class ShellPreferences @Inject constructor(
         it[Keys.XORA_BEZELS_ENABLED] = enabled
     }
 
+    suspend fun setXoraBlockOverlayWash(enabled: Boolean) = edit {
+        it[Keys.XORA_BLOCK_OVERLAY_WASH] = enabled
+    }
+
     suspend fun setXoraBezelOpacity(opacity: Float) = edit {
         it[Keys.XORA_BEZEL_OPACITY] = opacity.coerceIn(0f, 1f)
+    }
+
+    suspend fun setXoraAudioVolume(volume: Float) = edit {
+        it[Keys.XORA_AUDIO_VOLUME] = volume.coerceIn(0f, 1f)
+    }
+
+    /** Display, audio, and gamepad defaults. Leaves netplay identity / host address alone. */
+    suspend fun resetXoraEmulatorPlaySettings() = edit {
+        it.remove(Keys.XORA_ASPECT)
+        it.remove(Keys.XORA_INTEGER_SCALE)
+        it.remove(Keys.XORA_INTERNAL_RES)
+        it.remove(Keys.XORA_BEZELS_ENABLED)
+        it.remove(Keys.XORA_BLOCK_OVERLAY_WASH)
+        it.remove(Keys.XORA_BEZEL_OPACITY)
+        it.remove(Keys.XORA_AUDIO_VOLUME)
+        it.remove(Keys.XORA_EXPAND_DUAL)
+        it.remove(Keys.XORA_CONTROLLER_NAME)
+        it.remove(Keys.XORA_BUTTON_MAPPINGS)
+        it.remove(Keys.XORA_NDS_LAYOUT)
+        it.remove(Keys.XORA_NDS_GAP)
+        it.remove(Keys.XORA_3DS_LAYOUT)
     }
 
     suspend fun setXoraNetplayEnabled(enabled: Boolean) = edit {
@@ -720,6 +1072,119 @@ class ShellPreferences @Inject constructor(
 
     suspend fun setXoraNetplayHostAddress(address: String) = edit {
         it[Keys.XORA_NETPLAY_HOST] = address.trim().take(128)
+    }
+
+    suspend fun setXoraNdsWfcServer(server: NdsWfcServer) = edit {
+        it[Keys.XORA_NDS_WFC] = server.name
+    }
+
+    suspend fun setXoraNdsWfcCustomDns(dns: String) = edit {
+        it[Keys.XORA_NDS_WFC_DNS] = dns.trim().take(64)
+    }
+
+    suspend fun setXoraAzaharLobbyApiUrl(url: String) = edit {
+        it[Keys.XORA_AZAHAR_LOBBY_API] = url.trim().take(256)
+    }
+
+    suspend fun setXoraThreeDsPretendoPrep(enabled: Boolean) = edit {
+        it[Keys.XORA_3DS_PRETENDO] = enabled
+    }
+
+    suspend fun setXoraPspAdhocEnabled(enabled: Boolean) = edit {
+        it[Keys.XORA_PSP_ADHOC] = enabled
+    }
+
+    suspend fun setXoraPspAdhocIsServer(enabled: Boolean) = edit {
+        it[Keys.XORA_PSP_ADHOC_SERVER] = enabled
+    }
+
+    suspend fun setPendingNetplayJoin(join: PendingNetplayJoin) = edit {
+        it[Keys.PENDING_NETPLAY_CODE] = join.code.trim().take(8)
+        it[Keys.PENDING_NETPLAY_PLATFORM] = join.platformId.trim().take(64)
+        it[Keys.PENDING_NETPLAY_GAME] = join.gameTitle.trim().take(128)
+        it[Keys.PENDING_NETPLAY_FROM] = join.fromUsername.trim().take(128)
+        it[Keys.PENDING_NETPLAY_CORE] = join.coreName.trim().take(64)
+        it[Keys.PENDING_NETPLAY_AT] = join.createdAtMs
+    }
+
+    suspend fun clearPendingNetplayJoin() = edit {
+        it.remove(Keys.PENDING_NETPLAY_CODE)
+        it.remove(Keys.PENDING_NETPLAY_PLATFORM)
+        it.remove(Keys.PENDING_NETPLAY_GAME)
+        it.remove(Keys.PENDING_NETPLAY_FROM)
+        it.remove(Keys.PENDING_NETPLAY_CORE)
+        it.remove(Keys.PENDING_NETPLAY_AT)
+    }
+
+    /**
+     * Folders the player pointed at for Videos and Photos, as SAF tree uris. Empty means "use
+     * whatever MediaStore turns up", which is the behaviour these tabs have always had; adding a
+     * folder narrows each tab to the directories chosen, and several may be chosen.
+     */
+    val videoFolderUris: kotlinx.coroutines.flow.Flow<Set<String>> = dataStore.data.map { prefs ->
+        prefs[Keys.VIDEO_FOLDER_URIS].orEmpty()
+    }
+
+    val photoFolderUris: kotlinx.coroutines.flow.Flow<Set<String>> = dataStore.data.map { prefs ->
+        prefs[Keys.PHOTO_FOLDER_URIS].orEmpty()
+    }
+
+    suspend fun addVideoFolderUri(uri: String) = addMediaFolder(Keys.VIDEO_FOLDER_URIS, uri)
+
+    suspend fun removeVideoFolderUri(uri: String) = removeMediaFolder(Keys.VIDEO_FOLDER_URIS, uri)
+
+    suspend fun addPhotoFolderUri(uri: String) = addMediaFolder(Keys.PHOTO_FOLDER_URIS, uri)
+
+    suspend fun removePhotoFolderUri(uri: String) = removeMediaFolder(Keys.PHOTO_FOLDER_URIS, uri)
+
+    private suspend fun addMediaFolder(
+        key: androidx.datastore.preferences.core.Preferences.Key<Set<String>>,
+        uri: String,
+    ) = edit { prefs ->
+        val trimmed = uri.trim()
+        if (trimmed.isEmpty()) return@edit
+        prefs[key] = prefs[key].orEmpty() + trimmed
+    }
+
+    private suspend fun removeMediaFolder(
+        key: androidx.datastore.preferences.core.Preferences.Key<Set<String>>,
+        uri: String,
+    ) = edit { prefs ->
+        prefs[key] = prefs[key].orEmpty() - uri
+    }
+
+    /** Notification ids the user already cleared. Survives process death and app updates. */
+    val dismissedShellNotificationIds: Flow<Set<String>> = dataStore.data.map { prefs ->
+        prefs[Keys.DISMISSED_SHELL_NOTIFICATION_IDS].orEmpty()
+    }
+
+    suspend fun addDismissedShellNotificationIds(ids: Collection<String>) = edit { prefs ->
+        val incoming = ids.map { it.trim() }.filter { it.isNotEmpty() }
+        if (incoming.isEmpty()) return@edit
+        val merged = (prefs[Keys.DISMISSED_SHELL_NOTIFICATION_IDS].orEmpty() + incoming)
+            .toMutableSet()
+        while (merged.size > MAX_DISMISSED_SHELL_NOTIFICATION_IDS) {
+            merged.remove(merged.first())
+        }
+        prefs[Keys.DISMISSED_SHELL_NOTIFICATION_IDS] = merged
+    }
+
+    /** Wall-clock time of the last GitHub release check, so resume does not poll every time. */
+    val lastUpdateCheckAt: Flow<Long> = dataStore.data.map { prefs ->
+        prefs[Keys.LAST_UPDATE_CHECK_AT] ?: 0L
+    }
+
+    suspend fun setLastUpdateCheckAt(timestamp: Long) = edit {
+        it[Keys.LAST_UPDATE_CHECK_AT] = timestamp
+    }
+
+    /** Newest version already announced by a notification, so one release toasts once. */
+    val announcedUpdateVersion: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.ANNOUNCED_UPDATE_VERSION].orEmpty()
+    }
+
+    suspend fun setAnnouncedUpdateVersion(version: String) = edit {
+        it[Keys.ANNOUNCED_UPDATE_VERSION] = version.trim().take(64)
     }
 
     suspend fun setXoraPreferredControllerName(name: String) = edit {
@@ -783,8 +1248,66 @@ class ShellPreferences @Inject constructor(
         }
     }
 
+    /**
+     * Once per [EMULATOR_DETECTION_EPOCH], clears Choose Emulator picks so this upgrade
+     * rebuilds them from the emulators actually installed on the device.
+     *
+     * @return true when this call performed the reset.
+     */
+    suspend fun consumeEmulatorDetectionReset(): Boolean {
+        val seen = dataStore.data.first()[Keys.EMULATOR_DETECTION_EPOCH] ?: 0
+        if (seen >= EMULATOR_DETECTION_EPOCH) return false
+        edit { prefs ->
+            prefs[Keys.EMULATOR_DETECTION_EPOCH] = EMULATOR_DETECTION_EPOCH
+            prefs.remove(Keys.PLATFORM_EMULATOR_CHOICES)
+        }
+        return true
+    }
+
     suspend fun setOnboardingComplete(done: Boolean) = edit {
         it[Keys.ONBOARDING_COMPLETE] = done
+        // Finish and Settings redo both drop this so the Home tutorial runs after every
+        // completed onboarding + boot clip, not only the first install.
+        it[Keys.HOME_TUTORIAL_COMPLETE] = false
+    }
+
+    /**
+     * Wizard step name to resume onboarding on, so a backgrounded process kill (or plain
+     * activity recreation) doesn't drop the player back to Welcome. Cleared on Finish and on a
+     * Settings redo so a fresh run always starts over.
+     */
+    val onboardingStep: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.ONBOARDING_STEP].orEmpty()
+    }
+
+    suspend fun setOnboardingStep(step: String) = edit {
+        it[Keys.ONBOARDING_STEP] = step
+    }
+
+    val xoraPlusBypass: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.XORA_PLUS_BYPASS] ?: false
+    }
+
+    suspend fun setXoraPlusBypass(enabled: Boolean) = edit {
+        it[Keys.XORA_PLUS_BYPASS] = enabled
+    }
+
+    /**
+     * Comma-separated Discord role snowflakes that count as XOrA Plus.
+     *
+     * Discord hands apps role ids but never role names, so the exact check needs an id from the
+     * server — pasted during onboarding or baked in at build time.
+     */
+    val xoraPlusRoleIds: Flow<String> = dataStore.data.map { prefs ->
+        prefs[Keys.XORA_PLUS_ROLE_IDS].orEmpty()
+    }
+
+    suspend fun setXoraPlusRoleIds(ids: String) = edit {
+        it[Keys.XORA_PLUS_ROLE_IDS] = ids.trim()
+    }
+
+    suspend fun setHomeTutorialComplete(done: Boolean) = edit {
+        it[Keys.HOME_TUTORIAL_COMPLETE] = done
     }
 
     suspend fun setHomeShortcuts(shortcuts: List<HomeShortcut>) = edit {
@@ -858,15 +1381,16 @@ class ShellPreferences @Inject constructor(
         }
     }
 
-    suspend fun setProfileFavoriteRaGame(game: ProfileFavoriteRaGame?) = edit {
-        if (game == null || game.gameId <= 0 || game.title.isBlank()) {
-            it.remove(Keys.PROFILE_FAVORITE_RA_GAME_ID)
-            it.remove(Keys.PROFILE_FAVORITE_RA_GAME_TITLE)
-            it.remove(Keys.PROFILE_FAVORITE_RA_GAME_ICON)
+    suspend fun setXoraPresenceMode(mode: String) = edit {
+        it[Keys.XORA_PRESENCE_MODE] = mode.trim().ifBlank { "Online" }
+    }
+
+    suspend fun setProfileFavoriteLibraryGame(gameId: String?) = edit {
+        val trimmed = gameId?.trim().orEmpty()
+        if (trimmed.isBlank()) {
+            it.remove(Keys.PROFILE_FAVORITE_LIBRARY_GAME_ID)
         } else {
-            it[Keys.PROFILE_FAVORITE_RA_GAME_ID] = game.gameId
-            it[Keys.PROFILE_FAVORITE_RA_GAME_TITLE] = game.title.trim()
-            it[Keys.PROFILE_FAVORITE_RA_GAME_ICON] = game.imageIconUrl.trim()
+            it[Keys.PROFILE_FAVORITE_LIBRARY_GAME_ID] = trimmed
         }
     }
 
@@ -885,7 +1409,11 @@ class ShellPreferences @Inject constructor(
                     it[Keys.PROFILE_AVATAR_FILE] = localFileName
                 }
             }
-            AvatarSource.Default, AvatarSource.RetroAchievements, AvatarSource.Discord -> {
+            AvatarSource.Default,
+            AvatarSource.RetroAchievements,
+            AvatarSource.Discord,
+            AvatarSource.XoraNetwork,
+            -> {
                 it[Keys.PROFILE_AVATAR_FILE] = ""
             }
         }
@@ -981,6 +1509,126 @@ class ShellPreferences @Inject constructor(
         setCirclePins(circlePins.first().filterNot { it.key == normalized.key })
     }
 
+    /** Snapshots the current wallpaper/BGM as a new named [CustomTheme]. */
+    suspend fun addCustomTheme(
+        name: String,
+        wallpaperPath: String?,
+        bgmPath: String?,
+        trayBgmPath: String? = null,
+    ): CustomTheme {
+        val theme = CustomTheme(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name.trim().take(CUSTOM_THEME_NAME_MAX_LENGTH).ifBlank { "Custom theme" },
+            wallpaperPath = wallpaperPath,
+            bgmPath = bgmPath,
+            trayBgmPath = trayBgmPath,
+        )
+        val current = customThemes.first()
+        edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(current + theme) }
+        return theme
+    }
+
+    /** Edit in place so the theme keeps its position in the grid rather than jumping to the end. */
+    suspend fun updateCustomTheme(
+        id: String,
+        name: String,
+        wallpaperPath: String?,
+        bgmPath: String?,
+        trayBgmPath: String?,
+    ) {
+        if (id.isBlank()) return
+        val current = customThemes.first()
+        if (current.none { it.id == id }) return
+        val next = current.map { theme ->
+            if (theme.id != id) {
+                theme
+            } else {
+                theme.copy(
+                    name = name.trim().take(CUSTOM_THEME_NAME_MAX_LENGTH).ifBlank { theme.name },
+                    wallpaperPath = wallpaperPath,
+                    bgmPath = bgmPath,
+                    trayBgmPath = trayBgmPath,
+                )
+            }
+        }
+        edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(next) }
+    }
+
+    suspend fun removeCustomTheme(id: String) {
+        if (id.isBlank()) return
+        val current = customThemes.first()
+        edit { it[Keys.CUSTOM_THEMES] = encodeCustomThemes(current.filterNot { theme -> theme.id == id }) }
+    }
+
+    /** Absolute path to a user-supplied boot clip; null means only the bundled one exists. */
+    val bootAnimationPath: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[Keys.BOOT_ANIMATION_PATH]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setBootAnimationPath(path: String?) = edit {
+        if (path.isNullOrBlank()) it.remove(Keys.BOOT_ANIMATION_PATH)
+        else it[Keys.BOOT_ANIMATION_PATH] = path
+    }
+
+    /** Blank store means untouched, so the seeded set stays live rather than being frozen in. */
+    val newsOutlets: Flow<List<NewsOutlet>> = dataStore.data.map { prefs ->
+        decodeNewsOutlets(prefs[Keys.NEWS_OUTLETS].orEmpty())
+            .takeIf { it.isNotEmpty() }
+            ?: DEFAULT_NEWS_OUTLETS
+    }
+
+    val selectedNewsOutletId: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[Keys.NEWS_OUTLET_ID]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setSelectedNewsOutletId(id: String?) = edit {
+        if (id.isNullOrBlank()) it.remove(Keys.NEWS_OUTLET_ID) else it[Keys.NEWS_OUTLET_ID] = id
+    }
+
+    suspend fun addNewsOutlet(name: String, feedUrl: String): NewsOutlet? {
+        val url = feedUrl.trim()
+        if (url.isBlank()) return null
+        val current = newsOutlets.first()
+        val existing = current.firstOrNull { it.feedUrl.equals(url, ignoreCase = true) }
+        if (existing != null) return existing
+        val host = runCatching { android.net.Uri.parse(url).host }.getOrNull()
+        val outlet = NewsOutlet(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name.trim().take(NEWS_OUTLET_NAME_MAX_LENGTH).ifBlank { outletNameFromUrl(url) },
+            feedUrl = url,
+            iconUrl = host?.removePrefix("www.")?.let(::faviconFor),
+        )
+        edit { it[Keys.NEWS_OUTLETS] = encodeNewsOutlets((current + outlet).take(NEWS_OUTLET_LIMIT)) }
+        return outlet
+    }
+
+    /** Caches the logo a feed advertised, so the bubble keeps its picture between launches. */
+    suspend fun setNewsOutletIcon(id: String, iconUrl: String?) {
+        val url = iconUrl?.trim()?.takeIf { it.startsWith("http") } ?: return
+        val current = newsOutlets.first()
+        val existing = current.firstOrNull { it.id == id } ?: return
+        if (existing.iconUrl == url) return
+        edit {
+            it[Keys.NEWS_OUTLETS] = encodeNewsOutlets(
+                current.map { outlet -> if (outlet.id == id) outlet.copy(iconUrl = url) else outlet },
+            )
+        }
+    }
+
+    suspend fun removeNewsOutlet(id: String) {
+        if (id.isBlank()) return
+        val current = newsOutlets.first()
+        val next = current.filterNot { it.id == id }
+        // Never write an empty list: that is the "untouched" sentinel and would resurrect
+        // the seeded set the moment it was read back.
+        if (next.isEmpty()) return
+        edit { it[Keys.NEWS_OUTLETS] = encodeNewsOutlets(next) }
+    }
+
+    suspend fun setBootAnimationId(id: String) = edit {
+        it[Keys.BOOT_ANIMATION_ID] = id.trim().ifBlank { DEFAULT_BOOT_ANIMATION_ID }
+    }
+
     /**
      * Preferred scraper for a single ROM. Empty / missing means inherit platform (or Auto).
      * Stored as the [com.arcadia.shell.scraper.ScraperPreference] enum name.
@@ -1034,8 +1682,11 @@ class ShellPreferences @Inject constructor(
         val XMB_TITLE_STYLE = stringPreferencesKey("xmb_title_style")
         val MANUAL_SCRAPE_ENABLED = booleanPreferencesKey("manual_scrape_enabled")
         val ANDROID_APP_SYNC_ENABLED = booleanPreferencesKey("android_app_sync_enabled")
+        val ANDROID_APP_INCLUSION_MODE = stringPreferencesKey("android_app_inclusion_mode")
+        val ANDROID_APP_ALLOWLIST = stringPreferencesKey("android_app_allowlist")
         val LAST_SCAN_AT = longPreferencesKey("last_scan_at")
         val BGM_VOLUME = floatPreferencesKey("bgm_volume")
+        val MUSIC_VOLUME = floatPreferencesKey("music_volume")
         val UI_SFX_VOLUME = floatPreferencesKey("ui_sfx_volume")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val TRAILER_ENABLED = booleanPreferencesKey("trailer_enabled")
@@ -1043,6 +1694,7 @@ class ShellPreferences @Inject constructor(
         val TRAILER_SOURCE_PREFERENCE = stringPreferencesKey("trailer_source_preference")
         val TRAILER_DISPLAY_MODE = stringPreferencesKey("trailer_display_mode")
         val TRAILER_IDLE_SECONDS = intPreferencesKey("trailer_idle_seconds")
+        val GAME_ICON_IDLE_MEDIA = stringPreferencesKey("game_icon_idle_media")
         val TRAILER_PIPELINE_V2 = booleanPreferencesKey("trailer_pipeline_v2")
         val SS_USER = stringPreferencesKey("screenscraper_user")
         val SS_PASSWORD = stringPreferencesKey("screenscraper_password")
@@ -1056,9 +1708,9 @@ class ShellPreferences @Inject constructor(
         val PROFILE_AVATAR_SOURCE = stringPreferencesKey("profile_avatar_source")
         val PROFILE_AVATAR_FILE = stringPreferencesKey("profile_avatar_file")
         val PROFILE_CUSTOM_STATUS = stringPreferencesKey("profile_custom_status")
-        val PROFILE_FAVORITE_RA_GAME_ID = intPreferencesKey("profile_favorite_ra_game_id")
-        val PROFILE_FAVORITE_RA_GAME_TITLE = stringPreferencesKey("profile_favorite_ra_game_title")
-        val PROFILE_FAVORITE_RA_GAME_ICON = stringPreferencesKey("profile_favorite_ra_game_icon")
+        val XORA_PRESENCE_MODE = stringPreferencesKey("xora_presence_mode")
+        val PROFILE_FAVORITE_LIBRARY_GAME_ID =
+            stringPreferencesKey("profile_favorite_library_game_id")
         val RA_USER = stringPreferencesKey("retroachievements_user")
         val RA_API_KEY = stringPreferencesKey("retroachievements_api_key")
         val RA_CONNECT_TOKEN = stringPreferencesKey("retroachievements_connect_token")
@@ -1069,12 +1721,41 @@ class ShellPreferences @Inject constructor(
         val CIRCLE_FRIEND_IDS = stringPreferencesKey("circle_friend_ids")
         /** JSON array of `{source,id}` Circle pins (Steam + Discord). */
         val CIRCLE_PINS = stringPreferencesKey("circle_pins")
+        val VIDEO_FOLDER_URIS = stringSetPreferencesKey("video_folder_uris")
+        val PHOTO_FOLDER_URIS = stringSetPreferencesKey("photo_folder_uris")
+        val CUSTOM_THEMES = stringPreferencesKey("custom_themes")
+        val BOOT_ANIMATION_ID = stringPreferencesKey("boot_animation_id")
+        val BOOT_ANIMATION_PATH = stringPreferencesKey("boot_animation_path")
+        val NEWS_OUTLETS = stringPreferencesKey("news_outlets")
+        val NEWS_OUTLET_ID = stringPreferencesKey("news_outlet_id")
+        /** JSON array of MediaStore photo ids favourited in the Photo Viewer. */
+        val FAVORITE_PHOTO_IDS = stringPreferencesKey("favorite_photo_ids")
+        val HIDDEN_GAME_IDS = stringPreferencesKey("hidden_game_ids")
+        val GAME_ART_ALIGNMENTS = stringPreferencesKey("game_art_alignments")
+        val GAME_TITLE_OVERRIDES = stringPreferencesKey("game_title_overrides")
+        val SHOW_HIDDEN_GAMES = booleanPreferencesKey("show_hidden_games")
+        val VISUAL_PERFORMANCE_MODE = stringPreferencesKey("visual_performance_mode")
+        val MUSIC_CATEGORY_ART_BACKDROP = booleanPreferencesKey("music_category_art_backdrop")
+        val XMB_PARTICLES_ENABLED = booleanPreferencesKey("xmb_particles_enabled")
+        val HIGH_REFRESH_RATE = booleanPreferencesKey("high_refresh_rate")
         val HOME_WALLPAPER_PATH = stringPreferencesKey("home_wallpaper_path")
+        val WALLPAPER_ALIGN_X = floatPreferencesKey("wallpaper_align_x")
+        val WALLPAPER_ALIGN_Y = floatPreferencesKey("wallpaper_align_y")
+        val HOME_FOLDER_IMAGE_PATH = stringPreferencesKey("home_folder_image_path")
         val CUSTOM_BGM_PATH = stringPreferencesKey("custom_bgm_path")
+        val VITA_TRAY_BGM_PATH = stringPreferencesKey("vita_tray_bgm_path")
         val MUSIC_LIBRARY_PATH = stringPreferencesKey("music_library_path")
         val SHELL_THEME_ID = stringPreferencesKey("shell_theme_id")
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         val NOTIFICATION_SOUND_ENABLED = booleanPreferencesKey("notification_sound_enabled")
+        val DISCORD_FRIEND_ONLINE_NOTIFICATIONS =
+            booleanPreferencesKey("discord_friend_online_notifications")
+        val STEAM_FRIEND_ONLINE_NOTIFICATIONS =
+            booleanPreferencesKey("steam_friend_online_notifications")
+        val XORA_FRIEND_ONLINE_NOTIFICATIONS =
+            booleanPreferencesKey("xora_friend_online_notifications")
+        val FRIEND_PLAYING_NOTIFICATIONS =
+            booleanPreferencesKey("friend_playing_notifications")
         val N64_USE_MUPEN64PLUS_NEXT = booleanPreferencesKey("n64_use_mupen64plus_next")
         val XORA_NDS_LAYOUT = stringPreferencesKey("xora_nds_screen_layout")
         val XORA_NDS_GAP = intPreferencesKey("xora_nds_screen_gap")
@@ -1084,13 +1765,29 @@ class ShellPreferences @Inject constructor(
         val XORA_INTEGER_SCALE = intPreferencesKey("xora_integer_scale")
         val XORA_INTERNAL_RES = stringPreferencesKey("xora_internal_resolution")
         val XORA_BEZELS_ENABLED = booleanPreferencesKey("xora_bezels_enabled")
+        val XORA_BLOCK_OVERLAY_WASH = booleanPreferencesKey("xora_block_overlay_wash")
         val XORA_BEZEL_OPACITY = floatPreferencesKey("xora_bezel_opacity")
+        val XORA_AUDIO_VOLUME = floatPreferencesKey("xora_audio_volume")
         val XORA_NETPLAY_ENABLED = booleanPreferencesKey("xora_netplay_enabled")
         val XORA_NETPLAY_NICK = stringPreferencesKey("xora_netplay_nickname")
         val XORA_NETPLAY_PORT = intPreferencesKey("xora_netplay_port")
         val XORA_NETPLAY_SPECTATOR = booleanPreferencesKey("xora_netplay_spectator")
         val XORA_NETPLAY_RELAY = booleanPreferencesKey("xora_netplay_relay")
         val XORA_NETPLAY_HOST = stringPreferencesKey("xora_netplay_host")
+        val XORA_NDS_WFC = stringPreferencesKey("xora_nds_wfc_server")
+        val XORA_NDS_WFC_DNS = stringPreferencesKey("xora_nds_wfc_custom_dns")
+        val XORA_AZAHAR_LOBBY_API = stringPreferencesKey("xora_azahar_lobby_api")
+        val XORA_3DS_PRETENDO = booleanPreferencesKey("xora_3ds_pretendo_prep")
+        val XORA_PSP_ADHOC = booleanPreferencesKey("xora_psp_adhoc_enabled")
+        val XORA_PSP_ADHOC_SERVER = booleanPreferencesKey("xora_psp_adhoc_is_server")
+        val PENDING_NETPLAY_CODE = stringPreferencesKey("pending_netplay_join_code")
+        val PENDING_NETPLAY_PLATFORM = stringPreferencesKey("pending_netplay_join_platform")
+        val PENDING_NETPLAY_GAME = stringPreferencesKey("pending_netplay_join_game")
+        val PENDING_NETPLAY_FROM = stringPreferencesKey("pending_netplay_join_from")
+        val PENDING_NETPLAY_CORE = stringPreferencesKey("pending_netplay_join_core")
+        val PENDING_NETPLAY_AT = longPreferencesKey("pending_netplay_join_at")
+        val DISMISSED_SHELL_NOTIFICATION_IDS =
+            stringSetPreferencesKey("dismissed_shell_notification_ids")
         val XORA_CONTROLLER_NAME = stringPreferencesKey("xora_preferred_controller")
         val XORA_BUTTON_MAPPINGS = stringPreferencesKey("xora_button_mappings")
         val RA_ENABLED = booleanPreferencesKey("ra_enabled")
@@ -1100,10 +1797,17 @@ class ShellPreferences @Inject constructor(
         val RA_RICH_PRESENCE = booleanPreferencesKey("ra_rich_presence")
         /** JSON object: platformId → { playerId, packageName?, coreName? }. */
         val PLATFORM_EMULATOR_CHOICES = stringPreferencesKey("platform_emulator_choices")
+        val EMULATOR_DETECTION_EPOCH = intPreferencesKey("emulator_detection_epoch")
         val HOME_SHORTCUTS = stringPreferencesKey("home_shortcuts")
         val HOME_SHORTCUT_GRID_COLUMNS = intPreferencesKey("home_shortcut_grid_columns")
         val HOME_SHORTCUT_GRID_ROWS = intPreferencesKey("home_shortcut_grid_rows")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+        val ONBOARDING_STEP = stringPreferencesKey("onboarding_step")
+        val HOME_TUTORIAL_COMPLETE = booleanPreferencesKey("home_tutorial_complete")
+        val XORA_PLUS_BYPASS = booleanPreferencesKey("xora_plus_bypass")
+        val XORA_PLUS_ROLE_IDS = stringPreferencesKey("xora_plus_role_ids")
+        val LAST_UPDATE_CHECK_AT = longPreferencesKey("last_update_check_at")
+        val ANNOUNCED_UPDATE_VERSION = stringPreferencesKey("announced_update_version")
     }
 }
 
@@ -1116,6 +1820,12 @@ data class HomeShortcutGridLayout(
 /** Default landscape density — coarser than the old packed 8-col board so tiles read larger. */
 const val DEFAULT_HOME_SHORTCUT_GRID_COLUMNS = 6
 const val DEFAULT_HOME_SHORTCUT_GRID_ROWS = 3
+
+/**
+ * Bump to wipe stored built-in players and Choose Emulator picks once after an upgrade
+ * that changes how external emulators are detected.
+ */
+const val EMULATOR_DETECTION_EPOCH = 1
 const val MIN_HOME_SHORTCUT_GRID_COLUMNS = 4
 const val MAX_HOME_SHORTCUT_GRID_COLUMNS = 10
 const val MIN_HOME_SHORTCUT_GRID_ROWS = 2
@@ -1206,6 +1916,7 @@ internal fun decodeHomeShortcuts(raw: String): List<HomeShortcut> {
 enum class CirclePinSource {
     Steam,
     Discord,
+    XoraNetwork,
 }
 
 /** One pinned friend in Pinned Friends (SteamID64 or Discord user id). */
@@ -1218,6 +1929,102 @@ data class CirclePin(
 
 /** Max friends the user can pin in LT “Pinned Friends”. */
 const val CIRCLE_FRIEND_LIMIT = 5
+
+internal fun encodeStringIdSet(ids: Set<String>): String {
+    val array = JSONArray()
+    ids.forEach { id -> if (id.isNotBlank()) array.put(id) }
+    return array.toString()
+}
+
+internal fun decodeStringIdSet(raw: String): Set<String> {
+    if (raw.isBlank()) return emptySet()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildSet {
+            for (i in 0 until array.length()) {
+                val id = array.optString(i).trim()
+                if (id.isNotEmpty()) add(id)
+            }
+        }
+    }.getOrDefault(emptySet())
+}
+
+/** Cover-art pan inside a Game Icon. Compose [BiasAlignment] uses `-1..1` on each axis. */
+data class GameArtAlignment(
+    val x: Float = 0f,
+    val y: Float = 0f,
+) {
+    val isIdentity: Boolean get() = x == 0f && y == 0f
+
+    fun clamped(): GameArtAlignment = GameArtAlignment(
+        x = x.coerceIn(-1f, 1f),
+        y = y.coerceIn(-1f, 1f),
+    )
+
+    fun nudged(dx: Float, dy: Float): GameArtAlignment = GameArtAlignment(
+        x = (x + dx).coerceIn(-1f, 1f),
+        y = (y + dy).coerceIn(-1f, 1f),
+    )
+}
+
+/** One D-pad / button step when panning cover art inside the icon. */
+const val GAME_ART_ALIGN_STEP = 0.12f
+
+internal fun encodeGameArtAlignments(map: Map<String, GameArtAlignment>): String {
+    val obj = JSONObject()
+    map.forEach { (id, alignment) ->
+        if (id.isBlank() || alignment.isIdentity) return@forEach
+        obj.put(
+            id,
+            JSONObject()
+                .put("x", alignment.x.toDouble())
+                .put("y", alignment.y.toDouble()),
+        )
+    }
+    return obj.toString()
+}
+
+internal fun decodeGameArtAlignments(raw: String): Map<String, GameArtAlignment> {
+    if (raw.isBlank()) return emptyMap()
+    return runCatching {
+        val obj = JSONObject(raw)
+        buildMap {
+            obj.keys().forEach { id ->
+                val entry = obj.optJSONObject(id) ?: return@forEach
+                val alignment = GameArtAlignment(
+                    x = entry.optDouble("x", 0.0).toFloat(),
+                    y = entry.optDouble("y", 0.0).toFloat(),
+                ).clamped()
+                if (!alignment.isIdentity) put(id, alignment)
+            }
+        }
+    }.getOrDefault(emptyMap())
+}
+
+/** Longer than any real title, but short enough that a pasted essay cannot bloat the store. */
+const val GAME_TITLE_MAX_LENGTH = 120
+
+internal fun encodeGameTitleOverrides(map: Map<String, String>): String {
+    val obj = JSONObject()
+    map.forEach { (id, title) ->
+        val cleaned = title.trim().take(GAME_TITLE_MAX_LENGTH)
+        if (id.isNotBlank() && cleaned.isNotEmpty()) obj.put(id, cleaned)
+    }
+    return obj.toString()
+}
+
+internal fun decodeGameTitleOverrides(raw: String): Map<String, String> {
+    if (raw.isBlank()) return emptyMap()
+    return runCatching {
+        val obj = JSONObject(raw)
+        buildMap {
+            obj.keys().forEach { id ->
+                val title = obj.optString(id).trim().take(GAME_TITLE_MAX_LENGTH)
+                if (title.isNotEmpty()) put(id, title)
+            }
+        }
+    }.getOrDefault(emptyMap())
+}
 
 internal fun encodeCirclePins(pins: List<CirclePin>): String {
     val array = JSONArray()
@@ -1251,15 +2058,173 @@ internal fun decodeCirclePins(raw: String): List<CirclePin> {
     }.getOrDefault(emptyList())
 }
 
+/** A news source behind one bubble in the XOrA NOW header. */
+data class NewsOutlet(
+    val id: String,
+    val name: String,
+    val feedUrl: String,
+    /** Bubble art; null falls back to the outlet's initials. */
+    val iconUrl: String? = null,
+    /** Seeded sources are kept out of the delete path so the shell never ships with no news. */
+    val builtIn: Boolean = false,
+)
+
+/**
+ * The sources XOrA NOW starts with. Stored only once the player edits the list, so a later
+ * change here reaches anyone who never touched theirs.
+ */
+val DEFAULT_NEWS_OUTLETS: List<NewsOutlet> = listOf(
+    NewsOutlet(
+        id = "ign",
+        name = "IGN",
+        feedUrl = "https://feeds.ign.com/ign/games-all",
+        iconUrl = faviconFor("ign.com"),
+        builtIn = true,
+    ),
+    NewsOutlet(
+        id = "nintendolife",
+        name = "Nintendo Life",
+        feedUrl = "https://www.nintendolife.com/feeds/latest",
+        iconUrl = faviconFor("nintendolife.com"),
+        builtIn = true,
+    ),
+    NewsOutlet(
+        id = "retrogamecorps",
+        name = "Retro Game Corps",
+        feedUrl = "https://retrogamecorps.com/feed/",
+        iconUrl = faviconFor("retrogamecorps.com"),
+        builtIn = true,
+    ),
+    NewsOutlet(
+        id = "kotaku",
+        name = "Kotaku",
+        feedUrl = "https://kotaku.com/rss",
+        iconUrl = faviconFor("kotaku.com"),
+        builtIn = true,
+    ),
+)
+
+/**
+ * A site's own icon at a usable size. Used as the bubble picture until the feed's own channel
+ * artwork arrives on first fetch, which is generally the better image where a feed ships one.
+ */
+internal fun faviconFor(host: String): String =
+    "https://icons.duckduckgo.com/ip3/$host.ico"
+
+const val NEWS_OUTLET_NAME_MAX_LENGTH = 40
+
+/** Cap so a runaway paste cannot turn the header into an unscrollable wall of bubbles. */
+const val NEWS_OUTLET_LIMIT = 24
+
+internal fun encodeNewsOutlets(outlets: List<NewsOutlet>): String {
+    val array = JSONArray()
+    outlets.forEach { outlet ->
+        if (outlet.id.isBlank() || outlet.feedUrl.isBlank()) return@forEach
+        val obj = JSONObject()
+            .put("id", outlet.id)
+            .put("name", outlet.name)
+            .put("feedUrl", outlet.feedUrl)
+            .put("builtIn", outlet.builtIn)
+        outlet.iconUrl?.let { obj.put("iconUrl", it) }
+        array.put(obj)
+    }
+    return array.toString()
+}
+
+internal fun decodeNewsOutlets(raw: String): List<NewsOutlet> {
+    if (raw.isBlank()) return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optString("id").trim()
+                val feedUrl = obj.optString("feedUrl").trim()
+                if (id.isEmpty() || feedUrl.isEmpty()) continue
+                add(
+                    NewsOutlet(
+                        id = id,
+                        name = obj.optString("name").trim().ifEmpty { id },
+                        feedUrl = feedUrl,
+                        iconUrl = obj.optString("iconUrl").trim().takeIf { it.isNotEmpty() },
+                        builtIn = obj.optBoolean("builtIn", false),
+                    ),
+                )
+            }
+        }.distinctBy { it.id }.take(NEWS_OUTLET_LIMIT)
+    }.getOrDefault(emptyList())
+}
+
+/** A named wallpaper + BGM combo the player saved from Customize → Custom Themes. */
+data class CustomTheme(
+    val id: String,
+    val name: String,
+    /** Stable imported path (see [ThemeMediaStore]), same as [ShellSettings.homeWallpaperPath]. */
+    val wallpaperPath: String?,
+    /** Stable imported path, same as [ShellSettings.customBgmPath]. */
+    val bgmPath: String?,
+    /** Optional Vita-tray track, same as [ShellSettings.vitaTrayBgmPath]. */
+    val trayBgmPath: String? = null,
+)
+
+/** Longer than any real theme name, short enough a pasted essay cannot bloat the store. */
+const val CUSTOM_THEME_NAME_MAX_LENGTH = 60
+
+internal fun encodeCustomThemes(themes: List<CustomTheme>): String {
+    val array = JSONArray()
+    themes.forEach { theme ->
+        if (theme.id.isBlank() || theme.name.isBlank()) return@forEach
+        val obj = JSONObject()
+            .put("id", theme.id)
+            .put("name", theme.name)
+        theme.wallpaperPath?.let { obj.put("wallpaperPath", it) }
+        theme.bgmPath?.let { obj.put("bgmPath", it) }
+        theme.trayBgmPath?.let { obj.put("trayBgmPath", it) }
+        array.put(obj)
+    }
+    return array.toString()
+}
+
+internal fun decodeCustomThemes(raw: String): List<CustomTheme> {
+    if (raw.isBlank()) return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optString("id").trim()
+                val name = obj.optString("name").trim()
+                if (id.isEmpty() || name.isEmpty()) continue
+                add(
+                    CustomTheme(
+                        id = id,
+                        name = name,
+                        wallpaperPath = obj.optString("wallpaperPath").trim().takeIf { it.isNotEmpty() },
+                        bgmPath = obj.optString("bgmPath").trim().takeIf { it.isNotEmpty() },
+                        trayBgmPath = obj.optString("trayBgmPath").trim().takeIf { it.isNotEmpty() },
+                    ),
+                )
+            }
+        }.distinctBy { it.id }
+    }.getOrDefault(emptyList())
+}
+
 const val DEFAULT_BGM_VOLUME = 0.35f
+const val DEFAULT_MUSIC_VOLUME = 1f
 
 /** Default UI navigation SFX level — audible even when BGM is turned down. */
 const val DEFAULT_UI_SFX_VOLUME = 0.7f
 
-const val DEFAULT_TRAILER_IDLE_SECONDS = 10
+const val DEFAULT_TRAILER_IDLE_SECONDS = 5
 
 /** Matches [com.arcadia.shell.designsystem.ShellThemeId.Default.id]. */
 const val DEFAULT_SHELL_THEME_ID = "default"
+
+/** The bundled boot clip — the only option today, but a stable id for when more are added. */
+const val DEFAULT_BOOT_ANIMATION_ID = "default"
+
+/** [ShellPreferences.bootAnimationId] when the player's own clip is selected. */
+const val CUSTOM_BOOT_ANIMATION_ID = "custom"
 
 /** Default shell text size — slightly under 1× so XMB titles stay compact. */
 const val DEFAULT_UI_TEXT_SCALE = 0.85f
@@ -1275,3 +2240,13 @@ fun uiTextScaleLabel(scale: Float): String = when {
     scale < 1.08f -> "Medium"
     else -> "Large"
 }
+
+/** "https://www.nintendolife.com/feeds/latest" -> "Nintendolife" when no name was given. */
+internal fun outletNameFromUrl(url: String): String =
+    runCatching {
+        android.net.Uri.parse(url).host
+            ?.removePrefix("www.")
+            ?.substringBefore('.')
+            ?.replaceFirstChar { it.uppercase() }
+            ?.takeIf { it.isNotBlank() }
+    }.getOrNull() ?: "News"

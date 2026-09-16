@@ -5,21 +5,45 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arcadia.shell.database.repository.LibraryRepository
+import com.arcadia.shell.database.repository.PlayerRepository
+import com.arcadia.shell.datastore.AndroidAppInclusionMode
+import com.arcadia.shell.datastore.AvatarSource
 import com.arcadia.shell.datastore.DisplayMode
+import com.arcadia.shell.datastore.LocalProfile
+import com.arcadia.shell.datastore.PlatformEmulatorChoice
+import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.RetroAchievementsCredentials
+import com.arcadia.shell.datastore.ScraperCredentials
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.SteamWebApiCredentials
+import com.arcadia.shell.datastore.VisualPerformanceMode
+import com.arcadia.shell.launcher.InstalledApp
+import com.arcadia.shell.launcher.InstalledAppCatalog
+import com.arcadia.shell.launcher.InstalledAppSync
+import com.arcadia.shell.launcher.InstalledPlayerProbe
+import com.arcadia.shell.launcher.PlayerSeeder
+import com.arcadia.shell.launcher.resolveAndroidAppInclusion
+import com.arcadia.shell.launcher.RetroArchCoreCatalog
+import com.arcadia.shell.launcher.RetroArchPackages
 import com.arcadia.shell.launcher.conversations.ConversationRepository
 import com.arcadia.shell.launcher.discord.DiscordPresenceUiState
 import com.arcadia.shell.launcher.discord.DiscordRichPresence
+import com.arcadia.shell.launcher.discord.XORA_PLUS_BYPASS_CODE
+import com.arcadia.shell.launcher.discord.XoraPlusCheckState
+import com.arcadia.shell.launcher.discord.XoraPlusMembership
+import com.arcadia.shell.launcher.discord.discordAccountLinked
+import com.arcadia.shell.launcher.discord.discordOnboardingMayAdvance
+import com.arcadia.shell.libretro.XoraLibretroPlayers
 import com.arcadia.shell.model.LibraryRoot
 import com.arcadia.shell.retroachievements.RaPasswordLoginResult
 import com.arcadia.shell.retroachievements.RetroAchievementsClient
 import com.arcadia.shell.retroachievements.RetroAchievementsRepository
 import com.arcadia.shell.scanner.LibraryRootManager
+import com.arcadia.shell.scanner.LibraryScanner
 import com.arcadia.shell.scanner.StorageAccess
 import com.arcadia.shell.scanner.StorageVolumeRoot
+import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.SteamOpenId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
@@ -28,20 +52,37 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 
 enum class OnboardingStep {
     Welcome,
+    Discord,
+    Profile,
     DisplayMode,
+    Performance,
     Library,
+    AndroidApps,
+    Emulators,
     Scrapers,
-    Social,
+    Steam,
     RetroAchievements,
     Audio,
     Done,
+}
+
+/** Artwork service opened from the Scrapers step (submenu of credential fields). */
+enum class OnboardingScraperService {
+    SteamGridDb,
+    Igdb,
+    ScreenScraper,
 }
 
 /** Activity-scoped auth that ArcadiaShell must hoist (Custom Tabs / Discord OAuth). */
@@ -57,6 +98,14 @@ data class OnboardingUiState(
     val roots: List<LibraryRoot> = emptyList(),
     val suggestedVolumes: List<StorageVolumeRoot> = emptyList(),
     val gameCount: Int = 0,
+    val scanRunning: Boolean = false,
+    val scanCompleted: Boolean = false,
+    val scanError: String? = null,
+    val filesSeen: Int = 0,
+    val androidApps: List<InstalledApp> = emptyList(),
+    val selectedAndroidPackages: Set<String> = emptySet(),
+    val androidAppQuery: String = "",
+    val platformChoices: List<PlatformPlayerChoice> = emptyList(),
     val notificationListenerEnabled: Boolean = false,
     val retroAchievements: RetroAchievementsCredentials = RetroAchievementsCredentials(),
     val raAuthBusy: Boolean = false,
@@ -64,23 +113,49 @@ data class OnboardingUiState(
     val raPendingWebApiUsername: String? = null,
     val steamWebApi: SteamWebApiCredentials = SteamWebApiCredentials(),
     val discordPresence: DiscordPresenceUiState = DiscordPresenceUiState(),
+    val profile: LocalProfile = LocalProfile(),
+    val avatarPath: String? = null,
+    val credentials: ScraperCredentials = ScraperCredentials(),
     val message: String? = null,
+    val xoraPlus: XoraPlusCheckState = XoraPlusCheckState(),
+    val xoraPlusBypass: Boolean = false,
+    /** Comma-separated Plus role snowflakes the player (or the build) supplied. */
+    val xoraPlusRoleIds: String = "",
 ) {
     val stepIndex: Int get() = OnboardingStep.entries.indexOf(step)
     val stepCount: Int get() = OnboardingStep.entries.size
     val canGoBack: Boolean get() = stepIndex > 0
     val isLast: Boolean get() = step == OnboardingStep.Done
+    val discordLinked: Boolean get() = discordAccountLinked(discordPresence)
+    val canAdvance: Boolean get() = when (step) {
+        OnboardingStep.Emulators -> !scanRunning
+        OnboardingStep.Discord -> discordOnboardingMayAdvance(
+            bypass = xoraPlusBypass,
+            plus = xoraPlus,
+            presence = discordPresence,
+        )
+        else -> true
+    }
 }
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
     private val preferences: ShellPreferences,
+    private val avatarStore: ProfileAvatarStore,
     private val storageAccess: StorageAccess,
     private val rootManager: LibraryRootManager,
     private val libraryRepository: LibraryRepository,
+    private val scanner: LibraryScanner,
+    private val playerRepository: PlayerRepository,
+    private val probe: InstalledPlayerProbe,
+    private val playerSeeder: PlayerSeeder,
+    private val installedAppCatalog: InstalledAppCatalog,
+    private val installedAppSync: InstalledAppSync,
+    private val libraryHashScheduler: LibraryHashScheduler,
     private val conversationRepository: ConversationRepository,
     private val retroAchievements: RetroAchievementsRepository,
     private val discordRichPresence: DiscordRichPresence,
+    private val xoraPlusMembership: XoraPlusMembership,
 ) : ViewModel() {
 
     private val step = MutableStateFlow(OnboardingStep.Welcome)
@@ -89,6 +164,14 @@ class OnboardingViewModel @Inject constructor(
     private val raBusy = MutableStateFlow(false)
     private val raError = MutableStateFlow<String?>(null)
     private val raPendingWebApiUser = MutableStateFlow<String?>(null)
+    private val scanRunning = MutableStateFlow(false)
+    private val scanCompleted = MutableStateFlow(false)
+    private val scanError = MutableStateFlow<String?>(null)
+    private val filesSeen = MutableStateFlow(0)
+    private val scanMutex = Mutex()
+    private val launchableAndroidApps = MutableStateFlow<List<InstalledApp>>(emptyList())
+    private val selectedAndroidPackages = MutableStateFlow<Set<String>>(emptySet())
+    private val androidAppQuery = MutableStateFlow("")
 
     private val externalAuthRequests = Channel<OnboardingExternalAuthRequest>(Channel.BUFFERED)
     val externalAuthRequestFlow: Flow<OnboardingExternalAuthRequest> =
@@ -109,12 +192,22 @@ class OnboardingViewModel @Inject constructor(
         Triple(busy, error, pending)
     }
 
+    private val plusBypassOverride = MutableStateFlow(false)
+
     private val socialFlow = combine(
         preferences.retroAchievements,
         preferences.steamWebApi,
         discordRichPresence.state,
         raAuthFlow,
-    ) { ra, steam, discord, raAuth ->
+        combine(
+            xoraPlusMembership.state,
+            preferences.xoraPlusBypass,
+            plusBypassOverride,
+            preferences.xoraPlusRoleIds,
+        ) { plus, stored, override, roleIds ->
+            PlusBundle(plus, stored || override, roleIds)
+        },
+    ) { ra, steam, discord, raAuth, plus ->
         SocialBundle(
             retroAchievements = ra,
             steamWebApi = steam,
@@ -122,8 +215,17 @@ class OnboardingViewModel @Inject constructor(
             raBusy = raAuth.first,
             raError = raAuth.second,
             raPendingWebApiUser = raAuth.third,
+            xoraPlus = plus.state,
+            xoraPlusBypass = plus.bypass,
+            xoraPlusRoleIds = plus.roleIds,
         )
     }
+
+    private data class PlusBundle(
+        val state: XoraPlusCheckState,
+        val bypass: Boolean,
+        val roleIds: String,
+    )
 
     private data class SocialBundle(
         val retroAchievements: RetroAchievementsCredentials,
@@ -132,6 +234,23 @@ class OnboardingViewModel @Inject constructor(
         val raBusy: Boolean,
         val raError: String?,
         val raPendingWebApiUser: String?,
+        val xoraPlus: XoraPlusCheckState,
+        val xoraPlusBypass: Boolean,
+        val xoraPlusRoleIds: String,
+    )
+
+    private val identityFlow = combine(
+        message,
+        preferences.profile,
+        preferences.credentials,
+    ) { msg, profile, creds ->
+        IdentityBundle(msg, profile, creds)
+    }
+
+    private data class IdentityBundle(
+        val message: String?,
+        val profile: LocalProfile,
+        val credentials: ScraperCredentials,
     )
 
     private val baseFlow = combine(
@@ -139,8 +258,8 @@ class OnboardingViewModel @Inject constructor(
         preferences.settings,
         storageFlow,
         libraryRepository.observeGames(),
-        message,
-    ) { currentStep, settings, storage, games, msg ->
+        identityFlow,
+    ) { currentStep, settings, storage, games, identity ->
         BaseBundle(
             step = currentStep,
             settings = settings,
@@ -148,7 +267,9 @@ class OnboardingViewModel @Inject constructor(
             roots = storage.second,
             suggestedVolumes = storage.third,
             gameCount = games.size,
-            message = msg,
+            message = identity.message,
+            profile = identity.profile,
+            credentials = identity.credentials,
         )
     }
 
@@ -160,13 +281,60 @@ class OnboardingViewModel @Inject constructor(
         val suggestedVolumes: List<StorageVolumeRoot>,
         val gameCount: Int,
         val message: String?,
+        val profile: LocalProfile,
+        val credentials: ScraperCredentials,
     )
+
+    private val scanFlow = combine(scanRunning, scanCompleted, scanError, filesSeen) {
+            running, done, error, seen ->
+        ScanBundle(running, done, error, seen)
+    }
+
+    private data class ScanBundle(
+        val running: Boolean,
+        val completed: Boolean,
+        val error: String?,
+        val filesSeen: Int,
+    )
+
+    private val emulatorFlow = combine(
+        libraryRepository.observePlatformSummaries(),
+        playerRepository.observePlayers(),
+        preferences.platformEmulatorChoices,
+        scanFlow,
+    ) { summaries, players, choices, scan ->
+        EmulatorBundle(
+            platformChoices = summaries.map { summary ->
+                buildPlatformPlayerChoice(
+                    summary = summary,
+                    players = players,
+                    preferredPlayerId = choices[summary.platform.id]?.playerId,
+                    probe = probe,
+                )
+            },
+            scan = scan,
+        )
+    }
+
+    private data class EmulatorBundle(
+        val platformChoices: List<PlatformPlayerChoice>,
+        val scan: ScanBundle,
+    )
+
+    private val androidAppsFlow = combine(
+        launchableAndroidApps,
+        selectedAndroidPackages,
+        androidAppQuery,
+    ) { apps, selected, query ->
+        Triple(apps, selected, query)
+    }
 
     val uiState: StateFlow<OnboardingUiState> = combine(
         baseFlow,
         socialFlow,
-        refreshTrigger,
-    ) { base, social, _ ->
+        emulatorFlow,
+        androidAppsFlow,
+    ) { base, social, emulators, android ->
         OnboardingUiState(
             step = base.step,
             settings = base.settings,
@@ -174,6 +342,14 @@ class OnboardingViewModel @Inject constructor(
             roots = base.roots,
             suggestedVolumes = base.suggestedVolumes,
             gameCount = base.gameCount,
+            scanRunning = emulators.scan.running,
+            scanCompleted = emulators.scan.completed,
+            scanError = emulators.scan.error,
+            filesSeen = emulators.scan.filesSeen,
+            androidApps = android.first,
+            selectedAndroidPackages = android.second,
+            androidAppQuery = android.third,
+            platformChoices = emulators.platformChoices,
             notificationListenerEnabled = conversationRepository.isNotificationListenerEnabled(),
             retroAchievements = social.retroAchievements,
             raAuthBusy = social.raBusy,
@@ -181,43 +357,193 @@ class OnboardingViewModel @Inject constructor(
             raPendingWebApiUsername = social.raPendingWebApiUser,
             steamWebApi = social.steamWebApi,
             discordPresence = social.discordPresence,
+            profile = base.profile,
+            avatarPath = avatarStore.resolveFile(base.profile.localAvatarFileName)
+                ?.absolutePath
+                ?.takeIf { base.profile.avatarSource == AvatarSource.Local },
+            credentials = base.credentials,
             message = base.message,
+            xoraPlus = social.xoraPlus,
+            xoraPlusBypass = social.xoraPlusBypass,
+            xoraPlusRoleIds = social.xoraPlusRoleIds,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OnboardingUiState())
+
+    private var seededAndroidSelection = false
+
+    init {
+        loadLaunchableAndroidApps()
+        viewModelScope.launch {
+            val saved = preferences.onboardingStep.first()
+            OnboardingStep.entries.firstOrNull { it.name == saved }?.let { step.value = it }
+        }
+        viewModelScope.launch {
+            discordRichPresence.state
+                .map { it.currentUserId to it.capability }
+                .distinctUntilChanged()
+                .collect { (userId, capability) ->
+                    val linked = !userId.isNullOrBlank() ||
+                        capability == com.arcadia.shell.launcher.discord.DiscordPresenceCapability.Connected
+                    if (linked) xoraPlusMembership.refresh()
+                }
+        }
+        viewModelScope.launch {
+            xoraPlusMembership.refresh()
+        }
+    }
 
     fun refresh() {
         conversationRepository.refreshListenerEnabled()
         refreshTrigger.value += 1
+        loadLaunchableAndroidApps()
     }
 
     fun next() {
-        val entries = OnboardingStep.entries
-        val index = entries.indexOf(step.value)
-        if (index < entries.lastIndex) {
-            step.value = entries[index + 1]
+        if (step.value == OnboardingStep.Emulators && scanRunning.value) return
+        if (step.value == OnboardingStep.Discord) {
+            val plus = xoraPlusMembership.state.value
+            val bypass = plusBypassOverride.value || uiState.value.xoraPlusBypass
+            if (!discordOnboardingMayAdvance(bypass, plus, discordRichPresence.state.value)) return
         }
+        if (step.value == OnboardingStep.AndroidApps) {
+            persistAndroidAppSelection()
+        }
+        advanceStep()
     }
 
     fun back() {
         val entries = OnboardingStep.entries
         val index = entries.indexOf(step.value)
         if (index > 0) {
-            step.value = entries[index - 1]
+            setStep(entries[index - 1])
         }
     }
 
     fun skipOptional() {
-        when (step.value) {
-            OnboardingStep.Scrapers,
-            OnboardingStep.Social,
-            OnboardingStep.RetroAchievements,
-            -> next()
-            else -> next()
+        // Skip leaves the current Android inclusion mode alone (default: every app).
+        advanceStep()
+    }
+
+    fun toggleAndroidApp(packageName: String, selected: Boolean) {
+        selectedAndroidPackages.value = if (selected) {
+            selectedAndroidPackages.value + packageName
+        } else {
+            selectedAndroidPackages.value - packageName
         }
+    }
+
+    fun selectAllAndroidApps() {
+        selectedAndroidPackages.value = launchableAndroidApps.value.map { it.packageName }.toSet()
+    }
+
+    fun clearAndroidApps() {
+        selectedAndroidPackages.value = emptySet()
+    }
+
+    fun setAndroidAppQuery(query: String) {
+        androidAppQuery.value = query
+    }
+
+    private fun advanceStep() {
+        val entries = OnboardingStep.entries
+        val index = entries.indexOf(step.value)
+        if (index < entries.lastIndex) {
+            setStep(entries[index + 1])
+        }
+        if (step.value == OnboardingStep.Emulators) {
+            ensureLibraryScanned()
+        }
+    }
+
+    /** Updates the in-memory step and persists it so a killed process resumes here. */
+    private fun setStep(newStep: OnboardingStep) {
+        step.value = newStep
+        viewModelScope.launch { preferences.setOnboardingStep(newStep.name) }
+    }
+
+    private fun persistAndroidAppSelection() {
+        val allPackages = launchableAndroidApps.value.map { it.packageName }.toSet()
+        val (mode, allowlist) = resolveAndroidAppInclusion(
+            allPackages,
+            selectedAndroidPackages.value,
+        )
+        viewModelScope.launch {
+            preferences.setAndroidAppInclusion(mode, allowlist)
+            runCatching { installedAppSync.refresh() }
+        }
+    }
+
+    private fun loadLaunchableAndroidApps() {
+        viewModelScope.launch {
+            val apps = runCatching { installedAppCatalog.listLaunchableApps() }
+                .getOrDefault(emptyList())
+            launchableAndroidApps.value = apps
+            if (!seededAndroidSelection) {
+                seededAndroidSelection = true
+                val settings = preferences.settings.first()
+                if (settings.androidAppInclusionMode == AndroidAppInclusionMode.Allowlist) {
+                    selectedAndroidPackages.value = settings.androidAppAllowlist
+                }
+            }
+        }
+    }
+
+    fun setSteamGridDbKey(key: String) {
+        viewModelScope.launch { preferences.setSteamGridDbKey(key) }
+    }
+
+    fun setIgdbCredentials(clientId: String, clientSecret: String) {
+        viewModelScope.launch { preferences.setIgdbCredentials(clientId, clientSecret) }
+    }
+
+    fun setScreenScraperCredentials(user: String, password: String) {
+        viewModelScope.launch { preferences.setScreenScraperCredentials(user, password) }
+    }
+
+    fun setScreenScraperDevCredentials(devId: String, devPassword: String) {
+        viewModelScope.launch { preferences.setScreenScraperDevCredentials(devId, devPassword) }
     }
 
     fun setDisplayMode(mode: DisplayMode) {
         viewModelScope.launch { preferences.setDisplayMode(mode) }
+    }
+
+    fun setVisualPerformanceMode(mode: VisualPerformanceMode) {
+        viewModelScope.launch { preferences.setVisualPerformanceMode(mode) }
+    }
+
+    fun setProfileName(name: String) {
+        viewModelScope.launch {
+            val preset = preferences.profile.first().avatarPresetId
+            preferences.setProfile(name, preset)
+        }
+    }
+
+    fun selectAvatarPreset(presetId: String) {
+        viewModelScope.launch {
+            val name = preferences.profile.first().displayName
+            preferences.setProfile(name, presetId)
+            preferences.setProfileAvatar(AvatarSource.Default, presetId = presetId)
+        }
+    }
+
+    fun setLocalAvatar(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val fileName = avatarStore.importFromUri(uri)
+                preferences.setProfileAvatar(AvatarSource.Local, localFileName = fileName)
+            }.onFailure {
+                message.value = "Could not use that photo."
+            }
+        }
+    }
+
+    fun clearLocalAvatar() {
+        viewModelScope.launch {
+            avatarStore.clear()
+            val preset = preferences.profile.first().avatarPresetId
+            preferences.setProfileAvatar(AvatarSource.Default, presetId = preset)
+        }
     }
 
     fun setBgmVolume(volume: Float) {
@@ -238,7 +564,10 @@ class OnboardingViewModel @Inject constructor(
     fun addFilesystemRoot(path: String) {
         viewModelScope.launch {
             rootManager.addFilesystemRoot(path)
-                .onSuccess { message.value = "Added ${it.label}" }
+                .onSuccess {
+                    message.value = "Added ${it.label}"
+                    scanLibrary(force = true)
+                }
                 .onFailure { message.value = it.message }
             refresh()
         }
@@ -247,9 +576,64 @@ class OnboardingViewModel @Inject constructor(
     fun addSafRoot(treeUri: Uri) {
         viewModelScope.launch {
             rootManager.addSafRoot(treeUri)
-                .onSuccess { message.value = "Added ${it.label}" }
+                .onSuccess {
+                    message.value = "Added ${it.label}"
+                    scanLibrary(force = true)
+                }
                 .onFailure { message.value = it.message }
             refresh()
+        }
+    }
+
+    fun ensureLibraryScanned() = scanLibrary(force = false)
+
+    fun retryLibraryScan() = scanLibrary(force = true)
+
+    private fun scanLibrary(force: Boolean) {
+        viewModelScope.launch {
+            scanMutex.withLock {
+                if (scanCompleted.value && !force) return@withLock
+                scanRunning.value = true
+                scanError.value = null
+                runCatching { playerSeeder.scanInstalled() }
+                val progressJob = launch {
+                    scanner.progress.collect { filesSeen.value = it.filesSeen }
+                }
+                val progress = scanner.scan()
+                progressJob.cancel()
+                filesSeen.value = progress.filesSeen
+                scanError.value = progress.error
+                if (progress.error == null) {
+                    libraryHashScheduler.enqueue(rehashAll = false, replace = false)
+                }
+                scanCompleted.value = true
+                scanRunning.value = false
+            }
+        }
+    }
+
+    fun selectPlayer(platformId: String, playerId: String?) {
+        viewModelScope.launch {
+            playerRepository.selectPlayerForPlatform(platformId, playerId)
+            if (playerId == null) {
+                preferences.setPlatformEmulatorChoice(platformId, null)
+            } else {
+                val player = playerRepository.findById(playerId)
+                val core = player?.let { XoraLibretroPlayers.coreNameFromPlayer(it) }
+                    ?: RetroArchCoreCatalog.byPlayerId(playerId)?.core
+                    ?: player?.let { RetroArchPackages.coreNameFromPlayer(it) }
+                preferences.setPlatformEmulatorChoice(
+                    platformId,
+                    PlatformEmulatorChoice(
+                        playerId = playerId,
+                        packageName = player?.packageName
+                            ?: XoraLibretroPlayers.PACKAGE.takeIf {
+                                XoraLibretroPlayers.isXoraPlayerId(playerId)
+                            },
+                        coreName = core,
+                    ),
+                )
+            }
         }
     }
 
@@ -333,9 +717,39 @@ class OnboardingViewModel @Inject constructor(
         return true
     }
 
+    fun submitPlusBypass(code: String): Boolean {
+        if (code.trim() != XORA_PLUS_BYPASS_CODE) return false
+        plusBypassOverride.value = true
+        viewModelScope.launch { preferences.setXoraPlusBypass(true) }
+        return true
+    }
+
     fun requestLinkDiscord() {
         viewModelScope.launch {
             runCatching { externalAuthRequests.send(OnboardingExternalAuthRequest.LinkDiscord) }
+        }
+    }
+
+    /** Re-run the guild / role lookup, e.g. after the player is granted Plus in Discord. */
+    fun refreshXoraPlus() {
+        viewModelScope.launch {
+            xoraPlusMembership.refresh(force = true)
+            message.value = "Re-checking XOrA Plus…"
+        }
+    }
+
+    /**
+     * Store the XOrA Plus role snowflake. Discord never gives apps role names, so this is what
+     * turns "in the server" into an exact Plus check.
+     */
+    fun setPlusRoleIds(raw: String) {
+        viewModelScope.launch {
+            xoraPlusMembership.setPlusRoleIds(raw)
+            message.value = if (raw.isBlank()) {
+                "Plus role id cleared."
+            } else {
+                "Plus role id saved."
+            }
         }
     }
 
@@ -353,12 +767,13 @@ class OnboardingViewModel @Inject constructor(
     }
 
     /**
-     * Marks onboarding finished in prefs. Caller should clear any session force flag and return
-     * to the Home hub.
+     * Marks onboarding finished in prefs and clears the Home tutorial flag so the coach marks
+     * run after the boot clip. Caller should clear any session force flag and return to Home.
      */
     fun finish(onFinished: () -> Unit) {
         viewModelScope.launch {
             preferences.setOnboardingComplete(true)
+            preferences.setOnboardingStep("")
             onFinished()
         }
     }

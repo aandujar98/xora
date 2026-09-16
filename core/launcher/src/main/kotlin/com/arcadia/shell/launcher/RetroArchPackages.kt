@@ -6,8 +6,10 @@ import com.arcadia.shell.model.Player
  * Known RetroArch applicationIds on Android and helpers to bind a seeded
  * `retroarch.*` launch recipe to whichever package is actually installed.
  *
- * Play Store / 64-bit builds use [PACKAGE_AARCH64]; older or 32-bit APKs often
- * ship as [PACKAGE_DEFAULT]. Core and config paths are under the chosen package.
+ * Play Store / 64-bit builds use [PACKAGE_AARCH64] (this is also "RetroArch Plus"
+ * on the Play Store — there is no separate com.retroarch.plus package). Older or
+ * 32-bit APKs often ship as [PACKAGE_DEFAULT]. Core and config paths are under
+ * the chosen package.
  */
 object RetroArchPackages {
 

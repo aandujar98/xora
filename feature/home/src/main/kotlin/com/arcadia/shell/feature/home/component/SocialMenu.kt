@@ -1,13 +1,17 @@
 package com.arcadia.shell.feature.home.component
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,22 +30,34 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -53,12 +69,15 @@ import com.arcadia.shell.datastore.CIRCLE_FRIEND_LIMIT
 import com.arcadia.shell.datastore.CirclePin
 import com.arcadia.shell.datastore.CirclePinSource
 import com.arcadia.shell.datastore.LocalProfile
-import com.arcadia.shell.designsystem.GlassIntensity
 import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.XoraFonts
+import com.arcadia.shell.designsystem.XoraModalGlass
 import com.arcadia.shell.designsystem.XoraOutlinedText
-import com.arcadia.shell.designsystem.liquidGlass
 import com.arcadia.shell.designsystem.rememberGlassTokens
+import com.arcadia.shell.designsystem.xoraForegroundShadow
+import com.arcadia.shell.designsystem.xoraModalGlass
+import com.arcadia.shell.designsystem.xoraTextScale
+import kotlin.math.abs
 import com.arcadia.shell.feature.home.AccountPanelRow
 import com.arcadia.shell.feature.home.ConversationReplyUiState
 import com.arcadia.shell.feature.home.R
@@ -68,6 +87,8 @@ import com.arcadia.shell.feature.home.SocialPresence
 import com.arcadia.shell.feature.home.SteamFriendEntry
 import com.arcadia.shell.feature.home.discordFriendActivity
 import com.arcadia.shell.feature.home.discordFriendPresence
+import com.arcadia.shell.feature.home.xoraFriendActivity
+import com.arcadia.shell.feature.home.xoraFriendPresence
 import com.arcadia.shell.launcher.conversations.ConversationSource
 import com.arcadia.shell.launcher.conversations.NotificationConversation
 import com.arcadia.shell.launcher.discord.DiscordDmMessage
@@ -89,13 +110,69 @@ private val MessagesBadge = Color(0xFFFF8A4C)
 private val SkyGlass = Color(0xFF7EC8E8)
 private val NotificationRed = Color(0xFFFF3B30)
 
-/** LT card frame + display type, shared with the RT profile card. */
-private val CardEdge = Color(0xFFAEE3F7)
-private val OutlineInk = Color(0xFF10202A)
+/** LT card chrome — same tokens as the RT profile card. */
+private val OutlineInk = Color.Black
 private val CountBlue = Color(0xFF3FA3F0)
-private val ActivityGreen = Color(0xFF4CE05A)
-private val RowSelectedEdge = Color(0xFF7FD4F5)
 private val AvatarRingGold = Color(0xFFF5C542)
+private val DullFillTop = Color.White
+private val DullFillBottom = Color(0xFFA1A1A1)
+private val ChromeStrokeTop = Color.White
+private val ChromeStrokeBottom = Color(0xFFB0B0B0)
+private val PlaytimeFillTop = Color(0xFFADFF7B)
+private val PlaytimeFillBottom = Color(0xFF30C942)
+
+private val DullFillBrush = Brush.verticalGradient(listOf(DullFillTop, DullFillBottom))
+private val ChromeStrokeBrush = Brush.verticalGradient(listOf(ChromeStrokeTop, ChromeStrokeBottom))
+private val PlaytimeFillBrush = Brush.verticalGradient(listOf(PlaytimeFillTop, PlaytimeFillBottom))
+
+private val CardStroke = 3.dp
+private val CardAssetShadowDp = 4.dp
+private val FriendBarNeighborDim = 0.75f
+private val FriendBarRestDim = 0.50f
+private val FriendBarGap = 2.dp
+private val FriendBarSelectedVPad = 8.dp
+private val FriendBarRestVPad = 4.dp
+private val FriendBarSelectedAvatar = 38.dp
+private val FriendBarRestAvatar = 34.dp
+private val NotificationInk = Color(0xFF474747)
+private val NotificationPillFill = Brush.verticalGradient(
+    listOf(Color.White, Color(0xFFB0B0B0)),
+)
+
+private fun vibrantFillBrush(accent: Color): Brush =
+    Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(accent, Color.White, 0.42f), accent))
+
+@Composable
+private fun FriendBarStack(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(FriendBarGap),
+        modifier = Modifier.fillMaxWidth(),
+        content = content,
+    )
+}
+
+private fun friendBarDim(index: Int, focusedIndex: Int?): Float = when {
+    focusedIndex == null || focusedIndex < 0 -> 1f
+    index == focusedIndex -> 1f
+    abs(index - focusedIndex) == 1 -> FriendBarNeighborDim
+    else -> FriendBarRestDim
+}
+
+private data class FriendBarHover(
+    val focusedIndex: Int?,
+    val onHover: (Int, Boolean) -> Unit,
+)
+
+@Composable
+private fun rememberFriendBarHover(selectedVisualIndex: Int): FriendBarHover {
+    var hovered by remember { mutableStateOf<Int?>(null) }
+    return FriendBarHover(
+        focusedIndex = hovered ?: selectedVisualIndex.takeIf { it >= 0 },
+        onHover = { index, hovering ->
+            hovered = if (hovering) index else hovered?.takeUnless { it == index }
+        },
+    )
+}
 
 @Composable
 fun SocialMenuPanel(
@@ -109,20 +186,19 @@ fun SocialMenuPanel(
     onActivateRow: (Int?) -> Unit,
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
+    onClearNotifications: () -> Unit = {},
+    maxHeight: Dp = 520.dp,
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
+    val bodyScroll = rememberScrollState()
 
-    val cardShape = RoundedCornerShape(30.dp)
+    val cardShape = XoraModalGlass.Shape
     Column(
         modifier = modifier
-            .liquidGlass(
-                shape = cardShape,
-                tone = GlassTone.OverMedia,
-                intensity = GlassIntensity.Strong,
-                shimmer = true,
-            )
-            .border(2.5.dp, CardEdge, cardShape)
+            .heightIn(max = maxHeight)
+            .graphicsLayer { clip = false }
+            .xoraModalGlass(cardShape)
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -137,60 +213,75 @@ fun SocialMenuPanel(
         )
 
         if (social.notificationsOpen) {
-            NotificationCenterPanel(
-                social = social,
-                accountRows = accountRows,
-                selectedRowIndex = selectedRowIndex,
-                glassContent = glass.content,
-                glassMuted = glass.contentMuted,
-                onActivateRow = onActivateRow,
-                onReplyDraftChange = onReplyDraftChange,
-            )
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(bodyScroll),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                NotificationCenterPanel(
+                    social = social,
+                    accountRows = accountRows,
+                    selectedRowIndex = selectedRowIndex,
+                    glassContent = glass.content,
+                    glassMuted = glass.contentMuted,
+                    onActivateRow = onActivateRow,
+                    onReplyDraftChange = onReplyDraftChange,
+                    onClearNotifications = onClearNotifications,
+                )
+            }
         } else {
-            val showSearch = social.tab != SocialMenuTab.XoraNetwork && !social.isDiscordDmOpen
+            val showSearch = !social.isDiscordDmOpen && !social.isXoraDmOpen
             SocialTabSearchBar(
                 selected = social.tab,
                 onSelect = onSelectTab,
                 query = social.friendSearchQuery,
                 onQueryChange = onFriendSearchChange,
-                muted = glass.contentMuted,
                 showSearch = showSearch,
             )
 
-            when (social.tab) {
-                SocialMenuTab.Discord -> DiscordTabContent(
-                    social = social,
-                    accountRows = accountRows,
-                    selectedRowIndex = selectedRowIndex,
-                    glassMuted = glass.contentMuted,
-                    onActivateRow = onActivateRow,
-                    onDmDraftChange = onReplyDraftChange,
-                )
-                SocialMenuTab.Steam -> SteamTabContent(
-                    social = social,
-                    accountRows = accountRows,
-                    selectedRowIndex = selectedRowIndex,
-                    glassMuted = glass.contentMuted,
-                    onActivateRow = onActivateRow,
-                )
-                SocialMenuTab.XoraNetwork -> XoraNetworkTabContent(
-                    social = social,
-                    accountRows = accountRows,
-                    selectedRowIndex = selectedRowIndex,
-                    glassMuted = glass.contentMuted,
-                    onActivateRow = onActivateRow,
-                    onReplyDraftChange = onReplyDraftChange,
-                )
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(bodyScroll),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                when (social.tab) {
+                    SocialMenuTab.Discord -> DiscordTabContent(
+                        social = social,
+                        accountRows = accountRows,
+                        selectedRowIndex = selectedRowIndex,
+                        glassMuted = glass.contentMuted,
+                        onActivateRow = onActivateRow,
+                        onDmDraftChange = onReplyDraftChange,
+                    )
+                    SocialMenuTab.Steam -> SteamTabContent(
+                        social = social,
+                        accountRows = accountRows,
+                        selectedRowIndex = selectedRowIndex,
+                        glassMuted = glass.contentMuted,
+                        onActivateRow = onActivateRow,
+                    )
+                    SocialMenuTab.XoraNetwork -> XoraNetworkTabContent(
+                        social = social,
+                        accountRows = accountRows,
+                        selectedRowIndex = selectedRowIndex,
+                        glassMuted = glass.contentMuted,
+                        onActivateRow = onActivateRow,
+                        onReplyDraftChange = onReplyDraftChange,
+                    )
+                }
             }
         }
 
         Text(
             text = when {
                 social.notificationsOpen -> "B closes"
+                social.isXoraDmOpen -> "A send · B back · type to message"
                 social.isDiscordDmOpen -> "A send · B back · type to message"
                 social.isReplying -> "A send · B cancel reply · type on keyboard"
-                social.managingCircle -> "A pin/unpin · Done to finish · L/R tabs"
-                else -> "LT close · LB/RB tabs · U/D · A chat"
+                social.managingCircle -> "A pin/unpin · Select done · B/LT close · L/R tabs"
+                else -> "Pins L/R · friends U/D · LB/RB tabs · B/LT close · A chat"
             },
             style = MaterialTheme.typography.labelSmall,
             color = glass.contentMuted.copy(alpha = 0.7f),
@@ -225,7 +316,7 @@ private fun PinnedFriendsSection(
 
         if (social.managingCircle) {
             Text(
-                text = "A on a friend below to pin or unpin · Discord & Steam mix OK",
+                text = "A on a friend below to pin or unpin · XOrA Network, Discord, and Steam mix OK",
                 style = MaterialTheme.typography.labelSmall,
                 color = glassMuted,
             )
@@ -250,45 +341,29 @@ private fun PinnedFriendsHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            CardSectionLabel("PINNED FRIENDS")
+            CardSectionLabel("PINNED FRIENDS", fontSize = 14.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                XoraOutlinedText(
+                CardTitleText(
                     text = "${social.circleSlotsFilled}",
-                    fontFamily = XoraFonts.Title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    fillColor = CountBlue,
-                    outlineColor = OutlineInk,
-                    letterSpacing = XoraFonts.TitleLetterSpacing,
-                    maxLines = 1,
+                    fontSize = 28.sp,
+                    fillBrush = vibrantFillBrush(CountBlue),
                 )
-                XoraOutlinedText(
+                CardTitleText(
                     text = "/$CIRCLE_FRIEND_LIMIT",
-                    fontFamily = XoraFonts.Title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    fillColor = Color.White.copy(alpha = 0.85f),
-                    outlineColor = OutlineInk,
-                    letterSpacing = XoraFonts.TitleLetterSpacing,
-                    maxLines = 1,
+                    fontSize = 18.sp,
+                    fillBrush = DullFillBrush,
                 )
             }
         }
 
-        val manageIndex = accountRows.indexOfFirst { it is AccountPanelRow.ManageCircle }
         val notificationsIndex = accountRows.indexOfFirst { it is AccountPanelRow.OpenNotifications }
         val badgeCount = social.messagesBadgeCount + social.recentNotifications.size
         NotificationsPill(
-            label = if (social.managingCircle) "Done" else "Notifications",
-            badgeCount = if (social.managingCircle) 0 else badgeCount,
-            selected = if (social.managingCircle) {
-                manageIndex >= 0 && manageIndex == selectedRowIndex
-            } else {
-                notificationsIndex >= 0 && notificationsIndex == selectedRowIndex
-            },
+            label = "Notifications",
+            badgeCount = badgeCount,
+            selected = notificationsIndex >= 0 && notificationsIndex == selectedRowIndex,
             onClick = {
-                val index = if (social.managingCircle) manageIndex else notificationsIndex
-                if (index >= 0) onActivateRow(index)
+                if (notificationsIndex >= 0) onActivateRow(notificationsIndex)
             },
         )
     }
@@ -301,40 +376,70 @@ private fun NotificationsPill(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(percent = 50)
+    val density = LocalDensity.current
+    val strokePx = with(density) { 1.5.dp.toPx() }
+    val focusPx = with(density) { 2.5.dp.toPx() }
     Row(
         modifier = Modifier
-            .clip(shape)
-            .background(Color.White.copy(alpha = 0.92f))
-            .then(
-                if (selected) Modifier.border(1.5.dp, FocusRing, shape) else Modifier,
+            .padding(CardStroke)
+            .xoraForegroundShadow(
+                shape = shape,
+                offset = CardAssetShadowDp,
+                blur = CardAssetShadowDp,
             )
+            .drawBehind {
+                val corner = CornerRadius(size.height / 2f, size.height / 2f)
+                drawRoundRect(
+                    brush = NotificationPillFill,
+                    cornerRadius = corner,
+                )
+                drawRoundRect(
+                    color = Color.Black,
+                    style = Stroke(width = strokePx, join = StrokeJoin.Round),
+                    cornerRadius = corner,
+                )
+                if (selected) {
+                    drawRoundRect(
+                        color = FocusRing,
+                        style = Stroke(width = focusPx, join = StrokeJoin.Round),
+                        cornerRadius = corner,
+                    )
+                }
+            }
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(start = 12.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF13202D),
+            style = TextStyle(
+                fontFamily = XoraFonts.XmbLabel,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp * xoraTextScale(),
+                color = NotificationInk,
+                letterSpacing = 0.sp,
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-        if (badgeCount > 0) {
-            Box(
-                modifier = Modifier
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .background(NotificationRed),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = if (badgeCount > 9) "9+" else badgeCount.toString(),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                )
-            }
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(NotificationRed),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = if (badgeCount > 9) "9+" else badgeCount.toString(),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = XoraFonts.XmbLabel,
+                    fontSize = 9.sp,
+                ),
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
         }
     }
 }
@@ -396,21 +501,19 @@ private fun PinnedFriendsRow(
                         sourceTint = when (member.pin.source) {
                             CirclePinSource.Steam -> SteamAccent
                             CirclePinSource.Discord -> DiscordAccent
+                            CirclePinSource.XoraNetwork -> XoraAccent
                         },
                     )
-                    Text(
+                    ChromeCaptionText(
                         text = member.displayName,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 16.sp,
                     )
                 } else {
                     EmptyCircleSlot(selected = selected)
-                    Text(
+                    ChromeCaptionText(
                         text = "Add",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.45f),
+                        fontSize = 16.sp,
+                        modifier = Modifier.alpha(0.55f),
                     )
                 }
             }
@@ -422,28 +525,30 @@ private fun PinnedFriendsRow(
 private fun EmptyCircleSlot(selected: Boolean) {
     Box(
         modifier = Modifier
+            .padding(CardStroke)
+            .xoraForegroundShadow(
+                shape = CircleShape,
+                offset = CardAssetShadowDp,
+                blur = CardAssetShadowDp,
+            )
             .size(54.dp)
             .clip(CircleShape)
             .background(Color.White.copy(alpha = 0.06f))
-            .border(
-                width = if (selected) 2.5.dp else 1.5.dp,
-                color = if (selected) FocusRing else Color.White.copy(alpha = 0.25f),
-                shape = CircleShape,
+            .then(
+                if (selected) Modifier.border(2.dp, FocusRing, CircleShape) else Modifier,
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
+        CardTitleText(
             text = "+",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = Color.White.copy(alpha = 0.55f),
+            fontSize = 28.sp,
+            fillBrush = DullFillBrush,
         )
     }
 }
 
 /**
- * Combined platform-tab + friend-search pill. Search is hidden on the XOrA Network tab and
- * while a Discord DM is open (both replace the friend list with different content).
+ * Combined platform-tab + friend-search pill. Search hides while a DM thread is open.
  */
 @Composable
 private fun SocialTabSearchBar(
@@ -451,7 +556,6 @@ private fun SocialTabSearchBar(
     onSelect: (SocialMenuTab) -> Unit,
     query: String,
     onQueryChange: (String) -> Unit,
-    muted: Color,
     showSearch: Boolean,
 ) {
     Row(
@@ -462,8 +566,13 @@ private fun SocialTabSearchBar(
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(22.dp))
-                .background(Color.White.copy(alpha = 0.07f))
-                .border(1.5.dp, CardEdge.copy(alpha = 0.5f), RoundedCornerShape(22.dp))
+                .padding(CardStroke)
+                .xoraForegroundShadow(
+                    shape = RoundedCornerShape(22.dp),
+                    offset = CardAssetShadowDp,
+                    blur = CardAssetShadowDp,
+                )
+                .background(Color.White.copy(alpha = 0.07f), RoundedCornerShape(22.dp))
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -513,38 +622,46 @@ private fun SocialTabSearchBar(
             Row(
                 modifier = Modifier
                     .weight(1f)
+                    .padding(CardStroke)
+                    .xoraForegroundShadow(
+                        shape = RoundedCornerShape(22.dp),
+                        offset = CardAssetShadowDp,
+                        blur = CardAssetShadowDp,
+                    )
                     .clip(RoundedCornerShape(22.dp))
                     .background(Color.White.copy(alpha = 0.08f))
-                    .border(1.5.dp, CardEdge.copy(alpha = 0.5f), RoundedCornerShape(22.dp))
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                val searchSize = 24.sp * xoraTextScale()
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
                     singleLine = true,
-                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                    textStyle = TextStyle(
+                        fontFamily = XoraFonts.XmbLabel,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = searchSize,
+                        brush = ChromeStrokeBrush,
+                    ),
                     cursorBrush = SolidColor(FocusRing),
                     modifier = Modifier.weight(1f),
                     decorationBox = { inner ->
                         Box {
                             if (query.isEmpty()) {
-                                Text(
+                                ChromeCaptionText(
                                     text = "search friends...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = muted.copy(alpha = 0.55f),
+                                    fontSize = 24.sp,
                                 )
                             }
                             inner()
                         }
                     },
                 )
-                Text(
+                ChromeCaptionText(
                     text = "⌕",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = muted.copy(alpha = 0.7f),
+                    fontSize = 24.sp,
                 )
             }
         } else {
@@ -555,21 +672,91 @@ private fun SocialTabSearchBar(
 
 /** Blocky outlined section label, shared with the RT profile card. */
 @Composable
-private fun CardSectionLabel(text: String) {
-    XoraOutlinedText(
+private fun CardSectionLabel(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit = 14.sp,
+) {
+    CardTitleText(
         text = text,
-        fontFamily = XoraFonts.Title,
-        fontWeight = FontWeight.Bold,
-        fontSize = 15.sp,
-        fillColor = Color.White,
-        outlineColor = OutlineInk,
-        letterSpacing = XoraFonts.TitleLetterSpacing,
-        maxLines = 1,
+        fontSize = fontSize,
+        fillBrush = DullFillBrush,
     )
 }
 
 @Composable
-private fun FriendsOnlineHeader(online: Int, total: Int, muted: Color) {
+private fun CardTitleText(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    fillBrush: Brush,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 1,
+) {
+    XoraOutlinedText(
+        text = text,
+        modifier = modifier,
+        fontFamily = XoraFonts.Title,
+        fontWeight = FontWeight.Bold,
+        fontSize = fontSize,
+        fillBrush = fillBrush,
+        outlineColor = OutlineInk,
+        outlineWidth = CardStroke,
+        letterSpacing = XoraFonts.TitleLetterSpacing,
+        shadow = cardAssetShadow(),
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+/** FOT-NewRodin Pro with a chrome fill — unstroked, so it reads flat like the reference. */
+@Composable
+private fun ChromeCaptionText(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier = Modifier,
+) {
+    val scaled = fontSize * xoraTextScale()
+    val shadow = cardAssetShadow()
+    val type = TextStyle(
+        fontFamily = XoraFonts.XmbLabel,
+        fontWeight = FontWeight.Bold,
+        fontSize = scaled,
+    )
+    // Shadow on a brushed TextStyle paints over the glyphs. A solid-ink back layer keeps the
+    // drop behind the chrome fill, in black.
+    Box(modifier = modifier) {
+        Text(
+            text = text,
+            style = type.copy(
+                color = Color.Black,
+                shadow = shadow,
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = text,
+            style = type.copy(brush = ChromeStrokeBrush),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun cardAssetShadow(): Shadow {
+    val px = with(LocalDensity.current) { CardAssetShadowDp.toPx() }
+    return socialCardTextShadow(px)
+}
+
+/** Solid black drop behind social-card type — never a brushed / faded halo on the glyphs. */
+internal fun socialCardTextShadow(offsetPx: Float): Shadow = Shadow(
+    color = Color.Black,
+    offset = Offset(offsetPx, offsetPx),
+    blurRadius = offsetPx,
+)
+
+@Composable
+private fun FriendsOnlineHeader(online: Int, total: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -579,25 +766,15 @@ private fun FriendsOnlineHeader(online: Int, total: Int, muted: Color) {
     ) {
         CardSectionLabel("FRIENDS ONLINE")
         Row(verticalAlignment = Alignment.CenterVertically) {
-            XoraOutlinedText(
+            CardTitleText(
                 text = "$online",
-                fontFamily = XoraFonts.Title,
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                fillColor = ActivityGreen,
-                outlineColor = OutlineInk,
-                letterSpacing = XoraFonts.TitleLetterSpacing,
-                maxLines = 1,
+                fontSize = 28.sp,
+                fillBrush = PlaytimeFillBrush,
             )
-            XoraOutlinedText(
+            CardTitleText(
                 text = "/$total",
-                fontFamily = XoraFonts.Title,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                fillColor = Color.White.copy(alpha = 0.85f),
-                outlineColor = OutlineInk,
-                letterSpacing = XoraFonts.TitleLetterSpacing,
-                maxLines = 1,
+                fontSize = 18.sp,
+                fillBrush = DullFillBrush,
             )
         }
     }
@@ -636,7 +813,6 @@ private fun DiscordTabContent(
         FriendsOnlineHeader(
             online = social.discord.friends.count { it.isOnline },
             total = social.discord.friends.size,
-            muted = glassMuted,
         )
 
         val friends = if (social.managingCircle) {
@@ -683,10 +859,10 @@ private fun DiscordTabContent(
                 )
             }
             else -> {
-                friends.forEach { friend ->
+                val rowIndices = friends.map { friend ->
                     val pin = CirclePin(CirclePinSource.Discord, friend.userId)
                     val inCircle = pin.key in social.circlePinKeys
-                    val rowIndex = accountRows.indexOfFirst { row ->
+                    accountRows.indexOfFirst { row ->
                         when {
                             social.managingCircle && inCircle ->
                                 row is AccountPanelRow.RemoveFromCircle && row.pin.key == pin.key
@@ -696,22 +872,38 @@ private fun DiscordTabContent(
                                 row is AccountPanelRow.DiscordFriend && row.userId == friend.userId
                         }
                     }
-                    DiscordFriendRow(
-                        friend = friend,
-                        selected = rowIndex >= 0 && rowIndex == selectedRowIndex,
-                        trailingHint = when {
-                            social.managingCircle && inCircle -> "Unpin"
-                            social.managingCircle && !inCircle ->
-                                if (social.circleSlotsFilled >= CIRCLE_FRIEND_LIMIT) "Full" else "Pin"
-                            else -> null
-                        },
-                        hasUnread = social.conversations.discordConversations.any {
-                            it.title.equals(friend.displayName, ignoreCase = true)
-                        },
-                        onClick = {
-                            if (rowIndex >= 0) onActivateRow(rowIndex)
-                        },
-                    )
+                }
+                val hover = rememberFriendBarHover(
+                    rowIndices.indexOfFirst { it >= 0 && it == selectedRowIndex },
+                )
+                FriendBarStack {
+                    friends.forEachIndexed { visualIndex, friend ->
+                        val pin = CirclePin(CirclePinSource.Discord, friend.userId)
+                        val inCircle = pin.key in social.circlePinKeys
+                        val rowIndex = rowIndices[visualIndex]
+                        val dim by animateFloatAsState(
+                            targetValue = friendBarDim(visualIndex, hover.focusedIndex),
+                            label = "discordFriendDim$visualIndex",
+                        )
+                        DiscordFriendRow(
+                            friend = friend,
+                            selected = rowIndex >= 0 && rowIndex == selectedRowIndex,
+                            dimAlpha = dim,
+                            onHoverChange = { hovering -> hover.onHover(visualIndex, hovering) },
+                            trailingHint = when {
+                                social.managingCircle && inCircle -> "Unpin"
+                                social.managingCircle && !inCircle ->
+                                    if (social.circleSlotsFilled >= CIRCLE_FRIEND_LIMIT) "Full" else "Pin"
+                                else -> null
+                            },
+                            hasUnread = social.conversations.discordConversations.any {
+                                it.title.equals(friend.displayName, ignoreCase = true)
+                            },
+                            onClick = {
+                                if (rowIndex >= 0) onActivateRow(rowIndex)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -981,7 +1173,6 @@ private fun SteamTabContent(
         FriendsOnlineHeader(
             online = social.steam.onlineCount,
             total = social.steam.friends.size,
-            muted = glassMuted,
         )
 
         when {
@@ -1021,10 +1212,10 @@ private fun SteamTabContent(
                         color = glassMuted,
                     )
                 } else {
-                    friendsToShow.forEach { friend ->
+                    val rowIndices = friendsToShow.map { friend ->
                         val pin = CirclePin(CirclePinSource.Steam, friend.steamId)
                         val inCircle = pin.key in social.circlePinKeys
-                        val rowIndex = accountRows.indexOfFirst { row ->
+                        accountRows.indexOfFirst { row ->
                             when {
                                 social.managingCircle && inCircle ->
                                     row is AccountPanelRow.RemoveFromCircle &&
@@ -1037,9 +1228,24 @@ private fun SteamTabContent(
                                         row.steamId == friend.steamId
                             }
                         }
+                    }
+                    val hover = rememberFriendBarHover(
+                        rowIndices.indexOfFirst { it >= 0 && it == selectedRowIndex },
+                    )
+                    FriendBarStack {
+                    friendsToShow.forEachIndexed { visualIndex, friend ->
+                        val pin = CirclePin(CirclePinSource.Steam, friend.steamId)
+                        val inCircle = pin.key in social.circlePinKeys
+                        val rowIndex = rowIndices[visualIndex]
+                        val dim by animateFloatAsState(
+                            targetValue = friendBarDim(visualIndex, hover.focusedIndex),
+                            label = "steamFriendDim$visualIndex",
+                        )
                         SteamFriendRow(
                             friend = friend,
                             selected = rowIndex >= 0 && rowIndex == selectedRowIndex,
+                            dimAlpha = dim,
+                            onHoverChange = { hovering -> hover.onHover(visualIndex, hovering) },
                             trailingHint = when {
                                 social.managingCircle && inCircle -> "Unpin"
                                 social.managingCircle && !inCircle ->
@@ -1059,6 +1265,7 @@ private fun SteamTabContent(
                             },
                         )
                     }
+                    }
                 }
             }
         }
@@ -1074,6 +1281,7 @@ private fun XoraNetworkTabContent(
     onActivateRow: (Int?) -> Unit,
     onReplyDraftChange: (String) -> Unit,
 ) {
+    val network = social.xoraNetwork
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = "XOrA Network",
@@ -1082,19 +1290,112 @@ private fun XoraNetworkTabContent(
             fontWeight = FontWeight.Bold,
             color = XoraAccent,
         )
-        ConversationsSection(
-            title = "Conversations",
-            conversations = social.conversations.conversations,
-            listenerEnabled = social.conversations.listenerEnabled,
-            accountRows = accountRows,
-            selectedRowIndex = selectedRowIndex,
-            glassMuted = glassMuted,
-            emptyWhenEnabled = "No recent message notifications yet",
-            reply = social.reply,
-            onActivateRow = onActivateRow,
-            onReplyDraftChange = onReplyDraftChange,
-            footnote = "Shows message previews when notification access is on",
+
+        if (!network.signedIn) {
+            val signInIndex = accountRows.indexOfFirst { it is AccountPanelRow.XoraNetworkSignIn }
+            SocialListRow(
+                title = "Sign in to XOrA Network",
+                subtitle = "Open Dashboard to use the same account as the website",
+                selected = signInIndex >= 0 && signInIndex == selectedRowIndex,
+                accent = XoraAccent,
+                onClick = {
+                    if (signInIndex >= 0) onActivateRow(signInIndex)
+                },
+            )
+            return
+        }
+
+        FriendsOnlineHeader(
+            online = network.onlineFriendCount,
+            total = network.acceptedFriends.size,
         )
+
+        val friends = if (social.managingCircle) {
+            social.filteredXoraFriends
+        } else {
+            social.filteredXoraFriends.filter {
+                CirclePin(CirclePinSource.XoraNetwork, it.username).key !in social.circlePinKeys
+            }
+        }
+        when {
+            network.friendsLoading && friends.isEmpty() -> {
+                Text(
+                    text = "Loading friends…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = glassMuted,
+                )
+            }
+            network.friendsError != null && friends.isEmpty() -> {
+                Text(
+                    text = network.friendsError.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = BusyRose,
+                )
+            }
+            friends.isEmpty() -> {
+                Text(
+                    text = if (social.friendSearchQuery.isNotBlank()) {
+                        "No matches"
+                    } else if (social.managingCircle) {
+                        "No XOrA Network friends yet"
+                    } else {
+                        "Add friends from Dashboard — they show up here"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = glassMuted,
+                )
+            }
+            else -> {
+                val rowIndices = friends.map { friend ->
+                    val pin = CirclePin(CirclePinSource.XoraNetwork, friend.username)
+                    val inCircle = pin.key in social.circlePinKeys
+                    accountRows.indexOfFirst { row ->
+                        when {
+                            social.managingCircle && inCircle ->
+                                row is AccountPanelRow.RemoveFromCircle && row.pin.key == pin.key
+                            social.managingCircle && !inCircle ->
+                                row is AccountPanelRow.AddToCircle && row.pin.key == pin.key
+                            else ->
+                                row is AccountPanelRow.XoraFriend && row.username == friend.username
+                        }
+                    }
+                }
+                val hover = rememberFriendBarHover(
+                    rowIndices.indexOfFirst { it >= 0 && it == selectedRowIndex },
+                )
+                FriendBarStack {
+                    friends.forEachIndexed { visualIndex, friend ->
+                        val pin = CirclePin(CirclePinSource.XoraNetwork, friend.username)
+                        val inCircle = pin.key in social.circlePinKeys
+                        val rowIndex = rowIndices[visualIndex]
+                        val dim by animateFloatAsState(
+                            targetValue = friendBarDim(visualIndex, hover.focusedIndex),
+                            label = "xoraFriendDim$visualIndex",
+                        )
+                        XoraFriendRow(
+                            friend = friend,
+                            selected = rowIndex >= 0 && rowIndex == selectedRowIndex,
+                            dimAlpha = dim,
+                            onHoverChange = { hovering -> hover.onHover(visualIndex, hovering) },
+                            trailingHint = when {
+                                social.managingCircle && inCircle -> "Unpin"
+                                social.managingCircle && !inCircle ->
+                                    if (social.circleSlotsFilled >= CIRCLE_FRIEND_LIMIT) "Full" else "Pin"
+                                else -> null
+                            },
+                            hasUnread = network.notifications.any { item ->
+                                !item.read &&
+                                    item.isMessage &&
+                                    item.fromUsername.equals(friend.username, ignoreCase = true)
+                            },
+                            onClick = {
+                                if (rowIndex >= 0) onActivateRow(rowIndex)
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1108,14 +1409,34 @@ private fun NotificationCenterPanel(
     glassMuted: Color,
     onActivateRow: (Int?) -> Unit,
     onReplyDraftChange: (String) -> Unit,
+    onClearNotifications: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "NOTIFICATIONS",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = glassContent,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "NOTIFICATIONS",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = glassContent,
+                modifier = Modifier.weight(1f),
+            )
+            if (social.recentNotifications.isNotEmpty()) {
+                Text(
+                    text = "Clear all",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = NotificationRed,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable(onClick = onClearNotifications)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+        }
 
         if (social.recentNotifications.isEmpty()) {
             Text(
@@ -1357,6 +1678,8 @@ private fun SteamFriendRow(
     friend: SteamFriendEntry,
     selected: Boolean,
     onClick: () -> Unit,
+    dimAlpha: Float = 1f,
+    onHoverChange: (Boolean) -> Unit = {},
     trailingHint: String? = null,
     hasUnread: Boolean = false,
 ) {
@@ -1367,6 +1690,33 @@ private fun SteamFriendRow(
         activityLabel = friend.currentGame,
         sourceTint = SteamAccent,
         selected = selected,
+        dimAlpha = dimAlpha,
+        onHoverChange = onHoverChange,
+        hasUnread = hasUnread,
+        trailingHint = trailingHint,
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun XoraFriendRow(
+    friend: com.arcadia.shell.xoranetwork.XoraFriend,
+    selected: Boolean,
+    onClick: () -> Unit,
+    dimAlpha: Float = 1f,
+    onHoverChange: (Boolean) -> Unit = {},
+    trailingHint: String? = null,
+    hasUnread: Boolean = false,
+) {
+    FriendListRow(
+        displayName = friend.displayName.ifBlank { friend.username },
+        avatarUrl = friend.resolvedAvatarUrl,
+        presence = xoraFriendPresence(friend),
+        activityLabel = xoraFriendActivity(friend),
+        sourceTint = XoraAccent,
+        selected = selected,
+        dimAlpha = dimAlpha,
+        onHoverChange = onHoverChange,
         hasUnread = hasUnread,
         trailingHint = trailingHint,
         onClick = onClick,
@@ -1378,6 +1728,8 @@ private fun DiscordFriendRow(
     friend: DiscordFriendEntry,
     selected: Boolean,
     onClick: () -> Unit,
+    dimAlpha: Float = 1f,
+    onHoverChange: (Boolean) -> Unit = {},
     trailingHint: String? = null,
     hasUnread: Boolean = false,
 ) {
@@ -1390,6 +1742,8 @@ private fun DiscordFriendRow(
         activityLabel = activity,
         sourceTint = DiscordAccent,
         selected = selected,
+        dimAlpha = dimAlpha,
+        onHoverChange = onHoverChange,
         hasUnread = hasUnread,
         trailingHint = trailingHint,
         onClick = onClick,
@@ -1398,7 +1752,7 @@ private fun DiscordFriendRow(
 
 /**
  * Restyled friend row: uppercase bold name, blocky neon-green activity line, dimmed offline
- * state, thin focus-ring border when selected, and a trailing speech-bubble/unread badge.
+ * state, 3px outer black stroke, and a trailing speech-bubble/unread badge.
  */
 @Composable
 private fun FriendListRow(
@@ -1409,45 +1763,71 @@ private fun FriendListRow(
     sourceTint: Color,
     selected: Boolean,
     onClick: () -> Unit,
+    dimAlpha: Float = 1f,
+    onHoverChange: (Boolean) -> Unit = {},
     hasUnread: Boolean = false,
     trailingHint: String? = null,
 ) {
     val offline = presence == SocialPresence.Offline
     val shape = RoundedCornerShape(percent = 50)
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val strokePx = with(LocalDensity.current) { CardStroke.toPx() }
     LaunchedEffect(selected) {
         if (selected) {
             delay(16)
             bringIntoViewRequester.bringIntoView()
         }
     }
+    LaunchedEffect(hovered) { onHoverChange(hovered) }
+    DisposableEffect(Unit) { onDispose { onHoverChange(false) } }
     val statusText = when {
         offline -> "OFFLINE"
         !activityLabel.isNullOrBlank() -> activityLabel.uppercase()
         else -> presenceLabel(presence).uppercase()
     }
-    val statusColor = if (offline) Color.White.copy(alpha = 0.45f) else ActivityGreen
+    val statusBrush = when {
+        offline -> DullFillBrush
+        presence == SocialPresence.Away -> vibrantFillBrush(AwayAmber)
+        presence == SocialPresence.Busy -> vibrantFillBrush(BusyRose)
+        else -> PlaytimeFillBrush
+    }
 
+    val vPad = if (selected) FriendBarSelectedVPad else FriendBarRestVPad
+    val avatarSize = if (selected) FriendBarSelectedAvatar else FriendBarRestAvatar
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(dimAlpha)
             .bringIntoViewRequester(bringIntoViewRequester)
-            .clip(shape)
-            .background(
-                if (selected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f),
+            .padding(horizontal = CardStroke, vertical = 1.dp)
+            .xoraForegroundShadow(
+                shape = shape,
+                offset = CardAssetShadowDp,
+                blur = CardAssetShadowDp,
             )
-            .then(
-                if (selected) Modifier.border(2.dp, RowSelectedEdge, shape) else Modifier,
+            .drawBehind {
+                val corner = CornerRadius(size.height / 2f, size.height / 2f)
+                drawRoundRect(
+                    brush = ChromeStrokeBrush,
+                    style = Stroke(width = strokePx, join = StrokeJoin.Round),
+                    cornerRadius = corner,
+                )
+            }
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
             )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = vPad),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         PresenceAvatar(
             displayName = displayName,
             presetId = "preset_0",
-            size = 38.dp,
+            size = avatarSize,
             imageModel = avatarUrl,
             presence = presence,
             selected = false,
@@ -1462,24 +1842,27 @@ private fun FriendListRow(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 FriendName(displayName)
-                FriendStatus(statusText, statusColor)
+                FriendStatus(statusText, statusBrush)
             }
         } else {
             FriendName(displayName)
             Spacer(modifier = Modifier.weight(1f))
             FriendStatus(
                 text = statusText,
-                color = statusColor,
+                fillBrush = statusBrush,
                 modifier = Modifier.widthIn(max = 180.dp),
             )
         }
 
         if (trailingHint != null) {
-            Text(
-                text = trailingHint,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = if (trailingHint == "Full") BusyRose else SkyGlass,
+            CardTitleText(
+                text = trailingHint.uppercase(),
+                fontSize = 18.sp,
+                fillBrush = if (trailingHint == "Full") {
+                    vibrantFillBrush(BusyRose)
+                } else {
+                    DullFillBrush
+                },
             )
         } else {
             SpeechBubbleIcon(hasUnread = hasUnread)
@@ -1489,32 +1872,24 @@ private fun FriendListRow(
 
 @Composable
 private fun FriendName(displayName: String) {
-    XoraOutlinedText(
+    CardTitleText(
         text = displayName.uppercase(),
-        fontFamily = XoraFonts.Title,
-        fontWeight = FontWeight.Bold,
-        fontSize = 17.sp,
-        fillColor = Color.White,
-        outlineColor = OutlineInk,
-        letterSpacing = XoraFonts.TitleLetterSpacing,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+        fontSize = 18.sp,
+        fillBrush = DullFillBrush,
     )
 }
 
 @Composable
-private fun FriendStatus(text: String, color: Color, modifier: Modifier = Modifier) {
-    XoraOutlinedText(
+private fun FriendStatus(
+    text: String,
+    fillBrush: Brush,
+    modifier: Modifier = Modifier,
+) {
+    CardTitleText(
         text = text,
         modifier = modifier,
-        fontFamily = XoraFonts.Title,
-        fontWeight = FontWeight.Bold,
-        fontSize = 14.sp,
-        fillColor = color,
-        outlineColor = OutlineInk,
-        letterSpacing = XoraFonts.TitleLetterSpacing,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+        fontSize = 18.sp,
+        fillBrush = fillBrush,
     )
 }
 
@@ -1524,14 +1899,25 @@ private fun SpeechBubbleIcon(
     hasUnread: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier.size(width = 40.dp, height = 30.dp)) {
+    val bubbleShape = RoundedCornerShape(10.dp)
+    Box(
+        modifier = modifier
+            .padding(CardStroke)
+            .xoraForegroundShadow(
+                shape = bubbleShape,
+                offset = CardAssetShadowDp,
+                blur = CardAssetShadowDp,
+            )
+            .size(width = 40.dp, height = 30.dp),
+    ) {
         Canvas(modifier = Modifier.matchParentSize()) {
             val bubbleHeight = size.height * 0.76f
             val tint = Color.White.copy(alpha = if (hasUnread) 0.95f else 0.8f)
+            val corner = CornerRadius(size.minDimension * 0.34f, size.minDimension * 0.34f)
             drawRoundRect(
                 color = tint,
                 size = Size(size.width, bubbleHeight),
-                cornerRadius = CornerRadius(size.minDimension * 0.34f, size.minDimension * 0.34f),
+                cornerRadius = corner,
             )
             val tailPath = Path().apply {
                 moveTo(size.width * 0.20f, bubbleHeight - 1f)
@@ -1540,14 +1926,13 @@ private fun SpeechBubbleIcon(
                 close()
             }
             drawPath(tailPath, color = tint)
-            // Three dots inside the bubble.
             val dotR = size.minDimension * 0.075f
             val cy = bubbleHeight / 2f
             listOf(0.28f, 0.5f, 0.72f).forEach { fx ->
                 drawCircle(
                     color = Color(0xFF3C4750),
                     radius = dotR,
-                    center = androidx.compose.ui.geometry.Offset(size.width * fx, cy),
+                    center = Offset(size.width * fx, cy),
                 )
             }
         }
@@ -1664,7 +2049,14 @@ fun PresenceAvatar(
     onClick: (() -> Unit)? = null,
 ) {
     Box(
-        modifier = modifier.size(size + 8.dp),
+        modifier = modifier
+            .padding(CardStroke)
+            .xoraForegroundShadow(
+                shape = CircleShape,
+                offset = CardAssetShadowDp,
+                blur = CardAssetShadowDp,
+            )
+            .size(size + 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         if (selected) {

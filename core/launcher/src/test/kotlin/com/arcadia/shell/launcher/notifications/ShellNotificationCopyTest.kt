@@ -1,0 +1,120 @@
+package com.arcadia.shell.launcher.notifications
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class ShellNotificationCopyTest {
+
+    @Test
+    fun netplayInviteHeadlineNamesHostAndGame() {
+        assertEquals(
+            "pal invited you to play Pokémon FireRed",
+            netplayInviteHeadline("pal", "Pokémon FireRed"),
+        )
+        assertEquals(
+            "A friend invited you to play a game",
+            netplayInviteHeadline("  ", ""),
+        )
+    }
+
+    @Test
+    fun netplayInviteBannerUsesHeadline() {
+        val copy = ShellNotification.XoraNetplayInvite(
+            id = "xora-netplay:test",
+            displayName = "angel",
+            gameTitle = "Mario Kart Super Circuit",
+            sessionCode = "K7M2QX",
+            fromUsername = "angel",
+        ).toCopy()
+        assertEquals("Netplay", copy.category)
+        assertEquals("angel invited you to play Mario Kart Super Circuit", copy.body)
+        assertEquals("XOrA Network", copy.subtitle)
+    }
+
+    @Test
+    fun netplayInviteDismissalKeysSurviveAppUpdates() {
+        val keys = ShellNotification.XoraNetplayInvite(
+            id = "xora-netplay:pal|ABC123|9",
+            displayName = "pal",
+            gameTitle = "Kirby",
+            sessionCode = "ABC123",
+            fromUsername = "pal",
+        ).dismissalKeys()
+        assertEquals(
+            setOf("xora-netplay:pal|ABC123|9", "xora-netplay-session:pal|ABC123"),
+            keys,
+        )
+    }
+
+    @Test
+    fun friendListeningHeadlineNamesTheUserAndTrack() {
+        assertEquals(
+            "Sora is now listening to",
+            friendListeningHeadline("Sora"),
+        )
+        assertEquals(
+            "Celeste by Lena Raine",
+            friendListeningTrackLine("Celeste", "Lena Raine"),
+        )
+        val copy = ShellNotification.FriendListening(
+            id = "xora-listening:1",
+            displayName = "Sora",
+            songTitle = "First Steps",
+            artist = "Lena Raine",
+            network = FriendNetwork.Xora,
+        ).toCopy()
+        assertEquals("Friends", copy.category)
+        assertEquals("Sora is now listening to", copy.body)
+        assertEquals("First Steps by Lena Raine · XOrA Network", copy.subtitle)
+    }
+
+    @Test
+    fun friendPlayingHeadlineNamesTheUserAndGame() {
+        val copy = ShellNotification.FriendPlaying(
+            id = "steam-playing:1",
+            displayName = "pal",
+            gameTitle = "Celeste",
+            network = FriendNetwork.Steam,
+        ).toCopy()
+        assertEquals("Friends", copy.category)
+        assertEquals("pal is now playing Celeste", copy.body)
+        assertEquals("Steam", copy.subtitle)
+    }
+
+    @Test
+    fun friendPlayingDismissalKeyIsStableForTheSameGame() {
+        val keys = ShellNotification.FriendPlaying(
+            id = "xora-playing:pal:999",
+            displayName = "Pal",
+            gameTitle = "Kirby",
+            network = FriendNetwork.Xora,
+        ).dismissalKeys()
+        assertEquals(
+            setOf("xora-playing:pal:999", "friend-playing:xora:pal:kirby"),
+            keys,
+        )
+    }
+
+    @Test
+    fun friendOnlineDismissalKeyIsStableAcrossBannerIds() {
+        val keys = ShellNotification.FriendOnline(
+            id = "xora-online:pal:999",
+            displayName = "Pal",
+            network = FriendNetwork.Xora,
+        ).dismissalKeys()
+        assertEquals(
+            setOf("xora-online:pal:999", "friend-online:xora:pal"),
+            keys,
+        )
+    }
+
+    @Test
+    fun xoraMessageDismissalKeepsInboxId() {
+        val keys = ShellNotification.XoraMessage(
+            id = "xora-message:42",
+            sender = "pal",
+            snippet = "hey",
+        ).dismissalKeys()
+        assertEquals(setOf("xora-message:42"), keys)
+    }
+}

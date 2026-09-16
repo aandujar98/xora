@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,7 +85,10 @@ fun XmbPane(
     Box(modifier = modifier.fillMaxSize()) {
         HomeWallpaper(
             customPath = state.homeHub.wallpaperPath,
-            dim = false,
+            dim = true,
+            dimBlendMode = BlendMode.Multiply,
+            alignX = state.homeHub.wallpaperAlignX,
+            alignY = state.homeHub.wallpaperAlignY,
             modifier = Modifier.fillMaxSize(),
         )
         Column(modifier = Modifier.fillMaxSize()) {

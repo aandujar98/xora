@@ -103,6 +103,100 @@ class RetroAchievementsClientTest {
     }
 
     @Test
+    fun `users I follow parses Results envelope`() {
+        val parsed = RetroAchievementsClient.parseUsersIFollow(
+            """
+            {
+              "Count": 2,
+              "Total": 2,
+              "Results": [
+                {
+                  "User": "Alice",
+                  "ULID": "00003ABC",
+                  "UserPic": "/UserPic/AliceLogin.png",
+                  "Points": 12000,
+                  "PointsSoftcore": 40,
+                  "IsFollowingMe": true
+                },
+                {
+                  "User": "Bob",
+                  "Points": "800",
+                  "PointsSoftcore": "0",
+                  "IsFollowingMe": 0
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        assertEquals(2, parsed.size)
+        assertEquals("Alice", parsed[0].username)
+        assertEquals("00003ABC", parsed[0].ulid)
+        assertEquals("00003ABC", parsed[0].profileLookup)
+        assertEquals("/UserPic/AliceLogin.png", parsed[0].userPicPath)
+        assertEquals(
+            "https://media.retroachievements.org/UserPic/AliceLogin.png",
+            parsed[0].userPicUrl,
+        )
+        assertEquals(12000, parsed[0].points)
+        assertEquals(40, parsed[0].pointsSoftcore)
+        assertTrue(parsed[0].isFollowingMe)
+        assertEquals("Bob", parsed[1].username)
+        assertEquals("", parsed[1].ulid)
+        assertEquals("Bob", parsed[1].profileLookup)
+        assertEquals(800, parsed[1].points)
+        assertFalse(parsed[1].isFollowingMe)
+    }
+
+    @Test
+    fun `user profile parses UserPic login path`() {
+        val parsed = RetroAchievementsClient.parseUserProfile(
+            """
+            {
+              "User": "Display Name",
+              "ULID": "00003ABC",
+              "UserPic": "/UserPic/LoginName.png",
+              "TotalPoints": 900,
+              "TotalSoftcorePoints": 12
+            }
+            """.trimIndent(),
+            fallbackUsername = "fallback",
+        )
+        assertEquals("Display Name", parsed.username)
+        assertEquals(900, parsed.totalPoints)
+        assertEquals(12, parsed.totalSoftcorePoints)
+        assertEquals("/UserPic/LoginName.png", parsed.userPicPath)
+        assertEquals(
+            "https://media.retroachievements.org/UserPic/LoginName.png",
+            parsed.userPicUrl,
+        )
+    }
+
+    @Test
+    fun `userPicUrlFrom prefers profile path over display name`() {
+        assertEquals(
+            "https://media.retroachievements.org/UserPic/LoginName.png",
+            RaProfile.userPicUrlFrom("Display Name", "/UserPic/LoginName.png"),
+        )
+        assertEquals(
+            "https://media.retroachievements.org/UserPic/Already%20Renamed.png",
+            RaProfile.userPicUrlFrom("Already Renamed"),
+        )
+        assertEquals("", RaProfile.userPicUrlFrom("  "))
+        assertEquals(
+            "https://cdn.example/pic.png",
+            RaProfile.userPicUrlFrom("x", "https://cdn.example/pic.png"),
+        )
+    }
+
+    @Test
+    fun `users I follow accepts a bare array`() {
+        val parsed = RetroAchievementsClient.parseUsersIFollow(
+            """[{"User":"Carol","Points":15}]""",
+        )
+        assertEquals(listOf(RaFollowedUser("Carol", 15)), parsed)
+    }
+
+    @Test
     fun `core clause normalizes libretro suffix`() {
         assertEquals("mupen64plus_next_libretro", RaUserAgent.coreClause("mupen64plus_next"))
         assertEquals("mupen64plus_next_libretro", RaUserAgent.coreClause("mupen64plus_next_libretro.so"))

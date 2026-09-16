@@ -51,7 +51,7 @@ class DisplayTopologyMonitor(private val context: Context) {
     }.distinctUntilChanged()
 
     private fun readTopology() = DisplayTopology(
-        displays = displayManager.displays.filter { it.isValid }.map { it.toShellDisplay() },
+        displays = context.allGameDisplays().map { it.toShellDisplay() },
         supportsActivitiesOnSecondaryDisplays = supportsActivitiesOnSecondaryDisplays,
     )
 
@@ -67,6 +67,7 @@ class DisplayTopologyMonitor(private val context: Context) {
             densityDpi = metrics.densityDpi,
             isPrimary = displayId == Display.DEFAULT_DISPLAY,
             isPublic = flags and Display.FLAG_PRIVATE == 0,
+            isPresentation = flags and Display.FLAG_PRESENTATION != 0,
         )
     }
 }

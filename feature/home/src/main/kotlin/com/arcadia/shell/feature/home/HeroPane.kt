@@ -1,7 +1,6 @@
 package com.arcadia.shell.feature.home
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -25,6 +24,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -41,11 +42,14 @@ import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.designsystem.ArcadiaMotion
 import com.arcadia.shell.designsystem.arcadiaHazeSource
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.launchBackdropScale
+import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
 import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.HeroTrailerLayer
+import com.arcadia.shell.feature.home.component.ProfileEditRequestEffect
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
 import com.arcadia.shell.model.Game
@@ -59,8 +63,8 @@ import java.util.concurrent.TimeUnit
  * Rendered either as the upper portion of the single-screen layout or, on a dual-screen handheld,
  * alone on the second physical display. It is therefore given no assumptions about its own size.
  *
- * When [isLaunching] is true, UI chrome slides/fades away while the hero artwork holds (and gently
- * zooms) as the transition plate into the emulator.
+ * When [isLaunching] is true, UI chrome splits left/right while the hero artwork holds
+ * (and gently zooms) as the transition plate into the emulator.
  *
  * On the RSS feed page, pass [rssItem] so the hero shows article detail (and optional video).
  * On the Home hub, pass [showHomeWallpaper] so the hero shows the customizable atmospheric art.
@@ -74,6 +78,7 @@ fun HeroPane(
     profileAvatarModel: String?,
     raConfigured: Boolean,
     discordLinked: Boolean = false,
+    xoraSignedIn: Boolean = false,
     accountPanelExpanded: Boolean,
     systemPanelExpanded: Boolean,
     achievementsPanelExpanded: Boolean,
@@ -86,13 +91,18 @@ fun HeroPane(
     systemProfile: SystemProfileCardState = SystemProfileCardState(),
     trailer: HeroTrailerState = HeroTrailerState(),
     isLaunching: Boolean = false,
+    vitaLaunchOpen: Boolean = false,
+    startSettingsOpen: Boolean = false,
     rssItem: RssFeedItem? = null,
     showHomeWallpaper: Boolean = false,
     homeWallpaperPath: String? = null,
+    wallpaperAlignX: Float = 0f,
+    wallpaperAlignY: Float = 0f,
     onToggleAccountPanel: () -> Unit,
     onToggleSystemPanel: () -> Unit,
     onOpenNotifications: () -> Unit = {},
     notificationUnreadCount: Int = 0,
+    activeNotificationPresent: Boolean = false,
     onToggleAchievementsPanel: () -> Unit,
     onSelectSocialTab: (SocialMenuTab) -> Unit = {},
     onSelectAccountRow: (Int) -> Unit = {},
@@ -105,10 +115,13 @@ fun HeroPane(
     profileEditRequest: Int = 0,
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
-    onRequestLocalAvatar: () -> Unit,
+    onRequestLocalAvatar: (PhotoImportSource) -> Unit,
     onUseRaAvatar: () -> Unit,
     onUseDiscordAvatar: () -> Unit,
+    onUseXoraAvatar: () -> Unit,
+    onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit,
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit,
@@ -117,119 +130,133 @@ fun HeroPane(
     onSignOutRetroAchievements: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Chrome exits quickly; artwork eases over the full cinematic hold.
-    val chromeProgress by animateFloatAsState(
-        targetValue = if (isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-        label = "heroLaunchChrome",
+    val cinematic = rememberLaunchCinematic(isLaunching)
+    val chromeProgress = cinematic.chrome
+    val hidePills = shouldHideHomePillChrome(
+        startSettingsOpen = startSettingsOpen,
+        launchPageOpen = vitaLaunchOpen,
     )
-    val holdProgress by animateFloatAsState(
-        targetValue = if (isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
-        label = "heroLaunchHold",
-    )
-    val accountExpanded = accountPanelExpanded && !isLaunching
-    val systemExpanded = systemPanelExpanded && !isLaunching
-    val achievementsExpanded = achievementsPanelExpanded && !isLaunching
-    val chromeAlpha = 1f - chromeProgress
-    val chromeSlidePx = chromeProgress * 72f
-    val artworkScale = 1f + (holdProgress * 0.06f)
+    val accountExpanded = accountPanelExpanded && !isLaunching && !hidePills
+    val systemExpanded = systemPanelExpanded && !isLaunching && !hidePills
+    val achievementsExpanded = achievementsPanelExpanded && !isLaunching && !vitaLaunchOpen
+    val artworkScale = launchBackdropScale(cinematic.zoom)
     var profileEditing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(profileEditRequest) {
-        if (profileEditRequest > 0) profileEditing = true
-    }
+    ProfileEditRequestEffect(profileEditRequest) { profileEditing = true }
 
-    Box(modifier = modifier.background(MaterialTheme.colorScheme.background)) {
+    Box(modifier = modifier.background(Color.Black)) {
         val heroEnter = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
         val heroExit = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
         // Game-select (and empty) use the home wallpaper as a base; ROM art draws above it.
         // Home hub still owns the whole pane via [showHomeWallpaper] so chrome stays atmospheric.
-        if (!showHomeWallpaper && rssItem == null) {
-            HomeWallpaper(
-                customPath = homeWallpaperPath,
-                dim = false,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .arcadiaHazeSource(zIndex = 0f)
-                    .graphicsLayer { scaleX = artworkScale; scaleY = artworkScale },
-            )
-        }
-        when {
-            showHomeWallpaper -> {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+                .graphicsLayer { alpha = cinematic.wallpaperAlpha },
+        ) {
+            if (!showHomeWallpaper && rssItem == null) {
                 HomeWallpaper(
                     customPath = homeWallpaperPath,
                     dim = false,
+                    dimBlendMode = BlendMode.Multiply,
+                    alignX = wallpaperAlignX,
+                    alignY = wallpaperAlignY,
                     modifier = Modifier
                         .fillMaxSize()
                         .arcadiaHazeSource(zIndex = 0f)
                         .graphicsLayer { scaleX = artworkScale; scaleY = artworkScale },
                 )
             }
-            rssItem != null -> {
-            AnimatedContent(
-                targetState = rssItem,
-                transitionSpec = { heroEnter togetherWith heroExit },
-                contentKey = { it.id },
-                label = "rssHero",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .arcadiaHazeSource(zIndex = 0f),
-            ) { article ->
-                RssHeroContent(
-                    item = article,
-                    chromeAlpha = chromeAlpha,
-                    chromeSlidePx = chromeSlidePx,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            }
-            else -> {
-            AnimatedContent(
-                targetState = game,
-                transitionSpec = { heroEnter togetherWith heroExit },
-                contentKey = { it?.id },
-                label = "heroArtwork",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .arcadiaHazeSource(zIndex = 0f),
-            ) { current ->
-                if (current == null) {
-                    HeroEmptyState(modifier = Modifier.fillMaxSize())
-                } else {
-                    HeroContent(
-                        game = current,
-                        trailer = trailer,
-                        artworkScale = artworkScale,
-                        chromeAlpha = chromeAlpha,
-                        chromeSlidePx = chromeSlidePx,
-                        modifier = Modifier.fillMaxSize(),
+            when {
+                showHomeWallpaper -> {
+                    HomeWallpaper(
+                        customPath = homeWallpaperPath,
+                        dim = false,
+                        alignX = wallpaperAlignX,
+                        alignY = wallpaperAlignY,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .arcadiaHazeSource(zIndex = 0f)
+                            .graphicsLayer {
+                                scaleX = artworkScale
+                                scaleY = artworkScale
+                                alpha = cinematic.wallpaperAlpha
+                            },
                     )
                 }
-            }
+                rssItem != null -> {
+                    AnimatedContent(
+                        targetState = rssItem,
+                        transitionSpec = { heroEnter togetherWith heroExit },
+                        contentKey = { it.id },
+                        label = "rssHero",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .arcadiaHazeSource(zIndex = 0f),
+                    ) { article ->
+                        RssHeroContent(
+                            item = article,
+                            chromeProgress = chromeProgress,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+                else -> {
+                    AnimatedContent(
+                        targetState = game,
+                        transitionSpec = { heroEnter togetherWith heroExit },
+                        contentKey = { it?.id },
+                        label = "heroArtwork",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .arcadiaHazeSource(zIndex = 0f),
+                    ) { current ->
+                        if (current == null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { alpha = 1f - chromeProgress },
+                            ) {
+                                HeroEmptyState(modifier = Modifier.fillMaxSize())
+                            }
+                        } else {
+                            HeroContent(
+                                game = current,
+                                trailer = trailer,
+                                artworkScale = artworkScale,
+                                chromeProgress = chromeProgress,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                }
             }
         }
 
-        AccountPill(
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = 1f - chromeProgress },
+        ) {
+            AccountPill(
             expanded = accountExpanded,
             socialMenu = socialMenu,
             profile = profile,
             profileAvatarModel = profileAvatarModel,
             accountRows = accountPanelRows,
             selectedRowIndex = accountPanelSelectedIndex,
+            hideCollapsedChrome = hidePills || activeNotificationPresent,
             onToggle = onToggleAccountPanel,
             onSelectTab = onSelectSocialTab,
             onSelectRow = onSelectAccountRow,
             onActivateRow = onActivateAccountRow,
             onFriendSearchChange = onFriendSearchChange,
             onReplyDraftChange = onReplyDraftChange,
+            onClearNotifications = onClearNotifications,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .graphicsLayer {
-                    alpha = chromeAlpha
-                    translationY = -chromeSlidePx
-                },
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         )
         SystemPill(
             profile = profile,
@@ -241,6 +268,7 @@ fun HeroPane(
             systemProfile = systemProfile,
             expanded = systemExpanded,
             selectedRowIndex = systemPanelSelectedIndex,
+            hideCollapsedChrome = hidePills,
             onToggle = onToggleSystemPanel,
             onSelectRow = onSelectSystemRow,
             onActivateRow = onActivateSystemRow,
@@ -249,29 +277,23 @@ fun HeroPane(
             onClearCustomStatus = onClearCustomStatus,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .graphicsLayer {
-                    alpha = chromeAlpha
-                    translationY = -chromeSlidePx
-                },
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         )
 
-        AchievementsPill(
-            expanded = achievementsExpanded,
-            state = achievements,
-            onToggle = onToggleAchievementsPanel,
-            onSelectTab = onSelectAchievementsTab,
-            onLogin = onLoginRetroAchievements,
-            onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-            onSignOut = onSignOutRetroAchievements,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .graphicsLayer {
-                    alpha = chromeAlpha
-                    translationY = chromeSlidePx
-                },
-        )
+        if (!vitaLaunchOpen) {
+            AchievementsPill(
+                expanded = achievementsExpanded,
+                state = achievements,
+                onToggle = onToggleAchievementsPanel,
+                onSelectTab = onSelectAchievementsTab,
+                onLogin = onLoginRetroAchievements,
+                onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            )
+        }
+        }
 
         if (profileEditing) {
             ProfileEditSheet(
@@ -285,7 +307,10 @@ fun HeroPane(
                 onRequestPhoto = onRequestLocalAvatar,
                 onUseRaAvatar = onUseRaAvatar,
                 onUseDiscordAvatar = onUseDiscordAvatar,
+                onUseXoraAvatar = onUseXoraAvatar,
+                onXoraPresenceMode = onXoraPresenceMode,
                 onClearAvatar = onClearAvatar,
+                xoraSignedIn = xoraSignedIn,
             )
         }
     }
@@ -296,28 +321,26 @@ private fun HeroContent(
     game: Game,
     trailer: HeroTrailerState,
     artworkScale: Float,
-    chromeAlpha: Float,
-    chromeSlidePx: Float,
+    chromeProgress: Float,
     modifier: Modifier = Modifier,
 ) {
     val fullBackgroundTrailer =
         trailer.active && trailer.displayMode == TrailerDisplayMode.FullBackground
     val cornerPipTrailer =
         trailer.active && trailer.displayMode == TrailerDisplayMode.CornerPip
+    val chromeAlpha = 1f - chromeProgress
 
     Box(modifier = modifier) {
         // Only paint scraped art when it exists — ArtworkImage's empty fallback is an opaque tile
         // that would hide the home wallpaper underneath.
         val artPath = game.heroImagePath ?: game.boxArtPath
-        if (!fullBackgroundTrailer && !artPath.isNullOrBlank()) {
+        if (!artPath.isNullOrBlank()) {
             ArtworkImage(
                 path = artPath,
                 contentDescription = null,
                 fallbackText = "",
                 contentScale = ContentScale.Crop,
-                // One hero is on screen at a time and it is the largest bitmap the app decodes, so it
-                // is kept out of the memory cache to leave that budget for grid thumbnails.
-                cacheInMemory = false,
+                cacheInMemory = true,
                 decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
                 modifier = Modifier
                     .fillMaxSize()
@@ -328,7 +351,7 @@ private fun HeroContent(
             )
         }
 
-        // Full-background trailer replaces artwork, then the scrim/metadata draw on top.
+        // Trailer fades over the hero once the first frame is ready.
         if (fullBackgroundTrailer) {
             HeroTrailerLayer(
                 state = trailer,
@@ -347,7 +370,7 @@ private fun HeroContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = 0.35f + (chromeAlpha * 0.65f) }
+                .graphicsLayer { alpha = chromeAlpha }
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Black.copy(alpha = 0.15f),
@@ -357,18 +380,19 @@ private fun HeroContent(
                 ),
         )
 
-        // Logo + metadata float over the artwork scrim — no glass plate / border chrome.
-        Column(
+        Box(
             modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth(0.72f)
-                .padding(start = 28.dp, end = 28.dp, bottom = 24.dp)
-                .graphicsLayer {
-                    alpha = chromeAlpha
-                    translationY = chromeSlidePx
-                },
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .fillMaxSize()
+                .graphicsLayer { alpha = 1f - chromeProgress },
         ) {
+            // Logo + metadata float over the artwork scrim — no glass plate / border chrome.
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(0.72f)
+                    .padding(start = 28.dp, end = 28.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
             game.logoImagePath?.let { logo ->
                 ArtworkImage(
                     path = logo,
@@ -393,14 +417,13 @@ private fun HeroContent(
             }
         }
 
-        // PIP sits above the scrim so it stays visible, but HeroPane pills still draw after this.
-        if (cornerPipTrailer) {
-            HeroTrailerLayer(
-                state = trailer,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = chromeAlpha },
-            )
+            // PIP sits above the scrim so it stays visible, but HeroPane pills still draw after this.
+            if (cornerPipTrailer) {
+                HeroTrailerLayer(
+                    state = trailer,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }
@@ -457,14 +480,14 @@ private fun HeroEmptyState(modifier: Modifier = Modifier) {
 @Composable
 private fun RssHeroContent(
     item: RssFeedItem,
-    chromeAlpha: Float,
-    chromeSlidePx: Float,
+    chromeProgress: Float,
     modifier: Modifier = Modifier,
 ) {
     var playingVideo by remember(item.id) { mutableStateOf(false) }
     val videoRef = remember(item.videoUrl) {
         item.videoUrl?.let { TrailerRefs.parse(it) }?.let(TrailerRefs::encode)
     }
+    val chromeAlpha = 1f - chromeProgress
 
     Box(modifier = modifier) {
         if (playingVideo && videoRef != null) {
@@ -498,6 +521,7 @@ private fun RssHeroContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer { alpha = chromeAlpha }
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Black.copy(alpha = 0.2f),
@@ -512,10 +536,7 @@ private fun RssHeroContent(
                 .align(Alignment.BottomStart)
                 .fillMaxWidth(0.85f)
                 .padding(start = 28.dp, end = 28.dp, bottom = 24.dp)
-                .graphicsLayer {
-                    alpha = chromeAlpha
-                    translationY = chromeSlidePx
-                },
+                .graphicsLayer { alpha = 1f - chromeProgress },
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(

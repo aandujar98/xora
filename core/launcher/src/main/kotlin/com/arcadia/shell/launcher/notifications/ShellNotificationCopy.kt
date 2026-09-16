@@ -10,6 +10,28 @@ data class ShellNotificationCopy(
     val subtitle: String,
 )
 
+/** Banner / overlay line: `"pal invited you to play Pokémon FireRed"`. */
+fun netplayInviteHeadline(displayName: String, gameTitle: String): String {
+    val who = displayName.trim().ifBlank { "A friend" }
+    val game = gameTitle.trim().ifBlank { "a game" }
+    return "$who invited you to play $game"
+}
+
+/** `"Sora is now listening to"` — the first line of the friend-listening toast. */
+fun friendListeningHeadline(displayName: String): String =
+    "${displayName.trim().ifBlank { "A friend" }} is now listening to"
+
+/** "<song> by <artist>", or just the song when no artist came across. */
+fun friendListeningTrackLine(songTitle: String, artist: String): String {
+    val song = songTitle.trim()
+    val by = artist.trim()
+    return when {
+        song.isEmpty() -> ""
+        by.isEmpty() -> song
+        else -> "$song by $by"
+    }
+}
+
 fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
     is ShellNotification.AchievementUnlocked -> {
         val points = points?.takeIf { it > 0 }?.let { "$it pts" }
@@ -49,16 +71,84 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
         subtitle = sender,
     )
 
+    is ShellNotification.XoraMessage -> ShellNotificationCopy(
+        category = "Messages",
+        body = snippet.ifBlank { "New XOrA Network message" },
+        subtitle = "$sender · XOrA Network",
+    )
+
+    is ShellNotification.XoraFriendRequest -> ShellNotificationCopy(
+        category = "Friends",
+        body = "Added you as a friend",
+        subtitle = "$displayName · XOrA Network",
+    )
+
+    is ShellNotification.XoraNetplayInvite -> ShellNotificationCopy(
+        category = "Netplay",
+        body = netplayInviteHeadline(displayName, gameTitle),
+        subtitle = "XOrA Network",
+    )
+
+    is ShellNotification.XoraSessionJoined -> ShellNotificationCopy(
+        category = "Netplay",
+        body = detail.ifBlank { "$displayName joined the session" },
+        subtitle = "XOrA Network",
+    )
+
     is ShellNotification.FriendOnline -> {
         val networkLabel = when (network) {
             FriendNetwork.Discord -> "Discord"
             FriendNetwork.Steam -> "Steam"
+            FriendNetwork.Xora -> "XOrA Network"
         }
         val activity = activityLabel?.trim().orEmpty()
         ShellNotificationCopy(
             category = "Friends",
             body = activity.ifEmpty { "Online" },
             subtitle = "$displayName · $networkLabel",
+        )
+    }
+
+    is ShellNotification.FriendStatusUpdated -> {
+        val networkLabel = when (network) {
+            FriendNetwork.Discord -> "Discord"
+            FriendNetwork.Steam -> "Steam"
+            FriendNetwork.Xora -> "XOrA Network"
+        }
+        ShellNotificationCopy(
+            category = "Friends",
+            // Their own wording leads; the name rides the subtitle the way a message banner reads.
+            body = status.trim().ifBlank { "Updated their status" },
+            subtitle = "${displayName.trim().ifBlank { "A friend" }} · $networkLabel",
+        )
+    }
+
+    is ShellNotification.FriendListening -> {
+        val networkLabel = when (network) {
+            FriendNetwork.Discord -> "Discord"
+            FriendNetwork.Steam -> "Steam"
+            FriendNetwork.Xora -> "XOrA Network"
+        }
+        ShellNotificationCopy(
+            category = "Friends",
+            body = friendListeningHeadline(displayName),
+            subtitle = listOfNotNull(
+                friendListeningTrackLine(songTitle, artist).takeIf { it.isNotBlank() },
+                networkLabel,
+            ).joinToString(" · "),
+        )
+    }
+
+    is ShellNotification.FriendPlaying -> {
+        val networkLabel = when (network) {
+            FriendNetwork.Discord -> "Discord"
+            FriendNetwork.Steam -> "Steam"
+            FriendNetwork.Xora -> "XOrA Network"
+        }
+        ShellNotificationCopy(
+            category = "Friends",
+            body = friendPlayingHeadline(displayName, gameTitle),
+            subtitle = networkLabel,
         )
     }
 
@@ -72,5 +162,11 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
         category = "Download",
         body = title,
         subtitle = this.subtitle ?: "Install complete",
+    )
+
+    is ShellNotification.UpdateAvailable -> ShellNotificationCopy(
+        category = "System Update",
+        body = "XOrA $versionName is available",
+        subtitle = "Settings → Update to install",
     )
 }

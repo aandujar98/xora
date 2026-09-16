@@ -5,7 +5,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -33,9 +35,12 @@ fun XoraOutlinedText(
     fontWeight: FontWeight = FontWeight.Normal,
     fontSize: TextUnit = 16.sp,
     fillColor: Color = Color.White,
+    fillBrush: Brush? = null,
     outlineColor: Color = Color.Black,
-    outlineWidth: Dp = XoraOutlineWidth.forSize(fontSize),
+    outlineBrush: Brush? = null,
+    outlineWidth: Dp = 3.dp,
     letterSpacing: TextUnit = TextUnit.Unspecified,
+    shadow: Shadow? = null,
     textAlign: TextAlign? = null,
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
@@ -43,8 +48,9 @@ fun XoraOutlinedText(
 ) {
     val scale = xoraTextScale()
     val scaledSize = fontSize * scale
-    val scaledOutline = outlineWidth * scale
-    val outlinePx = with(LocalDensity.current) { scaledOutline.toPx() }
+    // Stroke is centered on the glyph; double the width so a 3px outline sits fully outside
+    // after the fill layer covers the inner half.
+    val outlinePx = with(LocalDensity.current) { outlineWidth.toPx() } * 2f
     val base = TextStyle(
         fontFamily = fontFamily,
         fontWeight = fontWeight,
@@ -61,20 +67,47 @@ fun XoraOutlinedText(
         else -> Alignment.TopStart
     }
     Box(modifier = modifier, contentAlignment = alignment) {
+        // Shadow is its own back layer. Putting [TextStyle.shadow] on a brushed fill paints the
+        // drop over the glyphs — a light halo sitting on the letters instead of black ink behind.
+        if (shadow != null) {
+            Text(
+                text = text,
+                maxLines = maxLines,
+                overflow = overflow,
+                softWrap = softWrap,
+                textAlign = textAlign,
+                style = base.copy(
+                    color = shadow.color,
+                    drawStyle = Fill,
+                    shadow = shadow,
+                ),
+            )
+        }
         Text(
             text = text,
             maxLines = maxLines,
             overflow = overflow,
             softWrap = softWrap,
             textAlign = textAlign,
-            style = base.copy(
-                color = outlineColor,
-                drawStyle = Stroke(
-                    width = outlinePx,
-                    join = StrokeJoin.Round,
-                    miter = 4f,
-                ),
-            ),
+            style = if (outlineBrush != null) {
+                base.copy(
+                    brush = outlineBrush,
+                    drawStyle = Stroke(
+                        width = outlinePx,
+                        join = StrokeJoin.Round,
+                        miter = 4f,
+                    ),
+                )
+            } else {
+                base.copy(
+                    color = outlineColor,
+                    drawStyle = Stroke(
+                        width = outlinePx,
+                        join = StrokeJoin.Round,
+                        miter = 4f,
+                    ),
+                )
+            },
         )
         Text(
             text = text,
@@ -82,10 +115,17 @@ fun XoraOutlinedText(
             overflow = overflow,
             softWrap = softWrap,
             textAlign = textAlign,
-            style = base.copy(
-                color = fillColor,
-                drawStyle = Fill,
-            ),
+            style = if (fillBrush != null) {
+                base.copy(
+                    brush = fillBrush,
+                    drawStyle = Fill,
+                )
+            } else {
+                base.copy(
+                    color = fillColor,
+                    drawStyle = Fill,
+                )
+            },
         )
     }
 }
@@ -109,6 +149,7 @@ fun XoraTitleText(
         fontWeight = fontWeight,
         fontSize = fontSize,
         fillColor = fillColor,
+        outlineWidth = 3.dp,
         letterSpacing = XoraFonts.TitleLetterSpacing,
         textAlign = textAlign,
         maxLines = maxLines,
@@ -116,7 +157,7 @@ fun XoraTitleText(
     )
 }
 
-/** Bio / info / secondary copy (FOT-NewRodin Pro EB). */
+/** Bio / info / secondary copy (FOT-NewRodin Pro DB). */
 @Composable
 fun XoraSecondaryText(
     text: String,

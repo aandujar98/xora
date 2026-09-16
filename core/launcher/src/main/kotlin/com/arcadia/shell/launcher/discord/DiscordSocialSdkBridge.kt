@@ -212,13 +212,16 @@ internal class DiscordSocialSdkBridge {
             return
         }
         // ActivityTypes::Playing == 0 in Social SDK.
+        // Discord rejects state/details unless they are 2–128 characters — pass null, not "".
+        val safeDetails = details?.trim()?.takeIf { it.length >= 2 }
+        val safeState = state?.trim()?.takeIf { it.length >= 2 }
         runCatching {
-            Log.i(TAG, "nativeSetActivity details=$details state=$state name=$name")
+            Log.i(TAG, "nativeSetActivity details=$safeDetails state=$safeState name=$name")
             nativeSetActivity(
                 activityType = 0,
                 name = name,
-                state = state,
-                details = details,
+                state = safeState,
+                details = safeDetails,
                 startSecs = startUnixSeconds,
                 endSecs = 0L,
                 largeImage = null,
@@ -392,7 +395,9 @@ internal class DiscordSocialSdkBridge {
         val id = parts.getOrNull(0)?.trim().orEmpty()
         if (id.isEmpty()) return
         currentUserId = id
-        currentUserAvatarUrl = parts.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+        currentUserAvatarUrl = preferAnimatedDiscordAvatarUrl(
+            parts.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() },
+        )
         Log.i(TAG, "currentUserId=$id avatar=${currentUserAvatarUrl ?: "(none)"}")
         hopMain { currentUserListener?.invoke(id) }
     }
@@ -460,7 +465,7 @@ internal class DiscordSocialSdkBridge {
             "com.discord.android",
         )
 
-        /** Payload lines: `userId\\tdisplayName\\tgroup[\\tavatarUrl]` */
+        /** Payload lines: `userId\\tdisplayName\\tgroup[\\tavatarUrl[\\tcurrentGame]]` */
         fun parseFriendsPayload(payload: String): List<DiscordFriendEntry> {
             if (payload.isBlank()) return emptyList()
             return payload.lineSequence()
@@ -470,12 +475,15 @@ internal class DiscordSocialSdkBridge {
                     val parts = line.split('\t')
                     if (parts.size < 3) return@mapNotNull null
                     val userId = parts[0]
-                    val avatarFromSdk = parts.getOrNull(3)?.takeIf { it.isNotBlank() }
+                    val avatarFromSdk = preferAnimatedDiscordAvatarUrl(
+                        parts.getOrNull(3)?.takeIf { it.isNotBlank() },
+                    )
                     DiscordFriendEntry(
                         userId = userId,
                         displayName = parts[1].ifBlank { userId },
                         group = parts[2],
                         avatarUrl = avatarFromSdk ?: discordAvatarUrl(userId, avatarHash = null),
+                        currentGame = parts.getOrNull(4)?.trim()?.takeIf { it.isNotBlank() },
                     )
                 }
                 .toList()

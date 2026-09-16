@@ -1,0 +1,403 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/component/NotificationBanner.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/component/NotificationBanner.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/component/NotificationBanner.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/component/NotificationBanner.kt
+@@ -72,6 +72,8 @@
+ import com.arcadia.shell.designsystem.rememberReduceMotion
+ import com.arcadia.shell.designsystem.xoraForegroundShadow
+ import com.arcadia.shell.feature.home.R
++import com.arcadia.shell.launcher.notifications.friendListeningHeadline
++import com.arcadia.shell.launcher.notifications.friendListeningTrackLine
+ import com.arcadia.shell.launcher.notifications.friendTrophyHeadline
+ import com.arcadia.shell.feature.home.xoraSoftRim
+ import com.arcadia.shell.designsystem.XoraOutlinedText
+@@ -299,6 +301,24 @@
+         )
+         return
+     }
++    if (notification is ShellNotification.FriendListening) {
++        FriendListeningBanner(
++            notification = notification,
++            onDismiss = onDismiss,
++            onActivate = onActivate,
++            modifier = modifier,
++        )
++        return
++    }
++    if (notification is ShellNotification.AchievementUnlocked) {
++        OwnTrophyBanner(
++            notification = notification,
++            onDismiss = onDismiss,
++            onActivate = onActivate,
++            modifier = modifier,
++        )
++        return
++    }
+     val glass = rememberGlassTokens(GlassTone.OverMedia)
+     val content = bannerContent(notification)
+     val accessibility = listOfNotNull(
+@@ -569,7 +589,7 @@
+             },
+         )
+ 
+-        is ShellNotification.FriendPlaying -> BannerContent(
++        is ShellNotification.FriendListening -> BannerContent(
+             category = copy.category,
+             categoryIconRes = R.drawable.ic_banner_friends,
+             body = copy.body,
+@@ -583,6 +603,37 @@
+             },
+         )
+ 
++        is ShellNotification.FriendStatusUpdated -> BannerContent(
++            category = copy.category,
++            categoryIconRes = R.drawable.ic_banner_friends,
++            body = copy.body,
++            subtitle = copy.subtitle,
++            avatarUrl = notification.avatarUrl,
++            avatarFallback = notification.displayName.take(1).ifBlank { "F" },
++            accent = when (notification.network) {
++                FriendNetwork.Discord -> Color(0xFF5865F2)
++                FriendNetwork.Steam -> Color(0xFF66C0F4)
++                FriendNetwork.Xora -> Color(0xFF0070D1)
++            },
++        )
++
++        is ShellNotification.FriendPlaying -> BannerContent(
++            category = copy.category,
++            categoryIconRes = R.drawable.ic_banner_friends,
++            body = copy.body,
++            subtitle = copy.subtitle,
++            // The game's bubble icon when the library has the title; their picture otherwise.
++            avatarUrl = notification.gameIconPath ?: notification.avatarUrl,
++            avatarFallback = notification.gameTitle.take(1)
++                .ifBlank { notification.displayName.take(1) }
++                .ifBlank { "F" },
++            accent = when (notification.network) {
++                FriendNetwork.Discord -> Color(0xFF5865F2)
++                FriendNetwork.Steam -> Color(0xFF66C0F4)
++                FriendNetwork.Xora -> Color(0xFF0070D1)
++            },
++        )
++
+         is ShellNotification.GameDownloading -> BannerContent(
+             category = copy.category,
+             categoryIconRes = R.drawable.ic_banner_download,
+@@ -616,16 +667,20 @@
+     }
+ }
+ 
+-private val FriendTrophyShape = RoundedCornerShape(20.dp)
+-private val FriendTrophyFill = Brush.linearGradient(
+-    listOf(Color(0xFF15161F), Color(0xFF232838), Color(0xFF3A5260)),
+-)
++// Half the card it used to be (Figma 916:3393 at 50%), so a trophy reads as news rather than
++// taking the corner of the screen. Every metric below is the old one halved.
++private val FriendTrophyCorner = 10.dp
++private val FriendTrophyShape = RoundedCornerShape(FriendTrophyCorner)
++private val FriendTrophyMinWidth = 120.dp
++private val FriendTrophyMaxWidth = 190.dp
++private val FriendTrophyLeadingSize = 38.dp
++private val FriendTrophyBadgeSize = 20.dp
+ private val FriendTrophyBadgeRim = Color(0xFFEFBD17)
+ 
+ /**
+- * Figma 916:3393: a card rather than the capsule — the friend's picture large on the left,
+- * "Sora just earned a trophy!" beside it, and the badge with the achievement's name under that.
+- * It still grows out of the social slot like every other toast.
++ * Figma 916:3393 at half scale: the friend's picture on the left, "Sora just earned a trophy!"
++ * beside it, and the badge with the achievement's name under that. The solid plate is gone — it
++ * takes the same glass as every other toast so a trophy sits on the shell rather than over it.
+  */
+ @Composable
+ private fun FriendTrophyBanner(
+@@ -634,8 +689,64 @@
+     onActivate: ((ShellNotification) -> Unit)?,
+     modifier: Modifier = Modifier,
+ ) {
+-    val context = LocalContext.current
+-    val headline = friendTrophyHeadline(notification.displayName)
++    TrophyBanner(
++        headline = friendTrophyHeadline(notification.displayName),
++        leadingUrl = notification.avatarUrl,
++        leadingFallback = notification.displayName.take(2).uppercase(),
++        badgeUrl = notification.badgeUrl,
++        title = notification.title,
++        onClick = {
++            if (onActivate != null) onActivate(notification)
++            onDismiss()
++        },
++        modifier = modifier,
++    )
++}
++
++/**
++ * Your own unlock on the same card as a friend's, so the two read as one family. The badge is the
++ * picture here — there is no second face to show — and the achievement's name sits under it.
++ */
++@Composable
++private fun OwnTrophyBanner(
++    notification: ShellNotification.AchievementUnlocked,
++    onDismiss: () -> Unit,
++    onActivate: ((ShellNotification) -> Unit)?,
++    modifier: Modifier = Modifier,
++) {
++    val subtitle = listOfNotNull(
++        notification.points?.takeIf { it > 0 }?.let { "$it pts" },
++        notification.gameTitle?.trim()?.takeIf { it.isNotEmpty() },
++    ).joinToString(" · ")
++    TrophyBanner(
++        headline = notification.title,
++        leadingUrl = notification.badgeUrl,
++        leadingFallback = "RA",
++        badgeUrl = null,
++        title = subtitle.ifBlank { if (notification.hardcore) "Hardcore" else "Achievement unlocked" },
++        onClick = {
++            if (onActivate != null) onActivate(notification)
++            onDismiss()
++        },
++        modifier = modifier,
++    )
++}
++
++/**
++ * "<name> is now listening to" over "<song> by <artist>". Same capsule as every other friend
++ * toast, so only the second line is special: the song carries the weight and the artist trails it
++ * smaller and lighter.
++ */
++@Composable
++private fun FriendListeningBanner(
++    notification: ShellNotification.FriendListening,
++    onDismiss: () -> Unit,
++    onActivate: ((ShellNotification) -> Unit)?,
++    modifier: Modifier = Modifier,
++) {
++    val glass = rememberGlassTokens(GlassTone.OverMedia)
++    val headline = friendListeningHeadline(notification.displayName)
++    val trackLine = friendListeningTrackLine(notification.songTitle, notification.artist)
+     Box(
+         modifier = modifier
+             .graphicsLayer { clip = false }
+@@ -643,39 +754,137 @@
+     ) {
+         Row(
+             modifier = Modifier
+-                .widthIn(min = 240.dp, max = 380.dp)
++                .widthIn(min = BannerMinWidth, max = BannerMaxWidth)
+                 .xoraForegroundShadow(
+-                    shape = FriendTrophyShape,
++                    shape = BannerShape,
+                     offset = BannerShadowOffset,
+                     blur = BannerShadowBlur,
+                 )
+-                .clip(FriendTrophyShape)
+-                .background(FriendTrophyFill)
+-                .xoraSoftRim(cornerRadius = 20.dp, spread = 10.dp, blur = 8.dp, alpha = 0.8f)
+-                .border(1.5.dp, Color.White.copy(alpha = 0.85f), FriendTrophyShape)
++                .liquidGlass(
++                    shape = BannerShape,
++                    tone = GlassTone.OverMedia,
++                    intensity = GlassIntensity.Strong,
++                    shimmer = true,
++                )
++                .border(1.5.dp, CardEdge, BannerShape)
+                 .clickable(onClick = {
+                     if (onActivate != null) onActivate(notification)
+                     onDismiss()
+                 })
++                .semantics { contentDescription = "$headline. $trackLine" }
++                .padding(start = 10.dp, end = BannerTextGutter, top = 5.dp, bottom = 5.dp),
++            verticalAlignment = Alignment.CenterVertically,
++            horizontalArrangement = Arrangement.spacedBy(8.dp),
++        ) {
++            BannerAvatar(
++                url = notification.avatarUrl,
++                fallback = notification.displayName.take(1).ifBlank { "F" },
++                accent = when (notification.network) {
++                    FriendNetwork.Discord -> Color(0xFF5865F2)
++                    FriendNetwork.Steam -> Color(0xFF66C0F4)
++                    FriendNetwork.Xora -> Color(0xFF0070D1)
++                },
++            )
++            Column(
++                modifier = Modifier
++                    .weight(1f, fill = false)
++                    .width(IntrinsicSize.Max),
++            ) {
++                Text(
++                    text = headline,
++                    style = MaterialTheme.typography.bodySmall,
++                    color = glass.contentMuted,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                )
++                Row(
++                    verticalAlignment = Alignment.Bottom,
++                    modifier = Modifier.padding(top = 1.dp),
++                ) {
++                    Text(
++                        text = notification.songTitle,
++                        style = MaterialTheme.typography.bodyMedium,
++                        fontWeight = FontWeight.Bold,
++                        color = glass.content,
++                        maxLines = 1,
++                        overflow = TextOverflow.Ellipsis,
++                        modifier = Modifier.weight(1f, fill = false),
++                    )
++                    val artist = notification.artist.trim()
++                    if (artist.isNotEmpty()) {
++                        Text(
++                            text = " by $artist",
++                            style = MaterialTheme.typography.labelSmall,
++                            fontWeight = FontWeight.Light,
++                            color = glass.contentMuted,
++                            maxLines = 1,
++                            overflow = TextOverflow.Ellipsis,
++                        )
++                    }
++                }
++            }
++        }
++    }
++}
++
++/** The shared half-scale glass trophy card. [badgeUrl] null leaves the title on its own line. */
++@Composable
++private fun TrophyBanner(
++    headline: String,
++    leadingUrl: String?,
++    leadingFallback: String,
++    badgeUrl: String?,
++    title: String,
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    val context = LocalContext.current
++    Box(
++        modifier = modifier
++            .graphicsLayer { clip = false }
++            .padding(end = BannerShadowGutter, bottom = BannerShadowGutter),
++    ) {
++        Row(
++            modifier = Modifier
++                .widthIn(min = FriendTrophyMinWidth, max = FriendTrophyMaxWidth)
++                .xoraForegroundShadow(
++                    shape = FriendTrophyShape,
++                    offset = BannerShadowOffset,
++                    blur = BannerShadowBlur,
++                )
++                .liquidGlass(
++                    shape = FriendTrophyShape,
++                    tone = GlassTone.OverMedia,
++                    intensity = GlassIntensity.Strong,
++                    shimmer = true,
++                )
++                .xoraSoftRim(
++                    cornerRadius = FriendTrophyCorner,
++                    spread = 5.dp,
++                    blur = 4.dp,
++                    alpha = 0.8f,
++                )
++                .border(1.dp, CardEdge, FriendTrophyShape)
++                .clickable(onClick = onClick)
+                 .semantics {
+-                    contentDescription = listOf(headline, notification.title).joinToString(". ")
++                    contentDescription = listOf(headline, title).joinToString(". ")
+                 }
+-                .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 16.dp),
++                .padding(start = 4.dp, top = 4.dp, bottom = 4.dp, end = 8.dp),
+             verticalAlignment = Alignment.CenterVertically,
+-            horizontalArrangement = Arrangement.spacedBy(10.dp),
++            horizontalArrangement = Arrangement.spacedBy(5.dp),
+         ) {
+             Box(
+                 modifier = Modifier
+-                    .size(76.dp)
+-                    .clip(RoundedCornerShape(12.dp))
++                    .size(FriendTrophyLeadingSize)
++                    .clip(RoundedCornerShape(6.dp))
+                     .background(Color(0xFF2A2F3A))
+-                    .border(1.5.dp, Color.Black.copy(alpha = 0.55f), RoundedCornerShape(12.dp)),
++                    .border(1.dp, Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp)),
+                 contentAlignment = Alignment.Center,
+             ) {
+-                if (!notification.avatarUrl.isNullOrBlank()) {
++                if (!leadingUrl.isNullOrBlank()) {
+                     AsyncImage(
+                         model = ImageRequest.Builder(context)
+-                            .data(notification.avatarUrl)
++                            .data(leadingUrl)
+                             .crossfade(false)
+                             .build(),
+                         contentDescription = null,
+@@ -684,45 +893,49 @@
+                     )
+                 } else {
+                     Text(
+-                        text = notification.displayName.take(2).uppercase(),
+-                        style = MaterialTheme.typography.titleLarge,
++                        text = leadingFallback,
++                        style = MaterialTheme.typography.labelSmall,
+                         fontWeight = FontWeight.Bold,
+                         color = Color.White,
+                     )
+                 }
+             }
+-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
++            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                 XoraOutlinedText(
+                     text = headline,
+                     fontFamily = XoraFonts.XmbLabel,
+                     fontWeight = FontWeight.Bold,
+-                    fontSize = 17.sp,
+-                    outlineWidth = 2.dp,
++                    // Floored above half: 8sp of outlined type on glass is not readable at arm's
++                    // length, so the card halves and the words step down only as far as they can.
++                    fontSize = 11.sp,
++                    outlineWidth = 1.dp,
+                     maxLines = 1,
+                     overflow = TextOverflow.Ellipsis,
+                 )
+                 Row(
+                     verticalAlignment = Alignment.CenterVertically,
+-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
++                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                 ) {
+-                    AsyncImage(
+-                        model = ImageRequest.Builder(context)
+-                            .data(notification.badgeUrl)
+-                            .crossfade(false)
+-                            .build(),
+-                        contentDescription = notification.title,
+-                        contentScale = ContentScale.Crop,
+-                        modifier = Modifier
+-                            .size(40.dp)
+-                            .clip(RoundedCornerShape(6.dp))
+-                            .background(Color(0xFF1B1E26))
+-                            .border(2.dp, FriendTrophyBadgeRim, RoundedCornerShape(6.dp)),
+-                    )
++                    if (!badgeUrl.isNullOrBlank()) {
++                        AsyncImage(
++                            model = ImageRequest.Builder(context)
++                                .data(badgeUrl)
++                                .crossfade(false)
++                                .build(),
++                            contentDescription = title,
++                            contentScale = ContentScale.Crop,
++                            modifier = Modifier
++                                .size(FriendTrophyBadgeSize)
++                                .clip(RoundedCornerShape(3.dp))
++                                .background(Color(0xFF1B1E26))
++                                .border(1.dp, FriendTrophyBadgeRim, RoundedCornerShape(3.dp)),
++                        )
++                    }
+                     XoraOutlinedText(
+-                        text = notification.title,
++                        text = title,
+                         fontFamily = XoraFonts.XmbLabel,
+-                        fontSize = 12.sp,
+-                        outlineWidth = 1.5.dp,
++                        fontSize = 9.sp,
++                        outlineWidth = 1.dp,
+                         maxLines = 2,
+                         overflow = TextOverflow.Ellipsis,
+                     )

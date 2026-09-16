@@ -67,33 +67,101 @@ class BuiltInPlayersTest {
     }
 
     @Test
-    fun `Switch players cover Eden mainline, legacy, and nightly packages`() {
+    fun `Switch players cover Eden, Skyline, Strato, and Sudachi packages`() {
         val switchPlayers = BuiltInPlayers.all.filter { "switch" in it.platformIds }
         val packages = switchPlayers.mapNotNull { it.packageName }.toSet()
 
         assertTrue(packages.contains("dev.eden.eden_emulator"))
         assertTrue(packages.contains("dev.legacy.eden_emulator"))
         assertTrue(packages.contains("dev.eden.eden_emulator.nightly"))
+        assertTrue(packages.contains("skyline.emu"))
+        assertTrue(packages.contains("emu.skyline"))
+        assertTrue(packages.contains("org.stratoemu.strato"))
+        assertTrue(packages.contains("org.sudachi.sudachi_emu.ea"))
+        assertTrue(packages.contains("org.sudachi.sudachi_emu"))
 
         val mainline = BuiltInPlayers.all.first { it.uniqueId == "eden.switch" }
         assertEquals("Eden", mainline.name)
         assertTrue(mainline.amStartArguments.contains("{file.uri}"))
         assertTrue(mainline.amStartArguments.contains("org.yuzu.yuzu_emu.activities.EmulationActivity"))
         assertTrue(mainline.killPackageProcesses)
+
+        val skyline = BuiltInPlayers.all.first { it.uniqueId == "skyline.switch" }
+        assertTrue(skyline.amStartArguments.contains("emu.skyline.EmulationActivity"))
+        assertTrue(skyline.amStartArguments.contains("{file.uri}"))
+
+        val sudachi = BuiltInPlayers.all.first { it.uniqueId == "sudachi.switch" }
+        assertTrue(sudachi.amStartArguments.contains("android.nfc.action.TECH_DISCOVERED"))
+        assertTrue(sudachi.killPackageProcesses)
+    }
+
+    @Test
+    fun `handheld standalone players cover Lemonade Pizza Boy My Boy Snes9x EX+ and John GBA`() {
+        val lemonade = BuiltInPlayers.all.first { it.uniqueId == "lemonade.3ds" }
+        assertEquals("org.gamerytb.lemonade.canary", lemonade.packageName)
+        assertTrue(lemonade.amStartArguments.contains("org.citra.citra_emu.activities.EmulationActivity"))
+        assertTrue(lemonade.killPackageProcesses)
+
+        val pizza = BuiltInPlayers.all.first { it.uniqueId == "pizzaboy.gb" }
+        assertEquals(setOf("gb", "gbc"), pizza.platformIds)
+        assertTrue(pizza.amStartArguments.contains("rom_uri {file.path}"))
+
+        val pizzaGba = BuiltInPlayers.all.first { it.uniqueId == "pizzaboy.gba" }
+        assertEquals("it.dbtecno.pizzaboygba", pizzaGba.packageName)
+
+        val myBoy = BuiltInPlayers.all.first { it.uniqueId == "myboy.gba" }
+        assertEquals("com.fastemulator.gba", myBoy.packageName)
+        assertTrue(myBoy.amStartArguments.contains("EmulatorActivity"))
+
+        val snes9x = BuiltInPlayers.all.first { it.uniqueId == "snes9xex.snes" }
+        assertEquals("com.explusalpha.Snes9xPlus", snes9x.packageName)
+        assertTrue(snes9x.amStartArguments.contains("-t application/zip"))
+
+        val john = BuiltInPlayers.all.first { it.uniqueId == "johngba.gba" }
+        assertEquals("com.johnemulators.johngba", john.packageName)
+        assertTrue(john.amStartArguments.contains("com.johnemulators.activity.GameActivity"))
+
+        val packages = BuiltInPlayers.all.mapNotNull { it.packageName }.toSet()
+        assertTrue(packages.contains("it.dbtecno.pizzaboypro"))
+        assertTrue(packages.contains("it.dbtecno.pizzaboygbapro"))
+        assertTrue(packages.contains("com.fastemulator.gbafree"))
+        assertTrue(packages.contains("com.fastemulator.gbc"))
+        assertTrue(packages.contains("com.johnemulators.johngbalite"))
+        assertTrue(packages.contains("com.johnemulators.johngbac"))
     }
 
     @Test
     fun `PS2 and Dreamcast players use grantable URI templates with clear-task`() {
         val nether = BuiltInPlayers.all.first { it.uniqueId == "nethersx2.ps2" }
-        assertEquals("xyz.aethersx2.android", nether.packageName)
-        assertTrue(nether.amStartArguments.contains("bootPath {file.uri}"))
+        assertEquals(Ps2Packages.PACKAGE_DEFAULT, nether.packageName)
+        assertTrue(Ps2Packages.isPs2Player(nether))
+        assertFalse(Ps2Packages.isPlayPlayer(nether))
+        assertTrue(nether.amStartArguments.contains("bootPath {file.bootpath}"))
+        assertFalse(nether.amStartArguments.contains("bootPath {file.uri}"))
         assertTrue(nether.amStartArguments.contains("--activity-clear-task"))
+
+        val play = BuiltInPlayers.all.first { it.uniqueId == Ps2Packages.PLAYER_PLAY_ID }
+        assertEquals("NetherSX2 (Play Store)", play.name)
+        assertEquals(Ps2Packages.PACKAGE_PLAY, play.packageName)
+        assertTrue(Ps2Packages.isPlayPlayer(play))
+        assertFalse(Ps2Packages.isPs2Player(play))
+        assertTrue(play.amStartArguments.contains("bootPath {file.bootpath}"))
+        assertTrue(play.amStartArguments.contains(Ps2Packages.ACTIVITY_LEGACY))
 
         val flycast = BuiltInPlayers.all.first { it.uniqueId == "flycast.dreamcast" }
         assertEquals("com.flycast.emulator", flycast.packageName)
         assertTrue(flycast.amStartArguments.contains("com.flycast.emulator.MainActivity"))
         assertTrue(flycast.amStartArguments.contains("{file.uri}"))
         assertTrue(flycast.killPackageProcesses)
+    }
+
+    @Test
+    fun `Vita3K launches by Title ID rather than a ROM path`() {
+        val vita = BuiltInPlayers.all.first { it.uniqueId == "vita3k.psvita" }
+        assertEquals("org.vita3k.emulator", vita.packageName)
+        assertTrue(vita.amStartArguments.contains("--esa AppStartParameters"))
+        assertTrue(vita.amStartArguments.contains("{vita.titleId}"))
+        assertTrue(!vita.amStartArguments.contains("AmStartPath"))
     }
 
     @Test
@@ -139,7 +207,13 @@ class BuiltInPlayersTest {
     /** A profile that names no file placeholder would launch the emulator with no game. */
     @Test
     fun `every template passes the game to the emulator`() {
-        val placeholders = listOf("{file.path}", "{file.uri}", "{file.documenturi}")
+        val placeholders = listOf(
+            "{file.path}",
+            "{file.uri}",
+            "{file.documenturi}",
+            "{file.bootpath}",
+            "{vita.titleId}",
+        )
 
         BuiltInPlayers.all.forEach { player ->
             assertTrue(

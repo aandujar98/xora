@@ -4,8 +4,11 @@ import com.arcadia.shell.datastore.XoraEmulatorSettings
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.datastore.label
 import com.arcadia.shell.launcher.music.MusicAlbum
+import com.arcadia.shell.launcher.music.MusicSource
 import com.arcadia.shell.launcher.music.MusicTrack
+import com.arcadia.shell.launcher.photos.DeviceMediaFolder
 import com.arcadia.shell.model.Game
+import com.arcadia.shell.model.GamePlatform
 import com.arcadia.shell.model.PlatformSummary
 
 /** Top-level XOrA XMB categories (horizontal strip). */
@@ -14,6 +17,7 @@ enum class XoraXmbCategory {
     Settings,
     Games,
     Media,
+    Videos,
     Music,
     Network,
     ;
@@ -23,7 +27,8 @@ enum class XoraXmbCategory {
             Profiles -> "Profiles"
             Settings -> "Settings"
             Games -> "Games"
-            Media -> "Media"
+            Media -> "Photos"
+            Videos -> "Videos"
             Music -> "Music"
             Network -> "XOrA Network"
         }
@@ -56,6 +61,12 @@ enum class XoraXmbDepth {
     MusicTracks,
     /** Music → Now Playing — full-bleed player over the cover art. */
     NowPlaying,
+    /** Media → Photos — full-bleed PSP-style gallery over the wallpaper. */
+    Photos,
+    /** XOrA Network → Dashboard — Metro-style tile board over the wallpaper. */
+    Dashboard,
+    /** Games → Retro Achievements — library overlay; XMB zooms out and fades underneath. */
+    RaLibrary,
 }
 
 /** One focusable row in the XMB vertical list. */
@@ -66,6 +77,8 @@ data class XoraXmbItem(
     val action: XoraXmbAction,
     /** Optional box/hero thumb for ROM / Continue / Favorite rows. */
     val artPath: String? = null,
+    /** Optional wallpaper (still or video) shown behind a focused album / track. */
+    val heroPath: String? = null,
     /** Clear-logo / wheel title art — preferred over [title] text for ROM rows. */
     val logoPath: String? = null,
     /** Accumulated play time for ROM rows ([Game.playTimeMs]). */
@@ -78,15 +91,58 @@ data class XoraXmbItem(
     val platformLabel: String? = null,
     /** Vector glyph when [artPath] is null. */
     val icon: XmbIcon = XmbIcon.System,
+    /** Horizontal cover-art bias inside the Game Icon (`-1` left … `1` right). */
+    val artAlignX: Float = 0f,
+    /** Vertical cover-art bias inside the Game Icon (`-1` top … `1` bottom). */
+    val artAlignY: Float = 0f,
+    /** Fanart / screenshot used when Game Icon idle media is Screenshots. */
+    val screenshotPath: String? = null,
 )
+
+/** Album / track / Now Playing art uses a 1×1 plate, not the landscape game card. */
+fun XoraXmbItem.isMusicCoverArt(): Boolean {
+    if (artPath.isNullOrBlank()) return false
+    return when (action) {
+        is XoraXmbAction.OpenNowPlaying,
+        is XoraXmbAction.PlayMusicTrack,
+        is XoraXmbAction.DrillMusicAlbum,
+        -> true
+        else -> id == "now" ||
+            id.startsWith("album_") ||
+            id.startsWith("track_") ||
+            id.startsWith("music_folder_")
+    }
+}
+
+/** Now Playing is the Music column's headline row — its cover stands as tall as a Game Icon. */
+fun XoraXmbItem.isNowPlayingCover(): Boolean =
+    action is XoraXmbAction.OpenNowPlaying || id == "now"
+
+
+/** Stable id for custom cover / wallpaper files on an album or track row. */
+fun XoraXmbItem.musicCustomMediaId(): String? = when (val action = action) {
+    is XoraXmbAction.DrillMusicAlbum -> "album_${action.albumId}"
+    is XoraXmbAction.PlayMusicTrack -> "track_${action.trackId}"
+    else -> null
+}
+
+fun XoraXmbItem.musicAlbumCustomMediaId(): String? = when (val action = action) {
+    is XoraXmbAction.DrillMusicAlbum -> "album_${action.albumId}"
+    is XoraXmbAction.PlayMusicTrack -> action.albumId?.let { "album_$it" }
+    else -> null
+}
 
 sealed interface XoraXmbAction {
     data object OpenProfile : XoraXmbAction
     data object GuestModeStub : XoraXmbAction
     data class OpenSettingsCategory(val category: StartSettingsCategory) : XoraXmbAction
+    /** Open the System Update window (check GitHub Releases, download, install). */
+    data object InstallLatestUpdate : XoraXmbAction
     data object OpenRaLibrary : XoraXmbAction
     data object LaunchContinueOrFavorite : XoraXmbAction
     data object DrillAllGames : XoraXmbAction
+    /** Games column Folder_IMG — pick a gallery still to sit in the folder window. */
+    data object PickHomeFolderImage : XoraXmbAction
     /** Games → XOrA Emulator settings list. */
     data object DrillXoraEmulator : XoraXmbAction
     /** In-emulator XMB only — close overlay and keep playing. */
@@ -96,8 +152,13 @@ sealed interface XoraXmbAction {
     data object SaveGameState : XoraXmbAction
     data object LoadGameState : XoraXmbAction
     data object ResetGame : XoraXmbAction
-    data object PhotosStub : XoraXmbAction
+    /** Media → Photos — the device photo gallery. */
+    data object OpenPhotos : XoraXmbAction
+    /** Photos column — an album / Camera / Screenshots folder. */
+    data class OpenPhotoFolder(val folderId: String) : XoraXmbAction
     data object VideosStub : XoraXmbAction
+    /** Videos column — an album of videos stored in a folder. */
+    data class OpenVideoFolder(val folderId: String) : XoraXmbAction
     /** Music → Now Playing page. */
     data object OpenNowPlaying : XoraXmbAction
     /** Music → Playlist → album / playlist cards. */
@@ -107,12 +168,13 @@ sealed interface XoraXmbAction {
     /** An album card → its songs. */
     data class DrillMusicAlbum(val albumId: String) : XoraXmbAction
     /** A song card → becomes Now Playing. */
-    data class PlayMusicTrack(val trackId: String) : XoraXmbAction
+    data class PlayMusicTrack(val trackId: String, val albumId: String? = null) : XoraXmbAction
     /** Music → Link DSP Accounts card rung. */
     data object DrillDspAccounts : XoraXmbAction
     /** DSP provider card — start OAuth / show linked state. */
     data class LinkDspAccount(val provider: DspProvider) : XoraXmbAction
-    data object OpenFriends : XoraXmbAction
+    /** XOrA Network → Dashboard — profile, friends, games & RA over the wallpaper. */
+    data object OpenDashboard : XoraXmbAction
     data object StoreStub : XoraXmbAction
     data object OpenNews : XoraXmbAction
     data class DrillSystem(val platformId: String) : XoraXmbAction
@@ -163,6 +225,45 @@ data class XoraXmbUiState(
         get() = XoraXmbCategory.entries.getOrElse(categoryIndex) { XoraXmbCategory.Games }
 
     val selectedItem: XoraXmbItem? get() = items.getOrNull(itemIndex)
+
+    /**
+     * The bottom-right RA card only belongs next to a real game (recents plate, a ROM,
+     * or in-session Resume). Trophy / All Games and every other category stay clean.
+     */
+    val showsAchievementsCard: Boolean
+        get() {
+            if (focusGame == null) return false
+            return when (selectedItem?.action) {
+                is XoraXmbAction.LaunchGame,
+                is XoraXmbAction.LaunchContinueOrFavorite,
+                is XoraXmbAction.ResumeGame,
+                -> true
+                else -> depth == XoraXmbDepth.Roms
+            }
+        }
+}
+
+/** Home Games column: Trophy, recents plate, All Games. Folder_IMG only for collections. */
+const val GAMES_ITEM_TROPHY = 0
+const val GAMES_ITEM_RECENTS = 1
+const val GAMES_ITEM_LIBRARY = 2
+
+fun defaultXoraCategoryItemIndex(category: XoraXmbCategory): Int =
+    if (category == XoraXmbCategory.Games) GAMES_ITEM_RECENTS else 0
+
+/**
+ * Remembers the hovered row in each top-level XMB tab so L/R (or tapping a category)
+ * lands back on the same item instead of jumping to the default.
+ */
+class XoraCategoryHoverStore {
+    private val hover = mutableMapOf<Int, Int>()
+
+    fun remember(categoryIndex: Int, itemIndex: Int) {
+        hover[categoryIndex] = itemIndex
+    }
+
+    fun restore(categoryIndex: Int, category: XoraXmbCategory): Int =
+        hover[categoryIndex] ?: defaultXoraCategoryItemIndex(category)
 }
 
 fun buildXoraCategoryItems(
@@ -183,6 +284,12 @@ fun buildXoraCategoryItems(
     nowPlayingLabel: String? = null,
     /** Cover art for the Music → Now Playing row. */
     nowPlayingArtPath: String? = null,
+    /** Camera / Screenshots albums listed under Photos. */
+    photoFolders: List<DeviceMediaFolder> = emptyList(),
+    /** Video albums listed under Videos. */
+    videoFolders: List<DeviceMediaFolder> = emptyList(),
+    /** On-device albums listed under Music as Folder_Music rows. */
+    musicFolders: List<MusicAlbum> = emptyList(),
 ): List<XoraXmbItem> = when (category) {
     XoraXmbCategory.Profiles -> listOf(
         XoraXmbItem(
@@ -218,7 +325,7 @@ fun buildXoraCategoryItems(
         ),
         XoraXmbItem(
             id = "set_themes",
-            title = "Themes",
+            title = "Customize",
             subtitle = "Presets, wallpaper & BGM",
             action = XoraXmbAction.OpenSettingsCategory(StartSettingsCategory.Themes),
             icon = XmbIcon.Themes,
@@ -251,26 +358,39 @@ fun buildXoraCategoryItems(
             action = XoraXmbAction.OpenSettingsCategory(StartSettingsCategory.Notifications),
             icon = XmbIcon.Notifications,
         ),
+        XoraXmbItem(
+            id = "set_update",
+            title = "About XOrA",
+            subtitle = "Version, updates & open source",
+            action = XoraXmbAction.InstallLatestUpdate,
+            icon = XmbIcon.Update,
+        ),
     )
     XoraXmbCategory.Games -> {
         val secondary = when (gamesSecondarySlot) {
             GamesSecondarySlot.Continue -> XoraXmbItem(
                 id = "continue",
-                title = "Continue",
-                subtitle = continueGame?.title ?: "No recent game yet",
+                title = continueGame?.title ?: "Game 0",
+                subtitle = "Recently Played",
                 action = XoraXmbAction.LaunchContinueOrFavorite,
-                artPath = continueGame?.boxArtPath ?: continueGame?.heroImagePath,
+                artPath = xmbRecentsCoverPath(continueGame),
                 logoPath = continueGame?.logoImagePath,
+                playTimeMs = continueGame?.playTimeMs ?: 0L,
+                platformLabel = continueGame?.platform?.displayName,
                 icon = XmbIcon.Continue,
+                screenshotPath = continueGame?.heroImagePath,
             )
             GamesSecondarySlot.Favorite -> XoraXmbItem(
                 id = "favorite",
-                title = "Favorite",
-                subtitle = favoriteGame?.title ?: "No favourite pinned yet",
+                title = favoriteGame?.title ?: "Game 0",
+                subtitle = "Recently Played",
                 action = XoraXmbAction.LaunchContinueOrFavorite,
-                artPath = favoriteGame?.boxArtPath ?: favoriteGame?.heroImagePath,
+                artPath = xmbRecentsCoverPath(favoriteGame),
                 logoPath = favoriteGame?.logoImagePath,
+                playTimeMs = favoriteGame?.playTimeMs ?: 0L,
+                platformLabel = favoriteGame?.platform?.displayName,
                 icon = XmbIcon.Favorite,
+                screenshotPath = favoriteGame?.heroImagePath,
             )
         }
         buildList {
@@ -347,68 +467,78 @@ fun buildXoraCategoryItems(
                     XoraXmbItem(
                         id = "all_games",
                         title = "All Games",
-                        subtitle = "Browse by system",
+                        subtitle = "Platforms & titles",
                         action = XoraXmbAction.DrillAllGames,
-                        icon = XmbIcon.Folder,
+                        icon = XmbIcon.Device,
                     ),
                 )
+                // Folder_IMG is reserved for user collections. None exist yet, so the
+                // old always-on customize row stays off the Games column.
             }
         }
     }
-    XoraXmbCategory.Media -> listOf(
-        XoraXmbItem(
-            id = "photos",
-            title = "Photos",
-            subtitle = "Coming soon",
-            action = XoraXmbAction.PhotosStub,
-            icon = XmbIcon.Photo,
-        ),
-        XoraXmbItem(
-            id = "videos",
-            title = "Videos",
-            subtitle = "Coming soon",
-            action = XoraXmbAction.VideosStub,
-            icon = XmbIcon.Video,
-        ),
-    )
-    XoraXmbCategory.Music -> listOf(
-        XoraXmbItem(
-            id = "now",
-            title = "Now Playing",
-            subtitle = nowPlayingLabel ?: "Nothing playing yet",
-            action = XoraXmbAction.OpenNowPlaying,
-            artPath = nowPlayingArtPath,
-            icon = XmbIcon.NowPlaying,
-        ),
-        XoraXmbItem(
-            id = "playlist",
-            title = "Playlist",
-            subtitle = "Albums & playlists",
-            action = XoraXmbAction.DrillMusicAlbums,
-            icon = XmbIcon.Playlist,
-        ),
-        XoraXmbItem(
-            id = "all_music",
-            title = "All music",
-            subtitle = "Every song on this device",
-            action = XoraXmbAction.DrillAllSongs,
-            icon = XmbIcon.Music,
-        ),
-        XoraXmbItem(
-            id = "dsp",
-            title = "Link DSP Accounts",
-            subtitle = "Spotify, Apple Music & YouTube Music",
-            action = XoraXmbAction.DrillDspAccounts,
-            icon = XmbIcon.Dsp,
-        ),
-    )
+    XoraXmbCategory.Media -> buildList {
+        add(
+            XoraXmbItem(
+                id = "photos",
+                title = "Photos",
+                subtitle = "Pictures & screenshots on this device",
+                action = XoraXmbAction.OpenPhotos,
+                icon = XmbIcon.FolderPhoto,
+            ),
+        )
+        addAll(photoFolderItems(photoFolders))
+    }
+    XoraXmbCategory.Videos -> buildList {
+        add(
+            XoraXmbItem(
+                id = "videos",
+                title = "Videos",
+                subtitle = "Clips on this device",
+                action = XoraXmbAction.VideosStub,
+                icon = XmbIcon.FolderVideo,
+            ),
+        )
+        addAll(videoFolderItems(videoFolders))
+    }
+    XoraXmbCategory.Music -> buildList {
+        add(
+            XoraXmbItem(
+                id = "now",
+                title = "Now Playing",
+                subtitle = nowPlayingLabel ?: "Nothing playing yet",
+                action = XoraXmbAction.OpenNowPlaying,
+                artPath = nowPlayingArtPath,
+                icon = XmbIcon.NowPlaying,
+            ),
+        )
+        add(
+            XoraXmbItem(
+                id = "playlist",
+                title = "Playlist",
+                subtitle = "Albums & playlists",
+                action = XoraXmbAction.DrillMusicAlbums,
+                icon = XmbIcon.Playlist,
+            ),
+        )
+        add(
+            XoraXmbItem(
+                id = "all_music",
+                title = "All music",
+                subtitle = "Every song on this device",
+                action = XoraXmbAction.DrillAllSongs,
+                icon = XmbIcon.FolderMusic,
+            ),
+        )
+        addAll(musicFolderItems(musicFolders))
+    }
     XoraXmbCategory.Network -> listOf(
         XoraXmbItem(
-            id = "friends",
-            title = "Friends",
-            subtitle = "Pinned Friends, Steam & Discord",
-            action = XoraXmbAction.OpenFriends,
-            icon = XmbIcon.Friends,
+            id = "dashboard",
+            title = "Dashboard",
+            subtitle = "Profile, friends & games on XOrA Network",
+            action = XoraXmbAction.OpenDashboard,
+            icon = XmbIcon.Dashboard,
         ),
         XoraXmbItem(
             id = "store",
@@ -419,7 +549,7 @@ fun buildXoraCategoryItems(
         ),
         XoraXmbItem(
             id = "news",
-            title = "XOrA News",
+            title = "XOrA NOW",
             subtitle = "Gaming & emulation feed",
             action = XoraXmbAction.OpenNews,
             icon = XmbIcon.News,
@@ -437,7 +567,13 @@ fun buildXoraMusicAlbumItems(albums: List<MusicAlbum>): List<XoraXmbItem> =
             action = XoraXmbAction.DrillMusicAlbum(album.id),
             artPath = album.artUri,
             gameCount = album.trackCount,
-            icon = if (album.isPlaylist) XmbIcon.Playlist else XmbIcon.Music,
+            icon = if (album.isPlaylist) {
+                XmbIcon.Playlist
+            } else if (album.source == MusicSource.Device) {
+                XmbIcon.FolderMusic
+            } else {
+                XmbIcon.Music
+            },
         )
     }
 
@@ -448,7 +584,7 @@ fun buildXoraMusicTrackItems(tracks: List<MusicTrack>): List<XoraXmbItem> =
             id = "track_${track.id}",
             title = track.title,
             subtitle = track.artist,
-            action = XoraXmbAction.PlayMusicTrack(track.id),
+            action = XoraXmbAction.PlayMusicTrack(track.id, track.albumId),
             artPath = track.albumArtUri,
             playTimeMs = track.durationMs,
             platformLabel = track.albumTitle.takeIf { it.isNotBlank() },
@@ -484,42 +620,122 @@ fun buildXoraDspItems(spotifyLinked: Boolean): List<XoraXmbItem> = listOf(
     ),
 )
 
+/**
+ * Catalog summaries omit the synthetic Android platform. Append it when any mirrored apps remain
+ * after hide-filters so Platforms can list them without teaching ROM scanning that Android is a
+ * console.
+ */
+fun withAndroidPlatformSummary(
+    summaries: List<PlatformSummary>,
+    games: List<Game>,
+): List<PlatformSummary> {
+    val withoutAndroid = summaries.filter { it.platform.id != GamePlatform.Android.id }
+    val androidCount = games.count { it.isAndroidApp }
+    return if (androidCount > 0) {
+        withoutAndroid + PlatformSummary(platform = GamePlatform.Android, gameCount = androidCount)
+    } else {
+        withoutAndroid
+    }
+}
+
 fun buildXoraSystemItems(
     summaries: List<PlatformSummary>,
     artByPlatformId: Map<String, String> = emptyMap(),
     readyPlatformIds: Set<String> = emptySet(),
 ): List<XoraXmbItem> =
     summaries
-        .filter { it.gameCount > 0 && it.platform.id != "android" }
+        .filter { it.gameCount > 0 }
         .sortedBy { it.platform.displayName.lowercase() }
         .map { summary ->
             val platformId = summary.platform.id
+            val isAndroid = platformId == GamePlatform.Android.id
+            val countLabel = if (isAndroid) {
+                "${summary.gameCount} app${if (summary.gameCount == 1) "" else "s"}"
+            } else {
+                "${summary.gameCount} game${if (summary.gameCount == 1) "" else "s"}"
+            }
             XoraXmbItem(
                 id = "sys_$platformId",
                 title = summary.platform.displayName,
-                subtitle = "${summary.gameCount} game${if (summary.gameCount == 1) "" else "s"}",
+                subtitle = countLabel,
                 action = XoraXmbAction.DrillSystem(platformId),
                 artPath = artByPlatformId[platformId],
                 gameCount = summary.gameCount,
-                ready = platformId in readyPlatformIds,
-                icon = XmbIcon.GamePad,
+                ready = isAndroid || platformId in readyPlatformIds,
+                icon = if (isAndroid) XmbIcon.Device else XmbIcon.GamePad,
             )
         }
 
-fun buildXoraRomItems(games: List<Game>): List<XoraXmbItem> =
+fun buildXoraRomItems(
+    games: List<Game>,
+    hiddenIds: Set<String> = emptySet(),
+): List<XoraXmbItem> =
     games.map { game ->
         XoraXmbItem(
             id = "rom_${game.id}",
             title = game.title,
-            subtitle = if (game.favorite) "Favourite" else game.platform.shortName,
+            subtitle = when {
+                game.id in hiddenIds -> "Hidden"
+                game.favorite -> "Favourite"
+                game.isAndroidApp -> "App"
+                else -> game.platform.shortName
+            },
             action = XoraXmbAction.LaunchGame(game.id),
             artPath = game.boxArtPath ?: game.heroImagePath,
             logoPath = game.logoImagePath,
             playTimeMs = game.playTimeMs,
             platformLabel = game.platform.shortName,
             icon = XmbIcon.Games,
+            screenshotPath = game.heroImagePath,
         )
     }
+
+private const val MEDIA_FOLDER_CAP = 32
+
+private fun mediaCountLabel(count: Int, singular: String, plural: String): String =
+    "$count ${if (count == 1) singular else plural}"
+
+private fun photoFolderItems(folders: List<DeviceMediaFolder>): List<XoraXmbItem> =
+    folders.take(MEDIA_FOLDER_CAP).map { folder ->
+        XoraXmbItem(
+            id = "photo_folder_${folder.id}",
+            title = folder.title,
+            subtitle = mediaCountLabel(folder.itemCount, "photo", "photos"),
+            action = XoraXmbAction.OpenPhotoFolder(folder.id),
+            artPath = folder.coverUri,
+            gameCount = folder.itemCount,
+            icon = XmbIcon.FolderPhoto,
+        )
+    }
+
+private fun videoFolderItems(folders: List<DeviceMediaFolder>): List<XoraXmbItem> =
+    folders.take(MEDIA_FOLDER_CAP).map { folder ->
+        XoraXmbItem(
+            id = "video_folder_${folder.id}",
+            title = folder.title,
+            subtitle = mediaCountLabel(folder.itemCount, "video", "videos"),
+            action = XoraXmbAction.OpenVideoFolder(folder.id),
+            artPath = folder.coverUri,
+            gameCount = folder.itemCount,
+            icon = XmbIcon.FolderVideo,
+        )
+    }
+
+private fun musicFolderItems(albums: List<MusicAlbum>): List<XoraXmbItem> =
+    albums
+        .filter { !it.isPlaylist && it.source == MusicSource.Device }
+        .take(MEDIA_FOLDER_CAP)
+        .map { album ->
+            XoraXmbItem(
+                id = "music_folder_${album.id}",
+                title = album.title,
+                subtitle = album.artist,
+                action = XoraXmbAction.DrillMusicAlbum(album.id),
+                artPath = album.artUri,
+                gameCount = album.trackCount,
+                icon = XmbIcon.FolderMusic,
+            )
+        }
 
 /** Games → XOrA Emulator — global prefs applied on the next (and live) emulator session. */
 fun buildXoraEmulatorItems(
@@ -567,7 +783,7 @@ fun buildXoraEmulatorItems(
             id = "emu_expand",
             title = "Expand dual display",
             subtitle = when {
-                settings.expandDualDisplay -> "On · DS / 3DS top / bottom"
+                settings.expandDualDisplay -> "On · bottom LCD on the other panel"
                 else -> "Off"
             },
             action = XoraXmbAction.ToggleXoraEmulatorSetting(XoraEmulatorXmbSetting.ExpandDualDisplay),
@@ -614,3 +830,27 @@ fun buildXoraEmulatorItems(
         ),
     )
 }
+
+/** Games-column recents plate: cover/box first, wallpaper only when there is no cover. */
+fun xmbRecentsCoverPath(game: Game?): String? =
+    game?.boxArtPath ?: game?.heroImagePath
+
+/**
+ * Vita launch Game Icon: cover/box first. The shortcut bubble icon is only a fallback so
+ * pins without box art still have a thumbnail.
+ */
+fun vitaLaunchGameIconPath(game: Game?, shortcutArtPath: String?): String? =
+    xmbRecentsCoverPath(game) ?: shortcutArtPath
+
+/**
+ * Game Select full-bleed wallpaper: hero / fanart first. Cover art is only a fallback so
+ * titles without a wallpaper still fill the plate. [customWallpaperPath] is a user-picked
+ * background attached to the focused row.
+ */
+fun xmbGameSelectWallpaperPath(
+    game: Game?,
+    customWallpaperPath: String? = null,
+): String? = customWallpaperPath?.takeIf { it.isNotBlank() }
+    ?: game?.heroImagePath
+    ?: game?.boxArtPath
+    ?: game?.logoImagePath

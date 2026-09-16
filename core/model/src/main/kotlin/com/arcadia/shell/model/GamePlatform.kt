@@ -37,8 +37,9 @@ data class GamePlatform(
         )
 
         /**
-         * Installed Android packages shown under the Apps tab. Kept out of [PlatformCatalog.platforms]
-         * so ROM scanning and console settings never treat it as a real system.
+         * Installed Android packages shown on the Android platform (and the Apps tab).
+         * Kept out of [PlatformCatalog.platforms] so ROM scanning and console settings never
+         * treat it as a real system.
          */
         val Android = GamePlatform(
             id = "android",

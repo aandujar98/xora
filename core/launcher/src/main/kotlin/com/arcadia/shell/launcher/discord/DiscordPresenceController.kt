@@ -7,8 +7,10 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import com.arcadia.shell.launcher.notifications.FriendNetwork
+import com.arcadia.shell.launcher.notifications.FriendPlayingTracker
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
+import com.arcadia.shell.launcher.notifications.discordPlayingGameTitle
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +30,7 @@ import javax.inject.Singleton
  * Discord Rich Presence controller for SORA.
  *
  * When `discord_partner_sdk.aar` is bundled and the native bridge is built, publishes real
- * Social SDK Rich Presence (Playing SORA / Browsing {game} / Playing {game}), restores OAuth
+ * Social SDK Rich Presence (Browsing XOrA / Playing {game}), restores OAuth
  * tokens, and surfaces Discord friends. Without the AAR, tracks the intended activity and
  * offers a shareable status bridge so the app still builds and runs.
  *
@@ -41,6 +43,7 @@ class DiscordPresenceController @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val tokenStore: DiscordTokenStore,
     private val notificationCenter: ShellNotificationCenter,
+    private val xoraPlusMembership: XoraPlusMembership,
 ) : DiscordRichPresence {
 
     private val bridge = DiscordSocialSdkBridge()
@@ -58,6 +61,7 @@ class DiscordPresenceController @Inject constructor(
     /** First friends snapshot only seeds online ids so reconnects do not flood banners. */
     private var discordOnlineSeeded = false
     private val knownOnlineDiscordIds = linkedSetOf<String>()
+    private val discordPlayingTracker = FriendPlayingTracker()
     private var currentUserId: String? = null
     /** Newest message id seen per peer — used to emit inbound DM banners once. */
     private val lastSeenMessageIdByPeer = mutableMapOf<String, String>()
@@ -85,6 +89,7 @@ class DiscordPresenceController @Inject constructor(
             if (ready) {
                 Log.i(TAG, "Social SDK Ready — publishing Rich Presence")
                 schedulePublish(immediate = true)
+                scope.launch { xoraPlusMembership.refresh() }
                 val openPeer = _dmThread.value.peerUserId
                 if (!openPeer.isNullOrBlank()) {
                     bridge.setShowingChat(true)
@@ -98,9 +103,11 @@ class DiscordPresenceController @Inject constructor(
             lastAuthError = null
             tokenStore.save(access, refresh, expiresIn)
             Log.i(TAG, "OAuth tokens stored (expiresIn=${expiresIn}s)")
+            scope.launch { xoraPlusMembership.refresh() }
         }
         bridge.setFriendsListener { friends ->
             emitDiscordFriendOnlineBanners(friends)
+            emitDiscordFriendPlayingBanners(friends)
             _state.update { current ->
                 rebuild(
                     applicationId = current.applicationId,
@@ -210,9 +217,17 @@ class DiscordPresenceController @Inject constructor(
             startSdk(id)
         }
         _state.update { current ->
+            val nextActivity = when {
+                id.isBlank() -> DiscordPresenceActivity.Idle
+                current.activity is DiscordPresenceActivity.Idle -> DiscordPresenceActivity.InSora
+                else -> current.activity
+            }
+            if (nextActivity !is DiscordPresenceActivity.Idle && activityStartedAtUnix == 0L) {
+                activityStartedAtUnix = System.currentTimeMillis() / 1000L
+            }
             rebuild(
                 applicationId = id,
-                activity = if (id.isBlank()) DiscordPresenceActivity.Idle else current.activity,
+                activity = nextActivity,
                 ready = bridge.isReady,
                 authorized = bridge.isAuthorized,
                 friends = if (id.isBlank()) emptyList() else current.friends,
@@ -247,7 +262,13 @@ class DiscordPresenceController @Inject constructor(
                 )
             }
         }
-        schedulePublish(immediate = false)
+        // Playing and InSora must publish immediately. The 450ms debounce is cancelled by
+        // onAppBackground, which is exactly the launch/quit Activity handoff.
+        schedulePublish(
+            immediate = activity is DiscordPresenceActivity.Playing ||
+                activity is DiscordPresenceActivity.InSora ||
+                activity is DiscordPresenceActivity.Browsing,
+        )
     }
 
     /**
@@ -344,6 +365,35 @@ class DiscordPresenceController @Inject constructor(
                 friends = current.friends,
             )
         }
+    }
+
+    override fun signOutAccount() {
+        Log.i(TAG, "signOutAccount")
+        lastAuthError = null
+        lastPublishOk = null
+        lastPublishMessage = null
+        lastPublishKey = null
+        tokenStore.clear()
+        discordOnlineSeeded = false
+        knownOnlineDiscordIds.clear()
+        discordPlayingTracker.reset()
+        runCatching { bridge.clearPresence() }
+            .onFailure { Log.w(TAG, "clearPresence during sign-out failed", it) }
+        stopSdk()
+        val id = _state.value.applicationId
+        if (id.isNotBlank()) {
+            startSdk(id)
+        }
+        _state.update { current ->
+            rebuild(
+                applicationId = current.applicationId,
+                activity = current.activity,
+                ready = bridge.isReady,
+                authorized = bridge.isAuthorized,
+                friends = emptyList(),
+            )
+        }
+        scope.launch { xoraPlusMembership.refresh() }
     }
 
     override fun statusBridgeShareIntent(context: Context): Intent? {
@@ -584,28 +634,16 @@ class DiscordPresenceController @Inject constructor(
             return
         }
 
-        // Discord line 1 ("Playing SORA") comes from the Developer Portal application name.
-        // details = line 2, state = line 3.
-        val (details, activityState, name) = when (val activity = snapshot.activity) {
-            DiscordPresenceActivity.Idle -> {
-                bridge.clearPresence()
-                lastPublishKey = "idle"
-                return
-            }
-            DiscordPresenceActivity.InSora -> Triple("In the library", "Browsing", "XOrA")
-            is DiscordPresenceActivity.Browsing -> Triple(
-                "Browsing ${activity.gameTitle}",
-                activity.platformName,
-                "XOrA",
-            )
-            is DiscordPresenceActivity.Playing -> Triple(
-                "Playing ${activity.gameTitle}",
-                activity.platformName,
-                "XOrA",
-            )
+        // Discord line 1 ("Playing XOrA") comes from the Developer Portal application name.
+        // details = line 2, state = line 3. Both must be omitted or 2–128 characters.
+        val payload = discordPresencePublish(snapshot.activity)
+        if (payload == null) {
+            bridge.clearPresence()
+            lastPublishKey = "idle"
+            return
         }
 
-        val key = "$details|$activityState|$name|${activityStartedAtUnix}"
+        val key = "${payload.details}|${payload.state}|${payload.name}|${activityStartedAtUnix}"
         val now = SystemClock.elapsedRealtime()
         if (key == lastPublishKey && now - lastPublishAtMs < PUBLISH_MIN_INTERVAL_MS) {
             return
@@ -613,12 +651,12 @@ class DiscordPresenceController @Inject constructor(
         lastPublishKey = key
         lastPublishAtMs = now
 
-        Log.i(TAG, "UpdateRichPresence details=$details state=$activityState")
+        Log.i(TAG, "UpdateRichPresence details=${payload.details} state=${payload.state}")
         runCatching {
             bridge.updateRichPresence(
-                details = details,
-                state = activityState,
-                name = name,
+                details = payload.details,
+                state = payload.state,
+                name = payload.name,
                 startUnixSeconds = activityStartedAtUnix,
             )
         }.onFailure {
@@ -693,10 +731,10 @@ class DiscordPresenceController @Inject constructor(
             DiscordPresenceCapability.SdkMissing -> when (activity) {
                 DiscordPresenceActivity.Idle ->
                     "Application ID saved · drop discord_partner_sdk.aar then rebuild"
-                DiscordPresenceActivity.InSora ->
-                    "Would show: Playing XOrA · SDK missing"
-                is DiscordPresenceActivity.Browsing ->
-                    "Would show: Browsing ${activity.gameTitle} · SDK missing"
+                DiscordPresenceActivity.InSora,
+                is DiscordPresenceActivity.Browsing,
+                ->
+                    "Would show: Browsing XOrA · SDK missing"
                 is DiscordPresenceActivity.Playing ->
                     "Would show: Playing ${activity.gameTitle} · SDK missing"
             }
@@ -711,9 +749,9 @@ class DiscordPresenceController @Inject constructor(
                 }
             DiscordPresenceCapability.Connected -> when (activity) {
                 DiscordPresenceActivity.Idle -> "Linked · Rich Presence idle$publishHint"
-                DiscordPresenceActivity.InSora -> "Linked · Publishing: Playing XOrA$publishHint"
-                is DiscordPresenceActivity.Browsing ->
-                    "Linked · Publishing: Browsing ${activity.gameTitle}$publishHint"
+                DiscordPresenceActivity.InSora,
+                is DiscordPresenceActivity.Browsing,
+                -> "Linked · Publishing: Browsing XOrA$publishHint"
                 is DiscordPresenceActivity.Playing ->
                     "Linked · Publishing: Playing ${activity.gameTitle}$publishHint"
             }
@@ -782,10 +820,8 @@ class DiscordPresenceController @Inject constructor(
         for (friend in onlineNow) {
             if (friend.userId in knownOnlineDiscordIds) continue
             knownOnlineDiscordIds.add(friend.userId)
-            val activity = when (friend.group) {
-                "online_game" -> "In a game"
-                else -> null
-            }
+            val activity = friend.currentGame?.takeIf { it.isNotBlank() }
+                ?: if (friend.group == "online_game") "In a game" else null
             notificationCenter.emit(
                 ShellNotification.FriendOnline(
                     id = "discord-online:${friend.userId}:${SystemClock.elapsedRealtime()}",
@@ -797,6 +833,28 @@ class DiscordPresenceController @Inject constructor(
             )
         }
         knownOnlineDiscordIds.retainAll(onlineIds)
+    }
+
+    private fun emitDiscordFriendPlayingBanners(friends: List<DiscordFriendEntry>) {
+        val started = discordPlayingTracker.consume(
+            friends.map { friend ->
+                friend.userId to discordPlayingGameTitle(friend.currentGame, friend.group)
+            },
+        )
+        if (started.isEmpty()) return
+        val byId = friends.associateBy { it.userId }
+        for ((userId, game) in started) {
+            val friend = byId[userId] ?: continue
+            notificationCenter.emit(
+                ShellNotification.FriendPlaying(
+                    id = "discord-playing:$userId:${SystemClock.elapsedRealtime()}",
+                    displayName = friend.displayName.ifBlank { "Discord friend" },
+                    gameTitle = game,
+                    network = FriendNetwork.Discord,
+                    avatarUrl = friend.avatarUrl,
+                ),
+            )
+        }
     }
 
     companion object {

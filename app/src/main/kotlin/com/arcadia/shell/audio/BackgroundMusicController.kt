@@ -62,6 +62,35 @@ class BackgroundMusicController @Inject constructor(
     private var onboardingActive: Boolean = false
     /** When true, shell BGM stays paused so Music / Now Playing owns the soundtrack. */
     private var libraryMusicActive: Boolean = false
+    /**
+     * When true, shell BGM stays paused so the boot clip can own the soundtrack.
+     *
+     * Starts held: on a cold start the shell is composed before [HomeViewModel] has decided
+     * whether a boot clip is due, and BGM stabbing in for a frame before the clip starts is worse
+     * than the [POST_BOOT_SILENCE_MS] beat every launch now waits out.
+     */
+    private var bootIntroActive: Boolean = true
+
+    /** Pending release of [bootIntroActive] once the XMB has had a moment to land. */
+    private var postBootJob: Job? = null
+    /** When true, a ROM sound bite owns the speakers; BGM fades out then pauses. */
+    private var soundBiteActive: Boolean = false
+    /** When true, a game-launch boot one-shot owns the speakers; BGM fades out then pauses. */
+    private var gameLaunchActive: Boolean = false
+    /** 1 = full BGM, 0 = silent under a sound bite or launch boot. */
+    private var overlayFade: Float = 1f
+    private var overlayFadeJob: Job? = null
+
+    /** Optional second track that takes over while the Vita shortcut tray is open. */
+    private var vitaTrayBgmPath: String? = null
+    /** Latest tray state from the shell. */
+    private var trayOpen: Boolean = false
+    /** True while [desiredSource] should resolve to the tray track. */
+    private var trayActive: Boolean = false
+    /** 1 = full BGM, 0 = silent mid tray swap. Separate from [overlayFade] so they compose. */
+    private var swapFade: Float = 1f
+    private var traySwapJob: Job? = null
+
     private var crossfadeJob: Job? = null
     /** Outgoing player during a soft mix; released when the fade completes or is cancelled. */
     private var fadingOutPlayer: MediaPlayer? = null
@@ -74,7 +103,7 @@ class BackgroundMusicController @Inject constructor(
                 syncPlayback()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                val ducked = (volume * duckFactor * TRAILER_DUCK_FACTOR).coerceIn(0f, 1f)
+                val ducked = (currentVolume() * TRAILER_DUCK_FACTOR).coerceIn(0f, 1f)
                 runCatching { player?.setVolume(ducked, ducked) }
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
@@ -106,9 +135,22 @@ class BackgroundMusicController @Inject constructor(
                     }
                 }
         }
+        scope.launch {
+            preferences.settings
+                .map { it.vitaTrayBgmPath }
+                .distinctUntilChanged()
+                .collect { path ->
+                    if (path == vitaTrayBgmPath) return@collect
+                    vitaTrayBgmPath = path
+                    onTrayTrackChanged()
+                }
+        }
     }
 
-    /** Soften (or restore) BGM while an idle trailer is playing. */
+    /**
+     * Idle trailers stay muted and no longer duck shell BGM. Kept so a future
+     * opt-in can restore ducking without rewiring MainActivity.
+     */
     fun setTrailerDucked(ducked: Boolean) {
         duckFactor = if (ducked) TRAILER_DUCK_FACTOR else 1f
         applyVolume()
@@ -129,6 +171,126 @@ class BackgroundMusicController @Inject constructor(
         if (libraryMusicActive == active) return
         libraryMusicActive = active
         syncPlayback()
+    }
+
+    /**
+     * Pause shell BGM while the cold-start boot clip owns the screen (it has its own audio).
+     *
+     * Clearing it is deliberately late: the XMB soundtrack fades in [POST_BOOT_SILENCE_MS] after
+     * the clip ends — or after A skips it — so the music arrives with the XMB rather than under
+     * the clip's own tail.
+     */
+    fun setBootIntroActive(active: Boolean) {
+        if (active) {
+            postBootJob?.cancel()
+            postBootJob = null
+            if (bootIntroActive) return
+            bootIntroActive = true
+            syncPlayback()
+            return
+        }
+        if (!bootIntroActive || postBootJob != null) return
+        postBootJob = scope.launch {
+            delay(POST_BOOT_SILENCE_MS)
+            postBootJob = null
+            bootIntroActive = false
+            syncPlayback()
+        }
+    }
+
+    /**
+     * Fade shell BGM out while a ROM sound bite plays, then fade it back in when the bite
+     * finishes. The player is paused at silence so the loop does not drift under the clip.
+     */
+    fun setSoundBiteActive(active: Boolean) {
+        if (soundBiteActive == active) return
+        soundBiteActive = active
+        syncOverlayDuck()
+    }
+
+    /**
+     * Fade shell BGM out as a game-launch boot sample plays (XMB confirm or Vita peel-complete),
+     * then restore it if the launch fails and the shell stays in front.
+     */
+    fun setGameLaunchActive(active: Boolean) {
+        if (gameLaunchActive == active) return
+        gameLaunchActive = active
+        syncOverlayDuck()
+    }
+
+    private fun overlayShouldDuck(): Boolean = soundBiteActive || gameLaunchActive
+
+    private fun syncOverlayDuck() {
+        val duck = overlayShouldDuck()
+        overlayFadeJob?.cancel()
+        if (duck) {
+            overlayFadeJob = scope.launch {
+                fadeOverlay(to = 0f)
+                runCatching { player?.pause() }
+            }
+        } else {
+            overlayFadeJob = scope.launch {
+                applyVolume()
+                if (shouldPlayBgm()) {
+                    requestAudioFocus()
+                    val media = ensurePlayer(hardCut = false) ?: return@launch
+                    applyVolume()
+                    if (!runCatching { media.isPlaying }.getOrDefault(false)) {
+                        runCatching { media.start() }
+                    }
+                }
+                fadeOverlay(to = 1f)
+            }
+        }
+    }
+
+    /**
+     * The Vita shortcut tray opened / closed.
+     *
+     * With no tray track configured this is a no-op and the shell soundtrack plays straight
+     * through. With one, the two tracks never overlap: the outgoing one fades to silence, the
+     * shell holds [TRAY_SWAP_GAP_MS] of quiet, then the incoming one fades up.
+     */
+    fun setVitaTrayOpen(open: Boolean) {
+        if (trayOpen == open) return
+        trayOpen = open
+        syncTrayTrack()
+    }
+
+    /** Absolute path of the configured tray track, or null when there is none on disk. */
+    private fun trayTrack(): String? =
+        themeMediaStore.resolveBgm(vitaTrayBgmPath)?.absolutePath
+
+    private fun syncTrayTrack() {
+        val wantTray = trayOpen && trayTrack() != null
+        if (wantTray == trayActive) return
+        traySwapJob?.cancel()
+        traySwapJob = scope.launch {
+            fadeSwap(to = 0f)
+            runCatching { player?.pause() }
+            // Reload rather than crossfade: the gap *is* the transition here.
+            trayActive = wantTray
+            resetPlayer()
+            delay(TRAY_SWAP_GAP_MS)
+            syncPlayback()
+            fadeSwap(to = 1f)
+        }
+    }
+
+    /** The configured tray track changed (or was cleared) from Customize. */
+    private fun onTrayTrackChanged() {
+        if (trayActive && trayTrack() == null) {
+            // The track this tray was playing is gone — fall back to the shell soundtrack.
+            trayActive = false
+            crossfadeToDesiredSource()
+            return
+        }
+        if (trayActive) {
+            // Swapping one tray track for another is an ordinary source change.
+            crossfadeToDesiredSource()
+            return
+        }
+        syncTrayTrack()
     }
 
     fun onForeground() {
@@ -154,9 +316,19 @@ class BackgroundMusicController @Inject constructor(
         crossfadeToDesiredSource()
     }
 
+    private fun shouldPlayBgm(): Boolean =
+        foreground &&
+            volume > 0f &&
+            !onboardingActive &&
+            !libraryMusicActive &&
+            !bootIntroActive &&
+            !(overlayShouldDuck() && overlayFade <= 0.001f)
+
     private fun syncPlayback() {
-        if (!foreground || volume <= 0f || onboardingActive || libraryMusicActive) {
-            runCatching { player?.pause() }
+        if (!shouldPlayBgm()) {
+            if (!foreground || volume <= 0f || onboardingActive || libraryMusicActive || bootIntroActive) {
+                runCatching { player?.pause() }
+            }
             if (!foreground) abandonAudioFocus()
             return
         }
@@ -177,7 +349,7 @@ class BackgroundMusicController @Inject constructor(
             syncPlayback()
             return
         }
-        if (!foreground || volume <= 0f || onboardingActive || player == null || loadedKey == KEY_UNLOADED) {
+        if (!foreground || volume <= 0f || onboardingActive || bootIntroActive || player == null || loadedKey == KEY_UNLOADED) {
             cancelCrossfade(releaseOutgoing = true)
             resetPlayer()
             syncPlayback()
@@ -217,7 +389,7 @@ class BackgroundMusicController @Inject constructor(
                 return
             }
 
-        val targetVol = (volume * duckFactor).coerceIn(0f, 1f)
+        val targetVol = currentVolume()
         crossfadeJob = scope.launch {
             val steps = CROSSFADE_STEPS
             val stepDelay = THEME_CROSSFADE_MS.toLong() / steps
@@ -237,6 +409,10 @@ class BackgroundMusicController @Inject constructor(
     }
 
     private fun desiredSource(): BgmSource {
+        if (trayActive) {
+            val tray = trayTrack()
+            if (tray != null) return BgmSource.File(tray)
+        }
         val custom = themeMediaStore.resolveBgm(customBgmPath)
         if (custom != null) return BgmSource.File(custom.absolutePath)
         val themeAsset = ShellThemeCatalog.resolve(shellThemeId).bgm?.assetPath
@@ -301,7 +477,7 @@ class BackgroundMusicController @Inject constructor(
                     true
                 }
                 prepare()
-                val v = (volume * duckFactor).coerceIn(0f, 1f)
+                val v = currentVolume()
                 setVolume(v, v)
             }
         }.getOrNull()
@@ -335,8 +511,55 @@ class BackgroundMusicController @Inject constructor(
         runCatching { media.release() }
     }
 
+    private fun currentVolume(): Float =
+        (volume * duckFactor * overlayFade * swapFade).coerceIn(0f, 1f)
+
+    private suspend fun fadeSwap(to: Float) {
+        val from = swapFade
+        if (from == to) {
+            applyVolume()
+            return
+        }
+        val steps = TRAY_FADE_STEPS
+        val stepMs = TRAY_FADE_MS / steps
+        for (i in 1..steps) {
+            val t = i.toFloat() / steps
+            swapFade = from + (to - from) * t
+            applyVolume()
+            delay(stepMs)
+        }
+        swapFade = to
+        applyVolume()
+    }
+
+    /**
+     * Asymmetric on purpose. Going out has to be quick or the bite starts under the soundtrack;
+     * coming back is the shell settling, so it eases in over about a second instead of snapping
+     * to full the instant the clip ends.
+     */
+    private suspend fun fadeOverlay(to: Float) {
+        val from = overlayFade
+        if (from == to) {
+            applyVolume()
+            return
+        }
+        val rising = to > from
+        val steps = if (rising) OVERLAY_FADE_IN_STEPS else OVERLAY_FADE_OUT_STEPS
+        val stepMs = (if (rising) OVERLAY_FADE_IN_MS else OVERLAY_FADE_OUT_MS) / steps
+        for (i in 1..steps) {
+            val t = i.toFloat() / steps
+            // Ease the return so the last of the ramp is not the loudest part of it.
+            val shaped = if (rising) t * t else t
+            overlayFade = from + (to - from) * shaped
+            applyVolume()
+            delay(stepMs)
+        }
+        overlayFade = to
+        applyVolume()
+    }
+
     private fun applyVolume() {
-        val v = (volume * duckFactor).coerceIn(0f, 1f)
+        val v = currentVolume()
         runCatching { player?.setVolume(v, v) }
     }
 
@@ -389,5 +612,22 @@ class BackgroundMusicController @Inject constructor(
         const val KEY_DEFAULT = "__default__"
         const val KEY_UNLOADED = "__unloaded__"
         const val CROSSFADE_STEPS = 24
+        /** Out of the way fast; a bite is short and must not fight the soundtrack. */
+        const val OVERLAY_FADE_OUT_MS = 220L
+        const val OVERLAY_FADE_OUT_STEPS = 14
+
+        /** Back in gently once the clip has finished. */
+        const val OVERLAY_FADE_IN_MS = 1_100L
+        const val OVERLAY_FADE_IN_STEPS = 44
+
+        /** Fade either way when the Vita tray swaps the soundtrack. */
+        const val TRAY_FADE_MS = 900L
+        const val TRAY_FADE_STEPS = 30
+
+        /** Deliberate silence between the two tracks so neither bleeds into the other. */
+        const val TRAY_SWAP_GAP_MS = 3_000L
+
+        /** Beat between the boot clip leaving the screen and the XMB soundtrack coming in. */
+        const val POST_BOOT_SILENCE_MS = 2_000L
     }
 }

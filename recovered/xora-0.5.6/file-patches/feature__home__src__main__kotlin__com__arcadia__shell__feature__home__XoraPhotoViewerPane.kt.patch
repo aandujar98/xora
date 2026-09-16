@@ -1,0 +1,219 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraPhotoViewerPane.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraPhotoViewerPane.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraPhotoViewerPane.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraPhotoViewerPane.kt
+@@ -74,24 +74,23 @@
+ private const val DESIGN_HEIGHT = 1080f
+ 
+ // Upper-left information panel.
+-private const val INFO_LEFT = 79f
+-private const val INFO_TOP = 168f
+-private const val INFO_WIDTH = 468f
+-private const val INFO_HEIGHT = 334f
+ private const val INFO_RADIUS = 30f
+ 
+ // Large selected-photo preview.
+-private const val PREVIEW_LEFT = 714f
+-private const val PREVIEW_TOP = 11f
++// The info modal is gone, so the picture takes the whole upper stage and sits centred on it.
+ private const val PREVIEW_WIDTH = 976f
+ private const val PREVIEW_HEIGHT = 545f
++private const val PREVIEW_TOP = 11f
++private const val PREVIEW_LEFT = (XORA_DESIGN_WIDTH - PREVIEW_WIDTH) / 2f
+ private const val PREVIEW_BORDER = 5f
++/** Figma: the preview's corners are rounded the same 30 as the tray beneath it. */
++private const val PREVIEW_RADIUS = 30f
+ 
+ // Bottom thumbnail tray.
+ private const val TRAY_LEFT = 77f
+ private const val TRAY_TOP = 599f
+ private const val TRAY_WIDTH = 1775f
+-private const val TRAY_HEIGHT = 468f
++private const val TRAY_HEIGHT = 286f
+ private const val TRAY_RADIUS = 30f
+ private const val THUMB_RADIUS = 18f
+ 
+@@ -125,7 +124,6 @@
+         val originX = (maxWidth.value - (DESIGN_WIDTH * unit)) / 2f
+         val originY = (maxHeight.value - (DESIGN_HEIGHT * unit)) / 2f
+ 
+-        PhotoInfoPanel(state = state, unit = unit, originX = originX, originY = originY)
+         PhotoPreview(state = state, unit = unit, originX = originX, originY = originY)
+         PhotoTray(state = state, unit = unit, originX = originX, originY = originY, onCommand = onCommand)
+ 
+@@ -188,170 +186,19 @@
+ // ---------------------------------------------------------------------------
+ 
+ @Composable
+-private fun PhotoInfoPanel(state: PhotosUiState, unit: Float, originX: Float, originY: Float) {
+-    val photo = state.focusedPhoto
+-    Box(
+-        modifier = Modifier
+-            .offset(x = (originX + INFO_LEFT * unit).dp, y = (originY + INFO_TOP * unit).dp)
+-            .size(width = (INFO_WIDTH * unit).dp, height = (INFO_HEIGHT * unit).dp)
+-            .xmbAssetShadow(
+-                unit = unit,
+-                shape = RoundedCornerShape((INFO_RADIUS * unit).dp),
+-                alpha = XoraForegroundShadow.Alpha,
+-            )
+-            .liquidGlass(
+-                shape = RoundedCornerShape((INFO_RADIUS * unit).dp),
+-                tone = GlassTone.OverMedia,
+-                intensity = GlassIntensity.Strong,
+-                shimmer = true,
+-            )
+-            .border(1.5.dp, CardEdge, RoundedCornerShape((INFO_RADIUS * unit).dp))
+-            .padding((24f * unit).dp),
+-    ) {
+-        // Album chip, top-right — real bucket name, never a hardcoded platform.
+-        photo?.album?.takeIf { it.isNotBlank() }?.let { album ->
+-            Text(
+-                text = album,
+-                maxLines = 1,
+-                overflow = TextOverflow.Ellipsis,
+-                style = MaterialTheme.typography.labelSmall.copy(
+-                    fontFamily = XoraFonts.Title,
+-                    fontSize = (17f * unit).sp,
+-                ),
+-                color = Color.Black.copy(alpha = 0.75f),
+-                modifier = Modifier
+-                    .align(Alignment.TopEnd)
+-                    .widthIn(max = (200f * unit).dp)
+-                    .clip(RoundedCornerShape(percent = 50))
+-                    .background(Color.White.copy(alpha = 0.55f))
+-                    .border(1.dp, CardEdge, RoundedCornerShape(percent = 50))
+-                    .padding(horizontal = (16f * unit).dp, vertical = (4f * unit).dp),
+-            )
+-        }
+-
+-        Column(verticalArrangement = Arrangement.spacedBy((10f * unit).dp)) {
+-            Row(
+-                verticalAlignment = Alignment.CenterVertically,
+-                horizontalArrangement = Arrangement.spacedBy((16f * unit).dp),
+-            ) {
+-                Box(
+-                    modifier = Modifier
+-                        .size((72f * unit).dp)
+-                        .clip(CircleShape)
+-                        .border(2.dp, CardEdge, CircleShape),
+-                ) {
+-                    if (photo != null) {
+-                        ArtworkImage(
+-                            path = photo.contentUri,
+-                            contentDescription = null,
+-                            fallbackText = "",
+-                            contentScale = ContentScale.Crop,
+-                            decodeMaxEdgePx = 128,
+-                            modifier = Modifier.fillMaxSize(),
+-                        )
+-                    } else {
+-                        Box(
+-                            modifier = Modifier
+-                                .fillMaxSize()
+-                                .background(Color.White.copy(alpha = 0.08f)),
+-                        )
+-                    }
+-                }
+-                Row(
+-                    verticalAlignment = Alignment.CenterVertically,
+-                    horizontalArrangement = Arrangement.spacedBy((8f * unit).dp),
+-                    modifier = Modifier.padding(end = (120f * unit).dp),
+-                ) {
+-                    Text(
+-                        text = photo?.displayName?.substringBeforeLast('.')
+-                            ?: "No photo selected",
+-                        maxLines = 2,
+-                        overflow = TextOverflow.Ellipsis,
+-                        style = MaterialTheme.typography.titleMedium.copy(
+-                            fontFamily = XoraFonts.Title,
+-                            fontWeight = FontWeight.Medium,
+-                            fontSize = (19f * unit).sp,
+-                            lineHeight = (23f * unit).sp,
+-                        ),
+-                        color = PhotoInk,
+-                    )
+-                    if (state.focusedIsFavorite) {
+-                        XmbVectorIcon(
+-                            icon = XmbIcon.Favorite,
+-                            tint = Color(0xFFFFD75E),
+-                            size = (22f * unit).dp,
+-                            outlined = false,
+-                        )
+-                    }
+-                }
+-            }
+-
+-            if (photo != null) {
+-                Text(
+-                    text = "Date: ${formatPhotoDate(photo.dateTakenMs)}",
+-                    style = photoBodyStyle(unit),
+-                    color = PhotoInk,
+-                )
+-                Text(
+-                    text = "Time: ${formatPhotoTime(photo.dateTakenMs)}",
+-                    style = photoBodyStyle(unit),
+-                    color = PhotoInk,
+-                )
+-            } else {
+-                Text(
+-                    text = "Pick a photo from the gallery below.",
+-                    style = photoBodyStyle(unit),
+-                    color = PhotoInkMuted,
+-                )
+-            }
+-
+-            // Caption block — shown only when the photo actually carries one.
+-            val caption = photo?.caption
+-            if (!caption.isNullOrBlank()) {
+-                Row(
+-                    verticalAlignment = Alignment.Top,
+-                    horizontalArrangement = Arrangement.spacedBy((10f * unit).dp),
+-                ) {
+-                    Text(
+-                        text = "…",
+-                        style = photoBodyStyle(unit),
+-                        color = PhotoInk,
+-                        modifier = Modifier
+-                            .clip(RoundedCornerShape((8f * unit).dp))
+-                            .background(Color.White.copy(alpha = 0.16f))
+-                            .border(1.dp, CardEdge, RoundedCornerShape((8f * unit).dp))
+-                            .padding(horizontal = (8f * unit).dp),
+-                    )
+-                    Text(
+-                        text = caption,
+-                        maxLines = 3,
+-                        overflow = TextOverflow.Ellipsis,
+-                        style = photoBodyStyle(unit),
+-                        color = PhotoInk,
+-                        modifier = Modifier
+-                            .fillMaxWidth()
+-                            .border(2.dp, CaptionEdge, RoundedCornerShape((4f * unit).dp))
+-                            .padding((10f * unit).dp),
+-                    )
+-                }
+-            }
+-        }
+-    }
+-}
+-
+-// ---------------------------------------------------------------------------
+-// Large preview
+-// ---------------------------------------------------------------------------
+-
+-@Composable
+ private fun PhotoPreview(state: PhotosUiState, unit: Float, originX: Float, originY: Float) {
+     val photo = state.focusedPhoto
+     Box(
+         modifier = Modifier
+             .offset(x = (originX + PREVIEW_LEFT * unit).dp, y = (originY + PREVIEW_TOP * unit).dp)
+             .size(width = (PREVIEW_WIDTH * unit).dp, height = (PREVIEW_HEIGHT * unit).dp)
++            .clip(RoundedCornerShape((PREVIEW_RADIUS * unit).dp))
+             .background(Color.Black.copy(alpha = 0.45f))
+-            .border((PREVIEW_BORDER * unit).coerceAtLeast(2f).dp, Color.White),
++            .border(
++                width = (PREVIEW_BORDER * unit).coerceAtLeast(2f).dp,
++                color = Color.White,
++                shape = RoundedCornerShape((PREVIEW_RADIUS * unit).dp),
++            ),
+         contentAlignment = Alignment.Center,
+     ) {
+         if (photo != null) {

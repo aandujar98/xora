@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.UiFitMode
+import com.arcadia.shell.datastore.liteVisualsOverride
 import com.arcadia.shell.datastore.resolveDarkTheme
 import com.arcadia.shell.designsystem.ArcadiaTheme
 import com.arcadia.shell.display.DisplayOverlayWindow
@@ -97,7 +98,7 @@ class CompanionOverlayService : Service() {
             val darkTheme = settings.themeMode.resolveDarkTheme(isSystemInDarkTheme())
             val fitDisplay = topologyMonitor.current().displays
                 .firstOrNull { it.displayId == displayId }
-                ?: topologyMonitor.current().secondary
+                ?: topologyMonitor.current().presentationDisplay
             val layoutScale = if (settings.uiFitMode == UiFitMode.Auto) {
                 computeUiLayoutScale(fitDisplay)
             } else {
@@ -108,6 +109,7 @@ class CompanionOverlayService : Service() {
                 shellThemeId = settings.shellThemeId,
                 uiTextScale = settings.uiTextScale,
                 uiLayoutScale = layoutScale,
+                liteVisualsOverride = settings.visualPerformanceMode.liteVisualsOverride(),
             ) {
                 session?.let { companion ->
                     GameCompanionPane(

@@ -1,0 +1,69 @@
+diff --git a/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotification.kt b/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotification.kt
+--- a/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotification.kt
++++ b/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotification.kt
+@@ -100,6 +100,31 @@
+         val activityLabel: String? = null,
+     ) : ShellNotification
+ 
++    /**
++     * A friend wrote a new custom status. [status] is their own wording, carried into the banner
++     * so the update reads as what they said rather than "changed their status".
++     */
++    data class FriendStatusUpdated(
++        override val id: String,
++        val displayName: String,
++        val status: String,
++        val network: FriendNetwork,
++        val avatarUrl: String? = null,
++    ) : ShellNotification
++
++    /**
++     * A friend put a song on. The banner reads "<name> is now listening to" over
++     * "<song> by <artist>", so the track is the line that carries the weight.
++     */
++    data class FriendListening(
++        override val id: String,
++        val displayName: String,
++        val songTitle: String,
++        val artist: String,
++        val network: FriendNetwork,
++        val avatarUrl: String? = null,
++    ) : ShellNotification
++
+     /** A friend on Steam, Discord, or XOrA Network started (or switched) a game. */
+     data class FriendPlaying(
+         override val id: String,
+@@ -107,6 +132,12 @@
+         val gameTitle: String,
+         val network: FriendNetwork,
+         val avatarUrl: String? = null,
++        /**
++         * The game's bubble icon from this device's library, when the title is one we hold. The
++         * banner leads with the game rather than the friend's picture — what they are playing is
++         * the news, and their name is already in the line.
++         */
++        val gameIconPath: String? = null,
+     ) : ShellNotification
+ 
+     /**
+@@ -161,6 +192,20 @@
+                 add("friend-online:${self.network.name.lowercase()}:$name")
+             }
+         }
++        is ShellNotification.FriendListening -> {
++            val name = self.displayName.trim().lowercase()
++            val song = self.songTitle.trim().lowercase()
++            if (name.isNotBlank() && song.isNotBlank()) {
++                add("friend-listening:${self.network.name.lowercase()}:$name:$song")
++            }
++        }
++        is ShellNotification.FriendStatusUpdated -> {
++            val name = self.displayName.trim().lowercase()
++            val status = self.status.trim().lowercase()
++            if (name.isNotBlank() && status.isNotBlank()) {
++                add("friend-status:${self.network.name.lowercase()}:$name:$status")
++            }
++        }
+         is ShellNotification.FriendPlaying -> {
+             val name = self.displayName.trim().lowercase()
+             val game = self.gameTitle.trim().lowercase()

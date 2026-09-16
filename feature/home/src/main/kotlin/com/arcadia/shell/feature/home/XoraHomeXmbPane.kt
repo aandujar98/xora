@@ -1,5 +1,6 @@
 package com.arcadia.shell.feature.home
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -7,16 +8,20 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,23 +47,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -69,11 +79,14 @@ import androidx.compose.ui.unit.sp
 import com.arcadia.shell.datastore.TrailerDisplayMode
 import com.arcadia.shell.datastore.XmbTitleStyle
 import com.arcadia.shell.designsystem.ArcadiaMotion
+import com.arcadia.shell.designsystem.LocalLiteVisuals
 import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.designsystem.XoraTitleText
+import com.arcadia.shell.designsystem.arcadiaHazeSource
 import com.arcadia.shell.designsystem.arcadiaTween
+import com.arcadia.shell.designsystem.launchBackdropScale
 import com.arcadia.shell.designsystem.motionMillis
-import com.arcadia.shell.designsystem.rememberAmbientMotionActive
+import com.arcadia.shell.designsystem.rememberLaunchCinematic
 import com.arcadia.shell.designsystem.rememberReduceMotion
 import com.arcadia.shell.feature.home.component.AccountPill
 import com.arcadia.shell.feature.home.component.AchievementsPill
@@ -81,16 +94,14 @@ import com.arcadia.shell.feature.home.component.ArtworkImage
 import com.arcadia.shell.feature.home.component.HERO_DECODE_MAX_EDGE_PX
 import com.arcadia.shell.feature.home.component.HeroTrailerLayer
 import com.arcadia.shell.feature.home.component.NowPlayingPill
+import com.arcadia.shell.feature.home.component.ProfileEditRequestEffect
 import com.arcadia.shell.feature.home.component.ProfileEditSheet
 import com.arcadia.shell.feature.home.component.SystemPill
+import com.arcadia.shell.feature.home.component.XmbParticleFieldLayer
+import com.arcadia.shell.launcher.music.NowPlayingState
 import com.arcadia.shell.model.Game
 import java.util.concurrent.TimeUnit
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.roundToInt
-import kotlin.math.sign
-import kotlin.math.sin
+import kotlinx.coroutines.delay
 
 /**
  * PSP / PS3-style Cross Media Bar.
@@ -102,9 +113,12 @@ import kotlin.math.sin
 @Composable
 fun XoraHomeXmbPane(
     state: HomeUiState,
+    /** Live playback position — see [HomeScreen]'s parameter of the same name. */
+    nowPlayingPositionMs: Long = 0L,
     onSelectCategory: (Int) -> Unit,
     onSelectItem: (Int) -> Unit,
     onActivateItem: () -> Unit,
+    onDrillOut: () -> Unit = {},
     onToggleAccountPanel: () -> Unit = {},
     onToggleSystemPanel: () -> Unit = {},
     onToggleAchievementsPanel: () -> Unit = {},
@@ -119,10 +133,13 @@ fun XoraHomeXmbPane(
     onClearCustomStatus: () -> Unit = {},
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit = { _, _ -> },
     onSelectAvatarPreset: (presetId: String) -> Unit = {},
-    onRequestLocalAvatar: () -> Unit = {},
+    onRequestLocalAvatar: (PhotoImportSource) -> Unit = {},
     onUseRaAvatar: () -> Unit = {},
     onUseDiscordAvatar: () -> Unit = {},
+    onUseXoraAvatar: () -> Unit = {},
+    onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit = {},
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit = {},
@@ -134,6 +151,18 @@ fun XoraHomeXmbPane(
     onSkipNextTrack: () -> Unit = {},
     onToggleShuffle: () -> Unit = {},
     onToggleRepeat: () -> Unit = {},
+    onPhotoCommand: (PhotoPaneCommand) -> Unit = {},
+    onDashboardCommand: (DashboardCommand) -> Unit = {},
+    onSelectRaLibraryIndex: (Int) -> Unit = {},
+    onSelectRaLibraryTab: (RaLibraryTab) -> Unit = {},
+    onToggleRaSortMenu: () -> Unit = {},
+    onSelectRaPlatformFilter: (String?) -> Unit = {},
+    onActivateRaLibrary: () -> Unit = {},
+    onRetryRaLibrary: () -> Unit = {},
+    onSelectRaCheevoIndex: (Int) -> Unit = {},
+    onCloseRaGameDetail: () -> Unit = {},
+    onSelectRaFollowingIndex: (Int) -> Unit = {},
+    onToggleRaCompare: () -> Unit = {},
     showPillChrome: Boolean = true,
     modifier: Modifier = Modifier,
     /** Full-bleed layer above the XMB cross but below the pill chrome. */
@@ -145,164 +174,359 @@ fun XoraHomeXmbPane(
             xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
             xmb.selectedItem?.action is XoraXmbAction.LaunchGame
     }
-    // Browsing music paints the focused album / song art; Now Playing paints the playing cover.
-    val musicArtPath = when (xmb.depth) {
-        XoraXmbDepth.MusicAlbums, XoraXmbDepth.MusicTracks -> xmb.selectedItem?.artPath
-        XoraXmbDepth.NowPlaying -> state.music.nowPlaying.track?.albumArtUri
-        else -> null
+    val gameMediaPath = xmbGameSelectWallpaperPath(
+        game = heroGame,
+        customWallpaperPath = xmb.selectedItem?.heroPath,
+    )
+    val musicPlaying = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying
+    // The playing track's cover + wave follow you off the Music column, and step aside wherever
+    // a game has art of its own. Browse still paints the focused album / song when nothing plays.
+    val musicBackdrop = musicCategoryBackdrop(
+        category = xmb.category,
+        depth = xmb.depth,
+        playing = musicPlaying,
+        hasTrack = state.music.nowPlaying.hasTrack,
+        enabled = state.music.categoryArtBackdropEnabled,
+        coverPath = state.music.nowPlayingArtPath,
+        backgroundMediaPath = state.music.nowPlayingBackdropPath,
+        gameMediaPresent = gameMediaPath != null,
+    )
+    val musicArtPath = if (musicBackdrop.showCover) {
+        musicBackdrop.coverPath
+    } else {
+        when (xmb.depth) {
+            XoraXmbDepth.MusicAlbums, XoraXmbDepth.MusicTracks ->
+                xmb.selectedItem?.heroPath ?: xmb.selectedItem?.artPath
+            XoraXmbDepth.NowPlaying -> state.music.nowPlaying.track?.albumArtUri
+            XoraXmbDepth.Category -> xmb.selectedItem?.heroPath
+            else -> null
+        }
     }
-    val backdropArtPath = musicArtPath
-        ?: heroGame?.heroImagePath ?: heroGame?.boxArtPath ?: heroGame?.logoImagePath
+    val backdropArtPath = musicArtPath ?: gameMediaPath
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
 
-    // Chrome exits quickly; backdrop eases over the full cinematic hold (matches HeroPane).
-    val chromeProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-        label = "xmbLaunchChrome",
+    val cinematic = rememberLaunchCinematic(state.isLaunching)
+    val chromeAlpha = cinematic.chromeAlpha
+    val reduceMotion = rememberReduceMotion()
+    val trayOpen = state.homeHub.vitaShortcutTrayOpen
+    val raOpen = xmb.depth == XoraXmbDepth.RaLibrary
+    val recedeOpen = trayOpen || raOpen
+    val recede by animateFloatAsState(
+        targetValue = if (recedeOpen) 1f else 0f,
+        animationSpec = when {
+            trayOpen -> spring(
+                dampingRatio = 0.78f,
+                stiffness = Spring.StiffnessMediumLow,
+            )
+            raOpen && !reduceMotion -> tween(
+                ArcadiaMotion.Slow,
+                easing = FastOutSlowInEasing,
+            )
+            else -> arcadiaTween(ArcadiaMotion.Medium)
+        },
+        label = "xmbRecede",
     )
-    val holdProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
-        label = "xmbLaunchHold",
+    val recedeScale = 1f - (recede * 0.12f)
+    val recedeAlpha = 1f - recede
+    // Tray-only: RA replaces the backdrop outright, so blurring under it would be wasted work.
+    val trayBlur by animateDpAsState(
+        targetValue = if (trayOpen) XMB_TRAY_BLUR_RADIUS else 0.dp,
+        animationSpec = tween(durationMillis = XMB_TRAY_BLUR_MS, easing = FastOutSlowInEasing),
+        label = "xmbTrayBlur",
     )
-    val chromeAlpha = 1f - chromeProgress
-    val chromeSlidePx = chromeProgress * 72f
-    val artworkScale = 1f + (holdProgress * 0.06f)
-    val backdropMotion = rememberXmbBackdropMotion(
-        categoryIndex = xmb.categoryIndex,
-        itemIndex = xmb.itemIndex,
+    // A pop-up's CRT DIM sits on a blurred shell, so the window is the only thing in focus.
+    // Separate from the tray's blur so a card opened over an open tray does not double it.
+    val popupBlur by animateDpAsState(
+        targetValue = if (state.backdropObscuredByPopup) XMB_POPUP_BLUR_RADIUS else 0.dp,
+        animationSpec = tween(durationMillis = XMB_POPUP_BLUR_MS, easing = FastOutSlowInEasing),
+        label = "xmbPopupBlur",
+    )
+    val backdropBlur = maxOf(trayBlur, popupBlur)
+    // Keep the XMB cross composed under RA so it can zoom out instead of sliding away.
+    var underlayDepth by remember {
+        mutableStateOf(
+            xmb.depth.takeUnless { it == XoraXmbDepth.RaLibrary } ?: XoraXmbDepth.Category,
+        )
+    }
+    LaunchedEffect(xmb.depth) {
+        if (xmb.depth != XoraXmbDepth.RaLibrary) {
+            underlayDepth = xmb.depth
+        }
+    }
+    val artworkScale = launchBackdropScale(cinematic.zoom)
+    val backdropMotion = xmbBackdropMotion(
         launchScale = artworkScale,
+        wallpaperAlpha = cinematic.wallpaperAlpha,
     )
 
+    // Full-bleed: emulator aspect ratio must not crop this wallpaper or the XMB chrome.
     Box(modifier = modifier.fillMaxSize()) {
-        // Theme / custom wallpaper must remain the base plate — no dark wash over it.
-        HomeWallpaper(
-            customPath = state.homeHub.wallpaperPath,
-            dim = false,
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        // Theme / custom wallpaper must remain the base plate — it zooms, then fades to black.
+        // Grouped offscreen so the particle matte's Screen blend lands on the wallpaper under it
+        // rather than on the window's render target.
+        // Both of these cost a full-screen buffer every frame, so neither is left on when it is
+        // doing nothing — the default wallpaper is 1080p60 and has the whole budget to hit.
+        val groupForParticles = !fullTrailer && state.homeHub.particlesEnabled
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(backdropMotion),
-        )
-
-        // Keep mounted so focus / back / cancel always crossfade (never unmount-snap).
-        XoraRomHeroBackdrop(
-            artPath = backdropArtPath,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(backdropMotion),
-        )
-
-        HeroTrailerLayer(
-            state = state.trailer,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(backdropMotion),
-        )
-
-        if (fullTrailer) {
-            Box(
+                .then(if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier)
+                .clipToBounds()
+                .then(
+                    if (groupForParticles) {
+                        Modifier.graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
+                .arcadiaHazeSource(zIndex = 0f),
+        ) {
+            HomeWallpaper(
+                customPath = state.homeHub.wallpaperPath,
+                dim = false,
+                alignX = state.homeHub.wallpaperAlignX,
+                alignY = state.homeHub.wallpaperAlignY,
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.38f)),
+                    .then(backdropMotion),
             )
-        }
 
-        // System and ROM browsing are card rungs of the same menu, so drilling slides sideways
-        // between them the way the PSP / PS3 shells do rather than cutting.
-        val depthSlideMs = motionMillis(XMB_DEPTH_SLIDE_MS)
-        AnimatedContent(
-            targetState = xmb.depth,
-            transitionSpec = {
-                val drillingIn = targetState.ordinal > initialState.ordinal
-                val slide = tween<IntOffset>(depthSlideMs, easing = FastOutSlowInEasing)
-                val enter = slideInHorizontally(slide) { width ->
-                    if (drillingIn) width / 2 else -width / 2
-                } + fadeIn(tween(depthSlideMs, easing = FastOutSlowInEasing))
-                val exit = slideOutHorizontally(slide) { width ->
-                    if (drillingIn) -width / 3 else width / 3
-                } + fadeOut(tween(depthSlideMs / 2, easing = FastOutSlowInEasing))
-                enter togetherWith exit
-            },
-            label = "xmbDepth",
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    alpha = chromeAlpha
-                    translationY = chromeSlidePx
+            // Keep mounted so focus / back / cancel always crossfade (never unmount-snap).
+            XmbHeroWaveBackdrop(
+                artPath = backdropArtPath,
+                showWaveMask = musicBackdrop.showWaveMask,
+                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                    XMB_GAME_SELECT_SETTLE_MS
+                } else {
+                    XMB_FOCUS_SETTLE_MS
                 },
-        ) { depth ->
-            when (depth) {
-                XoraXmbDepth.NowPlaying -> XoraNowPlayingPane(
-                    state = state.music.nowPlaying,
-                    onTogglePlayPause = onToggleNowPlaying,
-                    onSkipPrevious = onSkipPreviousTrack,
-                    onSkipNext = onSkipNextTrack,
-                    onToggleShuffle = onToggleShuffle,
-                    onToggleRepeat = onToggleRepeat,
-                    modifier = Modifier.fillMaxSize(),
+                alpha = recedeAlpha,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(backdropMotion),
+            )
+
+            HeroTrailerLayer(
+                state = state.trailer,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(backdropMotion)
+                    .graphicsLayer { alpha = recedeAlpha },
+            )
+
+            if (groupForParticles) {
+                // PS5-style ambient dust between the wallpaper and the menu chrome.
+                XmbParticleFieldLayer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .xoraDesignCanvas()
+                        .clipToBounds(),
                 )
-                XoraXmbDepth.Systems,
-                XoraXmbDepth.Roms,
-                XoraXmbDepth.DspAccounts,
-                XoraXmbDepth.MusicAlbums,
-                XoraXmbDepth.MusicTracks,
-                -> XoraCardBrowsePane(
-                    items = xmb.items,
-                    selectedIndex = xmb.itemIndex,
-                    mode = when (depth) {
-                        XoraXmbDepth.Systems -> CardBrowseMode.Systems
-                        XoraXmbDepth.Roms -> CardBrowseMode.Roms
-                        XoraXmbDepth.MusicAlbums -> CardBrowseMode.MusicAlbums
-                        XoraXmbDepth.MusicTracks -> CardBrowseMode.MusicTracks
-                        else -> CardBrowseMode.DspAccounts
-                    },
-                    onSelectItem = onSelectItem,
-                    onActivateItem = onActivateItem,
-                    modifier = Modifier.fillMaxSize(),
-                    titleStyle = xmb.titleStyle,
-                )
-                else -> XmbCross(
-                    xmb = xmb,
-                    onSelectCategory = onSelectCategory,
-                    onSelectItem = onSelectItem,
-                    onActivateItem = onActivateItem,
-                    modifier = Modifier.fillMaxSize(),
+            }
+
+            if (fullTrailer) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = chromeAlpha }
+                        .background(Color.Black.copy(alpha = 0.38f)),
                 )
             }
         }
 
-        overlayContent()
+        // Everything over the wallpaper is chrome. It fades out before the backdrop zooms.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = chromeAlpha },
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = recedeAlpha
+                        scaleX = recedeScale
+                        scaleY = recedeScale
+                    },
+            ) {
+                // Wallpaper + XMB are Haze sources so Friends/Profile/RA plates blur only
+                // the pixels sitting under the modal, not the rest of the chrome.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .arcadiaHazeSource(zIndex = 1f),
+                ) {
+                // System and ROM browsing are card rungs of the same menu, so drilling slides sideways
+                // between them the way the PSP / PS3 shells do rather than cutting.
+                val depthSlideMs = motionMillis(XMB_DEPTH_SLIDE_MS)
+                AnimatedContent(
+                    targetState = underlayDepth,
+                    transitionSpec = {
+                        val drillingIn = targetState.ordinal > initialState.ordinal
+                        val slide = tween<IntOffset>(depthSlideMs, easing = FastOutSlowInEasing)
+                        val enter = slideInHorizontally(slide) { width ->
+                            if (drillingIn) width / 2 else -width / 2
+                        } + fadeIn(tween(depthSlideMs, easing = FastOutSlowInEasing))
+                        val exit = slideOutHorizontally(slide) { width ->
+                            if (drillingIn) -width / 3 else width / 3
+                        } + fadeOut(tween(depthSlideMs / 2, easing = FastOutSlowInEasing))
+                        enter togetherWith exit
+                    },
+                    label = "xmbDepth",
+                    modifier = Modifier.fillMaxSize(),
+                ) { depth ->
+                when (depth) {
+                    XoraXmbDepth.NowPlaying -> XoraNowPlayingPane(
+                        state = state.music.nowPlaying.withLivePosition(nowPlayingPositionMs),
+                        onTogglePlayPause = onToggleNowPlaying,
+                        onSkipPrevious = onSkipPreviousTrack,
+                        onSkipNext = onSkipNextTrack,
+                        onToggleShuffle = onToggleShuffle,
+                        onToggleRepeat = onToggleRepeat,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    XoraXmbDepth.Photos -> XoraPhotoViewerPane(
+                        state = state.photos,
+                        onCommand = onPhotoCommand,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    XoraXmbDepth.Dashboard -> XoraDashboardPane(
+                        state = state.dashboard,
+                        achievements = state.achievements,
+                        onCommand = onDashboardCommand,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    XoraXmbDepth.Systems,
+                    XoraXmbDepth.Roms,
+                    XoraXmbDepth.DspAccounts,
+                    XoraXmbDepth.MusicAlbums,
+                    XoraXmbDepth.MusicTracks,
+                    -> XoraCardBrowsePane(
+                        items = xmb.items,
+                        selectedIndex = xmb.itemIndex,
+                        mode = when (depth) {
+                            XoraXmbDepth.Systems -> CardBrowseMode.Systems
+                            XoraXmbDepth.Roms -> CardBrowseMode.Roms
+                            XoraXmbDepth.MusicAlbums -> CardBrowseMode.MusicAlbums
+                            XoraXmbDepth.MusicTracks -> CardBrowseMode.MusicTracks
+                            else -> CardBrowseMode.DspAccounts
+                        },
+                        onSelectItem = onSelectItem,
+                        onActivateItem = onActivateItem,
+                        onBack = onDrillOut,
+                        modifier = Modifier.fillMaxSize(),
+                        titleStyle = XmbTitleStyle.Text,
+                        trailer = state.trailer,
+                    )
+                    else -> XmbCross(
+                        xmb = xmb.copy(depth = depth),
+                        introReveal = state.homeIntroReveal,
+                        onSelectCategory = onSelectCategory,
+                        onSelectItem = onSelectItem,
+                        onActivateItem = onActivateItem,
+                        modifier = Modifier.fillMaxSize(),
+                        trailer = state.trailer,
+                    )
+                }
+                }
+                }
 
+            }
+
+            // RA sits outside recede — putting it inside would fade the cheevos out as the
+            // menu tries to fade in.
+            val raEnterMs = if (reduceMotion) 0 else ArcadiaMotion.Medium
+            val raDelayMs = if (reduceMotion) 0 else 180
+            AnimatedVisibility(
+                visible = raOpen,
+                enter = fadeIn(
+                    tween(raEnterMs, delayMillis = raDelayMs, easing = FastOutSlowInEasing),
+                ) + scaleIn(
+                    initialScale = 0.96f,
+                    animationSpec = tween(
+                        raEnterMs,
+                        delayMillis = raDelayMs,
+                        easing = FastOutSlowInEasing,
+                    ),
+                ),
+                exit = fadeOut(tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing)) +
+                    scaleOut(
+                        targetScale = 0.98f,
+                        animationSpec = tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing),
+                    ),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                RaLibraryPane(
+                    state = state,
+                    onSelectIndex = onSelectRaLibraryIndex,
+                    onSelectTab = onSelectRaLibraryTab,
+                    onToggleSortMenu = onToggleRaSortMenu,
+                    onSelectPlatformFilter = onSelectRaPlatformFilter,
+                    onActivate = onActivateRaLibrary,
+                    onRetry = onRetryRaLibrary,
+                    populateCheevos = true,
+                    onSelectCheevoIndex = onSelectRaCheevoIndex,
+                    onCloseGameDetail = onCloseRaGameDetail,
+                    onSelectFollowingIndex = onSelectRaFollowingIndex,
+                    onToggleCompare = onToggleRaCompare,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+        }
+
+        // Vita tray rides above the receding XMB, and outside the XMB's chrome fade: once the
+        // sheet is peeled the launch page runs its own cinematic (page pushes and clears, the
+        // game's wallpaper fills the screen and dissolves), so the XMB must not fade it away
+        // with the menu. Pill chrome stays put so LT/RT remain visible over the bubbles.
+        overlayContent()
+    }
         if (showPillChrome) {
-            XoraXmbPillChrome(
-                state = state,
-                onToggleAccountPanel = onToggleAccountPanel,
-                onToggleSystemPanel = onToggleSystemPanel,
-                onToggleAchievementsPanel = onToggleAchievementsPanel,
-                onSelectSocialTab = onSelectSocialTab,
-                onSelectAccountRow = onSelectAccountRow,
-                onActivateAccountRow = onActivateAccountRow,
-                onSelectSystemRow = onSelectSystemRow,
-                onActivateSystemRow = onActivateSystemRow,
-                onOpenNotifications = onOpenNotifications,
-                onSystemStatusDraftChange = onSystemStatusDraftChange,
-                onSaveCustomStatus = onSaveCustomStatus,
-                onClearCustomStatus = onClearCustomStatus,
-                onSaveProfile = onSaveProfile,
-                onSelectAvatarPreset = onSelectAvatarPreset,
-                onRequestLocalAvatar = onRequestLocalAvatar,
-                onUseRaAvatar = onUseRaAvatar,
-                onUseDiscordAvatar = onUseDiscordAvatar,
-                onClearAvatar = onClearAvatar,
-                onFriendSearchChange = onFriendSearchChange,
-                onReplyDraftChange = onReplyDraftChange,
-                onSelectAchievementsTab = onSelectAchievementsTab,
-                onLoginRetroAchievements = onLoginRetroAchievements,
-                onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOutRetroAchievements = onSignOutRetroAchievements,
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = chromeAlpha },
+            ) {
+                XoraXmbPillChrome(
+                    state = state,
+                    nowPlayingPositionMs = nowPlayingPositionMs,
+                    onToggleAccountPanel = onToggleAccountPanel,
+                    onToggleSystemPanel = onToggleSystemPanel,
+                    onToggleAchievementsPanel = onToggleAchievementsPanel,
+                    onSelectSocialTab = onSelectSocialTab,
+                    onSelectAccountRow = onSelectAccountRow,
+                    onActivateAccountRow = onActivateAccountRow,
+                    onSelectSystemRow = onSelectSystemRow,
+                    onActivateSystemRow = onActivateSystemRow,
+                    onOpenNotifications = onOpenNotifications,
+                    onSystemStatusDraftChange = onSystemStatusDraftChange,
+                    onSaveCustomStatus = onSaveCustomStatus,
+                    onClearCustomStatus = onClearCustomStatus,
+                    onSaveProfile = onSaveProfile,
+                    onSelectAvatarPreset = onSelectAvatarPreset,
+                    onRequestLocalAvatar = onRequestLocalAvatar,
+                    onUseRaAvatar = onUseRaAvatar,
+                    onUseDiscordAvatar = onUseDiscordAvatar,
+                    onUseXoraAvatar = onUseXoraAvatar,
+                    onXoraPresenceMode = onXoraPresenceMode,
+                    onClearAvatar = onClearAvatar,
+                    onClearNotifications = onClearNotifications,
+                    onFriendSearchChange = onFriendSearchChange,
+                    onReplyDraftChange = onReplyDraftChange,
+                    onSelectAchievementsTab = onSelectAchievementsTab,
+                    onLoginRetroAchievements = onLoginRetroAchievements,
+                    onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
+                    onSignOutRetroAchievements = onSignOutRetroAchievements,
+                )
+            }
         }
     }
 }
@@ -311,6 +535,8 @@ fun XoraHomeXmbPane(
 @Composable
 fun XoraXmbHeroDetail(
     state: HomeUiState,
+    /** Live playback position — see [XoraHomeXmbPane]'s parameter of the same name. */
+    nowPlayingPositionMs: Long = 0L,
     onToggleAccountPanel: () -> Unit = {},
     onToggleSystemPanel: () -> Unit = {},
     onToggleAchievementsPanel: () -> Unit = {},
@@ -325,10 +551,13 @@ fun XoraXmbHeroDetail(
     onClearCustomStatus: () -> Unit = {},
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit = { _, _ -> },
     onSelectAvatarPreset: (presetId: String) -> Unit = {},
-    onRequestLocalAvatar: () -> Unit = {},
+    onRequestLocalAvatar: (PhotoImportSource) -> Unit = {},
     onUseRaAvatar: () -> Unit = {},
     onUseDiscordAvatar: () -> Unit = {},
+    onUseXoraAvatar: () -> Unit = {},
+    onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit = {},
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit = {},
     onReplyDraftChange: (String) -> Unit = {},
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit = {},
@@ -340,712 +569,342 @@ fun XoraXmbHeroDetail(
 ) {
     val xmb = state.xoraXmb
     val heroGame = xmb.focusGame
+    val gameMediaPath = xmbGameSelectWallpaperPath(
+        game = heroGame,
+        customWallpaperPath = xmb.selectedItem?.heroPath,
+    )
+    val musicPlaying = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying
+    val musicBackdrop = musicCategoryBackdrop(
+        category = xmb.category,
+        depth = xmb.depth,
+        playing = musicPlaying,
+        hasTrack = state.music.nowPlaying.hasTrack,
+        enabled = state.music.categoryArtBackdropEnabled,
+        coverPath = state.music.nowPlayingArtPath,
+        backgroundMediaPath = state.music.nowPlayingBackdropPath,
+        gameMediaPresent = gameMediaPath != null,
+    )
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
-    val titleEnter = fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
-        slideInHorizontally(tween(ArcadiaMotion.Slow, easing = FastOutSlowInEasing)) { it / 5 } +
-        scaleIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing), initialScale = 0.97f)
-    val titleExit = fadeOut(tween(120, easing = FastOutSlowInEasing)) +
-        slideOutHorizontally(tween(120, easing = FastOutSlowInEasing)) { -it / 14 }
-
-    val chromeProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Launch),
-        label = "xmbHeroLaunchChrome",
-    )
-    val holdProgress by animateFloatAsState(
-        targetValue = if (state.isLaunching) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.LaunchHold),
-        label = "xmbHeroLaunchHold",
-    )
-    val chromeAlpha = 1f - chromeProgress
-    val chromeSlidePx = chromeProgress * 72f
-    val artworkScale = 1f + (holdProgress * 0.06f)
-    val backdropMotion = rememberXmbBackdropMotion(
-        categoryIndex = xmb.categoryIndex,
-        itemIndex = xmb.itemIndex,
-        launchScale = artworkScale,
-    )
-
-    Box(modifier = modifier.fillMaxSize()) {
-        HomeWallpaper(
-            customPath = state.homeHub.wallpaperPath,
-            dim = false,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(backdropMotion),
-        )
-        XoraRomHeroBackdrop(
-            artPath = heroGame?.takeIf {
-                xmb.depth == XoraXmbDepth.Roms ||
-                    xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
-                    xmb.selectedItem?.action is XoraXmbAction.LaunchGame
-            }?.let { it.heroImagePath ?: it.boxArtPath ?: it.logoImagePath },
-            modifier = Modifier
-                .fillMaxSize()
-                .then(backdropMotion),
-        )
-        HeroTrailerLayer(
-            state = state.trailer,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(backdropMotion),
-        )
-
-        AnimatedContent(
-            targetState = Triple(
-                xmb.focusTitle,
-                xmb.focusSubtitle,
-                heroGame?.id to heroGame?.logoImagePath,
-            ),
-            transitionSpec = { titleEnter togetherWith titleExit },
-            label = "xmbHeroTitle",
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(28.dp)
-                .graphicsLayer {
-                    alpha = chromeAlpha
-                    translationY = chromeSlidePx
-                },
-        ) { (title, subtitle, logoKey) ->
-            val logoPath = logoKey.second
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!logoPath.isNullOrBlank()) {
-                    ArtworkImage(
-                        path = logoPath,
-                        contentDescription = title,
-                        fallbackText = title,
-                        contentScale = ContentScale.Fit,
-                        cacheInMemory = false,
-                        decodeMaxEdgePx = 720,
-                        modifier = Modifier
-                            .widthIn(max = 420.dp)
-                            .height(96.dp)
-                            .fillMaxWidth(0.7f),
-                    )
-                } else {
-                    XoraTitleText(
-                        text = title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp,
-                        maxLines = 2,
-                    )
-                }
-                subtitle?.let {
-                    XoraSecondaryText(
-                        text = it,
-                        fontSize = 13.sp,
-                        fillColor = Color.White,
-                        maxLines = 2,
-                    )
-                }
-            }
-        }
-
-        if (showPillChrome) {
-            XoraXmbPillChrome(
-                state = state,
-                onToggleAccountPanel = onToggleAccountPanel,
-                onToggleSystemPanel = onToggleSystemPanel,
-                onToggleAchievementsPanel = onToggleAchievementsPanel,
-                onSelectSocialTab = onSelectSocialTab,
-                onSelectAccountRow = onSelectAccountRow,
-                onActivateAccountRow = onActivateAccountRow,
-                onSelectSystemRow = onSelectSystemRow,
-                onActivateSystemRow = onActivateSystemRow,
-                onOpenNotifications = onOpenNotifications,
-                onSystemStatusDraftChange = onSystemStatusDraftChange,
-                onSaveCustomStatus = onSaveCustomStatus,
-                onClearCustomStatus = onClearCustomStatus,
-                onSaveProfile = onSaveProfile,
-                onSelectAvatarPreset = onSelectAvatarPreset,
-                onRequestLocalAvatar = onRequestLocalAvatar,
-                onUseRaAvatar = onUseRaAvatar,
-                onUseDiscordAvatar = onUseDiscordAvatar,
-                onClearAvatar = onClearAvatar,
-                onFriendSearchChange = onFriendSearchChange,
-                onReplyDraftChange = onReplyDraftChange,
-                onSelectAchievementsTab = onSelectAchievementsTab,
-                onLoginRetroAchievements = onLoginRetroAchievements,
-                onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOutRetroAchievements = onSignOutRetroAchievements,
-            )
-        }
-    }
-}
-
-@Composable
-private fun XmbCross(
-    xmb: XoraXmbUiState,
-    onSelectCategory: (Int) -> Unit,
-    onSelectItem: (Int) -> Unit,
-    onActivateItem: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
     val reduceMotion = rememberReduceMotion()
-    // Ease-out slide (~PS3 XMB / reference clip) — one shared cursor, no nested springs.
-    val scrollSpec = remember(reduceMotion) {
-        if (reduceMotion) {
-            tween(0)
+    val titleTransition = xmbCopyTransition(reduceMotion)
+
+    val cinematic = rememberLaunchCinematic(state.isLaunching)
+    val chromeAlpha = cinematic.chromeAlpha
+    val artworkScale = launchBackdropScale(cinematic.zoom)
+    val backdropMotion = xmbBackdropMotion(
+        launchScale = artworkScale,
+        wallpaperAlpha = cinematic.wallpaperAlpha,
+    )
+    val trayOpen = state.homeHub.vitaShortcutTrayOpen
+    val raOpen = xmb.depth == XoraXmbDepth.RaLibrary
+    val recedeOpen = trayOpen || raOpen
+    val recede by animateFloatAsState(
+        targetValue = if (recedeOpen) 1f else 0f,
+        animationSpec = if (trayOpen) {
+            spring(
+                dampingRatio = 0.78f,
+                stiffness = Spring.StiffnessMediumLow,
+            )
         } else {
-            tween<Float>(durationMillis = XMB_SCROLL_MS, easing = FastOutSlowInEasing)
-        }
-    }
+            arcadiaTween(ArcadiaMotion.Slow)
+        },
+        label = "xmbHeroRecede",
+    )
+    val recedeScale = 1f - (recede * 0.12f)
+    val recedeAlpha = 1f - recede
+    val trayBlur by animateDpAsState(
+        targetValue = if (trayOpen) XMB_TRAY_BLUR_RADIUS else 0.dp,
+        animationSpec = tween(durationMillis = XMB_TRAY_BLUR_MS, easing = FastOutSlowInEasing),
+        label = "xmbHeroTrayBlur",
+    )
 
-    // Continuous scroll cursors — scale/alpha/slide derive from these (no nested animators).
-    val categoryScroll = remember { Animatable(xmb.categoryIndex.toFloat()) }
-    val itemScroll = remember { Animatable(xmb.itemIndex.toFloat()) }
-    val listEnterAlpha = remember { Animatable(1f) }
-    LaunchedEffect(xmb.categoryIndex) {
-        categoryScroll.animateTo(xmb.categoryIndex.toFloat(), scrollSpec)
-    }
-    LaunchedEffect(xmb.itemIndex) {
-        val target = xmb.itemIndex.toFloat()
-            .coerceIn(0f, (xmb.items.size - 1).coerceAtLeast(0).toFloat())
-        itemScroll.animateTo(target, scrollSpec)
-    }
-    LaunchedEffect(xmb.depth, xmb.categoryIndex, xmb.drilledPlatformId) {
-        itemScroll.snapTo(
-            xmb.itemIndex.toFloat()
-                .coerceIn(0f, (xmb.items.size - 1).coerceAtLeast(0).toFloat()),
-        )
-        if (reduceMotion) {
-            listEnterAlpha.snapTo(1f)
-            return@LaunchedEffect
-        }
-        listEnterAlpha.snapTo(0.28f)
-        listEnterAlpha.animateTo(1f, tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing))
-    }
-
-    BoxWithConstraints(modifier = modifier) {
-        val density = LocalDensity.current
-        val crossX = maxWidth * CROSS_X_FRACTION
-        val catY = maxHeight * CATEGORY_Y_FRACTION
-        val itemFocusY = catY + CATEGORY_TO_ITEM_GAP
-        val categories = XoraXmbCategory.entries
-        val items = xmb.items
-        val atRoot = xmb.depth == XoraXmbDepth.Category
-        val browsingRoms = xmb.depth == XoraXmbDepth.Roms
-        val browsingSystems = xmb.depth == XoraXmbDepth.Systems
-        val browsingBoxes = browsingRoms || browsingSystems
-        val catIcon = CATEGORY_ICON
-        val itemIcon = when {
-            browsingRoms -> ROM_BOX_WIDTH
-            browsingSystems -> SYSTEM_BOX_WIDTH
-            else -> ITEM_ICON
-        }
-        val itemRow = when {
-            browsingRoms -> ROM_ITEM_ROW
-            browsingSystems -> SYSTEM_ITEM_ROW
-            else -> ITEM_ROW
-        }
-        val itemPitch = when {
-            browsingRoms -> ROM_ITEM_PITCH
-            browsingSystems -> SYSTEM_ITEM_PITCH
-            else -> ITEM_PITCH
-        }
-        val boxAspect = when {
-            browsingSystems -> SYSTEM_BOX_ASPECT
-            else -> ROM_BOX_ASPECT
-        }
-        val boxFocusWidth = when {
-            browsingSystems -> SYSTEM_BOX_WIDTH_FOCUS
-            else -> ROM_BOX_WIDTH_FOCUS
-        }
-        val categoryPitchPx = with(density) { CATEGORY_PITCH.toPx() }
-        val itemPitchPx = with(density) { itemPitch.toPx() }
-        val catIconPx = with(density) { catIcon.toPx() }
-        val itemRowPx = with(density) { itemRow.toPx() }
-        val crossXPx = with(density) { crossX.toPx() }
-        val catYPx = with(density) { catY.toPx() }
-        val itemFocusYPx = with(density) { itemFocusY.toPx() }
-        val glyphSlot = if (browsingBoxes) boxFocusWidth else itemIcon
-        val glyphSlotPx = with(density) { glyphSlot.toPx() }
-        val glyphGap = if (browsingBoxes) 18.dp else 14.dp
-        val glyphGapPx = with(density) { glyphGap.toPx() }
-        val catScroll = categoryScroll.value
-        val rowScroll = itemScroll.value
-        val enterAlpha = listEnterAlpha.value
-
-        // ——— Horizontal categories ———
-        // Icons stay on a fixed pitch grid (no focus slide) so labels can share one axis.
-        categories.forEachIndexed { index, category ->
-            val delta = index - catScroll
-            val distance = abs(delta)
-            val scale = when {
-                distance < 0.5f -> lerp(1.12f, CATEGORY_FOCUS_SCALE, 1f - distance / 0.5f)
-                distance < 1.5f -> lerp(0.86f, 1.12f, 1.5f - distance)
-                distance < 2.5f -> lerp(0.72f, 0.86f, 2.5f - distance)
-                else -> 0.58f
+    // Full-bleed: emulator aspect ratio must not crop this wallpaper or the XMB chrome.
+    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        val groupForParticles = !fullTrailer && state.homeHub.particlesEnabled
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (trayBlur > 0.dp) Modifier.blur(trayBlur) else Modifier)
+                .clipToBounds()
+                .then(
+                    if (groupForParticles) {
+                        Modifier.graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            HomeWallpaper(
+                customPath = state.homeHub.wallpaperPath,
+                dim = false,
+                alignX = state.homeHub.wallpaperAlignX,
+                alignY = state.homeHub.wallpaperAlignY,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(backdropMotion),
+            )
+            XmbHeroWaveBackdrop(
+                artPath = if (musicBackdrop.showCover) {
+                    musicBackdrop.coverPath
+                } else {
+                    xmb.selectedItem?.heroPath
+                        ?: xmb.selectedItem?.artPath?.takeIf {
+                            xmb.depth == XoraXmbDepth.MusicAlbums ||
+                                xmb.depth == XoraXmbDepth.MusicTracks
+                        }
+                        ?: xmbGameSelectWallpaperPath(
+                            heroGame?.takeIf {
+                                xmb.depth == XoraXmbDepth.Roms ||
+                                    xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
+                                    xmb.selectedItem?.action is XoraXmbAction.LaunchGame
+                            },
+                        )
+                },
+                showWaveMask = musicBackdrop.showWaveMask,
+                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                    XMB_GAME_SELECT_SETTLE_MS
+                } else {
+                    XMB_FOCUS_SETTLE_MS
+                },
+                alpha = recedeAlpha,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(backdropMotion),
+            )
+            HeroTrailerLayer(
+                state = state.trailer,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(backdropMotion)
+                    .graphicsLayer { alpha = recedeAlpha },
+            )
+            if (groupForParticles) {
+                XmbParticleFieldLayer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .xoraDesignCanvas()
+                        .clipToBounds(),
+                )
             }
-            val alpha = when {
-                distance < 0.5f -> if (atRoot) 1f else 0.35f
-                distance < 1.5f -> if (atRoot) 0.58f else 0.18f
-                distance < 2.5f -> if (atRoot) 0.34f else 0.1f
-                else -> 0.08f
+            if (fullTrailer) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = chromeAlpha }
+                        .background(Color.Black.copy(alpha = 0.38f)),
+                )
             }
-            val xPx = crossXPx - catIconPx / 2f + categoryPitchPx * delta
-            val yPx = catYPx - catIconPx / 2f
+        }
 
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = chromeAlpha },
+        ) {
+            val heroCopy = Triple(
+                xmb.focusTitle,
+                if (xmb.depth == XoraXmbDepth.Roms && heroGame != null) {
+                    "Playtime: ${formatXmbPlaytime(heroGame.playTimeMs)}"
+                } else {
+                    xmb.focusSubtitle
+                },
+                heroGame?.id to heroGame?.logoImagePath,
+            )
+            val settledRomId = rememberXmbSettledFocus(
+                heroGame?.id,
+                settleMs = XMB_GAME_SELECT_SETTLE_MS,
+            )
+            val heldCopy = rememberXmbHeldFocus(
+                heroCopy,
+                settleMs = XMB_FOCUS_SETTLE_MS,
+            )
+            val shownCopy = if (xmb.depth == XoraXmbDepth.Roms) {
+                heroCopy.takeIf { heroGame?.id != null && heroGame.id == settledRomId }
+            } else {
+                heldCopy
+            }
+            AnimatedContent(
+                targetState = shownCopy,
+                transitionSpec = { titleTransition },
+                contentKey = { it?.third?.first ?: it?.first },
+                label = "xmbHeroTitle",
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(28.dp)
+                    .graphicsLayer {
+                        alpha = recedeAlpha
+                        scaleX = recedeScale
+                        scaleY = recedeScale
+                        transformOrigin = TransformOrigin(0f, 1f)
+                    },
+            ) { copy ->
+                if (copy == null) return@AnimatedContent
+                val (title, subtitle, logoKey) = copy
+                val logoPath = logoKey.second
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!logoPath.isNullOrBlank()) {
+                        ArtworkImage(
+                            path = logoPath,
+                            contentDescription = title,
+                            fallbackText = title,
+                            contentScale = ContentScale.Fit,
+                            cacheInMemory = false,
+                            decodeMaxEdgePx = 720,
+                            modifier = Modifier
+                                .widthIn(max = 420.dp)
+                                .height(96.dp)
+                                .fillMaxWidth(0.7f),
+                        )
+                    } else {
+                        XoraTitleText(
+                            text = title,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp,
+                            maxLines = 2,
+                        )
+                    }
+                    subtitle?.let {
+                        XoraSecondaryText(
+                            text = it,
+                            fontSize = 13.sp,
+                            fillColor = Color.White,
+                            maxLines = 2,
+                        )
+                    }
+                }
+            }
+        }
+    }
+        if (showPillChrome) {
             Box(
                 modifier = Modifier
-                    .graphicsLayer {
-                        translationX = xPx
-                        translationY = yPx
-                        scaleX = scale
-                        scaleY = scale
-                        this.alpha = alpha
-                        transformOrigin = TransformOrigin.Center
-                    }
-                    .size(catIcon)
-                    .clickable(
-                        interactionSource = remember(index) { MutableInteractionSource() },
-                        indication = null,
-                    ) { onSelectCategory(index) },
-                contentAlignment = Alignment.Center,
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = chromeAlpha },
             ) {
-                XmbVectorIcon(
-                    icon = category.toXmbIcon(),
-                    tint = Color.White,
-                    size = 34.dp,
+                XoraXmbPillChrome(
+                    state = state,
+                    nowPlayingPositionMs = nowPlayingPositionMs,
+                    onToggleAccountPanel = onToggleAccountPanel,
+                    onToggleSystemPanel = onToggleSystemPanel,
+                    onToggleAchievementsPanel = onToggleAchievementsPanel,
+                    onSelectSocialTab = onSelectSocialTab,
+                    onSelectAccountRow = onSelectAccountRow,
+                    onActivateAccountRow = onActivateAccountRow,
+                    onSelectSystemRow = onSelectSystemRow,
+                    onActivateSystemRow = onActivateSystemRow,
+                    onOpenNotifications = onOpenNotifications,
+                    onSystemStatusDraftChange = onSystemStatusDraftChange,
+                    onSaveCustomStatus = onSaveCustomStatus,
+                    onClearCustomStatus = onClearCustomStatus,
+                    onSaveProfile = onSaveProfile,
+                    onSelectAvatarPreset = onSelectAvatarPreset,
+                    onRequestLocalAvatar = onRequestLocalAvatar,
+                    onUseRaAvatar = onUseRaAvatar,
+                    onUseDiscordAvatar = onUseDiscordAvatar,
+                    onUseXoraAvatar = onUseXoraAvatar,
+                    onXoraPresenceMode = onXoraPresenceMode,
+                    onClearAvatar = onClearAvatar,
+                    onClearNotifications = onClearNotifications,
+                    onFriendSearchChange = onFriendSearchChange,
+                    onReplyDraftChange = onReplyDraftChange,
+                    onSelectAchievementsTab = onSelectAchievementsTab,
+                    onLoginRetroAchievements = onLoginRetroAchievements,
+                    onLoginRetroAchievementsWithApiKey = onLoginRetroAchievementsWithApiKey,
+                    onSignOutRetroAchievements = onSignOutRetroAchievements,
                 )
-            }
-        }
-
-        // Category label — centered under the focused icon (same cross X).
-        val catLabel = when {
-            atRoot -> xmb.category.label
-            xmb.depth == XoraXmbDepth.Systems -> "All Games"
-            xmb.depth == XoraXmbDepth.Roms -> "Games"
-            xmb.depth == XoraXmbDepth.Emulator -> "XOrA Emulator"
-            xmb.depth == XoraXmbDepth.DspAccounts -> "Link DSP Accounts"
-            xmb.depth == XoraXmbDepth.MusicAlbums -> "Playlist"
-            xmb.depth == XoraXmbDepth.MusicTracks -> "Songs"
-            xmb.depth == XoraXmbDepth.NowPlaying -> "Now Playing"
-            else -> xmb.category.label
-        }
-        val catLabelWidth = if (xmb.depth == XoraXmbDepth.DspAccounts) 220.dp else 160.dp
-        AnimatedContent(
-            targetState = catLabel,
-            // Cross-fade only: sliding the label sideways pulled it off the icon it names.
-            transitionSpec = {
-                fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) togetherWith
-                    fadeOut(tween(110, easing = FastOutSlowInEasing))
-            },
-            label = "catLabel",
-            modifier = Modifier
-                .graphicsLayer {
-                    translationX = crossXPx - with(density) { catLabelWidth.toPx() } / 2f
-                    // Clear the focused icon at its enlarged size — half the unscaled height
-                    // left the label sitting on top of it.
-                    translationY = catYPx + (catIconPx * CATEGORY_FOCUS_SCALE / 2f) +
-                        with(density) { CATEGORY_LABEL_GAP.toPx() }
-                    alpha = if (atRoot) 0.95f else 0.45f
-                }
-                .width(catLabelWidth),
-        ) { label ->
-            XoraTitleText(
-                text = label,
-                fontWeight = FontWeight.Medium,
-                fontSize = 11.sp,
-                maxLines = 1,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        // ——— Vertical items (glyphs slide through a fixed focus slot) ———
-        if (items.isEmpty()) {
-            XoraSecondaryText(
-                text = "Nothing here yet",
-                fontSize = 18.sp,
-                fillColor = Color.White,
-                modifier = Modifier.graphicsLayer {
-                    translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
-                    translationY = itemFocusYPx - with(density) { 10.dp.toPx() }
-                    alpha = enterAlpha
-                },
-            )
-        } else {
-            val first = (rowScroll - VISIBLE_ITEM_RADIUS - 1f).toInt().coerceAtLeast(0)
-            val last = (rowScroll + VISIBLE_ITEM_RADIUS + 1f).roundToInt()
-                .coerceAtMost(items.lastIndex)
-            for (index in first..last) {
-                val item = items[index]
-                val delta = index - rowScroll
-                val distance = abs(delta)
-                val focus = (1f - distance).coerceIn(0f, 1f)
-                val selected = index == xmb.itemIndex
-                val scale = when {
-                    distance < 0.5f -> if (browsingBoxes) {
-                        lerp(1f, 1.22f, focus)
-                    } else {
-                        lerp(1f, 1.48f, focus)
-                    }
-                    distance < 1.5f -> if (browsingBoxes) 0.9f else 0.88f
-                    distance < 2.5f -> if (browsingBoxes) 0.8f else 0.78f
-                    else -> 0.7f
-                }
-                val alpha = when {
-                    distance < 0.5f -> 1f
-                    distance < 1.5f -> 0.72f
-                    distance < 2.5f -> 0.42f
-                    distance < 3.5f -> 0.24f
-                    else -> 0.1f
-                }
-                val boxWidth = if (browsingBoxes) {
-                    lerpDp(itemIcon, boxFocusWidth, focus)
-                } else {
-                    itemIcon
-                }
-                val boxHeight = if (browsingBoxes) boxWidth * boxAspect else boxWidth
-                // Expand spacing around the focus slot so the selected glyph can breathe.
-                val yPx = itemFocusYPx - itemRowPx / 2f + xmbItemOffsetY(delta, itemPitchPx)
-                val xPx = crossXPx - glyphSlotPx / 2f
-
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .graphicsLayer {
-                            translationX = xPx
-                            translationY = yPx
-                            this.alpha = alpha * enterAlpha
-                            scaleX = scale
-                            scaleY = scale
-                            transformOrigin = TransformOrigin.Center
-                        }
-                        .width(glyphSlot)
-                        .height(itemRow)
-                        .clickable(
-                            interactionSource = remember(item.id) { MutableInteractionSource() },
-                            indication = null,
-                        ) {
-                            if (selected) onActivateItem() else onSelectItem(index)
-                        },
-                ) {
-                    XmbItemGlyph(
-                        title = item.title,
-                        artPath = item.artPath,
-                        icon = item.icon,
-                        selected = selected,
-                        width = boxWidth,
-                        height = boxHeight,
-                        boxArt = browsingBoxes,
-                    )
-                }
-            }
-
-            // Title / metadata stay in the focus slot — fade out old, slide in new from the right.
-            val focusItem = items.getOrNull(xmb.itemIndex)
-            if (focusItem != null) {
-                val detailX = crossXPx + glyphSlotPx / 2f + glyphGapPx
-                AnimatedContent(
-                    targetState = FocusDetail(
-                        id = focusItem.id,
-                        title = focusItem.title,
-                        subtitle = focusItem.subtitle,
-                        logoPath = focusItem.logoPath,
-                        playTimeMs = focusItem.playTimeMs,
-                        browsingRoms = browsingRoms,
-                        titleStyle = xmb.titleStyle,
-                    ),
-                    transitionSpec = {
-                        (
-                            fadeIn(tween(ArcadiaMotion.Medium, easing = FastOutSlowInEasing)) +
-                                slideInHorizontally(
-                                    tween(XMB_SCROLL_MS, easing = FastOutSlowInEasing),
-                                ) { it / 5 }
-                            ) togetherWith fadeOut(tween(110, easing = FastOutSlowInEasing))
-                    },
-                    contentKey = { it.id },
-                    label = "xmbFocusDetail",
-                    modifier = Modifier
-                        .graphicsLayer {
-                            translationX = detailX
-                            translationY = itemFocusYPx - with(density) { 28.dp.toPx() }
-                            alpha = enterAlpha
-                        }
-                        .widthIn(max = if (browsingBoxes) 420.dp else 360.dp),
-                ) { detail ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (detail.browsingRoms) {
-                            Box(
-                                modifier = Modifier
-                                    .padding(end = 12.dp)
-                                    .width(1.5.dp)
-                                    .height(72.dp)
-                                    .background(Color.White.copy(alpha = 0.35f)),
-                            )
-                        }
-                        if (detail.browsingRoms) {
-                            XmbRomTitle(
-                                title = detail.title,
-                                logoPath = detail.logoPath,
-                                subtitle = detail.subtitle,
-                                selected = true,
-                                titleStyle = detail.titleStyle,
-                                playTimeMs = detail.playTimeMs,
-                            )
-                        } else {
-                            Column(modifier = Modifier.widthIn(max = 360.dp)) {
-                                XoraTitleText(
-                                    text = detail.title,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 20.sp,
-                                    maxLines = 2,
-                                )
-                                if (!detail.subtitle.isNullOrBlank()) {
-                                    XoraSecondaryText(
-                                        text = detail.subtitle,
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
     }
 }
 
-private data class FocusDetail(
-    val id: String,
-    val title: String,
-    val subtitle: String?,
-    val logoPath: String?,
-    val playTimeMs: Long,
-    val browsingRoms: Boolean,
-    val titleStyle: XmbTitleStyle,
+
+/**
+ * Overlays a live playback position onto an otherwise-stable [NowPlayingState] snapshot, so the
+ * seek bar can tick every frame without [HomeUiState] itself changing identity that often — see
+ * [XoraHomeXmbPane]'s `nowPlayingPositionMs` parameter.
+ */
+private fun NowPlayingState.withLivePosition(positionMs: Long): NowPlayingState =
+    if (track == null) this else copy(positionMs = positionMs)
+
+/**
+ * Launch-hold zoom for wallpaper / hero plates. Category and item navigation must not
+ * pan or drift the backdrop — the menu moves; the sky stays put.
+ */
+private fun xmbBackdropMotion(launchScale: Float, wallpaperAlpha: Float = 1f): Modifier =
+    Modifier.graphicsLayer {
+        scaleX = launchScale
+        scaleY = launchScale
+        alpha = wallpaperAlpha
+        translationX = 0f
+        translationY = 0f
+    }
+
+internal data class IntroAppear(
+    val scale: Float,
+    val alpha: Float,
+    val dropPx: Float,
 )
 
-/** Ambient drift + selection parallax for wallpaper / hero plates. */
 @Composable
-private fun rememberXmbBackdropMotion(
-    categoryIndex: Int,
-    itemIndex: Int,
-    launchScale: Float,
-): Modifier {
-    val reduceMotion = rememberReduceMotion()
-    val parallaxX by animateFloatAsState(
-        targetValue = if (reduceMotion) 0f else categoryIndex * 14f,
-        animationSpec = tween(
-            durationMillis = if (reduceMotion) 0 else XMB_SCROLL_MS,
-            easing = FastOutSlowInEasing,
-        ),
-        label = "xmbParallaxX",
-    )
-    val parallaxY by animateFloatAsState(
-        targetValue = if (reduceMotion) 0f else itemIndex * 10f,
-        animationSpec = tween(
-            durationMillis = if (reduceMotion) 0 else XMB_SCROLL_MS,
-            easing = FastOutSlowInEasing,
-        ),
-        label = "xmbParallaxY",
-    )
-    // The drift moves the wallpaper, hero art and trailer layers, so leaving it running while the
-    // shell is not being looked at redraws the largest surfaces in the app for nothing.
-    val phase = if (rememberAmbientMotionActive()) {
-        val ambientPhase by rememberInfiniteTransition(label = "xmbAmbient").animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 18_000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "xmbAmbientPhase",
+internal fun rememberIntroAppear(
+    reveal: Boolean,
+    delayMs: Int,
+    reduceMotion: Boolean,
+): IntroAppear {
+    val progress = remember { Animatable(if (reveal) 1f else 0f) }
+    LaunchedEffect(reveal, delayMs, reduceMotion) {
+        if (!reveal) {
+            progress.snapTo(0f)
+            return@LaunchedEffect
+        }
+        if (progress.value >= 0.999f) return@LaunchedEffect
+        if (reduceMotion) {
+            progress.snapTo(1f)
+            return@LaunchedEffect
+        }
+        delay(delayMs.toLong())
+        progress.animateTo(
+            1f,
+            spring(dampingRatio = 0.48f, stiffness = 420f),
         )
-        ambientPhase
-    } else {
-        0f
     }
-    val ambX = sin(phase * PI * 2.0).toFloat() * 12f
-    val ambY = cos(phase * PI * 2.0).toFloat() * 8f
-    return Modifier.graphicsLayer {
-        val base = 1.045f * launchScale
-        scaleX = base
-        scaleY = base
-        translationX = -parallaxX + ambX
-        translationY = -parallaxY * 0.55f + ambY
-    }
-}
-
-/** Vertical distance from focus with extra breathing room around the selected slot. */
-private fun xmbItemOffsetY(delta: Float, pitchPx: Float): Float {
-    val absDelta = abs(delta)
-    val expand = 0.32f
-    val shaped = if (absDelta <= 1f) {
-        absDelta * (1f + expand)
-    } else {
-        (1f + expand) + (absDelta - 1f)
-    }
-    return sign(delta) * shaped * pitchPx
-}
-
-private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)
-
-private fun lerpDp(a: Dp, b: Dp, t: Float): Dp = a + (b - a) * t.coerceIn(0f, 1f)
-
-@Composable
-private fun XmbRomTitle(
-    title: String,
-    logoPath: String?,
-    subtitle: String?,
-    selected: Boolean,
-    titleStyle: XmbTitleStyle,
-    playTimeMs: Long,
-) {
-    val logoHeight = if (selected) ROM_LOGO_HEIGHT_FOCUS else ROM_LOGO_HEIGHT
-    val showLogo = titleStyle == XmbTitleStyle.TitleIcons && !logoPath.isNullOrBlank()
-    Column(
-        modifier = Modifier.widthIn(max = 420.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        if (showLogo) {
-            ArtworkImage(
-                path = logoPath,
-                contentDescription = title,
-                fallbackText = title,
-                contentScale = ContentScale.Fit,
-                cacheInMemory = true,
-                decodeMaxEdgePx = 720,
-                modifier = Modifier
-                    .height(logoHeight)
-                    .widthIn(max = if (selected) 360.dp else 280.dp)
-                    .fillMaxWidth(),
-            )
-        } else {
-            XoraTitleText(
-                text = title,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                fontSize = if (selected) 18.sp else 14.sp,
-                maxLines = 2,
-            )
-        }
-        AnimatedVisibility(
-            visible = selected,
-            enter = fadeIn(tween(ArcadiaMotion.Fast)) +
-                scaleIn(tween(ArcadiaMotion.Fast), initialScale = 0.96f),
-            exit = fadeOut(tween(ArcadiaMotion.Fast)),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                if (!subtitle.isNullOrBlank()) {
-                    XoraSecondaryText(
-                        text = subtitle,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                    )
-                }
-                XoraSecondaryText(
-                    text = "Playtime: ${formatXmbPlaytime(playTimeMs)}",
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
+    val p = progress.value
+    return IntroAppear(
+        scale = 0.22f + 0.78f * p,
+        alpha = p.coerceIn(0f, 1f),
+        dropPx = (1f - p.coerceIn(0f, 1f)) * -22f,
+    )
 }
 
 @Composable
-private fun XmbItemGlyph(
-    title: String,
-    artPath: String?,
-    icon: XmbIcon,
-    selected: Boolean,
-    width: Dp,
-    height: Dp,
-    boxArt: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val shape = if (boxArt) RoundedCornerShape(16.dp) else CircleShape
-    val cornerPx = 16.dp
-    val glow = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-    val rim = Color.White.copy(alpha = 0.95f)
-    val isVectorIcon = artPath.isNullOrBlank() && !boxArt
-    Box(
-        modifier = modifier
-            .width(width)
-            .height(height)
-            .then(
-                when {
-                    boxArt -> Modifier
-                        .graphicsLayer {
-                            // Soft drop only — no mirror / oval reflection under the tile.
-                            shadowElevation = if (selected) 14f else 8f
-                            this.shape = shape
-                            clip = false
-                            ambientShadowColor = Color.Black.copy(alpha = 0.45f)
-                            spotShadowColor = Color.Black.copy(alpha = 0.55f)
-                        }
-                        .drawWithContent {
-                            drawContent()
-                            if (selected) {
-                                val stroke = 3.5.dp.toPx()
-                                val inset = stroke / 2f
-                                drawRoundRect(
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            glow.copy(alpha = 0.55f),
-                                            rim.copy(alpha = 0.75f),
-                                            glow.copy(alpha = 0.45f),
-                                        ),
-                                        start = Offset.Zero,
-                                        end = Offset(size.width, size.height),
-                                    ),
-                                    topLeft = Offset(inset, inset),
-                                    size = Size(size.width - stroke, size.height - stroke),
-                                    cornerRadius = CornerRadius(cornerPx.toPx(), cornerPx.toPx()),
-                                    style = Stroke(width = stroke),
-                                )
-                            }
-                        }
-                        .clip(shape)
-                        .border(
-                            width = if (selected) 2.5.dp else 0.dp,
-                            color = if (selected) rim else Color.Transparent,
-                            shape = shape,
-                        )
-                    isVectorIcon -> Modifier
-                        .clip(shape)
-                        .border(
-                            width = if (selected) 2.dp else 1.5.dp,
-                            color = Color.Black,
-                            shape = shape,
-                        )
-                    else -> Modifier.clip(shape)
-                },
-            )
-            .background(
-                when {
-                    !artPath.isNullOrBlank() -> Color.Black.copy(alpha = 0.35f)
-                    // Solid plate — no frosted / translucent circle behind vector glyphs.
-                    isVectorIcon -> if (selected) Color(0xFF1A1D24) else Color(0xFF101218)
-                    selected -> Color.White.copy(alpha = 0.16f)
-                    else -> Color.White.copy(alpha = 0.08f)
-                },
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (!artPath.isNullOrBlank()) {
-            ArtworkImage(
-                path = artPath,
-                contentDescription = title,
-                fallbackText = title.take(1),
-                contentScale = ContentScale.Crop,
-                cacheInMemory = true,
-                decodeMaxEdgePx = if (boxArt) 512 else 256,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            XmbVectorIcon(
-                icon = icon,
-                tint = Color.White,
-                size = minOf(width, height) * 0.5f,
-                outlined = true,
-            )
+private fun rememberIntroSlide(
+    reveal: Boolean,
+    delayMs: Int,
+    reduceMotion: Boolean,
+): Float {
+    val slide = remember { Animatable(if (reveal) 0f else 1f) }
+    LaunchedEffect(reveal, delayMs, reduceMotion) {
+        if (!reveal) {
+            slide.snapTo(1f)
+            return@LaunchedEffect
         }
+        if (slide.value <= 0.001f) return@LaunchedEffect
+        if (reduceMotion) {
+            slide.snapTo(0f)
+            return@LaunchedEffect
+        }
+        delay(delayMs.toLong())
+        slide.animateTo(0f, tween(480, easing = FastOutSlowInEasing))
     }
+    return slide.value
 }
 
 internal fun formatXmbPlaytime(millis: Long): String {
@@ -1060,63 +919,196 @@ internal fun formatXmbPlaytime(millis: Long): String {
 }
 
 @Composable
-private fun XoraRomHeroBackdrop(
+private fun MusicWaveMaskLayer(modifier: Modifier = Modifier) {
+    LoopingWallpaperVideo(
+        uri = MUSIC_WAVE_MASK_URI,
+        modifier = modifier.graphicsLayer { blendMode = BlendMode.Multiply },
+    )
+}
+
+/**
+ * Hero art with the Music wave mask over it, shared by the single- and dual-screen XMB panes.
+ *
+ * The mask blends Multiply, so the pair must be grouped offscreen for the blend to land on the
+ * art instead of the render target — but only while the mask is actually composed, which
+ * includes its fade-out after [showWaveMask] flips false. Gating on the transition rather than
+ * leaving the group on spares every wave-less surface a full-screen buffer and blit per frame.
+ */
+@Composable
+private fun XmbHeroWaveBackdrop(
     artPath: String?,
+    showWaveMask: Boolean,
+    settleMs: Long,
+    alpha: Float,
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = rememberReduceMotion()
-    // Crossfade (not AnimatedContent): empty ↔ art and art ↔ art always fade,
-    // including when focus clears on B / cancel / leaving Games.
-    Crossfade(
-        targetState = artPath.orEmpty(),
-        animationSpec = tween(
-            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.Medium,
-            easing = FastOutSlowInEasing,
-        ),
-        label = "xmbRomHero",
-        modifier = modifier,
-    ) { path ->
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (path.isNotBlank()) {
-                ArtworkImage(
-                    path = path,
-                    contentDescription = null,
-                    fallbackText = "",
-                    contentScale = ContentScale.Crop,
-                    cacheInMemory = false,
-                    decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.55f),
-                                0.45f to Color.Black.copy(alpha = 0.32f),
-                                1f to Color.Black.copy(alpha = 0.78f),
-                            ),
-                        ),
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.horizontalGradient(
-                                0f to Color.Black.copy(alpha = 0.58f),
-                                0.4f to Color.Black.copy(alpha = 0.12f),
-                                1f to Color.Black.copy(alpha = 0.42f),
-                            ),
-                        ),
-                )
-            }
+    // Lite devices skip the video entirely, so they must not pay for the group either.
+    val waveVisible = showWaveMask && !LocalLiteVisuals.current
+    val wave = remember { MutableTransitionState(waveVisible) }
+    wave.targetState = waveVisible
+    val grouped = wave.currentState || wave.targetState
+    Box(
+        modifier = modifier.graphicsLayer {
+            this.alpha = alpha
+            if (grouped) compositingStrategy = CompositingStrategy.Offscreen
+        },
+    ) {
+        XoraRomHeroBackdrop(
+            artPath = artPath,
+            settleMs = settleMs,
+            modifier = Modifier.fillMaxSize(),
+        )
+        AnimatedVisibility(
+            visibleState = wave,
+            enter = fadeIn(
+                tween(
+                    durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                    easing = FastOutSlowInEasing,
+                ),
+            ),
+            exit = fadeOut(
+                tween(
+                    durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+                    easing = FastOutSlowInEasing,
+                ),
+            ),
+        ) {
+            MusicWaveMaskLayer(Modifier.fillMaxSize())
         }
     }
 }
 
 @Composable
+private fun XoraRomHeroBackdrop(
+    artPath: String?,
+    modifier: Modifier = Modifier,
+    settleMs: Long = XMB_FOCUS_SETTLE_MS,
+) {
+    val reduceMotion = rememberReduceMotion()
+    // Wait out the focus settle so a held d-pad does not strobe every ROM's hero.
+    // Keep the last art on screen while scrolling — clearing it first is the flicker.
+    val target = artPath.orEmpty()
+    var committed by remember { mutableStateOf(target) }
+    LaunchedEffect(target, reduceMotion, settleMs) {
+        if (target == committed) return@LaunchedEffect
+        if (target.isBlank()) {
+            committed = ""
+            return@LaunchedEffect
+        }
+        if (!reduceMotion) delay(settleMs)
+        committed = target
+    }
+    // Crossfade (not AnimatedContent): empty ↔ art and art ↔ art always fade,
+    // including when focus clears on B / cancel / leaving Games.
+    Crossfade(
+        targetState = committed,
+        animationSpec = tween(
+            durationMillis = if (reduceMotion) 0 else ArcadiaMotion.HeroCrossfade,
+            easing = FastOutSlowInEasing,
+        ),
+        label = "xmbRomHero",
+        modifier = modifier.clipToBounds(),
+    ) { path ->
+        val browseZoom = rememberHeroBrowseZoom(path)
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (path.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = browseZoom
+                            scaleY = browseZoom
+                        },
+                ) {
+                    if (path.isVideoMediaPath()) {
+                        LoopingWallpaperVideo(
+                            uri = if (path.startsWith("file:", ignoreCase = true) ||
+                                path.startsWith("content:", ignoreCase = true) ||
+                                path.startsWith("http", ignoreCase = true)
+                            ) {
+                                path
+                            } else {
+                                "file://$path"
+                            },
+                            audioVolume = 0f,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        ArtworkImage(
+                            path = path,
+                            contentDescription = null,
+                            fallbackText = "",
+                            contentScale = ContentScale.Crop,
+                            cacheInMemory = true,
+                            decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Incoming ROM hero starts at 1× and eases in a few percent while the crossfade mixes it
+ * with the outgoing plate. Reduce-motion snaps to the settled scale.
+ */
+@Composable
+internal fun rememberHeroBrowseZoom(path: String): Float {
+    val reduceMotion = rememberReduceMotion()
+    val settled = 1f + ArcadiaMotion.HeroBrowseZoom
+    val zoom = remember(path) { Animatable(if (reduceMotion || path.isBlank()) settled else 1f) }
+    LaunchedEffect(path, reduceMotion) {
+        if (path.isBlank()) {
+            zoom.snapTo(1f)
+            return@LaunchedEffect
+        }
+        if (reduceMotion) {
+            zoom.snapTo(settled)
+            return@LaunchedEffect
+        }
+        zoom.snapTo(1f)
+        zoom.animateTo(
+            settled,
+            tween(ArcadiaMotion.HeroBrowseZoomMs, easing = FastOutSlowInEasing),
+        )
+    }
+    return zoom.value
+}
+
+/** Soft fade + short slide. Size is snapped and unclipped so title and playtime move together. */
+internal fun xmbCopyTransition(reduceMotion: Boolean): ContentTransform {
+    if (reduceMotion) {
+        return ContentTransform(
+            targetContentEnter = fadeIn(tween(0)),
+            initialContentExit = fadeOut(tween(0)),
+            sizeTransform = SizeTransform(clip = false) { _, _ -> snap() },
+        )
+    }
+    val enter =
+        fadeIn(tween(ArcadiaMotion.HeroCopy, easing = LinearOutSlowInEasing)) +
+            slideInHorizontally(tween(ArcadiaMotion.HeroCopy, easing = LinearOutSlowInEasing)) {
+                24
+            }
+    val exit =
+        fadeOut(tween(ArcadiaMotion.HeroCopyExit, easing = LinearOutSlowInEasing)) +
+            slideOutHorizontally(tween(ArcadiaMotion.HeroCopyExit, easing = LinearOutSlowInEasing)) {
+                -10
+            }
+    return ContentTransform(
+        targetContentEnter = enter,
+        initialContentExit = exit,
+        sizeTransform = SizeTransform(clip = false) { _, _ -> snap() },
+    )
+}
+
+@Composable
 private fun XoraXmbPillChrome(
     state: HomeUiState,
+    /** Live playback position — see [XoraHomeXmbPane]'s parameter of the same name. */
+    nowPlayingPositionMs: Long,
     onToggleAccountPanel: () -> Unit,
     onToggleSystemPanel: () -> Unit,
     onToggleAchievementsPanel: () -> Unit,
@@ -1131,10 +1123,13 @@ private fun XoraXmbPillChrome(
     onClearCustomStatus: () -> Unit,
     onSaveProfile: (displayName: String, avatarPresetId: String) -> Unit,
     onSelectAvatarPreset: (presetId: String) -> Unit,
-    onRequestLocalAvatar: () -> Unit,
+    onRequestLocalAvatar: (PhotoImportSource) -> Unit,
     onUseRaAvatar: () -> Unit,
     onUseDiscordAvatar: () -> Unit,
+    onUseXoraAvatar: () -> Unit,
+    onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
     onClearAvatar: () -> Unit,
+    onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit,
     onReplyDraftChange: (String) -> Unit,
     onSelectAchievementsTab: (AchievementsPaneTab) -> Unit,
@@ -1143,16 +1138,49 @@ private fun XoraXmbPillChrome(
     onSignOutRetroAchievements: () -> Unit,
 ) {
     var profileEditing by remember { mutableStateOf(false) }
-    LaunchedEffect(state.profileEditRequest) {
-        if (state.profileEditRequest > 0) profileEditing = true
-    }
+    ProfileEditRequestEffect(state.profileEditRequest) { profileEditing = true }
     val launching = state.isLaunching
-    val accountExpanded = state.accountPanelExpanded && !launching
-    val systemExpanded = state.systemPanelExpanded && !launching
-    val achievementsExpanded = state.achievementsPanelExpanded && !launching
+    val launchPageOpen = state.homeHub.vitaLaunchPageOpen
+    val musicPlaying = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying
+    // Matches the backdrop's own tray blur in [XoraHomeXmbPane] so the corner recedes with it.
+    val trayBlur by animateDpAsState(
+        targetValue = if (state.homeHub.vitaShortcutTrayOpen) XMB_TRAY_BLUR_RADIUS else 0.dp,
+        animationSpec = tween(durationMillis = XMB_TRAY_BLUR_MS, easing = FastOutSlowInEasing),
+        label = "miniPlayerTrayBlur",
+    )
+    val reduceMotion = rememberReduceMotion()
+    val introSlide = rememberIntroSlide(
+        reveal = state.homeIntroReveal,
+        delayMs = 110,
+        reduceMotion = reduceMotion,
+    )
+    val slidePx = with(LocalDensity.current) { 72.dp.toPx() } * introSlide
+    val introAlpha = (1f - introSlide).coerceIn(0f, 1f)
+    val hidePills = shouldHideHomePillChrome(
+        startSettingsOpen = state.startSettingsOpen,
+        launchPageOpen = launchPageOpen,
+        photosOverlayOpen = state.photos.chromeOverlayOpen,
+        raLibraryOpen = state.xoraXmb.depth == XoraXmbDepth.RaLibrary,
+    )
+    val accountExpanded = state.accountPanelExpanded && !launching && !launchPageOpen && !hidePills
+    val systemExpanded = state.systemPanelExpanded && !launching && !launchPageOpen && !hidePills
+    val achievementsExpanded = state.achievementsPanelExpanded && !launching && !launchPageOpen
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val paneMaxHeight = this.maxHeight
+        if (accountExpanded || systemExpanded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) {
+                        if (accountExpanded) onToggleAccountPanel()
+                        if (systemExpanded) onToggleSystemPanel()
+                    },
+            )
+        }
         // Only the expanded pill's own collapsed chrome hides (inside each pill).
         // Sibling pills and the XMB stay visible.
         AccountPill(
@@ -1162,17 +1190,22 @@ private fun XoraXmbPillChrome(
             profileAvatarModel = state.profileAvatarModel,
             accountRows = state.accountPanelRows,
             selectedRowIndex = state.accountPanelSelectedIndex,
+            hideCollapsedChrome = hidePills || state.activeNotificationPresent,
             onToggle = onToggleAccountPanel,
             onSelectTab = onSelectSocialTab,
             onSelectRow = onSelectAccountRow,
             onActivateRow = onActivateAccountRow,
             onFriendSearchChange = onFriendSearchChange,
             onReplyDraftChange = onReplyDraftChange,
+            onClearNotifications = onClearNotifications,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .heightIn(max = paneMaxHeight - 24.dp)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .graphicsLayer { alpha = if (launching) 0f else 1f },
+                .padding(start = 20.dp, top = 21.dp, end = 16.dp, bottom = 12.dp)
+                .graphicsLayer {
+                    alpha = introAlpha
+                    translationX = -slidePx
+                },
         )
         SystemPill(
             profile = state.profile,
@@ -1184,6 +1217,7 @@ private fun XoraXmbPillChrome(
             systemProfile = state.systemProfile,
             expanded = systemExpanded,
             selectedRowIndex = state.systemPanelSelectedIndex,
+            hideCollapsedChrome = hidePills,
             onToggle = onToggleSystemPanel,
             onSelectRow = onSelectSystemRow,
             onActivateRow = onActivateSystemRow,
@@ -1193,23 +1227,57 @@ private fun XoraXmbPillChrome(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .heightIn(max = paneMaxHeight)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .graphicsLayer { alpha = if (launching) 0f else 1f },
+                .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 4.dp)
+                .graphicsLayer {
+                    alpha = introAlpha
+                    translationX = slidePx
+                },
         )
 
         // Music owns this corner while browsing; the full Now Playing page already has transport,
-        // so the mini player hides there and comes back on exit.
+        // so the mini player hides there and comes back on exit. The RA capsule stays off the
+        // Vita launch page — no chrome card, no in-peel copy.
         val musicFocused = state.xoraXmb.category == XoraXmbCategory.Music
-        val showMiniPlayer = musicFocused && state.xoraXmb.depth != XoraXmbDepth.NowPlaying
+        val showMiniPlayer = !launchPageOpen &&
+            musicFocused &&
+            state.xoraXmb.depth != XoraXmbDepth.NowPlaying &&
+            state.xoraXmb.depth != XoraXmbDepth.RaLibrary
+        val showAchievementsCard = !launchPageOpen &&
+            !musicFocused &&
+            state.xoraXmb.showsAchievementsCard &&
+            state.xoraXmb.depth != XoraXmbDepth.RaLibrary
         if (showMiniPlayer) {
             NowPlayingPill(
-                state = state.music.nowPlaying,
+                state = state.music.nowPlaying.withLivePosition(nowPlayingPositionMs),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .graphicsLayer { alpha = if (launching) 0f else 1f },
+                    .graphicsLayer {
+                        alpha = introAlpha
+                        translationY = slidePx * 0.85f
+                    },
             )
-        } else if (!musicFocused) {
+        }
+        AnimatedVisibility(
+            visible = showAchievementsCard,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
+                animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+                initialScale = 0.92f,
+                transformOrigin = TransformOrigin(1f, 1f),
+            ),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) + scaleOut(
+                animationSpec = arcadiaTween(ArcadiaMotion.Fast),
+                targetScale = 0.96f,
+                transformOrigin = TransformOrigin(1f, 1f),
+            ),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .graphicsLayer {
+                    alpha = introAlpha
+                    translationY = slidePx * 0.85f
+                },
+        ) {
             AchievementsPill(
                 expanded = achievementsExpanded,
                 state = state.achievements,
@@ -1217,11 +1285,6 @@ private fun XoraXmbPillChrome(
                 onSelectTab = onSelectAchievementsTab,
                 onLogin = onLoginRetroAchievements,
                 onLoginWithApiKey = onLoginRetroAchievementsWithApiKey,
-                onSignOut = onSignOutRetroAchievements,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .graphicsLayer { alpha = if (launching) 0f else 1f },
             )
         }
 
@@ -1237,7 +1300,10 @@ private fun XoraXmbPillChrome(
                 onRequestPhoto = onRequestLocalAvatar,
                 onUseRaAvatar = onUseRaAvatar,
                 onUseDiscordAvatar = onUseDiscordAvatar,
+                onUseXoraAvatar = onUseXoraAvatar,
+                onXoraPresenceMode = onXoraPresenceMode,
                 onClearAvatar = onClearAvatar,
+                xoraSignedIn = state.dashboard.network.signedIn,
             )
         }
     }
@@ -1245,33 +1311,15 @@ private fun XoraXmbPillChrome(
 
 /** Drill in / out slide between XMB rungs (PSP / PS3 shell feel). */
 private const val XMB_DEPTH_SLIDE_MS = 300
-private const val CROSS_X_FRACTION = 0.28f
-/** Category strip sits in the upper third (PS3 XMB). */
-private const val CATEGORY_Y_FRACTION = 0.30f
-/** Ease-out slide duration for category / item cursors and focus titles. */
-private const val XMB_SCROLL_MS = 340
-/** Focused item center sits below the category strip + label. */
-private val CATEGORY_TO_ITEM_GAP = 110.dp
-private const val VISIBLE_ITEM_RADIUS = 4
-private val CATEGORY_PITCH = 96.dp
-private val ITEM_PITCH = 58.dp
-private val CATEGORY_ICON = 52.dp
-/** Focused category icon scale — the label is placed clear of the icon at this size. */
-private const val CATEGORY_FOCUS_SCALE = 1.32f
-private val CATEGORY_LABEL_GAP = 8.dp
-private val ITEM_ICON = 42.dp
-private val ITEM_ROW = 56.dp
-/** Landscape 16:9 ROM box (height = width × [ROM_BOX_ASPECT]). */
-private val ROM_BOX_WIDTH = 128.dp
-private val ROM_BOX_WIDTH_FOCUS = 176.dp
-private const val ROM_BOX_ASPECT = 9f / 16f
-private val ROM_ITEM_ROW = 118.dp
-private val ROM_ITEM_PITCH = 104.dp
-private val ROM_LOGO_HEIGHT = 42.dp
-private val ROM_LOGO_HEIGHT_FOCUS = 64.dp
-/** Console product art (ScreenScraper illustration/photo) — near-square card. */
-private val SYSTEM_BOX_WIDTH = 96.dp
-private val SYSTEM_BOX_WIDTH_FOCUS = 132.dp
-private const val SYSTEM_BOX_ASPECT = 1.05f
-private val SYSTEM_ITEM_ROW = 156.dp
-private val SYSTEM_ITEM_PITCH = 140.dp
+
+/**
+ * Backdrop defocus while the Vita shortcut tray is open. The tray is a foreground surface, so
+ * the shell behind it goes soft rather than dark. Needs API 31+ RenderEffect; older devices
+ * simply keep the sharp wallpaper (the tray still reads fine over it).
+ */
+private val XMB_TRAY_BLUR_RADIUS = 18.dp
+private const val XMB_TRAY_BLUR_MS = 280
+
+/** Softer than the tray's: a card's CRT DIM already carries most of the separation. */
+private val XMB_POPUP_BLUR_RADIUS = 14.dp
+private const val XMB_POPUP_BLUR_MS = 220

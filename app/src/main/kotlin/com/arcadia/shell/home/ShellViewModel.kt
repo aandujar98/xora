@@ -8,6 +8,8 @@ import com.arcadia.shell.datastore.DisplayMode
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ThemeMode
 import com.arcadia.shell.datastore.UiFitMode
+import com.arcadia.shell.datastore.VisualPerformanceMode
+import com.arcadia.shell.datastore.liteVisualsOverride
 import com.arcadia.shell.display.DisplayTopologyMonitor
 import com.arcadia.shell.display.computeUiLayoutScale
 import com.arcadia.shell.display.formatDisplayResolution
@@ -36,6 +38,8 @@ data class ShellUiState(
     val shellThemeId: String = DEFAULT_SHELL_THEME_ID,
     /** Shell / XMB text size multiplier from Display settings. */
     val uiTextScale: Float = DEFAULT_UI_TEXT_SCALE,
+    /** Display → Refresh rate. True asks the panel for its fastest mode. */
+    val highRefreshRate: Boolean = true,
     /** Auto-fit vs system density (Display settings). */
     val uiFitMode: UiFitMode = UiFitMode.Auto,
     /** False until the first DataStore emission so we do not flash Home before onboarding. */
@@ -43,6 +47,7 @@ data class ShellUiState(
     val onboardingComplete: Boolean = false,
     /** Session flag from Settings → Go to Onboarding (also clears the prefs flag). */
     val forceOnboarding: Boolean = false,
+    val visualPerformanceMode: VisualPerformanceMode = VisualPerformanceMode.Auto,
 ) {
     /** True when two public displays are present (hardware), regardless of [displayMode]. */
     val isDualScreen: Boolean get() = topology.isDualScreen
@@ -53,7 +58,7 @@ data class ShellUiState(
 
     /** Layout scale for the secondary panel when present. */
     val secondaryUiLayoutScale: Float
-        get() = layoutScaleFor(topology.secondary ?: topology.primary)
+        get() = layoutScaleFor(topology.presentationDisplay ?: topology.primary)
 
     fun layoutScaleFor(display: ShellDisplay?): Float =
         if (uiFitMode == UiFitMode.Auto) computeUiLayoutScale(display) else 1f
@@ -62,21 +67,24 @@ data class ShellUiState(
         formatDisplayResolution(display)
 
     /**
-     * Whether the shell should open a secondary Presentation and split Hero / Library.
-     * Requires Dual preference **and** a second physical display; otherwise falls back to
-     * the single-screen composed host.
+     * Home XMB is single-screen. Dual-display Presentation split is no longer offered
+     * from launcher settings; DS / 3DS still expand from the emulator overlay.
      */
     val useDualLayout: Boolean
-        get() = displayMode == DisplayMode.Dual && topology.isDualScreen
+        get() = false
 
     /** Full-screen onboarding instead of the Home hub. */
     val showOnboarding: Boolean
         get() = prefsReady && (!onboardingComplete || forceOnboarding)
 
+    /** Passed into [com.arcadia.shell.designsystem.ArcadiaTheme] to pick the lite visual path. */
+    val liteVisualsOverride: Boolean?
+        get() = visualPerformanceMode.liteVisualsOverride()
+
     /** The pane the built-in display shows, which is always the opposite of the secondary one. */
     val primaryDisplayRole: ScreenRole get() = secondaryDisplayRole.swapped()
 
-    val secondaryDisplayId: Int? get() = topology.secondary?.displayId
+    val secondaryDisplayId: Int? get() = topology.presentationDisplay?.displayId
 
     /** Where the grid currently lives, since that is the screen the user is navigating on. */
     val gridDisplayId: Int?
@@ -118,10 +126,12 @@ class ShellViewModel @Inject constructor(
             themeMode = settings.themeMode,
             shellThemeId = settings.shellThemeId,
             uiTextScale = settings.uiTextScale,
+            highRefreshRate = settings.highRefreshRate,
             uiFitMode = settings.uiFitMode,
             prefsReady = true,
             onboardingComplete = onboardingDone,
             forceOnboarding = force,
+            visualPerformanceMode = settings.visualPerformanceMode,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -149,6 +159,7 @@ class ShellViewModel @Inject constructor(
     fun restartOnboarding() {
         viewModelScope.launch {
             preferences.setOnboardingComplete(false)
+            preferences.setOnboardingStep("")
             forceOnboarding.value = true
         }
     }

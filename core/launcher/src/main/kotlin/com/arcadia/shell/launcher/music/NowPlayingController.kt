@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
+import com.arcadia.shell.datastore.ShellPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -30,6 +32,8 @@ data class NowPlayingState(
     val positionMs: Long = 0,
     val shuffle: Boolean = false,
     val repeat: Boolean = false,
+    /** 0..1 mix for on-device playback. Spotify ignores this. */
+    val volume: Float = NowPlayingVolume.DEFAULT,
 ) {
     val hasTrack: Boolean get() = track != null
 
@@ -52,6 +56,7 @@ data class NowPlayingState(
 @Singleton
 class NowPlayingController @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val preferences: ShellPreferences,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -72,10 +77,42 @@ class NowPlayingController @Inject constructor(
     /** Fired after a queue skip so Home can mirror Spotify Web API play when needed. */
     var onTrackAdvanced: ((MusicTrack) -> Unit)? = null
 
+    /**
+     * Spotify play/pause lives in Home's Web API client. Device tracks flip locally in
+     * [togglePlayPause]; this fires afterward so the remote player stays in sync.
+     */
+    var onRemotePlayPause: ((wasPlaying: Boolean) -> Unit)? = null
+
+    /** True while the boot clip owns the speakers; device Now Playing is paused until it ends. */
+    private var bootIntroActive: Boolean = false
+    private var bootIntroPausedDevice: Boolean = false
+    private var ducked: Boolean = false
+
+    /**
+     * True once a game has booted and the shell has gone to standby behind it. Unlike sleep or
+     * stepping out to another app — where the soundtrack is meant to keep running — the game owns
+     * the speakers, so the music ramps down and waits for the player to come back.
+     */
+    private var gameStandbyActive: Boolean = false
+    private var gameStandbyPausedDevice: Boolean = false
+    /** 0 = silent under a launched game, 1 = full. Multiplied into the output gain. */
+    private var standbyFade: Float = 1f
+    private var standbyFadeJob: Job? = null
+
+    init {
+        scope.launch {
+            val volume = preferences.settings.first().musicVolume
+            stateFlow.update { it.copy(volume = NowPlayingVolume.coerce(volume)) }
+            applyPlayerVolume()
+        }
+    }
+
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
             AudioManager.AUDIOFOCUS_GAIN -> {
                 focusGranted = true
+                ducked = false
+                applyPlayerVolume()
                 val track = stateFlow.value.track
                 if (track?.source == MusicSource.Device && stateFlow.value.isPlaying) {
                     runCatching { player?.start() }
@@ -93,7 +130,8 @@ class NowPlayingController @Inject constructor(
                 }
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                runCatching { player?.setVolume(0.35f, 0.35f) }
+                ducked = true
+                applyPlayerVolume()
             }
         }
     }
@@ -129,6 +167,7 @@ class NowPlayingController @Inject constructor(
                     positionMs = 0,
                     shuffle = stateFlow.value.shuffle,
                     repeat = stateFlow.value.repeat,
+                    volume = stateFlow.value.volume,
                 )
             }
         }
@@ -145,14 +184,27 @@ class NowPlayingController @Inject constructor(
     fun togglePlayPause() {
         val current = stateFlow.value
         val track = current.track ?: return
+        val wasPlaying = current.isPlaying
         when (track.source) {
             MusicSource.Device -> {
-                if (current.isPlaying) pauseDevice() else resumeDevice()
+                if (wasPlaying) pauseDevice() else resumeDevice()
             }
             MusicSource.Spotify -> {
                 stateFlow.update { it.copy(isPlaying = !it.isPlaying) }
+                onRemotePlayPause?.invoke(wasPlaying)
             }
         }
+    }
+
+    fun setVolume(volume: Float) {
+        val next = NowPlayingVolume.coerce(volume)
+        stateFlow.update { it.copy(volume = next) }
+        applyPlayerVolume()
+        scope.launch { preferences.setMusicVolume(next) }
+    }
+
+    fun nudgeVolume(delta: Float) {
+        setVolume(NowPlayingVolume.nudge(stateFlow.value.volume, delta))
     }
 
     fun toggleShuffle() {
@@ -239,6 +291,7 @@ class NowPlayingController @Inject constructor(
                 positionMs = 0,
                 shuffle = stateFlow.value.shuffle,
                 repeat = stateFlow.value.repeat,
+                volume = stateFlow.value.volume,
             )
             return
         }
@@ -250,6 +303,7 @@ class NowPlayingController @Inject constructor(
                 return
             }
             runCatching {
+                applyPlayerVolume()
                 player?.seekTo(0)
                 player?.start()
             }
@@ -259,15 +313,24 @@ class NowPlayingController @Inject constructor(
             startPositionTicker()
             return
         }
-        releasePlayer()
+        // Hold audio focus and keep isPlaying true across the swap. Releasing first, then
+        // flipping isPlaying off, lets shell BGM steal focus before prepareAsync finishes —
+        // the old track stops and the new one never starts until the user leaves and retries.
+        if (!requestAudioFocus()) {
+            stateFlow.update {
+                it.copy(track = track, isPlaying = false, positionMs = 0)
+            }
+            return
+        }
         stateFlow.value = NowPlayingState(
             track = track,
-            isPlaying = false,
+            isPlaying = true,
             positionMs = 0,
             shuffle = stateFlow.value.shuffle,
             repeat = stateFlow.value.repeat,
+            volume = stateFlow.value.volume,
         )
-        if (!requestAudioFocus()) return
+        releasePlayer()
         val created = runCatching {
             MediaPlayer().apply {
                 setAudioAttributes(
@@ -276,9 +339,12 @@ class NowPlayingController @Inject constructor(
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .build(),
                 )
+                val gain = NowPlayingVolume.outputGain(stateFlow.value.volume, ducked) * standbyFade
+                setVolume(gain, gain)
                 setDataSource(context, Uri.parse(uri))
                 setOnPreparedListener { media ->
                     loadedUri = uri
+                    applyPlayerVolume()
                     runCatching { media.start() }
                     stateFlow.update { it.copy(isPlaying = true, positionMs = 0) }
                     startPositionTicker()
@@ -315,6 +381,85 @@ class NowPlayingController @Inject constructor(
         player = created
     }
 
+    /**
+     * Pause on-device Now Playing while the cold-start boot clip plays so its audio is the only
+     * soundtrack. Restores the same track when the boot screen finishes. Spotify is left alone —
+     * that stream lives in another app.
+     */
+    fun setBootIntroActive(active: Boolean) {
+        if (bootIntroActive == active) return
+        bootIntroActive = active
+        if (active) {
+            val current = stateFlow.value
+            if (current.track?.source == MusicSource.Device && current.isPlaying) {
+                pauseDevice()
+                bootIntroPausedDevice = true
+            }
+        } else if (bootIntroPausedDevice) {
+            bootIntroPausedDevice = false
+            if (!stateFlow.value.isPlaying) resumeDevice()
+        }
+    }
+
+    /**
+     * A game booted and the shell dropped to standby behind it. The music ramps down over
+     * [fadeMs] and then pauses, and coming back out ramps it in again from where it stopped.
+     *
+     * This is only for a launched game. Sleep and stepping out to another app leave the
+     * soundtrack alone — [onShellBackgrounded] is deliberately a no-op.
+     */
+    fun setGameStandbyActive(active: Boolean, fadeMs: Long = STANDBY_FADE_MS) {
+        if (gameStandbyActive == active) return
+        gameStandbyActive = active
+        standbyFadeJob?.cancel()
+        if (active) {
+            val current = stateFlow.value
+            val fading = current.track?.source == MusicSource.Device && current.isPlaying
+            if (!fading) {
+                standbyFade = 0f
+                applyPlayerVolume()
+                return
+            }
+            standbyFadeJob = scope.launch {
+                rampStandbyFade(to = 0f, fadeMs = fadeMs)
+                // Paused only after the ramp, so the last of the song is heard out rather than cut.
+                if (gameStandbyActive) {
+                    pauseDevice()
+                    gameStandbyPausedDevice = true
+                }
+            }
+        } else {
+            val resume = gameStandbyPausedDevice
+            gameStandbyPausedDevice = false
+            standbyFadeJob = scope.launch {
+                if (resume && !stateFlow.value.isPlaying) resumeDevice()
+                rampStandbyFade(to = 1f, fadeMs = fadeMs)
+            }
+        }
+    }
+
+    /** Steps [standbyFade] to [to] over [fadeMs], applying the gain as it goes. */
+    private suspend fun rampStandbyFade(to: Float, fadeMs: Long) {
+        val from = standbyFade
+        val steps = (fadeMs / STANDBY_FADE_STEP_MS).coerceAtLeast(1L).toInt()
+        for (step in 1..steps) {
+            standbyFade = from + (to - from) * (step.toFloat() / steps)
+            applyPlayerVolume()
+            delay(STANDBY_FADE_STEP_MS)
+        }
+        standbyFade = to
+        applyPlayerVolume()
+    }
+
+    /**
+     * The shell UI left the foreground (emulator session, Home, another app). Device Now Playing
+     * keeps running — [MusicPlaybackSession] holds a media foreground service so playback survives
+     * outside the XMB and on the lock screen. Spotify is untouched.
+     */
+    fun onShellBackgrounded() {
+        // Keep device playback. Pausing here used to stop music the moment XOrA Emulator opened.
+    }
+
     private fun pauseDevice() {
         runCatching { player?.pause() }
         stopPositionTicker()
@@ -329,7 +474,7 @@ class NowPlayingController @Inject constructor(
             return
         }
         if (!requestAudioFocus()) return
-        runCatching { player?.setVolume(1f, 1f) }
+        applyPlayerVolume()
         runCatching { player?.start() }
         stateFlow.update { it.copy(isPlaying = true) }
         startPositionTicker()
@@ -346,8 +491,14 @@ class NowPlayingController @Inject constructor(
                 positionMs = 0,
                 shuffle = stateFlow.value.shuffle,
                 repeat = stateFlow.value.repeat,
+                volume = stateFlow.value.volume,
             )
         }
+    }
+
+    private fun applyPlayerVolume() {
+        val gain = NowPlayingVolume.outputGain(stateFlow.value.volume, ducked) * standbyFade
+        runCatching { player?.setVolume(gain, gain) }
     }
 
     private fun currentPositionMs(): Long =
@@ -423,5 +574,8 @@ class NowPlayingController @Inject constructor(
     companion object {
         private const val POSITION_TICK_MS = 250L
         private const val RESTART_THRESHOLD_MS = 3_000L
+        /** Long enough to read as the music stepping aside for the game, not as a cut. */
+        const val STANDBY_FADE_MS = 1_200L
+        private const val STANDBY_FADE_STEP_MS = 40L
     }
 }

@@ -93,11 +93,18 @@ class PlatformEmulatorDetector @Inject constructor(
             .forEach { player ->
                 if (!probe.isInstalled(player)) return@forEach
                 if (!seen.add(player.uniqueId)) return@forEach
+                val resolvedPkg = when {
+                    Ps2Packages.isPlayPlayer(player) ->
+                        Ps2Packages.findInstalledPlayPackage(probe) ?: player.packageName
+                    Ps2Packages.isPs2Player(player) ->
+                        Ps2Packages.findInstalledPackage(probe) ?: player.packageName
+                    else -> player.packageName
+                }
                 results += DetectedEmulator(
                     playerId = player.uniqueId,
                     displayName = player.name,
-                    subtitle = player.packageName ?: "Installed app",
-                    packageName = player.packageName,
+                    subtitle = resolvedPkg ?: "Installed app",
+                    packageName = resolvedPkg,
                     coreName = null,
                     kind = DetectedEmulatorKind.Standalone,
                     available = true,

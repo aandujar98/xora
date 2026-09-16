@@ -19,6 +19,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,26 +29,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,19 +57,27 @@ import com.arcadia.shell.designsystem.GlassTone
 import com.arcadia.shell.designsystem.LocalShellTheme
 import com.arcadia.shell.designsystem.arcadiaTween
 import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.XoraSettingsPanelHeader
+import com.arcadia.shell.designsystem.XoraSheetScrim
+import com.arcadia.shell.designsystem.xoraFocusHighlight
+import com.arcadia.shell.designsystem.xoraSettingsPanelSurface
 import com.arcadia.shell.designsystem.motionMillis
+import com.arcadia.shell.datastore.VisualPerformanceChoices
+import com.arcadia.shell.datastore.VisualPerformanceMode
+import com.arcadia.shell.datastore.visualPerformanceModeLabel
+import com.arcadia.shell.datastore.visualPerformanceModeSubtitle
 import com.arcadia.shell.designsystem.rememberGlassTokens
-import com.arcadia.shell.feature.home.StartSettingsCategory
+import com.arcadia.shell.feature.home.StartSettingsAction
 import com.arcadia.shell.feature.home.StartSettingsRow
 import com.arcadia.shell.feature.home.StartSettingsTrailingIcon
 import com.arcadia.shell.feature.home.StartSettingsUiState
 
 private val ListShape = RoundedCornerShape(22.dp)
-private val RailShape = RoundedCornerShape(percent = 50)
 private val RowFocusShape = RoundedCornerShape(14.dp)
 
 /**
- * Start-button app config: dual floating glass panels (list + category rail).
+ * Start-button app config: one floating glass list. Root is the category list;
+ * Confirm drills in, Back closes the overlay rather than returning to Settings.
  *
  * Overlay (not Dialog) so Dual Mode [android.app.Presentation] panes can host it without a
  * nested window. Enter/exit uses scale+fade with a light spring overshoot.
@@ -77,10 +85,11 @@ private val RowFocusShape = RoundedCornerShape(14.dp)
 @Composable
 fun StartSettingsPanel(
     state: StartSettingsUiState,
-    onSelectCategory: (StartSettingsCategory) -> Unit,
     onSelectRow: (Int) -> Unit,
     onActivate: () -> Unit,
+    onBack: () -> Unit,
     onDismiss: () -> Unit,
+    onSelectPerformanceMode: (VisualPerformanceMode) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val glass = rememberGlassTokens(GlassTone.OverMedia)
@@ -90,9 +99,14 @@ fun StartSettingsPanel(
         stiffness = Spring.StiffnessMediumLow,
     )
 
-    BackHandler(enabled = state.open, onBack = onDismiss)
+    BackHandler(enabled = state.open, onBack = onBack)
 
-    AnimatedVisibility(
+    // The scrim is a sibling of the panel's transition, never inside it: the panel scales up
+    // from 0.88, and anything sharing that layer scales with it — which is what made the tint
+    // look welded to the window instead of dimming the room behind it.
+    Box(modifier = modifier.fillMaxSize()) {
+        XoraSheetScrim(visible = state.open, onClick = onDismiss)
+        AnimatedVisibility(
         visible = state.open,
         enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + scaleIn(
             animationSpec = if (enterMs == 0) arcadiaTween(0) else enterSpring,
@@ -102,119 +116,134 @@ fun StartSettingsPanel(
             animationSpec = arcadiaTween(ArcadiaMotion.Fast),
             targetScale = 0.94f,
         ),
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.48f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(
+        Box(modifier = Modifier.fillMaxSize()) {
+            // One panel: categories ride a compact strip in the header rather than a
+            // full-height capsule down the side.
+            Column(
                 modifier = Modifier
+                    .align(Alignment.Center)
                     .widthIn(max = 560.dp)
                     .fillMaxWidth(0.78f)
-                    .fillMaxHeight(0.72f)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {},
-                    ),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .fillMaxHeight(0.74f)
+                    .xoraSettingsPanelSurface(),
             ) {
-                // Left: wider glass list
-                Column(
+                XoraSettingsPanelHeader(state.title)
+                val categoryFadeIn = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
+                val categoryFadeOut = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
+                val pageKey = if (state.inCategory) "cat:${state.category.name}" else "root"
+                AnimatedContent(
+                    targetState = pageKey,
+                    transitionSpec = {
+                        categoryFadeIn togetherWith categoryFadeOut
+                    },
+                    label = "startSettingsPage",
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .liquidGlass(
-                            shape = ListShape,
-                            tone = GlassTone.OverMedia,
-                            intensity = GlassIntensity.Strong,
-                            shimmer = true,
+                        .fillMaxWidth()
+                        .weight(1f),
+                ) { page ->
+                    val rows = state.rows.takeIf { page == pageKey }.orEmpty()
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(state.selectedRowIndex, page, rows.size) {
+                        if (rows.isEmpty()) return@LaunchedEffect
+                        listState.animateScrollToItem(
+                            state.selectedRowIndex.coerceIn(0, rows.lastIndex),
                         )
-                        .padding(horizontal = 10.dp, vertical = 12.dp),
-                ) {
-                    Text(
-                        text = categoryTitle(state.category),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = glass.content,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    )
-                    val categoryFadeIn = fadeIn(arcadiaTween(ArcadiaMotion.Medium))
-                    val categoryFadeOut = fadeOut(arcadiaTween(ArcadiaMotion.Fast))
-                    AnimatedContent(
-                        targetState = state.category,
-                        transitionSpec = {
-                            categoryFadeIn togetherWith categoryFadeOut
-                        },
-                        label = "startSettingsCategory",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    ) { category ->
-                        val rows = if (category == state.category) state.rows else emptyList()
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState()),
-                        ) {
-                            rows.forEachIndexed { index, row ->
-                                if (index > 0 && row !is StartSettingsRow.Header) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp)
-                                            .height(1.dp)
-                                            .background(glass.border.copy(alpha = 0.35f)),
-                                    )
-                                }
-                                StartSettingsListRow(
-                                    row = row,
-                                    selected = index == state.selectedRowIndex,
-                                    content = glass.content,
-                                    muted = glass.contentMuted,
-                                    onClick = {
-                                        if (row is StartSettingsRow.Header) return@StartSettingsListRow
-                                        onSelectRow(index)
-                                        onActivate()
-                                    },
-                                )
-                            }
+                    }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 6.dp, bottom = 4.dp),
+                    ) {
+                        itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
+                            StartSettingsListRow(
+                                row = row,
+                                selected = index == state.selectedRowIndex,
+                                content = glass.content,
+                                muted = glass.contentMuted,
+                                onClick = {
+                                    if (row is StartSettingsRow.Header) return@StartSettingsListRow
+                                    onSelectRow(index)
+                                    onActivate()
+                                },
+                            )
                         }
                     }
                 }
+            }
+            if (state.performancePickerOpen) {
+                VisualPerformancePickerOverlay(
+                    selectedMode = state.settings.visualPerformanceMode,
+                    focusedIndex = state.performancePickerIndex,
+                    content = glass.content,
+                    muted = glass.contentMuted,
+                    onSelect = onSelectPerformanceMode,
+                    onDismiss = onBack,
+                )
+            }
+        }
+    }
+    }
+}
 
-                // Right: narrow pill category rail
-                Column(
-                    modifier = Modifier
-                        .width(64.dp)
-                        .fillMaxHeight(0.92f)
-                        .liquidGlass(
-                            shape = RailShape,
-                            tone = GlassTone.OverMedia,
-                            intensity = GlassIntensity.Strong,
-                        )
-                        .padding(vertical = 14.dp),
-                    verticalArrangement = Arrangement.SpaceEvenly,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    StartSettingsCategory.entries.forEach { category ->
-                        CategoryRailIcon(
-                            category = category,
-                            selected = category == state.category,
-                            tint = glass.content,
-                            onClick = { onSelectCategory(category) },
-                        )
-                    }
-                }
+@Composable
+private fun VisualPerformancePickerOverlay(
+    selectedMode: VisualPerformanceMode,
+    focusedIndex: Int,
+    content: Color,
+    muted: Color,
+    onSelect: (VisualPerformanceMode) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val glass = rememberGlassTokens(GlassTone.OverMedia)
+    Box(modifier = Modifier.fillMaxSize()) {
+        XoraSheetScrim(visible = true, onClick = onDismiss)
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .widthIn(max = 420.dp)
+                .fillMaxWidth(0.72f)
+                .liquidGlass(
+                    shape = ListShape,
+                    tone = GlassTone.OverMedia,
+                    intensity = GlassIntensity.Strong,
+                    shimmer = true,
+                )
+                .padding(horizontal = 12.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Performance",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = glass.content,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .height(1.dp)
+                    .background(glass.border.copy(alpha = 0.35f)),
+            )
+            VisualPerformanceChoices.forEachIndexed { index, mode ->
+                val focused = index == focusedIndex
+                StartSettingsListRow(
+                    row = StartSettingsRow.Action(
+                        id = "perf_${mode.name}",
+                        title = visualPerformanceModeLabel(mode),
+                        subtitle = buildString {
+                            append(visualPerformanceModeSubtitle(mode))
+                            if (mode == selectedMode) append(" · Active")
+                        },
+                        action = StartSettingsAction.SelectVisualPerformance(mode),
+                    ),
+                    selected = focused,
+                    content = content,
+                    muted = muted,
+                    onClick = { onSelect(mode) },
+                )
             }
         }
     }
@@ -228,14 +257,6 @@ private fun StartSettingsListRow(
     muted: Color,
     onClick: () -> Unit,
 ) {
-    val theme = LocalShellTheme.current.colors
-    val focusStart = theme.focusStart
-    val focusEnd = theme.focusEnd
-    val highlightAlpha by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Fast),
-        label = "startSettingsFocus",
-    )
     if (row is StartSettingsRow.Header) {
         Column(
             modifier = Modifier
@@ -267,17 +288,10 @@ private fun StartSettingsListRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RowFocusShape)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        focusStart.copy(alpha = 0.42f * highlightAlpha),
-                        focusEnd.copy(alpha = 0.38f * highlightAlpha),
-                    ),
-                ),
-            )
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .xoraFocusHighlight(selected, shape = RowFocusShape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -313,269 +327,6 @@ private fun StartSettingsListRow(
             }
             row.trailingIcon == StartSettingsTrailingIcon.Edit && selected -> {
                 PencilGlyph(tint = content.copy(alpha = 0.9f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun CategoryRailIcon(
-    category: StartSettingsCategory,
-    selected: Boolean,
-    tint: Color,
-    onClick: () -> Unit,
-) {
-    val theme = LocalShellTheme.current.colors
-    val scale by animateFloatAsState(
-        targetValue = if (selected) 1.12f else 1f,
-        animationSpec = arcadiaTween(ArcadiaMotion.Fast),
-        label = "railIconScale",
-    )
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clip(RoundedCornerShape(12.dp))
-            .then(
-                if (selected) {
-                    Modifier.background(
-                        Brush.verticalGradient(
-                            listOf(
-                                theme.focusStart.copy(alpha = 0.35f),
-                                theme.focusEnd.copy(alpha = 0.28f),
-                            ),
-                        ),
-                    )
-                } else {
-                    Modifier
-                },
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        CategoryGlyph(
-            category = category,
-            tint = if (selected) tint else tint.copy(alpha = 0.55f),
-        )
-    }
-}
-
-@Composable
-private fun CategoryGlyph(
-    category: StartSettingsCategory,
-    tint: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(24.dp)) {
-        val stroke = Stroke(width = size.minDimension * 0.09f, cap = StrokeCap.Round)
-        when (category) {
-            StartSettingsCategory.Display -> {
-                // Film strip
-                val left = size.width * 0.18f
-                val top = size.height * 0.12f
-                val w = size.width * 0.64f
-                val h = size.height * 0.76f
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(left, top),
-                    size = Size(w, h),
-                    cornerRadius = CornerRadius(3.dp.toPx()),
-                    style = stroke,
-                )
-                val perforations = 4
-                for (i in 0 until perforations) {
-                    val y = top + h * ((i + 0.5f) / perforations)
-                    drawCircle(
-                        color = tint,
-                        radius = size.minDimension * 0.04f,
-                        center = Offset(left + w * 0.14f, y),
-                        style = stroke,
-                    )
-                    drawCircle(
-                        color = tint,
-                        radius = size.minDimension * 0.04f,
-                        center = Offset(left + w * 0.86f, y),
-                        style = stroke,
-                    )
-                }
-            }
-            StartSettingsCategory.Themes -> {
-                // Palette swatches
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.16f,
-                    center = Offset(size.width * 0.34f, size.height * 0.42f),
-                    style = stroke,
-                )
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.16f,
-                    center = Offset(size.width * 0.58f, size.height * 0.42f),
-                    style = stroke,
-                )
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.12f,
-                    center = Offset(size.width * 0.46f, size.height * 0.64f),
-                    style = stroke,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.22f, size.height * 0.78f),
-                    end = Offset(size.width * 0.78f, size.height * 0.78f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-            }
-            StartSettingsCategory.Sound -> {
-                // Eighth note
-                val stemX = size.width * 0.58f
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.16f,
-                    center = Offset(size.width * 0.38f, size.height * 0.68f),
-                    style = stroke,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(stemX, size.height * 0.22f),
-                    end = Offset(stemX, size.height * 0.68f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-                val flag = Path().apply {
-                    moveTo(stemX, size.height * 0.22f)
-                    quadraticTo(
-                        size.width * 0.88f,
-                        size.height * 0.32f,
-                        stemX + size.width * 0.02f,
-                        size.height * 0.48f,
-                    )
-                }
-                drawPath(flag, color = tint, style = stroke)
-            }
-            StartSettingsCategory.Scrape -> {
-                // Folder
-                val path = Path().apply {
-                    moveTo(size.width * 0.14f, size.height * 0.36f)
-                    lineTo(size.width * 0.14f, size.height * 0.28f)
-                    lineTo(size.width * 0.42f, size.height * 0.28f)
-                    lineTo(size.width * 0.50f, size.height * 0.36f)
-                    lineTo(size.width * 0.86f, size.height * 0.36f)
-                    lineTo(size.width * 0.86f, size.height * 0.78f)
-                    lineTo(size.width * 0.14f, size.height * 0.78f)
-                    close()
-                }
-                drawPath(path, color = tint, style = stroke)
-            }
-            StartSettingsCategory.Social -> {
-                // Plug
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(size.width * 0.28f, size.height * 0.38f),
-                    size = Size(size.width * 0.44f, size.height * 0.36f),
-                    cornerRadius = CornerRadius(3.dp.toPx()),
-                    style = stroke,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.40f, size.height * 0.20f),
-                    end = Offset(size.width * 0.40f, size.height * 0.38f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.60f, size.height * 0.20f),
-                    end = Offset(size.width * 0.60f, size.height * 0.38f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.50f, size.height * 0.74f),
-                    end = Offset(size.width * 0.50f, size.height * 0.88f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-            }
-            StartSettingsCategory.Notifications -> {
-                // Bell
-                val dome = Path().apply {
-                    moveTo(size.width * 0.28f, size.height * 0.52f)
-                    quadraticTo(
-                        size.width * 0.28f,
-                        size.height * 0.22f,
-                        size.width * 0.50f,
-                        size.height * 0.20f,
-                    )
-                    quadraticTo(
-                        size.width * 0.72f,
-                        size.height * 0.22f,
-                        size.width * 0.72f,
-                        size.height * 0.52f,
-                    )
-                    lineTo(size.width * 0.78f, size.height * 0.68f)
-                    lineTo(size.width * 0.22f, size.height * 0.68f)
-                    close()
-                }
-                drawPath(dome, color = tint, style = stroke)
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.50f, size.height * 0.12f),
-                    end = Offset(size.width * 0.50f, size.height * 0.20f),
-                    strokeWidth = stroke.width,
-                    cap = StrokeCap.Round,
-                )
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.05f,
-                    center = Offset(size.width * 0.50f, size.height * 0.12f),
-                    style = stroke,
-                )
-                drawArc(
-                    color = tint,
-                    startAngle = 20f,
-                    sweepAngle = 140f,
-                    useCenter = false,
-                    topLeft = Offset(size.width * 0.38f, size.height * 0.64f),
-                    size = Size(size.width * 0.24f, size.height * 0.22f),
-                    style = stroke,
-                )
-            }
-            StartSettingsCategory.General -> {
-                // Gear (simple)
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val r = size.minDimension * 0.28f
-                drawCircle(color = tint, radius = r, center = Offset(cx, cy), style = stroke)
-                drawCircle(
-                    color = tint,
-                    radius = r * 0.38f,
-                    center = Offset(cx, cy),
-                    style = stroke,
-                )
-                for (i in 0 until 6) {
-                    val angle = Math.toRadians((i * 60).toDouble())
-                    val inner = r * 1.05f
-                    val outer = r * 1.45f
-                    drawLine(
-                        color = tint,
-                        start = Offset(
-                            cx + (inner * kotlin.math.cos(angle)).toFloat(),
-                            cy + (inner * kotlin.math.sin(angle)).toFloat(),
-                        ),
-                        end = Offset(
-                            cx + (outer * kotlin.math.cos(angle)).toFloat(),
-                            cy + (outer * kotlin.math.sin(angle)).toFloat(),
-                        ),
-                        strokeWidth = stroke.width * 1.2f,
-                        cap = StrokeCap.Round,
-                    )
-                }
             }
         }
     }
@@ -624,14 +375,4 @@ private fun ToggleGlyph(checked: Boolean, tint: Color, modifier: Modifier = Modi
                 .background(Color.White.copy(alpha = 0.92f)),
         )
     }
-}
-
-private fun categoryTitle(category: StartSettingsCategory): String = when (category) {
-    StartSettingsCategory.Display -> "Display"
-    StartSettingsCategory.Themes -> "Themes"
-    StartSettingsCategory.Sound -> "Sound"
-    StartSettingsCategory.Scrape -> "Scrape"
-    StartSettingsCategory.Social -> "Social"
-    StartSettingsCategory.Notifications -> "Notifications"
-    StartSettingsCategory.General -> "General"
 }

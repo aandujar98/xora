@@ -162,6 +162,7 @@ class ShellSystemNotifier @Inject constructor(
     private fun channelFor(notification: ShellNotification): String = when (notification) {
         is ShellNotification.GameDownloading,
         is ShellNotification.InstallComplete,
+        is ShellNotification.UpdateAvailable,
         -> CHANNEL_DOWNLOADS
         else -> CHANNEL_SOCIAL
     }
@@ -169,6 +170,7 @@ class ShellSystemNotifier @Inject constructor(
     private fun groupFor(notification: ShellNotification): String = when (notification) {
         is ShellNotification.GameDownloading,
         is ShellNotification.InstallComplete,
+        is ShellNotification.UpdateAvailable,
         -> GROUP_DOWNLOADS
         else -> GROUP_SOCIAL
     }
@@ -176,10 +178,19 @@ class ShellSystemNotifier @Inject constructor(
     private fun categoryFor(notification: ShellNotification): String = when (notification) {
         is ShellNotification.DiscordMessage,
         is ShellNotification.SteamMessage,
+        is ShellNotification.XoraMessage,
         -> NotificationCompat.CATEGORY_MESSAGE
-        is ShellNotification.FriendOnline -> NotificationCompat.CATEGORY_SOCIAL
+        is ShellNotification.FriendOnline,
+        is ShellNotification.FriendPlaying,
+        is ShellNotification.FriendStatusUpdated,
+        is ShellNotification.FriendListening,
+        is ShellNotification.XoraFriendRequest,
+        is ShellNotification.XoraNetplayInvite,
+        is ShellNotification.XoraSessionJoined,
+        -> NotificationCompat.CATEGORY_SOCIAL
         is ShellNotification.AchievementUnlocked,
         is ShellNotification.RetroAchievementsSignedIn,
+        is ShellNotification.UpdateAvailable,
         -> NotificationCompat.CATEGORY_STATUS
         is ShellNotification.GameDownloading,
         is ShellNotification.InstallComplete,
@@ -194,6 +205,13 @@ class ShellSystemNotifier @Inject constructor(
         val stable = when (notification) {
             is ShellNotification.FriendOnline ->
                 notification.id.substringBeforeLast(':').ifBlank { notification.id }
+            is ShellNotification.FriendPlaying ->
+                "friend-playing:${notification.network.name}:${notification.displayName}"
+            // One status row per friend: a new line replaces the last rather than stacking.
+            is ShellNotification.FriendStatusUpdated ->
+                "friend-status:${notification.network.name}:${notification.displayName}"
+            is ShellNotification.FriendListening ->
+                "friend-listening:${notification.network.name}:${notification.displayName}"
             is ShellNotification.GameDownloading ->
                 "download:${notification.title}"
             else -> notification.id

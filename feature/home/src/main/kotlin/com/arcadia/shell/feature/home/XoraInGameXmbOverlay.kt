@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -55,8 +57,7 @@ import kotlinx.coroutines.launch
 /**
  * PS3-style Cross Media Bar over a live/frozen game session.
  *
- * The game frame is shown blurred behind the bar (like holding the PS button).
- * [XoraXmbAction.DrillXoraEmulator] / session actions are handled by [onAction].
+ * In-game overlay is now [XoraEmulatorSideMenu]. This XMB remains for reference / unused.
  */
 @Composable
 fun XoraInGameXmbOverlay(
@@ -72,8 +73,11 @@ fun XoraInGameXmbOverlay(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
+    val categoryHover = remember { XoraCategoryHoverStore() }
     var categoryIndex by remember { mutableIntStateOf(XoraXmbCategory.Games.ordinal) }
-    var itemIndex by remember { mutableIntStateOf(0) }
+    var itemIndex by remember {
+        mutableIntStateOf(defaultXoraCategoryItemIndex(XoraXmbCategory.Games))
+    }
     var depth by remember { mutableStateOf(XoraXmbDepth.Category) }
     val categoryScroll = remember { Animatable(categoryIndex.toFloat()) }
     val itemScroll = remember { Animatable(0f) }
@@ -115,11 +119,15 @@ fun XoraInGameXmbOverlay(
     }
 
     fun selectCategory(index: Int) {
+        if (depth == XoraXmbDepth.Category) {
+            categoryHover.remember(categoryIndex, itemIndex)
+        }
         if (depth != XoraXmbDepth.Category) {
             depth = XoraXmbDepth.Category
         }
-        categoryIndex = index.coerceIn(0, XoraXmbCategory.entries.lastIndex)
-        itemIndex = 0
+        val next = index.coerceIn(0, XoraXmbCategory.entries.lastIndex)
+        categoryIndex = next
+        itemIndex = categoryHover.restore(next, XoraXmbCategory.entries[next])
     }
 
     fun activate() {
@@ -127,6 +135,7 @@ fun XoraInGameXmbOverlay(
         when (val action = item.action) {
             XoraXmbAction.ResumeGame -> onDismiss()
             XoraXmbAction.DrillXoraEmulator -> {
+                categoryHover.remember(categoryIndex, itemIndex)
                 depth = XoraXmbDepth.Emulator
                 itemIndex = 0
             }
@@ -150,7 +159,10 @@ fun XoraInGameXmbOverlay(
             XoraXmbDepth.Emulator -> {
                 depth = XoraXmbDepth.Category
                 categoryIndex = XoraXmbCategory.Games.ordinal
-                itemIndex = 0
+                itemIndex = categoryHover.restore(
+                    XoraXmbCategory.Games.ordinal,
+                    XoraXmbCategory.Games,
+                )
             }
             else -> onDismiss()
         }
@@ -231,18 +243,8 @@ fun XoraInGameXmbOverlay(
             categories.forEachIndexed { index, cat ->
                 val delta = index - catScroll
                 val distance = abs(delta)
-                val scale = when {
-                    distance < 0.5f -> lerp(1.12f, 1.32f, 1f - distance / 0.5f)
-                    distance < 1.5f -> lerp(0.86f, 1.12f, 1.5f - distance)
-                    distance < 2.5f -> lerp(0.72f, 0.86f, 2.5f - distance)
-                    else -> 0.58f
-                }
-                val alpha = when {
-                    distance < 0.5f -> if (atRoot) 1f else 0.35f
-                    distance < 1.5f -> if (atRoot) 0.58f else 0.18f
-                    distance < 2.5f -> if (atRoot) 0.34f else 0.1f
-                    else -> 0.08f
-                }
+                val scale = lerp(0.8f, 1f, (1f - distance).coerceIn(0f, 1f))
+                val alpha = lerp(0.5f, if (atRoot) 1f else 0.45f, (1f - distance).coerceIn(0f, 1f))
                 val xPx = crossXPx - catIconPx / 2f + categoryPitchPx * delta
                 val yPx = catYPx - catIconPx / 2f
                 Box(
@@ -265,40 +267,26 @@ fun XoraInGameXmbOverlay(
                     XmbVectorIcon(
                         icon = cat.toXmbIcon(),
                         tint = Color.White,
-                        size = 34.dp,
+                        size = CATEGORY_GLYPH,
                     )
                 }
             }
 
-            val catLabel = when (depth) {
-                XoraXmbDepth.Emulator -> "XOrA Emulator"
-                else -> category.label
-            }
-            XoraTitleText(
-                text = catLabel,
-                fontWeight = FontWeight.Medium,
-                fontSize = 11.sp,
-                maxLines = 1,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .graphicsLayer {
-                        translationX = crossXPx - with(density) { 120.dp.toPx() } / 2f
-                        translationY = catYPx + catIconPx / 2f + with(density) { 4.dp.toPx() }
-                        alpha = if (atRoot) 0.95f else 0.45f
-                    }
-                    .width(120.dp),
-            )
-
             if (items.isEmpty()) {
+                var emptyLabelHeightPx by remember {
+                    mutableFloatStateOf(with(density) { 22.dp.toPx() })
+                }
                 XoraSecondaryText(
                     text = "Nothing here yet",
                     fontSize = 18.sp,
                     fillColor = Color.White,
-                    modifier = Modifier.graphicsLayer {
-                        translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
-                        translationY = itemFocusYPx
-                        alpha = enterAlpha
-                    },
+                    modifier = Modifier
+                        .onSizeChanged { emptyLabelHeightPx = it.height.toFloat() }
+                        .graphicsLayer {
+                            translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
+                            translationY = itemFocusYPx - emptyLabelHeightPx / 2f
+                            alpha = enterAlpha
+                        },
                 )
             } else {
                 val first = (rowScroll - VISIBLE_ITEM_RADIUS - 1f).toInt().coerceAtLeast(0)
@@ -309,19 +297,8 @@ fun XoraInGameXmbOverlay(
                     val delta = index - rowScroll
                     val distance = abs(delta)
                     val focus = (1f - distance).coerceIn(0f, 1f)
-                    val scale = when {
-                        distance < 0.5f -> lerp(1f, 1.48f, focus)
-                        distance < 1.5f -> 0.88f
-                        distance < 2.5f -> 0.78f
-                        else -> 0.7f
-                    }
-                    val alpha = when {
-                        distance < 0.5f -> 1f
-                        distance < 1.5f -> 0.72f
-                        distance < 2.5f -> 0.42f
-                        distance < 3.5f -> 0.24f
-                        else -> 0.1f
-                    }
+                    val scale = lerp(0.8f, 1f, focus)
+                    val alpha = lerp(0.5f, 1f, focus)
                     val yPx = itemFocusYPx - itemRowPx / 2f +
                         xmbInGameItemOffsetY(delta, itemPitchPx)
                     val xPx = crossXPx - glyphSlotPx / 2f
@@ -354,18 +331,23 @@ fun XoraInGameXmbOverlay(
                         XmbVectorIcon(
                             icon = item.icon,
                             tint = Color.White,
-                            size = 28.dp,
+                            size = ITEM_GLYPH,
                         )
                     }
+                    var labelHeightPx by remember(item.id) {
+                        mutableFloatStateOf(with(density) { 28.dp.toPx() })
+                    }
                     Column(
-                        modifier = Modifier.graphicsLayer {
-                            translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
-                            translationY = yPx + itemRowPx * 0.12f
-                            this.alpha = alpha * enterAlpha
-                            scaleX = lerp(0.92f, 1.05f, focus)
-                            scaleY = lerp(0.92f, 1.05f, focus)
-                            transformOrigin = TransformOrigin(0f, 0.5f)
-                        },
+                        modifier = Modifier
+                            .onSizeChanged { labelHeightPx = it.height.toFloat() }
+                            .graphicsLayer {
+                                translationX = crossXPx + glyphSlotPx / 2f + glyphGapPx
+                                translationY = yPx + itemRowPx / 2f - labelHeightPx / 2f
+                                this.alpha = alpha * enterAlpha
+                                scaleX = lerp(0.92f, 1.05f, focus)
+                                scaleY = lerp(0.92f, 1.05f, focus)
+                                transformOrigin = TransformOrigin(0f, 0.5f)
+                            },
                     ) {
                         XoraTitleText(
                             text = item.title,
@@ -374,13 +356,13 @@ fun XoraInGameXmbOverlay(
                             } else {
                                 FontWeight.Medium
                             },
-                            fontSize = if (index == safeItemIndex) 20.sp else 16.sp,
+                            fontSize = if (index == safeItemIndex) 24.sp else 18.sp,
                             maxLines = 1,
                         )
                         if (!item.subtitle.isNullOrBlank() && index == safeItemIndex) {
                             XoraSecondaryText(
                                 text = item.subtitle,
-                                fontSize = 12.sp,
+                                fontSize = 14.sp,
                                 fillColor = Color.White.copy(alpha = 0.7f),
                                 maxLines = 1,
                             )
@@ -468,12 +450,14 @@ private fun xmbInGameItemOffsetY(delta: Float, pitchPx: Float): Float {
 private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)
 
 private const val CROSS_X_FRACTION = 0.28f
-private const val CATEGORY_Y_FRACTION = 0.30f
-private val CATEGORY_TO_ITEM_GAP = 72.dp
+private const val CATEGORY_Y_FRACTION = 0.28f
+private val CATEGORY_TO_ITEM_GAP = 100.dp
 private const val INGAME_XMB_SCROLL_MS = 340
 private const val VISIBLE_ITEM_RADIUS = 4
-private val CATEGORY_ICON = 56.dp
-private val CATEGORY_PITCH = 72.dp
-private val ITEM_ICON = 44.dp
-private val ITEM_ROW = 52.dp
-private val ITEM_PITCH = 58.dp
+private val CATEGORY_ICON = 72.dp
+private val CATEGORY_GLYPH = 54.dp
+private val CATEGORY_PITCH = 128.dp
+private val ITEM_ICON = 56.dp
+private val ITEM_GLYPH = 44.dp
+private val ITEM_ROW = 70.dp
+private val ITEM_PITCH = 72.dp

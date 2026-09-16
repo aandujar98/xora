@@ -25,6 +25,12 @@
 #ifndef EGL_OPENGL_ES3_BIT_KHR
 #define EGL_OPENGL_ES3_BIT_KHR 0x00000040
 #endif
+#ifndef EGL_CONTEXT_MAJOR_VERSION
+#define EGL_CONTEXT_MAJOR_VERSION 0x3098
+#endif
+#ifndef EGL_CONTEXT_MINOR_VERSION
+#define EGL_CONTEXT_MINOR_VERSION 0x30FB
+#endif
 
 #ifndef GL_DEPTH24_STENCIL8_OES
 #define GL_DEPTH24_STENCIL8_OES 0x88F0
@@ -53,8 +59,10 @@ GLuint g_depth = 0;
 unsigned g_fbo_w = 0;
 unsigned g_fbo_h = 0;
 
+void destroy_fbo_unlocked();
+
 bool make_current() {
-    if (g_display == EGL_NO_DISPLAY || g_context == EGL_NO_CONTEXT || g_surface == EGL_NO_SURFACE) {
+    if (g_display == EGL_NO_DISPLAY || g_context == EGL_NO_CONTEXT) {
         return false;
     }
     if (!eglMakeCurrent(g_display, g_surface, g_surface, g_context)) {
@@ -64,13 +72,28 @@ bool make_current() {
     return true;
 }
 
+void destroy_egl_objects_unlocked() {
+    destroy_fbo_unlocked();
+    if (g_display != EGL_NO_DISPLAY) {
+        eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (g_surface != EGL_NO_SURFACE) eglDestroySurface(g_display, g_surface);
+        if (g_context != EGL_NO_CONTEXT) eglDestroyContext(g_display, g_context);
+        eglTerminate(g_display);
+    }
+    g_display = EGL_NO_DISPLAY;
+    g_context = EGL_NO_CONTEXT;
+    g_surface = EGL_NO_SURFACE;
+    g_config = nullptr;
+    g_reset_done = false;
+}
+
 void destroy_fbo_unlocked() {
     if (g_display == EGL_NO_DISPLAY) {
         g_fbo = g_color = g_depth = 0;
         g_fbo_w = g_fbo_h = 0;
         return;
     }
-    if (g_context != EGL_NO_CONTEXT && g_surface != EGL_NO_SURFACE) {
+    if (g_context != EGL_NO_CONTEXT) {
         eglMakeCurrent(g_display, g_surface, g_surface, g_context);
     }
     if (g_fbo) glDeleteFramebuffers(1, &g_fbo);
@@ -99,8 +122,8 @@ bool create_fbo_unlocked(unsigned width, unsigned height) {
 
     glGenTextures(1, &g_color);
     glBindTexture(GL_TEXTURE_2D, g_color);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(
@@ -175,6 +198,43 @@ retro_proc_address_t RETRO_CALLCONV get_proc_address(const char* sym) {
 
 void destroy_egl_unlocked();
 
+bool choose_config(int gles_major, EGLint depth_size, EGLint stencil_size, EGLint surface_type) {
+    const EGLint renderable = (gles_major >= 3)
+        ? (EGL_OPENGL_ES3_BIT_KHR | EGL_OPENGL_ES2_BIT)
+        : EGL_OPENGL_ES2_BIT;
+    const EGLint attribs[] = {
+        EGL_SURFACE_TYPE, surface_type,
+        EGL_RENDERABLE_TYPE, renderable,
+        EGL_RED_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_BLUE_SIZE, 8,
+        EGL_ALPHA_SIZE, 8,
+        EGL_DEPTH_SIZE, depth_size,
+        EGL_STENCIL_SIZE, stencil_size,
+        EGL_NONE,
+    };
+    EGLint num = 0;
+    return eglChooseConfig(g_display, attribs, &g_config, 1, &num) && num >= 1;
+}
+
+EGLContext create_gles_context(int gles_major, int gles_minor) {
+    if (gles_major >= 3 && gles_minor > 0) {
+        const EGLint attribs32[] = {
+            EGL_CONTEXT_MAJOR_VERSION, gles_major,
+            EGL_CONTEXT_MINOR_VERSION, gles_minor,
+            EGL_NONE,
+        };
+        EGLContext ctx = eglCreateContext(g_display, g_config, EGL_NO_CONTEXT, attribs32);
+        if (ctx != EGL_NO_CONTEXT) return ctx;
+        eglGetError();
+    }
+    const EGLint attribs[] = {
+        EGL_CONTEXT_CLIENT_VERSION, gles_major,
+        EGL_NONE,
+    };
+    return eglCreateContext(g_display, g_config, EGL_NO_CONTEXT, attribs);
+}
+
 bool create_egl_unlocked(int gles_major) {
     if (g_display != EGL_NO_DISPLAY) return true;
 
@@ -189,50 +249,42 @@ bool create_egl_unlocked(int gles_major) {
         return false;
     }
 
-    const EGLint renderable = (gles_major >= 3)
-        ? (EGL_OPENGL_ES3_BIT_KHR | EGL_OPENGL_ES2_BIT)
-        : EGL_OPENGL_ES2_BIT;
-
     const EGLint depth_size = g_cb.depth ? 24 : 0;
     const EGLint stencil_size = g_cb.stencil ? 8 : 0;
-    EGLint attribs[] = {
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE, renderable,
-        EGL_RED_SIZE, 8,
-        EGL_GREEN_SIZE, 8,
-        EGL_BLUE_SIZE, 8,
-        EGL_ALPHA_SIZE, 8,
-        EGL_DEPTH_SIZE, depth_size,
-        EGL_STENCIL_SIZE, stencil_size,
-        EGL_NONE,
+    const EGLint surface_tries[] = {
+        EGL_PBUFFER_BIT,
+        EGL_PBUFFER_BIT | EGL_WINDOW_BIT,
+        EGL_DONT_CARE,
     };
-
-    EGLint num = 0;
-    if (!eglChooseConfig(g_display, attribs, &g_config, 1, &num) || num < 1) {
-        // Retry without ES3 bit if needed.
-        if (gles_major >= 3) {
-            attribs[3] = EGL_OPENGL_ES2_BIT;
-            if (!eglChooseConfig(g_display, attribs, &g_config, 1, &num) || num < 1) {
-                ALOGE("eglChooseConfig failed: 0x%x", eglGetError());
-                destroy_egl_unlocked();
-                return false;
-            }
+    bool got_config = false;
+    for (EGLint surface_type : surface_tries) {
+        if (choose_config(gles_major, depth_size, stencil_size, surface_type) ||
+            choose_config(gles_major, 0, 0, surface_type)) {
+            got_config = true;
+            break;
+        }
+        if (gles_major >= 3 &&
+            (choose_config(2, depth_size, stencil_size, surface_type) ||
+             choose_config(2, 0, 0, surface_type))) {
             gles_major = 2;
-        } else {
-            ALOGE("eglChooseConfig failed: 0x%x", eglGetError());
-            destroy_egl_unlocked();
-            return false;
+            got_config = true;
+            break;
         }
     }
+    if (!got_config) {
+        ALOGE("eglChooseConfig failed: 0x%x", eglGetError());
+        destroy_egl_unlocked();
+        return false;
+    }
 
-    const EGLint ctx_attribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, gles_major,
-        EGL_NONE,
-    };
-    g_context = eglCreateContext(g_display, g_config, EGL_NO_CONTEXT, ctx_attribs);
+    // Azahar Android OpenGL asks for GLES 3.2.
+    const int gles_minor = (gles_major >= 3) ? 2 : 0;
+    g_context = create_gles_context(gles_major, gles_minor);
     if (g_context == EGL_NO_CONTEXT && gles_major >= 3) {
-        const EGLint ctx2[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
-        g_context = eglCreateContext(g_display, g_config, EGL_NO_CONTEXT, ctx2);
+        g_context = create_gles_context(3, 0);
+    }
+    if (g_context == EGL_NO_CONTEXT && gles_major >= 3) {
+        g_context = create_gles_context(2, 0);
         gles_major = 2;
     }
     if (g_context == EGL_NO_CONTEXT) {
@@ -248,35 +300,27 @@ bool create_egl_unlocked(int gles_major) {
     };
     g_surface = eglCreatePbufferSurface(g_display, g_config, pbuf);
     if (g_surface == EGL_NO_SURFACE) {
-        ALOGE("eglCreatePbufferSurface failed: 0x%x", eglGetError());
+        ALOGW("eglCreatePbufferSurface failed: 0x%x — trying surfaceless", eglGetError());
+        g_surface = EGL_NO_SURFACE;
+        if (!eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, g_context)) {
+            ALOGE("surfaceless eglMakeCurrent failed: 0x%x", eglGetError());
+            destroy_egl_unlocked();
+            return false;
+        }
+    } else if (!make_current()) {
         destroy_egl_unlocked();
         return false;
     }
 
     g_gles_major = gles_major;
-    if (!make_current()) {
-        destroy_egl_unlocked();
-        return false;
-    }
     ALOGI("EGL context ready (GLES %d)", g_gles_major);
     return true;
 }
 
 void destroy_egl_unlocked() {
-    destroy_fbo_unlocked();
-    if (g_display != EGL_NO_DISPLAY) {
-        eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-        if (g_surface != EGL_NO_SURFACE) eglDestroySurface(g_display, g_surface);
-        if (g_context != EGL_NO_CONTEXT) eglDestroyContext(g_display, g_context);
-        eglTerminate(g_display);
-    }
-    g_display = EGL_NO_DISPLAY;
-    g_context = EGL_NO_CONTEXT;
-    g_surface = EGL_NO_SURFACE;
-    g_config = nullptr;
+    destroy_egl_objects_unlocked();
     g_cb = {};
     g_cb_set = false;
-    g_reset_done = false;
     g_gles_major = 2;
 }
 
@@ -288,6 +332,10 @@ int gles_major_for(enum retro_hw_context_type type) {
         case RETRO_HW_CONTEXT_OPENGLES2:
         case RETRO_HW_CONTEXT_OPENGL:
             return 2;
+        case RETRO_HW_CONTEXT_OPENGL_CORE:
+            // Desktop Azahar asks for GL Core 3.3+. Android only has GLES; a GLES3
+            // context is what the Android Azahar build uses (USING_GLES).
+            return 3;
         default:
             return 0;
     }
@@ -330,8 +378,11 @@ bool accept_hw_render(retro_hw_render_callback* cb) {
     // Defer context_reset until after retro_load_game (ensure_context).
     // Mupen sets first_context_reset only after SET_HW_RENDER returns; resetting
     // here skips emu_step_initialize and crashes on the first run.
-    ALOGI("SET_HW_RENDER accepted (type=%d depth=%d stencil=%d) — reset deferred",
-          static_cast<int>(g_cb.context_type), g_cb.depth ? 1 : 0, g_cb.stencil ? 1 : 0);
+    ALOGI("SET_HW_RENDER accepted (type=%d v%d.%d depth=%d stencil=%d) — reset deferred",
+          static_cast<int>(g_cb.context_type),
+          static_cast<int>(g_cb.version_major),
+          static_cast<int>(g_cb.version_minor),
+          g_cb.depth ? 1 : 0, g_cb.stencil ? 1 : 0);
     return true;
 }
 
@@ -340,6 +391,11 @@ bool ensure_context(unsigned width, unsigned height) {
     {
         std::lock_guard<std::mutex> lock(g_hw_mutex);
         if (!g_cb_set) return false;
+        if (g_display != EGL_NO_DISPLAY && g_context != EGL_NO_CONTEXT && !make_current()) {
+            // Sleep / lid-close often drops the GPU context. Recreate GL; CPU state stays.
+            ALOGW("EGL context lost — recreating");
+            destroy_egl_objects_unlocked();
+        }
         if (!create_egl_unlocked(gles_major_for(g_cb.context_type))) return false;
         if (width == 0 || height == 0) {
             if (!g_fbo && !create_fbo_unlocked(640, 480)) return false;
@@ -412,9 +468,11 @@ bool read_frame(unsigned width, unsigned height, std::vector<uint32_t>& dst) {
             uint8_t g = row[x * 4 + 1];
             uint8_t b = row[x * 4 + 2];
             const uint8_t a = row[x * 4 + 3];
-            // Un-premultiply then force opaque. Premul RGB with A forced to 0xFF looked
-            // washed / milky after pause overlays recomposited the present path.
-            if (a > 0 && a < 255) {
+            // Un-premultiply only when RGB is a valid premul sample (channel <= A).
+            // Straight-alpha 2D UI (3DS bottom LCD, pause chrome) has RGB > A; treating
+            // that as premul blows the plate into a bright / pasty wash. Opaque 3D
+            // (A == 255) is unchanged. Then force opaque for the software present path.
+            if (a > 0 && a < 255 && r <= a && g <= a && b <= a) {
                 r = static_cast<uint8_t>(std::min(255, (static_cast<int>(r) * 255) / a));
                 g = static_cast<uint8_t>(std::min(255, (static_cast<int>(g) * 255) / a));
                 b = static_cast<uint8_t>(std::min(255, (static_cast<int>(b) * 255) / a));

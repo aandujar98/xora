@@ -18,7 +18,12 @@ class PlatformResolver @Inject constructor() {
      * `nes/Game.zip` resolves from the folder the same way `Game.nes` does. Archives stay
      * non-exclusive, so a bare `Game.zip` with no folder hint is never guessed.
      */
-    fun resolve(file: ScannedFile, forcedPlatformId: String?): GamePlatform? {
+    fun resolve(
+        file: ScannedFile,
+        forcedPlatformId: String?,
+        rootLabel: String? = null,
+        rootLocation: String? = null,
+    ): GamePlatform? {
         val extension = TitleCleaner.extensionOf(file.name)
         if (extension.isEmpty()) return null
 
@@ -26,12 +31,19 @@ class PlatformResolver @Inject constructor() {
             return forced.takeIf { extension in forced.extensions }
         }
 
-        // Deepest folder first, so roms/nintendo/snes resolves as SNES and not by the parent.
-        val folderMatch = file.folderChain
-            .asReversed()
-            .firstNotNullOfOrNull { PlatformCatalog.byFolderName(it) }
-
-        if (folderMatch != null && extension in folderMatch.extensions) return folderMatch
+        // Deepest platform-named folder wins, so My Games/nintendo/snes is SNES. The parent
+        // dump folder is ignored unless it is itself a console name. The walk chain alone is
+        // not enough: adding …/PSP as the library root used to leave the chain empty.
+        val folderMatch = FolderHints.deepestFirst(
+            folderChain = file.folderChain,
+            filePath = file.filePath,
+            documentUri = file.documentUri,
+            rootLabel = rootLabel,
+            rootLocation = rootLocation,
+        ).firstNotNullOfOrNull { name ->
+            PlatformCatalog.byFolderName(name)?.takeIf { extension in it.extensions }
+        }
+        if (folderMatch != null) return folderMatch
 
         return PlatformCatalog.byExclusiveExtension(extension)
     }

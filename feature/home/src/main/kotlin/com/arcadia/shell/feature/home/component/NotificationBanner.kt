@@ -6,10 +6,11 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,20 +22,30 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -45,45 +56,183 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.arcadia.shell.designsystem.GlassIntensity
+import com.arcadia.shell.designsystem.GlassTone
+import com.arcadia.shell.designsystem.liquidGlass
+import com.arcadia.shell.designsystem.rememberGlassTokens
 import com.arcadia.shell.designsystem.rememberReduceMotion
+import com.arcadia.shell.designsystem.xoraForegroundShadow
 import com.arcadia.shell.feature.home.R
+import com.arcadia.shell.launcher.discord.preferAnimatedDiscordAvatarUrl
 import com.arcadia.shell.launcher.notifications.FriendNetwork
 import com.arcadia.shell.launcher.notifications.ShellNotification
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.toCopy
+import kotlin.math.min
 
-private val BannerPanel = Color(0xFFF2F2F2)
-private val BannerText = Color(0xFF2A2A2A)
-private val BannerTextMuted = Color(0xFF5A5A5A)
-private val BannerShape = RoundedCornerShape(10.dp)
-private val AvatarShape = RoundedCornerShape(6.dp)
+/** Same slot as the collapsed Friends pill so the toast can replace it. */
+private val BannerTop = 21.dp
+private val BannerStart = 20.dp
 
 /**
- * Top-left PS4-style toast host. Observes [ShellNotificationCenter.active].
- * Host only on the primary Activity composition in dual-display mode.
+ * Stadium of the banner itself. Percent-50 [RoundedCornerShape] is resolved against the
+ * drop-shadow layer (offset + blur), so the silhouette becomes a rounded rectangle that
+ * reads as a square hanging off the toast.
+ */
+internal val BannerShape: Shape = GenericShape { size, _ ->
+    val r = bannerCapsuleRadius(size.width, size.height)
+    addRoundRect(
+        RoundRect(
+            left = 0f,
+            top = 0f,
+            right = size.width,
+            bottom = size.height,
+            radiusX = r,
+            radiusY = r,
+        ),
+    )
+}
+
+/** Half the short side — a capsule, never a 50%-of-width box. */
+internal fun bannerCapsuleRadius(width: Float, height: Float): Float =
+    min(width, height) / 2f
+
+/**
+ * Same X4 Y4 B4 S0 as the social card. The XMB glyph shadow (10 / 15) sits too far off a
+ * toast this small and the clipped remainder looks like a square.
+ */
+internal val BannerShadowOffset = 4.dp
+internal val BannerShadowBlur = 4.dp
+private val BannerShadowGutter = BannerShadowOffset + BannerShadowBlur
+private val CardEdge = Color.White.copy(alpha = 0.25f)
+
+/**
+ * Activity-scoped handle so every pane that owns the LT capsule can host the toast
+ * in that same Box — above wallpaper / TextureView, on the display the pill lives on.
+ */
+class ShellNotificationBannerHandle(
+    val center: ShellNotificationCenter,
+    val onActivate: (ShellNotification) -> Unit,
+)
+
+val LocalShellNotificationBanner = staticCompositionLocalOf<ShellNotificationBannerHandle?> { null }
+
+/** Master toggle on, an active toast, and LT not already expanded over the slot. */
+fun shouldShowNotificationBanner(
+    notificationsEnabled: Boolean,
+    hasActive: Boolean,
+    ltExpanded: Boolean,
+): Boolean = notificationsEnabled && hasActive && !ltExpanded
+
+/**
+ * Banner in the LT capsule slot. Driven by the same [notification] that hides the
+ * social capsule — not a second collector — so sound + hide + toast cannot drift.
+ *
+ * Drawn in a [Popup] so wallpaper TextureView / ExoPlayer cannot cover it.
+ */
+@Composable
+fun BoxScope.HomeSlotNotificationBanner(
+    notification: ShellNotification?,
+    ltExpanded: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val handle = LocalShellNotificationBanner.current
+    val reduceMotion = rememberReduceMotion()
+    val visible = shouldShowNotificationBanner(
+        notificationsEnabled = true,
+        hasActive = notification != null,
+        ltExpanded = ltExpanded,
+    )
+    val density = LocalDensity.current
+    val offset = with(density) {
+        IntOffset(BannerStart.roundToPx(), BannerTop.roundToPx())
+    }
+    if (!visible && notification == null) return
+
+    Popup(
+        alignment = Alignment.TopStart,
+        offset = offset,
+        properties = PopupProperties(
+            focusable = false,
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+            clippingEnabled = false,
+        ),
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            modifier = modifier,
+            enter = if (reduceMotion) {
+                fadeIn()
+            } else {
+                slideInHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                    initialOffsetX = { -it },
+                ) + fadeIn(
+                    animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                )
+            },
+            exit = if (reduceMotion) {
+                fadeOut()
+            } else {
+                slideOutHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                    targetOffsetX = { -it },
+                ) + fadeOut()
+            },
+            label = "shellNotificationBanner",
+        ) {
+            val current = notification
+            if (current != null) {
+                NotificationBanner(
+                    notification = current,
+                    onDismiss = { handle?.center?.dismiss() },
+                    onActivate = handle?.onActivate,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Top-left toast host, parked in the LT Social pill slot. Observes [ShellNotificationCenter.active].
+ * Host this in the same Box as [AccountPill], not as a sibling of the whole Home pane.
  */
 @Composable
 fun BoxScope.NotificationBannerHost(
     center: ShellNotificationCenter,
     modifier: Modifier = Modifier,
+    ltExpanded: Boolean = false,
+    onActivate: ((ShellNotification) -> Unit)? = null,
 ) {
     val active by center.active.collectAsStateWithLifecycle()
     val reduceMotion = rememberReduceMotion()
 
     AnimatedVisibility(
-        visible = active != null,
+        visible = shouldShowNotificationBanner(
+            notificationsEnabled = center.notificationsEnabled,
+            hasActive = active != null,
+            ltExpanded = ltExpanded,
+        ),
         modifier = modifier
             .align(Alignment.TopStart)
-            .padding(top = 20.dp, start = 20.dp, end = 20.dp),
+            .zIndex(2f)
+            .padding(top = BannerTop, start = BannerStart, end = 20.dp),
         enter = if (reduceMotion) {
             fadeIn()
         } else {
-            slideInVertically(
+            slideInHorizontally(
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
                     stiffness = Spring.StiffnessMediumLow,
                 ),
-                initialOffsetY = { -it },
+                initialOffsetX = { -it },
             ) + fadeIn(
                 animationSpec = spring(stiffness = Spring.StiffnessMedium),
             )
@@ -91,12 +240,12 @@ fun BoxScope.NotificationBannerHost(
         exit = if (reduceMotion) {
             fadeOut()
         } else {
-            slideOutVertically(
+            slideOutHorizontally(
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioNoBouncy,
                     stiffness = Spring.StiffnessMedium,
                 ),
-                targetOffsetY = { -it },
+                targetOffsetX = { -it },
             ) + fadeOut()
         },
         label = "shellNotificationBanner",
@@ -106,6 +255,7 @@ fun BoxScope.NotificationBannerHost(
             NotificationBanner(
                 notification = notification,
                 onDismiss = center::dismiss,
+                onActivate = onActivate,
             )
         }
     }
@@ -116,7 +266,9 @@ fun NotificationBanner(
     notification: ShellNotification,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    onActivate: ((ShellNotification) -> Unit)? = null,
 ) {
+    val glass = rememberGlassTokens(GlassTone.OverMedia)
     val content = bannerContent(notification)
     val accessibility = listOfNotNull(
         content.category,
@@ -124,90 +276,95 @@ fun NotificationBanner(
         content.subtitle.takeIf { it.isNotBlank() },
     ).joinToString(". ")
 
-    Row(
+    Box(
         modifier = modifier
-            .widthIn(min = 280.dp, max = 420.dp)
-            .shadow(
-                elevation = 10.dp,
-                shape = BannerShape,
-                ambientColor = Color.Black.copy(alpha = 0.28f),
-                spotColor = Color.Black.copy(alpha = 0.22f),
-            )
-            .clip(BannerShape)
-            .background(BannerPanel.copy(alpha = 0.96f))
-            .clickable(onClick = onDismiss)
-            .semantics { contentDescription = accessibility }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .graphicsLayer { clip = false }
+            .padding(end = BannerShadowGutter, bottom = BannerShadowGutter),
     ) {
-        BannerAvatar(
-            url = content.avatarUrl,
-            fallback = content.avatarFallback,
-            accent = content.accent,
-        )
-
-        Column(modifier = Modifier.weight(1f)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Image(
-                    painter = painterResource(content.categoryIconRes),
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    colorFilter = ColorFilter.tint(BannerText),
+        Row(
+            modifier = Modifier
+                .widthIn(min = 220.dp, max = 300.dp)
+                .xoraForegroundShadow(
+                    shape = BannerShape,
+                    offset = BannerShadowOffset,
+                    blur = BannerShadowBlur,
                 )
-                Text(
-                    text = content.category,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = BannerText,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                .liquidGlass(
+                    shape = BannerShape,
+                    tone = GlassTone.OverMedia,
+                    intensity = GlassIntensity.Strong,
+                    shimmer = true,
                 )
-            }
-            Text(
-                text = content.body,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = BannerText,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
+                .border(1.5.dp, CardEdge, BannerShape)
+                .clickable(onClick = {
+                    if (onActivate != null) onActivate(notification)
+                    onDismiss()
+                })
+                .semantics { contentDescription = accessibility }
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BannerAvatar(
+                url = content.avatarUrl,
+                fallback = content.avatarFallback,
+                accent = content.accent,
             )
-            if (content.subtitle.isNotBlank()) {
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Image(
+                        painter = painterResource(content.categoryIconRes),
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        colorFilter = ColorFilter.tint(glass.content),
+                    )
+                    Text(
+                        text = content.category,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = glass.content,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
-                    text = content.subtitle,
+                    text = content.body,
                     style = MaterialTheme.typography.bodySmall,
-                    color = BannerTextMuted,
+                    fontWeight = FontWeight.Medium,
+                    color = glass.content,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 1.dp),
                 )
-            }
-            val progressFraction = content.progressFraction
-            if (progressFraction != null) {
-                LinearProgressIndicator(
-                    progress = { progressFraction.coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .padding(top = 6.dp)
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = content.accent,
-                    trackColor = BannerText.copy(alpha = 0.12f),
-                )
+                if (content.subtitle.isNotBlank()) {
+                    Text(
+                        text = content.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = glass.contentMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 1.dp),
+                    )
+                }
+                val progressFraction = content.progressFraction
+                if (progressFraction != null) {
+                    LinearProgressIndicator(
+                        progress = { progressFraction.coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = content.accent,
+                        trackColor = glass.content.copy(alpha = 0.12f),
+                    )
+                }
             }
         }
-
-        Image(
-            painter = painterResource(R.drawable.ic_banner_sora_mark),
-            contentDescription = "XOrA",
-            modifier = Modifier
-                .size(22.dp)
-                .align(Alignment.CenterVertically),
-        )
     }
 }
 
@@ -220,22 +377,22 @@ private fun BannerAvatar(
     val context = LocalContext.current
     Box(
         modifier = Modifier
-            .size(48.dp)
-            .clip(AvatarShape)
+            .size(36.dp)
+            .clip(CircleShape)
             .background(accent.copy(alpha = 0.18f)),
         contentAlignment = Alignment.Center,
     ) {
         if (!url.isNullOrBlank()) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(url)
-                    .crossfade(true)
+                    .data(preferAnimatedDiscordAvatarUrl(url) ?: url)
+                    .crossfade(false)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(AvatarShape),
+                    .size(36.dp)
+                    .clip(CircleShape),
             )
         } else {
             Text(
@@ -302,6 +459,46 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             accent = Color(0xFF66C0F4),
         )
 
+        is ShellNotification.XoraMessage -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_messages,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.sender.take(1).ifBlank { "X" },
+            accent = Color(0xFF0070D1),
+        )
+
+        is ShellNotification.XoraFriendRequest -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_friends,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.displayName.take(1).ifBlank { "X" },
+            accent = Color(0xFF0070D1),
+        )
+
+        is ShellNotification.XoraNetplayInvite -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_friends,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.displayName.take(1).ifBlank { "X" },
+            accent = Color(0xFF0070D1),
+        )
+
+        is ShellNotification.XoraSessionJoined -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_friends,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.displayName.take(1).ifBlank { "P" },
+            accent = Color(0xFF0070D1),
+        )
+
         is ShellNotification.FriendOnline -> BannerContent(
             category = copy.category,
             categoryIconRes = R.drawable.ic_banner_friends,
@@ -312,6 +509,49 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             accent = when (notification.network) {
                 FriendNetwork.Discord -> Color(0xFF5865F2)
                 FriendNetwork.Steam -> Color(0xFF66C0F4)
+                FriendNetwork.Xora -> Color(0xFF0070D1)
+            },
+        )
+
+        is ShellNotification.FriendStatusUpdated -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_friends,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.displayName.take(1).ifBlank { "F" },
+            accent = when (notification.network) {
+                FriendNetwork.Discord -> Color(0xFF5865F2)
+                FriendNetwork.Steam -> Color(0xFF66C0F4)
+                FriendNetwork.Xora -> Color(0xFF0070D1)
+            },
+        )
+
+        is ShellNotification.FriendListening -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_friends,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.displayName.take(1).ifBlank { "F" },
+            accent = when (notification.network) {
+                FriendNetwork.Discord -> Color(0xFF5865F2)
+                FriendNetwork.Steam -> Color(0xFF66C0F4)
+                FriendNetwork.Xora -> Color(0xFF0070D1)
+            },
+        )
+
+        is ShellNotification.FriendPlaying -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_friends,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = notification.avatarUrl,
+            avatarFallback = notification.displayName.take(1).ifBlank { "F" },
+            accent = when (notification.network) {
+                FriendNetwork.Discord -> Color(0xFF5865F2)
+                FriendNetwork.Steam -> Color(0xFF66C0F4)
+                FriendNetwork.Xora -> Color(0xFF0070D1)
             },
         )
 
@@ -334,6 +574,16 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             avatarUrl = null,
             avatarFallback = "✓",
             accent = Color(0xFF37D6A0),
+        )
+
+        is ShellNotification.UpdateAvailable -> BannerContent(
+            category = copy.category,
+            categoryIconRes = R.drawable.ic_banner_download,
+            body = copy.body,
+            subtitle = copy.subtitle,
+            avatarUrl = null,
+            avatarFallback = "↑",
+            accent = Color(0xFF4A9BE0),
         )
     }
 }

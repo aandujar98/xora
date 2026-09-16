@@ -9,11 +9,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.arcadia.shell.datastore.ShellPreferences
 
 /**
  * One history entry for the RT notification center (newest first).
@@ -39,6 +41,7 @@ data class ShellNotificationHistoryItem(
 class ShellNotificationCenter @Inject constructor(
     private val foregroundTracker: AppForegroundTracker,
     private val systemNotifier: ShellSystemNotifier,
+    private val preferences: ShellPreferences,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -57,7 +60,27 @@ class ShellNotificationCenter @Inject constructor(
     val recent: StateFlow<List<ShellNotification>> = _recent.asStateFlow()
 
     private val recentIds = ConcurrentHashMap.newKeySet<String>()
+    private val dismissed = DismissedNotificationTracker { ids ->
+        scope.launch(Dispatchers.IO) { preferences.addDismissedShellNotificationIds(ids) }
+    }
     private var holdJob: Job? = null
+    @Volatile private var queueGeneration = 0
+
+    /**
+     * True while the boot video owns the screen. Banners queue behind it rather than showing over
+     * it, and the backlog plays out once the XMB lands.
+     */
+    private val bootIntroHold = MutableStateFlow(false)
+
+    fun setBootIntroActive(active: Boolean) {
+        bootIntroHold.value = active
+    }
+
+    @Volatile var discordFriendOnlineEnabled: Boolean = true
+    @Volatile var steamFriendOnlineEnabled: Boolean = true
+    @Volatile var xoraFriendOnlineEnabled: Boolean = true
+    /** Master toggle for "friend started a game" banners across Steam, Discord, and XOrA. */
+    @Volatile var friendPlayingEnabled: Boolean = true
 
     /**
      * Master enable for banners **and** Android notifications.
@@ -68,6 +91,7 @@ class ShellNotificationCenter @Inject constructor(
         set(value) {
             field = value
             systemNotifier.notificationsEnabled = value
+            if (!value) hideActiveBanners()
         }
 
     /** @deprecated Prefer [notificationsEnabled]; kept for call-site compatibility. */
@@ -78,14 +102,21 @@ class ShellNotificationCenter @Inject constructor(
         }
 
     init {
+        scope.launch(Dispatchers.IO) {
+            dismissed.seed(preferences.dismissedShellNotificationIds.first())
+        }
         scope.launch {
             for (notification in inbound) {
+                // Nothing shows over the boot video; the queue simply waits it out.
+                bootIntroHold.first { !it }
+                val gen = queueGeneration
                 _active.value = notification
                 holdJob = launch {
                     delay(HOLD_MS)
                     clearIfCurrent(notification.id)
                 }
                 holdJob?.join()
+                if (queueGeneration != gen) continue
                 delay(GAP_MS)
             }
         }
@@ -93,6 +124,8 @@ class ShellNotificationCenter @Inject constructor(
 
     fun emit(notification: ShellNotification, force: Boolean = false) {
         if (!notificationsEnabled && !force) return
+        if (!force && !friendPresenceAllowed(notification)) return
+        if (isSuppressed(notification)) return
         if (!recentIds.add(notification.id)) return
         if (recentIds.size > MAX_RECENT_IDS) {
             recentIds.clear()
@@ -125,16 +158,102 @@ class ShellNotificationCenter @Inject constructor(
         clearIfCurrent(current.id)
     }
 
+    /**
+     * Drops the on-screen banner and anything waiting in the inbound queue.
+     * History is left alone — this is the master-toggle off path, not Clear.
+     */
+    fun hideActiveBanners() {
+        queueGeneration++
+        while (inbound.tryReceive().isSuccess) {
+            // drain
+        }
+        holdJob?.cancel()
+        holdJob = null
+        _active.value = null
+    }
+
     /** Mark every history item read (clears the profile red-dot badge). */
     fun markAllRead() {
         _history.update { list -> list.map { it.copy(read = true) } }
         _unreadCount.value = 0
     }
 
+    fun isSuppressed(notification: ShellNotification): Boolean =
+        dismissed.isDismissed(notification.dismissalKeys())
+
+    fun isSuppressed(keys: Collection<String>): Boolean = dismissed.isDismissed(keys)
+
+    fun suppress(notification: ShellNotification) {
+        suppressKeys(notification.dismissalKeys())
+    }
+
+    fun suppressKeys(keys: Collection<String>) {
+        val trimmed = keys.map { it.trim() }.filter { it.isNotEmpty() }
+        if (trimmed.isEmpty()) return
+        dismissed.dismiss(trimmed)
+        val banned = trimmed.toSet()
+        _history.update { list ->
+            list.filterNot { item -> item.notification.dismissalKeys().any { it in banned } }
+        }
+        _recent.update { list ->
+            list.filterNot { item -> item.dismissalKeys().any { it in banned } }
+        }
+        _unreadCount.value = _history.value.count { !it.read }
+        trimmed.forEach { recentIds.remove(it) }
+        val active = _active.value
+        if (active != null && active.dismissalKeys().any { it in banned }) {
+            holdJob?.cancel()
+            holdJob = null
+            _active.value = null
+        }
+    }
+
+    fun removeFromHistory(id: String) {
+        if (id.isBlank()) return
+        val item = _history.value.firstOrNull { it.notification.id == id }
+        if (item != null) {
+            suppress(item.notification)
+            return
+        }
+        suppressKeys(listOf(id))
+    }
+
     fun clearHistory() {
+        queueGeneration++
+        val pending = mutableListOf<ShellNotification>()
+        while (true) {
+            val dropped = inbound.tryReceive().getOrNull() ?: break
+            pending += dropped
+        }
+        val keys = (_history.value.map { it.notification } + _recent.value + pending)
+            .flatMap { it.dismissalKeys() }
+        if (keys.isNotEmpty()) dismissed.dismiss(keys)
         _history.value = emptyList()
         _unreadCount.value = 0
         _recent.value = emptyList()
+        recentIds.clear()
+        holdJob?.cancel()
+        holdJob = null
+        _active.value = null
+    }
+
+    private fun friendPresenceAllowed(notification: ShellNotification): Boolean = when (notification) {
+        is ShellNotification.FriendPlaying -> friendPlayingEnabled
+        // Same feed as "started a game": what a friend is up to, so it shares that switch.
+        is ShellNotification.FriendListening -> friendPlayingEnabled
+        is ShellNotification.FriendOnline -> when (notification.network) {
+            FriendNetwork.Discord -> discordFriendOnlineEnabled
+            FriendNetwork.Steam -> steamFriendOnlineEnabled
+            FriendNetwork.Xora -> xoraFriendOnlineEnabled
+        }
+        // A status line is presence news too, so it rides the same per-network switch as
+        // coming online rather than needing one of its own.
+        is ShellNotification.FriendStatusUpdated -> when (notification.network) {
+            FriendNetwork.Discord -> discordFriendOnlineEnabled
+            FriendNetwork.Steam -> steamFriendOnlineEnabled
+            FriendNetwork.Xora -> xoraFriendOnlineEnabled
+        }
+        else -> true
     }
 
     private fun recordHistory(notification: ShellNotification) {
