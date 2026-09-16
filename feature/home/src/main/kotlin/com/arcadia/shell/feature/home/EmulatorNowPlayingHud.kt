@@ -198,11 +198,10 @@ private fun HudGlyph(
                 onClick = onClick,
             ),
     ) {
-        XmbVectorIcon(
+        XmbTransportIcon(
             icon = icon,
             tint = HudInk,
             size = size.dp,
-            outlined = false,
         )
     }
 }

@@ -35,6 +35,7 @@ internal fun rememberEditorRows(
     artAlignY: Float,
     mediaEpoch: Int,
     screenshotCount: Int = 0,
+    manualPath: String? = null,
     onStartRename: () -> Unit,
     onOpenArtPicker: (ArtSlot) -> Unit,
     actions: RomEditorActions,
@@ -53,6 +54,7 @@ internal fun rememberEditorRows(
     artAlignY,
     mediaEpoch,
     screenshotCount,
+    manualPath,
 ) {
     when (section) {
         RomEditorSection.Details -> detailRows(game, customTitle, hidden, onStartRename, actions)
@@ -60,6 +62,7 @@ internal fun rememberEditorRows(
             artworkRows(game, artAlignX, artAlignY, screenshotCount, onOpenArtPicker, actions)
         RomEditorSection.Audio -> audioRows(game, actions)
         RomEditorSection.Video -> videoRows(trailer, trailerResolving, actions)
+        RomEditorSection.Manual -> manualRows(manualPath, actions)
         RomEditorSection.Saves -> saveRows(saves, actions)
         RomEditorSection.Library -> libraryRows(
             game = game,
@@ -303,6 +306,44 @@ private fun videoRows(
             label = "Use YouTube instead",
             hint = "Looks the trailer up and plays it from YouTube.",
             onActivate = actions.onUseYouTubeTrailer,
+        ),
+    )
+}
+
+/**
+ * Game Manual — 0.5.6 lets a title's manual be attached by hand, looked up on demand, or dropped,
+ * rather than only arriving with a scrape.
+ */
+internal fun manualRows(
+    manualPath: String?,
+    actions: RomEditorActions,
+): List<RomEditorRow> = buildList {
+    val has = !manualPath.isNullOrBlank()
+    add(
+        RomEditorRow(
+            key = "manual",
+            label = "Game Manual",
+            value = if (has) "Attached" else "None",
+            hint = "Drop a PDF next to the ROM, or add ScreenScraper credentials in Settings to " +
+                "download one.",
+            onActivate = actions.onPickManual,
+            onClear = actions.onClearManual.takeIf { has },
+        ),
+    )
+    add(
+        RomEditorRow(
+            key = "manualpick",
+            label = "Choose a manual",
+            hint = "Opens the Files app — any PDF on this device.",
+            onActivate = actions.onPickManual,
+        ),
+    )
+    add(
+        RomEditorRow(
+            key = "manualscrape",
+            label = "Look one up",
+            hint = "Asks ScreenScraper for this title's manual now.",
+            onActivate = actions.onScrapeManual,
         ),
     )
 }

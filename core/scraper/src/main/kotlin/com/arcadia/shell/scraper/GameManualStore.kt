@@ -79,6 +79,38 @@ class GameManualStore @Inject constructor(
         }.onFailure { temp.delete() }.getOrNull()
     }
 
+    /**
+     * Stores a manual the user picked themselves, replacing any already held for [gameId].
+     *
+     * Takes a stream opener rather than a Uri so this stays a filesystem class: the caller owns the
+     * ContentResolver. Same temp-then-rename discipline as [findOrDownload], for the same reason —
+     * the file's presence is the only record that a manual exists.
+     */
+    suspend fun importFrom(
+        gameId: String,
+        format: String? = null,
+        open: () -> java.io.InputStream?,
+    ): String? = withContext(Dispatchers.IO) {
+        val target = fileFor(gameId, format, "")
+        target.parentFile?.mkdirs()
+        val temp = File(target.absolutePath + ".part")
+
+        runCatching {
+            val source = open() ?: return@runCatching null
+            source.use { input -> temp.outputStream().use { output -> input.copyTo(output) } }
+
+            if (temp.length() == 0L) {
+                temp.delete()
+                return@runCatching null
+            }
+
+            // Replace only once the new file is known good, so a failed import leaves the old
+            // manual intact rather than removing it first and keeping neither.
+            remove(gameId)
+            if (temp.renameTo(target)) target.absolutePath else null
+        }.onFailure { temp.delete() }.getOrNull()
+    }
+
     fun remove(gameId: String) {
         find(gameId)?.let { runCatching { File(it).delete() } }
     }

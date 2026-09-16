@@ -20,14 +20,32 @@ set(MINIMAL_CORE OFF CACHE BOOL "" FORCE)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(MGBA_SRC "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mgba")
+# Every ABI configures in its own CMake process but shares this one source tree, so a plain
+# clone straight into MGBA_SRC races: the first ABI is still filling the directory when the
+# next one checks, finds no CMakeLists.txt yet, and fails on a path that "already exists and
+# is not an empty directory". Clone into a private path and move it into place instead —
+# whoever lands first wins and the others fall through to the tree that is already there.
 if(NOT EXISTS "${MGBA_SRC}/CMakeLists.txt")
-    message(STATUS "Cloning mGBA into ${MGBA_SRC}")
+    set(MGBA_TMP "${MGBA_SRC}.tmp.${ANDROID_ABI}")
+    file(REMOVE_RECURSE "${MGBA_TMP}")
+    message(STATUS "Cloning mGBA into ${MGBA_TMP}")
     execute_process(
-        COMMAND git clone --depth 1 https://github.com/mgba-emu/mgba.git "${MGBA_SRC}"
+        COMMAND git clone --depth 1 https://github.com/mgba-emu/mgba.git "${MGBA_TMP}"
         RESULT_VARIABLE MGBA_CLONE
     )
     if(NOT MGBA_CLONE EQUAL 0)
+        file(REMOVE_RECURSE "${MGBA_TMP}")
         message(FATAL_ERROR "Could not clone mGBA for GBA Game Link")
+    endif()
+    # Losing this rename only means another ABI got there first, which is fine.
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E rename "${MGBA_TMP}" "${MGBA_SRC}"
+        RESULT_VARIABLE MGBA_RENAME
+        ERROR_QUIET
+    )
+    file(REMOVE_RECURSE "${MGBA_TMP}")
+    if(NOT EXISTS "${MGBA_SRC}/CMakeLists.txt")
+        message(FATAL_ERROR "mGBA source missing at ${MGBA_SRC} after clone")
     endif()
 endif()
 add_subdirectory("${MGBA_SRC}" "${CMAKE_CURRENT_BINARY_DIR}/mgba" EXCLUDE_FROM_ALL)

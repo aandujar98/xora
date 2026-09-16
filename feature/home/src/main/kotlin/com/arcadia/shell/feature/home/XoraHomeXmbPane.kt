@@ -170,7 +170,7 @@ fun XoraHomeXmbPane(
 ) {
     val xmb = state.xoraXmb
     val heroGame = xmb.focusGame?.takeIf {
-        xmb.depth == XoraXmbDepth.Roms ||
+        xmb.depth.isGameSelect ||
             xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
             xmb.selectedItem?.action is XoraXmbAction.LaunchGame
     }
@@ -303,7 +303,7 @@ fun XoraHomeXmbPane(
             XmbHeroWaveBackdrop(
                 artPath = backdropArtPath,
                 showWaveMask = musicBackdrop.showWaveMask,
-                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                settleMs = if (xmb.depth.isGameSelect) {
                     XMB_GAME_SELECT_SETTLE_MS
                 } else {
                     XMB_FOCUS_SETTLE_MS
@@ -406,17 +406,20 @@ fun XoraHomeXmbPane(
                     )
                     XoraXmbDepth.Systems,
                     XoraXmbDepth.Roms,
+                    XoraXmbDepth.Favorites,
                     XoraXmbDepth.DspAccounts,
                     XoraXmbDepth.MusicAlbums,
                     XoraXmbDepth.MusicTracks,
+                    XoraXmbDepth.VideoFiles,
                     -> XoraCardBrowsePane(
                         items = xmb.items,
                         selectedIndex = xmb.itemIndex,
                         mode = when (depth) {
                             XoraXmbDepth.Systems -> CardBrowseMode.Systems
-                            XoraXmbDepth.Roms -> CardBrowseMode.Roms
+                            XoraXmbDepth.Roms, XoraXmbDepth.Favorites -> CardBrowseMode.Roms
                             XoraXmbDepth.MusicAlbums -> CardBrowseMode.MusicAlbums
-                            XoraXmbDepth.MusicTracks -> CardBrowseMode.MusicTracks
+                            XoraXmbDepth.MusicTracks, XoraXmbDepth.VideoFiles ->
+                                CardBrowseMode.MusicTracks
                             else -> CardBrowseMode.DspAccounts
                         },
                         onSelectItem = onSelectItem,
@@ -662,14 +665,14 @@ fun XoraXmbHeroDetail(
                         }
                         ?: xmbGameSelectWallpaperPath(
                             heroGame?.takeIf {
-                                xmb.depth == XoraXmbDepth.Roms ||
+                                xmb.depth.isGameSelect ||
                                     xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
                                     xmb.selectedItem?.action is XoraXmbAction.LaunchGame
                             },
                         )
                 },
                 showWaveMask = musicBackdrop.showWaveMask,
-                settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
+                settleMs = if (xmb.depth.isGameSelect) {
                     XMB_GAME_SELECT_SETTLE_MS
                 } else {
                     XMB_FOCUS_SETTLE_MS
@@ -711,7 +714,7 @@ fun XoraXmbHeroDetail(
         ) {
             val heroCopy = Triple(
                 xmb.focusTitle,
-                if (xmb.depth == XoraXmbDepth.Roms && heroGame != null) {
+                if (xmb.depth.isGameSelect && heroGame != null) {
                     "Playtime: ${formatXmbPlaytime(heroGame.playTimeMs)}"
                 } else {
                     xmb.focusSubtitle
@@ -726,7 +729,7 @@ fun XoraXmbHeroDetail(
                 heroCopy,
                 settleMs = XMB_FOCUS_SETTLE_MS,
             )
-            val shownCopy = if (xmb.depth == XoraXmbDepth.Roms) {
+            val shownCopy = if (xmb.depth.isGameSelect) {
                 heroCopy.takeIf { heroGame?.id != null && heroGame.id == settledRomId }
             } else {
                 heldCopy
@@ -1241,21 +1244,26 @@ private fun XoraXmbPillChrome(
         val showMiniPlayer = !launchPageOpen &&
             musicFocused &&
             state.xoraXmb.depth != XoraXmbDepth.NowPlaying &&
-            state.xoraXmb.depth != XoraXmbDepth.RaLibrary
+            state.xoraXmb.depth != XoraXmbDepth.RaLibrary &&
+            !state.xoraXmb.showsGameMedia
         val showAchievementsCard = !launchPageOpen &&
             !musicFocused &&
             state.xoraXmb.showsAchievementsCard &&
             state.xoraXmb.depth != XoraXmbDepth.RaLibrary
-        if (showMiniPlayer) {
+        AnimatedVisibility(
+            visible = showMiniPlayer,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Medium)),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
             NowPlayingPill(
                 state = state.music.nowPlaying.withLivePosition(nowPlayingPositionMs),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .graphicsLayer {
-                        alpha = introAlpha
-                        translationY = slidePx * 0.85f
-                    },
+                modifier = Modifier.graphicsLayer {
+                    alpha = introAlpha
+                    translationY = slidePx * 0.85f
+                },
             )
         }
         AnimatedVisibility(

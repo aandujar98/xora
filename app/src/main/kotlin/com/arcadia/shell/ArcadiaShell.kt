@@ -278,6 +278,13 @@ fun ArcadiaShell(
         pendingGameMediaId = null
         if (uri != null && gameId != null) homeViewModel.setGameIdleVideo(gameId, uri)
     }
+    val gameManualPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val gameId = pendingGameMediaId
+        pendingGameMediaId = null
+        if (uri != null && gameId != null) homeViewModel.setGameManual(gameId, uri)
+    }
     val gameScreenshotPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 12),
     ) { uris ->
@@ -355,6 +362,12 @@ fun ArcadiaShell(
                     is HomeMediaPickerRequest.GameIdleVideo -> {
                         pendingGameMediaId = request.gameId
                         gameIdleVideoPicker.launch(arrayOf("video/*"))
+                    }
+                    is HomeMediaPickerRequest.GameManual -> {
+                        pendingGameMediaId = request.gameId
+                        // Manuals are usually PDFs, but ScreenScraper also serves cbz and plain
+                        // images, so do not narrow this to application/pdf.
+                        gameManualPicker.launch(arrayOf("application/pdf", "image/*", "*/*"))
                     }
                     is HomeMediaPickerRequest.GameScreenshots -> {
                         pendingGameMediaId = request.gameId
@@ -1039,6 +1052,7 @@ fun ArcadiaShell(
                 artAlignY = state.gameArtAlignments[gameId]?.y ?: 0f,
                 mediaEpoch = mediaEpoch,
                 screenshotCount = homeViewModel.screenshotCount(gameId),
+                manualPath = homeViewModel.gameManualPath(gameId),
                 artPicker = artPicker,
                 navActions = homeViewModel.sheetNavActionFlow,
                 actions = RomEditorActions(
@@ -1076,6 +1090,9 @@ fun ArcadiaShell(
                     },
                     onRescrapeGame = { homeViewModel.rescrapeGame(gameId) },
                     onRescrapePlatform = { homeViewModel.rescrapePlatform(game.platformId) },
+                    onPickManual = { homeViewModel.pickGameManual(gameId) },
+                    onClearManual = { homeViewModel.clearGameManual(gameId) },
+                    onScrapeManual = { homeViewModel.scrapeGameManual(gameId) },
                 ),
                 onArtPickerSlotChange = { pickerSlot = it; if (it == null) artPicker = ArtPickerUiState() },
             )

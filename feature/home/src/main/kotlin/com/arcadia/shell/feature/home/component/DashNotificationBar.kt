@@ -53,14 +53,14 @@ private val DashBarFill = Brush.horizontalGradient(
     1f to Color.Transparent,
 )
 
-/** The icon each kind carries (ICONS-2), and nothing for a kind that should read as plain text. */
+/** The icon each kind carries (ICONS-2 from DNU-0.5.6), and nothing for a kind that should read as plain text. */
 private fun DashNotificationKind.iconRes(): Int = when (this) {
-    DashNotificationKind.Music -> R.drawable.xmb_figma_music
-    DashNotificationKind.Scraping -> R.drawable.ic_banner_download
-    DashNotificationKind.Update -> R.drawable.xmb_update
-    DashNotificationKind.Playtime -> R.drawable.xmb_stack
-    DashNotificationKind.Scanning -> R.drawable.xmb_figma_device
-    DashNotificationKind.Error -> R.drawable.xmb_settings_device
+    DashNotificationKind.Music -> R.drawable.dash_music
+    DashNotificationKind.Scraping -> R.drawable.dash_download
+    DashNotificationKind.Update -> R.drawable.dash_update
+    DashNotificationKind.Playtime -> R.drawable.dash_time
+    DashNotificationKind.Scanning -> R.drawable.dash_search_device
+    DashNotificationKind.Error -> R.drawable.dash_power
 }
 
 /**

@@ -7,6 +7,7 @@ import com.arcadia.shell.launcher.music.MusicAlbum
 import com.arcadia.shell.launcher.music.MusicSource
 import com.arcadia.shell.launcher.music.MusicTrack
 import com.arcadia.shell.launcher.photos.DeviceMediaFolder
+import com.arcadia.shell.launcher.videos.DeviceVideo
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.GamePlatform
 import com.arcadia.shell.model.PlatformSummary
@@ -49,6 +50,8 @@ enum class XoraXmbDepth {
     Category,
     /** Games → All Games → system list. */
     Systems,
+    /** Games → Favorites → every game flagged favorite, across platforms. */
+    Favorites,
     /** Games → All Games → system → ROM list. */
     Roms,
     /** Games → XOrA Emulator → display / controllers / bezels. */
@@ -59,6 +62,8 @@ enum class XoraXmbDepth {
     MusicAlbums,
     /** Music → an album's songs (or All music). */
     MusicTracks,
+    /** Videos → a folder's clips, browsed like an album's songs. */
+    VideoFiles,
     /** Music → Now Playing — full-bleed player over the cover art. */
     NowPlaying,
     /** Media → Photos — full-bleed PSP-style gallery over the wallpaper. */
@@ -67,6 +72,13 @@ enum class XoraXmbDepth {
     Dashboard,
     /** Games → Retro Achievements — library overlay; XMB zooms out and fades underneath. */
     RaLibrary,
+    ;
+
+    /**
+     * A rung that lists games rather than folders — the ROM list under a platform, and the
+     * Favorites folder. Both take the Game Select bindings and the hero wallpaper.
+     */
+    val isGameSelect: Boolean get() = this == Roms || this == Favorites
 }
 
 /** One focusable row in the XMB vertical list. */
@@ -141,6 +153,9 @@ sealed interface XoraXmbAction {
     data object OpenRaLibrary : XoraXmbAction
     data object LaunchContinueOrFavorite : XoraXmbAction
     data object DrillAllGames : XoraXmbAction
+
+    /** Games → Favorites: the flagged games as one Game Select screen. */
+    data object DrillFavorites : XoraXmbAction
     /** Games column Folder_IMG — pick a gallery still to sit in the folder window. */
     data object PickHomeFolderImage : XoraXmbAction
     /** Games → XOrA Emulator settings list. */
@@ -159,6 +174,9 @@ sealed interface XoraXmbAction {
     data object VideosStub : XoraXmbAction
     /** Videos column — an album of videos stored in a folder. */
     data class OpenVideoFolder(val folderId: String) : XoraXmbAction
+
+    /** Videos → a clip inside the open folder, handed to the device's player. */
+    data class PlayVideo(val videoId: String) : XoraXmbAction
     /** Music → Now Playing page. */
     data object OpenNowPlaying : XoraXmbAction
     /** Music → Playlist → album / playlist cards. */
@@ -175,6 +193,9 @@ sealed interface XoraXmbAction {
     data class LinkDspAccount(val provider: DspProvider) : XoraXmbAction
     /** XOrA Network → Dashboard — profile, friends, games & RA over the wallpaper. */
     data object OpenDashboard : XoraXmbAction
+
+    /** XOrA Network → All Friends — the Dashboard's friends list, opened straight from the rung. */
+    data object OpenAllFriends : XoraXmbAction
     data object StoreStub : XoraXmbAction
     data object OpenNews : XoraXmbAction
     data class DrillSystem(val platformId: String) : XoraXmbAction
@@ -238,9 +259,16 @@ data class XoraXmbUiState(
                 is XoraXmbAction.LaunchContinueOrFavorite,
                 is XoraXmbAction.ResumeGame,
                 -> true
-                else -> depth == XoraXmbDepth.Roms
+                else -> depth.isGameSelect
             }
         }
+
+    /**
+     * A game's own media is on screen — its wallpaper behind the cross, its card in the corner.
+     * The mini music player stands down for this rather than taking the corner off the trophy
+     * card, which is the same slot.
+     */
+    val showsGameMedia: Boolean get() = focusGame != null && showsAchievementsCard
 }
 
 /** Home Games column: Trophy, recents plate, All Games. Folder_IMG only for collections. */
@@ -472,6 +500,15 @@ fun buildXoraCategoryItems(
                         icon = XmbIcon.Device,
                     ),
                 )
+                add(
+                    XoraXmbItem(
+                        id = "favorites",
+                        title = "Favorites",
+                        subtitle = "Games you starred",
+                        action = XoraXmbAction.DrillFavorites,
+                        icon = XmbIcon.FolderFavorites,
+                    ),
+                )
                 // Folder_IMG is reserved for user collections. None exist yet, so the
                 // old always-on customize row stays off the Games column.
             }
@@ -541,6 +578,13 @@ fun buildXoraCategoryItems(
             icon = XmbIcon.Dashboard,
         ),
         XoraXmbItem(
+            id = "all_friends",
+            title = "All Friends",
+            subtitle = "Everyone you're friends with, online or not",
+            action = XoraXmbAction.OpenAllFriends,
+            icon = XmbIcon.Friends,
+        ),
+        XoraXmbItem(
             id = "store",
             title = "XOrA Store",
             subtitle = "Coming soon",
@@ -589,6 +633,20 @@ fun buildXoraMusicTrackItems(tracks: List<MusicTrack>): List<XoraXmbItem> =
             playTimeMs = track.durationMs,
             platformLabel = track.albumTitle.takeIf { it.isNotBlank() },
             icon = XmbIcon.Music,
+        )
+    }
+
+/** Videos → the clips inside the open folder, newest first. */
+fun buildXoraVideoItems(videos: List<DeviceVideo>): List<XoraXmbItem> =
+    videos.map { video ->
+        XoraXmbItem(
+            id = "video_${video.id}",
+            title = video.title.substringBeforeLast('.').ifBlank { video.title },
+            subtitle = video.album.ifBlank { "Video" },
+            action = XoraXmbAction.PlayVideo(video.id),
+            artPath = video.uri,
+            playTimeMs = video.durationMs,
+            icon = XmbIcon.Video,
         )
     }
 

@@ -84,6 +84,7 @@ import com.arcadia.shell.launcher.photos.DevicePhoto
 import com.arcadia.shell.launcher.photos.PhotoAccess
 import com.arcadia.shell.launcher.photos.PhotoEditor
 import com.arcadia.shell.launcher.photos.PhotoLibrary
+import com.arcadia.shell.launcher.videos.DeviceVideo
 import com.arcadia.shell.launcher.videos.VideoLibrary
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
@@ -137,6 +138,8 @@ import com.arcadia.shell.scraper.ArtCandidate
 import com.arcadia.shell.scraper.ArtCandidateFinder
 import com.arcadia.shell.scraper.ArtCandidateResult
 import com.arcadia.shell.scraper.ArtSlot
+import com.arcadia.shell.scraper.GameCompanionDetailRepository
+import com.arcadia.shell.scraper.GameManualStore
 import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.MusicArtRepository
 import com.arcadia.shell.scraper.PlatformArtRepository
@@ -221,6 +224,8 @@ class HomeViewModel @Inject constructor(
     private val avatarStore: ProfileAvatarStore,
     private val themeMediaStore: HomeThemeMediaStore,
     private val gameCustomMediaStore: GameCustomMediaStore,
+    private val gameManualStore: GameManualStore,
+    private val companionDetails: GameCompanionDetailRepository,
     private val steamGridDbClient: com.arcadia.shell.scraper.SteamGridDbClient,
     private val mediaCache: com.arcadia.shell.scraper.MediaCache,
     private val gameSaveCatalog: GameSaveCatalog,
@@ -1018,12 +1023,14 @@ class HomeViewModel @Inject constructor(
         val music: MusicUiState = MusicUiState(),
         val photoFolders: List<DeviceMediaFolder> = emptyList(),
         val videoFolders: List<DeviceMediaFolder> = emptyList(),
+        val videoFiles: List<DeviceVideo> = emptyList(),
         val customMediaEpoch: Int = 0,
     )
 
     private data class MediaFolders(
         val photos: List<DeviceMediaFolder> = emptyList(),
         val videos: List<DeviceMediaFolder> = emptyList(),
+        val videoFiles: List<DeviceVideo> = emptyList(),
     )
 
     private val mediaFolders = MutableStateFlow(MediaFolders())
@@ -1100,6 +1107,7 @@ class HomeViewModel @Inject constructor(
                 music = music,
                 photoFolders = folders.photos,
                 videoFolders = folders.videos,
+                videoFiles = folders.videoFiles,
             )
         },
         customMediaEpoch,
@@ -1610,7 +1618,7 @@ class HomeViewModel @Inject constructor(
                     val game = state.xoraXmb.focusGame
                         ?.takeIf { !it.isAndroidApp }
                         ?.takeIf {
-                            state.xoraXmb.depth == XoraXmbDepth.Roms ||
+                            state.xoraXmb.depth.isGameSelect ||
                                 state.xoraXmb.selectedItem?.action is XoraXmbAction.LaunchGame ||
                                 state.xoraXmb.selectedItem?.action is
                                     XoraXmbAction.LaunchContinueOrFavorite
@@ -2576,6 +2584,11 @@ class HomeViewModel @Inject constructor(
                     hiddenIds = if (showHidden) hiddenIds else emptySet(),
                 )
             }
+            XoraXmbDepth.Favorites -> buildXoraRomItems(
+                games = libraryGames.filter { !it.isAndroidApp && it.favorite },
+                hiddenIds = if (showHidden) hiddenIds else emptySet(),
+            )
+            XoraXmbDepth.VideoFiles -> buildXoraVideoItems(platformChrome.videoFiles)
             XoraXmbDepth.Emulator -> buildXoraEmulatorItems(
                 settings = xoraEmulator,
                 raHardcore = raSettings.hardcore,
@@ -3039,7 +3052,7 @@ class HomeViewModel @Inject constructor(
                 // Prefer the XMB-focused game (ROM list / Continue / Favorite).
                 val xmbBrowsingGame = state.homePage == HomePage.Home &&
                     (
-                        state.xoraXmb.depth == XoraXmbDepth.Roms ||
+                        state.xoraXmb.depth.isGameSelect ||
                             state.xoraXmb.selectedItem?.action is
                                 XoraXmbAction.LaunchContinueOrFavorite ||
                             state.xoraXmb.selectedItem?.action is XoraXmbAction.LaunchGame
@@ -3487,7 +3500,7 @@ class HomeViewModel @Inject constructor(
             }
             NavAction.Cancel -> drillOutXora()
             NavAction.Options -> {
-                if (xmb.depth == XoraXmbDepth.Roms) {
+                if (xmb.depth.isGameSelect) {
                     xmb.focusGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
                         ?: state.selectedGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
                     return
@@ -3503,7 +3516,7 @@ class HomeViewModel @Inject constructor(
                     return
                 }
                 val game = when {
-                    xmb.depth == XoraXmbDepth.Roms -> xmb.focusGame ?: state.selectedGame
+                    xmb.depth.isGameSelect -> xmb.focusGame ?: state.selectedGame
                     xmb.focusGame != null &&
                         (xmb.selectedItem?.action is XoraXmbAction.LaunchGame ||
                             xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite) ->
@@ -3516,7 +3529,7 @@ class HomeViewModel @Inject constructor(
                 }
             }
             NavAction.ToggleFavorite -> {
-                if (xmb.depth == XoraXmbDepth.Roms && xmb.focusGame != null) {
+                if (xmb.depth.isGameSelect && xmb.focusGame != null) {
                     focusGameInLibrary(xmb.focusGame)
                     toggleFavorite()
                 }
@@ -3994,6 +4007,11 @@ class HomeViewModel @Inject constructor(
                 xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.Systems)
                 xoraDrilledPlatformId.value = null
             }
+            XoraXmbAction.DrillFavorites -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                xoraDepth.value = XoraXmbDepth.Favorites
+                xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.Favorites)
+            }
             XoraXmbAction.PickHomeFolderImage -> requestHomeFolderImage()
             XoraXmbAction.DrillXoraEmulator -> {
                 rememberXoraFolder(XoraXmbDepth.Category)
@@ -4023,7 +4041,16 @@ class HomeViewModel @Inject constructor(
                 openPhotosRung(folderId = action.folderId, folderTitle = item.title)
             }
             XoraXmbAction.VideosStub -> activateVideos()
-            is XoraXmbAction.OpenVideoFolder -> activateVideos(folderTitle = item.title)
+            is XoraXmbAction.OpenVideoFolder ->
+                activateVideos(folderId = action.folderId)
+            is XoraXmbAction.PlayVideo -> {
+                val video = mediaFolders.value.videoFiles.firstOrNull { it.id == action.videoId }
+                if (video != null) {
+                    emit(HomeEvent.OpenVideoFile(video.uri))
+                } else {
+                    emit(HomeEvent.ShowMessage("That clip is no longer on this device."))
+                }
+            }
             XoraXmbAction.OpenNowPlaying -> {
                 if (!nowPlayingController.state.value.hasTrack) {
                     emit(HomeEvent.ShowMessage("Nothing playing yet — pick a song from Music."))
@@ -4076,6 +4103,10 @@ class HomeViewModel @Inject constructor(
             XoraXmbAction.OpenDashboard -> {
                 rememberXoraFolder(XoraXmbDepth.Category)
                 openDashboardRung()
+            }
+            XoraXmbAction.OpenAllFriends -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                openDashboardRung(DashboardView.Friends)
             }
             XoraXmbAction.StoreStub ->
                 emit(HomeEvent.ShowMessage("XOrA Store — coming soon."))
@@ -4199,6 +4230,8 @@ class HomeViewModel @Inject constructor(
 
     private fun xoraParentDepth(current: XoraXmbDepth): XoraXmbDepth = when (current) {
         XoraXmbDepth.Roms -> XoraXmbDepth.Systems
+        XoraXmbDepth.Favorites -> XoraXmbDepth.Category
+        XoraXmbDepth.VideoFiles -> XoraXmbDepth.Category
         XoraXmbDepth.MusicTracks ->
             if (musicUi.value.drilledAlbumId != null) XoraXmbDepth.MusicAlbums
             else XoraXmbDepth.Category
@@ -4508,7 +4541,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             val photos = runCatching { photoLibrary.folders() }.getOrDefault(emptyList())
             val videos = runCatching { videoLibrary.folders() }.getOrDefault(emptyList())
-            mediaFolders.value = MediaFolders(photos = photos, videos = videos)
+            mediaFolders.update { it.copy(photos = photos, videos = videos) }
         }
     }
 
@@ -4531,15 +4564,22 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun activateVideos(folderTitle: String? = null) {
+    private fun activateVideos(folderId: String? = null) {
         val access = videoLibrary.access()
         if (access == PhotoAccess.Denied) {
             emit(HomeEvent.RequestImageAccess(videoLibrary.requiredPermissions()))
             return
         }
-        refreshMediaFolders()
-        val label = folderTitle?.takeIf { it.isNotBlank() } ?: "Videos"
-        emit(HomeEvent.ShowMessage("$label — video player coming soon."))
+        rememberXoraFolder(XoraXmbDepth.Category)
+        viewModelScope.launch {
+            val files = runCatching { videoLibrary.videos(folderId) }.getOrDefault(emptyList())
+            mediaFolders.update { it.copy(videoFiles = files) }
+            xoraDepth.value = XoraXmbDepth.VideoFiles
+            xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.VideoFiles)
+            if (files.isEmpty()) {
+                emit(HomeEvent.ShowMessage("No videos in that folder."))
+            }
+        }
     }
 
     private fun loadPhotos(keepFocusId: String? = null) {
@@ -4768,11 +4808,11 @@ class HomeViewModel @Inject constructor(
     // -------------------------------------------------------------------------------------------
 
     /** Slides into the Dashboard and refreshes account, friends, RA chrome, and play history. */
-    private fun openDashboardRung() {
+    private fun openDashboardRung(view: DashboardView = DashboardView.Tiles) {
         xoraDepth.value = XoraXmbDepth.Dashboard
         xoraItemIndex.value = 0
         dashboardUi.update {
-            it.copy(view = DashboardView.Tiles, tileIndex = 0, busy = false, error = null, notice = null)
+            it.copy(view = view, tileIndex = 0, busy = false, error = null, notice = null)
         }
         viewModelScope.launch {
             val games = libraryRepository.observeGames().first()
@@ -10262,6 +10302,70 @@ class HomeViewModel @Inject constructor(
             gameSoundBitePlayer.stop()
             bumpCustomMedia()
             emit(HomeEvent.ShowMessage("Sound bite removed."))
+        }
+    }
+
+    /** Local path to this game's manual, or null when it has none yet. */
+    fun gameManualPath(gameId: String): String? = gameManualStore.find(gameId)
+
+    fun pickGameManual(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameManual(gameId)) }
+        }
+    }
+
+    /** Stores a manual the user picked by hand, replacing whatever this game was holding. */
+    fun setGameManual(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            val format = appContext.contentResolver.getType(uri)
+                ?.substringAfterLast('/')
+                ?.takeIf { it.isNotBlank() }
+            val stored = runCatching {
+                gameManualStore.importFrom(gameId, format) {
+                    appContext.contentResolver.openInputStream(uri)
+                }
+            }.getOrNull()
+            // The companion screen caches what it resolved, so it has to be told the answer changed.
+            companionDetails.clearCache()
+            bumpCustomMedia()
+            emit(
+                if (stored != null) {
+                    HomeEvent.ShowMessage("Manual updated.")
+                } else {
+                    HomeEvent.ShowError("Could not import that manual.")
+                },
+            )
+        }
+    }
+
+    fun clearGameManual(gameId: String) {
+        viewModelScope.launch {
+            gameManualStore.remove(gameId)
+            companionDetails.clearCache()
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Manual removed."))
+        }
+    }
+
+    /** Looks a manual up now instead of waiting for this title's next scrape. */
+    fun scrapeGameManual(gameId: String) {
+        viewModelScope.launch {
+            val game = libraryRepository.observeGames().first().firstOrNull { it.id == gameId }
+            if (game == null) {
+                emit(HomeEvent.ShowError("Could not save the manual."))
+                return@launch
+            }
+            emit(HomeEvent.ShowMessage("Looking for a manual"))
+            companionDetails.clearCache()
+            val detail = runCatching { companionDetails.detailFor(game) }.getOrNull()
+            bumpCustomMedia()
+            emit(
+                when {
+                    detail == null -> HomeEvent.ShowError("Could not save the manual.")
+                    detail.hasManual -> HomeEvent.ShowMessage("Manual found.")
+                    else -> HomeEvent.ShowMessage("No manual found")
+                },
+            )
         }
     }
 
