@@ -73,6 +73,7 @@ enum class RomEditorSection(val label: String) {
     Artwork("Artwork"),
     Audio("Audio"),
     Video("Video"),
+    Manual("Manual"),
     Saves("Saves"),
     Library("Library"),
 }
@@ -126,6 +127,11 @@ data class RomEditorActions(
     val onChooseEmulator: () -> Unit,
     val onRescrapeGame: () -> Unit,
     val onRescrapePlatform: () -> Unit,
+    /** Attach a manual from the device. */
+    val onPickManual: () -> Unit = {},
+    val onClearManual: () -> Unit = {},
+    /** Look one up from ScreenScraper now rather than at the next scrape. */
+    val onScrapeManual: () -> Unit = {},
 )
 
 /** Which column currently owns the D-pad. */
@@ -165,6 +171,7 @@ fun RomEditorPane(
     artAlignY: Float,
     mediaEpoch: Int = 0,
     screenshotCount: Int = 0,
+    manualPath: String? = null,
     artPicker: ArtPickerUiState,
     navActions: Flow<NavAction>,
     actions: RomEditorActions,
@@ -206,6 +213,7 @@ fun RomEditorPane(
         artAlignY = artAlignY,
         mediaEpoch = mediaEpoch,
         screenshotCount = screenshotCount,
+        manualPath = manualPath,
         onStartRename = {
             renameDraft = customTitle ?: game.title
             mode = EditorMode.Rename

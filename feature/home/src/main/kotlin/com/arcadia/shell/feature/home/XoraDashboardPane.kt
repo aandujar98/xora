@@ -44,6 +44,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -782,7 +784,7 @@ private fun DashboardFriendsView(
             )
             Spacer(modifier = Modifier.width(10.dp))
             DashboardButton(
-                label = "Add",
+                label = "Add Friend",
                 focused = false,
                 primary = true,
                 fillMaxWidth = false,
@@ -899,10 +901,14 @@ private fun FriendRow(
             else -> XoraFriendPresenceChip(friend)
         }
         Spacer(modifier = Modifier.width(8.dp))
+        // 0.5.6 names this action rather than leaving the glyph to speak for itself: it removes a
+        // friend, cancels an outgoing invite, or declines an incoming one.
+        val removeLabel = if (friend.state == XoraFriendState.Friend) "Remove Friend" else "Remove"
         Text(
             text = "✕",
             color = InkMuted,
             modifier = Modifier
+                .semantics { contentDescription = removeLabel }
                 .clip(CircleShape)
                 .clickable(onClick = onRemove)
                 .padding(6.dp),

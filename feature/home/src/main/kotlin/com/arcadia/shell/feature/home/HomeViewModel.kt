@@ -138,6 +138,8 @@ import com.arcadia.shell.scraper.ArtCandidate
 import com.arcadia.shell.scraper.ArtCandidateFinder
 import com.arcadia.shell.scraper.ArtCandidateResult
 import com.arcadia.shell.scraper.ArtSlot
+import com.arcadia.shell.scraper.GameCompanionDetailRepository
+import com.arcadia.shell.scraper.GameManualStore
 import com.arcadia.shell.scraper.LibraryHashScheduler
 import com.arcadia.shell.scraper.MusicArtRepository
 import com.arcadia.shell.scraper.PlatformArtRepository
@@ -222,6 +224,8 @@ class HomeViewModel @Inject constructor(
     private val avatarStore: ProfileAvatarStore,
     private val themeMediaStore: HomeThemeMediaStore,
     private val gameCustomMediaStore: GameCustomMediaStore,
+    private val gameManualStore: GameManualStore,
+    private val companionDetails: GameCompanionDetailRepository,
     private val steamGridDbClient: com.arcadia.shell.scraper.SteamGridDbClient,
     private val mediaCache: com.arcadia.shell.scraper.MediaCache,
     private val gameSaveCatalog: GameSaveCatalog,
@@ -4038,7 +4042,7 @@ class HomeViewModel @Inject constructor(
             }
             XoraXmbAction.VideosStub -> activateVideos()
             is XoraXmbAction.OpenVideoFolder ->
-                activateVideos(folderId = action.folderId, folderTitle = item.title)
+                activateVideos(folderId = action.folderId)
             is XoraXmbAction.PlayVideo -> {
                 val video = mediaFolders.value.videoFiles.firstOrNull { it.id == action.videoId }
                 if (video != null) {
@@ -4560,7 +4564,7 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun activateVideos(folderId: String? = null, folderTitle: String? = null) {
+    private fun activateVideos(folderId: String? = null) {
         val access = videoLibrary.access()
         if (access == PhotoAccess.Denied) {
             emit(HomeEvent.RequestImageAccess(videoLibrary.requiredPermissions()))
@@ -4573,8 +4577,7 @@ class HomeViewModel @Inject constructor(
             xoraDepth.value = XoraXmbDepth.VideoFiles
             xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.VideoFiles)
             if (files.isEmpty()) {
-                val label = folderTitle?.takeIf { it.isNotBlank() } ?: "Videos"
-                emit(HomeEvent.ShowMessage("$label — no clips in this folder."))
+                emit(HomeEvent.ShowMessage("No videos in that folder."))
             }
         }
     }
@@ -10299,6 +10302,70 @@ class HomeViewModel @Inject constructor(
             gameSoundBitePlayer.stop()
             bumpCustomMedia()
             emit(HomeEvent.ShowMessage("Sound bite removed."))
+        }
+    }
+
+    /** Local path to this game's manual, or null when it has none yet. */
+    fun gameManualPath(gameId: String): String? = gameManualStore.find(gameId)
+
+    fun pickGameManual(gameId: String) {
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.GameManual(gameId)) }
+        }
+    }
+
+    /** Stores a manual the user picked by hand, replacing whatever this game was holding. */
+    fun setGameManual(gameId: String, uri: Uri) {
+        viewModelScope.launch {
+            val format = appContext.contentResolver.getType(uri)
+                ?.substringAfterLast('/')
+                ?.takeIf { it.isNotBlank() }
+            val stored = runCatching {
+                gameManualStore.importFrom(gameId, format) {
+                    appContext.contentResolver.openInputStream(uri)
+                }
+            }.getOrNull()
+            // The companion screen caches what it resolved, so it has to be told the answer changed.
+            companionDetails.clearCache()
+            bumpCustomMedia()
+            emit(
+                if (stored != null) {
+                    HomeEvent.ShowMessage("Manual updated.")
+                } else {
+                    HomeEvent.ShowError("Could not import that manual.")
+                },
+            )
+        }
+    }
+
+    fun clearGameManual(gameId: String) {
+        viewModelScope.launch {
+            gameManualStore.remove(gameId)
+            companionDetails.clearCache()
+            bumpCustomMedia()
+            emit(HomeEvent.ShowMessage("Manual removed."))
+        }
+    }
+
+    /** Looks a manual up now instead of waiting for this title's next scrape. */
+    fun scrapeGameManual(gameId: String) {
+        viewModelScope.launch {
+            val game = libraryRepository.observeGames().first().firstOrNull { it.id == gameId }
+            if (game == null) {
+                emit(HomeEvent.ShowError("Could not save the manual."))
+                return@launch
+            }
+            emit(HomeEvent.ShowMessage("Looking for a manual"))
+            companionDetails.clearCache()
+            val detail = runCatching { companionDetails.detailFor(game) }.getOrNull()
+            bumpCustomMedia()
+            emit(
+                when {
+                    detail == null -> HomeEvent.ShowError("Could not save the manual.")
+                    detail.hasManual -> HomeEvent.ShowMessage("Manual found.")
+                    else -> HomeEvent.ShowMessage("No manual found")
+                },
+            )
         }
     }
 

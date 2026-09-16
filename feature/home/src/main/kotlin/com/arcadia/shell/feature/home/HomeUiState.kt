@@ -535,6 +535,9 @@ sealed interface HomeMediaPickerRequest {
     data class GameSoundBite(val gameId: String) : HomeMediaPickerRequest
     data class GameIdleVideo(val gameId: String) : HomeMediaPickerRequest
     data class GameScreenshots(val gameId: String) : HomeMediaPickerRequest
+
+    /** A PDF (or other document) the user is attaching as this game's manual. */
+    data class GameManual(val gameId: String) : HomeMediaPickerRequest
     data class ShortcutIcon(val shortcutId: String) : HomeMediaPickerRequest
     data class MusicCover(val mediaId: String) : HomeMediaPickerRequest
     data class MusicWallpaper(val mediaId: String) : HomeMediaPickerRequest
