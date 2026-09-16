@@ -5,6 +5,7 @@ import android.graphics.BlurMaskFilter
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
@@ -41,6 +43,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -165,7 +168,7 @@ fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
     XmbIcon.Trophy -> R.drawable.xmb_figma_trophy
     XmbIcon.Device -> R.drawable.xmb_storage
     XmbIcon.Folder -> R.drawable.xmb_folder_img
-    XmbIcon.FolderFavorites -> R.drawable.xmb_folder_img
+    XmbIcon.FolderFavorites -> R.drawable.xmb_folder
     XmbIcon.FolderPhoto -> R.drawable.xmb_folder_photo
     XmbIcon.FolderVideo -> R.drawable.xmb_folder_video
     XmbIcon.FolderMusic -> R.drawable.xmb_folder_music
@@ -177,6 +180,46 @@ fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
     XmbIcon.Back -> R.drawable.xmb_arrow_back
     XmbIcon.Xora -> R.drawable.ic_xora_logo
     else -> null
+}
+
+/**
+ * ICONS-2 player bitmaps from the DNU-0.5.6 APK. Used by Now Playing and the in-game HUD
+ * instead of the stroked vector transport glyphs.
+ */
+fun XmbIcon.playerBitmapRes(): Int? = when (this) {
+    XmbIcon.Play -> R.drawable.player_play
+    XmbIcon.Pause -> R.drawable.player_pause
+    XmbIcon.PreviousTrack -> R.drawable.player_prev
+    XmbIcon.NextTrack -> R.drawable.player_next
+    XmbIcon.Repeat -> R.drawable.player_repeat
+    XmbIcon.Shuffle -> R.drawable.player_shuf
+    else -> null
+}
+
+@Composable
+fun XmbTransportIcon(
+    icon: XmbIcon,
+    tint: Color,
+    size: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val bitmap = icon.playerBitmapRes()
+    if (bitmap != null) {
+        Image(
+            painter = painterResource(bitmap),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(tint),
+            modifier = modifier.size(size),
+        )
+    } else {
+        XmbVectorIcon(
+            icon = icon,
+            tint = tint,
+            size = size,
+            outlined = false,
+            modifier = modifier,
+        )
+    }
 }
 
 /** Native viewport of each glyph, used to contain-fit into the tab / column boxes. */

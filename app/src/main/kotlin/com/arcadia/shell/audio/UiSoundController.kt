@@ -16,6 +16,8 @@ import com.arcadia.shell.input.GamepadDispatcher
 import com.arcadia.shell.input.NavAction
 import com.arcadia.shell.input.UiOneShot
 import com.arcadia.shell.input.UiOneShotPlayer
+import com.arcadia.shell.launcher.notifications.DashNotificationCenter
+import com.arcadia.shell.launcher.notifications.DashNotificationKind
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -46,6 +48,7 @@ class UiSoundController @Inject constructor(
     preferences: ShellPreferences,
     private val gamepadDispatcher: GamepadDispatcher,
     notificationCenter: ShellNotificationCenter,
+    dashNotifications: DashNotificationCenter,
     systemNotifier: ShellSystemNotifier,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -73,6 +76,12 @@ class UiSoundController @Inject constructor(
     private var vitaOpenId: Int = 0
     /** Vita shortcut tray closing back to the XMB (`vita_menu_close.wav`). */
     private var vitaMenuCloseId: Int = 0
+    // Dash Notification cues, one per kind that makes a sound. Music is deliberately silent.
+    private var dashUpdateId: Int = 0
+    private var dashPlaytimeId: Int = 0
+    private var dashScrapeId: Int = 0
+    private var dashScanId: Int = 0
+    private var dashErrorId: Int = 0
     /** Active looping peel stream so speed changes replace rather than stack. */
     private var peelStreamId: Int = 0
     private var peelSoundId: Int = 0
@@ -149,6 +158,13 @@ class UiSoundController @Inject constructor(
                         -> playNetplayInviteCue()
                         else -> playNotificationChime()
                     }
+                }
+            }
+        }
+        scope.launch {
+            dashNotifications.cue.collect { cue ->
+                if (cue != null && notificationSoundEnabled && foreground) {
+                    playDashCue(cue.kind)
                 }
             }
         }
@@ -243,6 +259,11 @@ class UiSoundController @Inject constructor(
         vitaPageId = 0
         vitaOpenId = 0
         vitaMenuCloseId = 0
+        dashUpdateId = 0
+        dashPlaytimeId = 0
+        dashScrapeId = 0
+        dashScanId = 0
+        dashErrorId = 0
         peelStreamId = 0
         peelSoundId = 0
     }
@@ -255,6 +276,21 @@ class UiSoundController @Inject constructor(
     /** Invite sent/received and a player joining the online session. */
     fun playNetplayInviteCue() {
         play(if (netplayInviteId != 0) netplayInviteId else okId)
+    }
+
+    /** The cue for a Dash Notification; the silent kinds are named at the branch below. */
+    fun playDashCue(kind: DashNotificationKind) {
+        val id = when (kind) {
+            // Music alone is silent — a song announcing itself over its own opening bars is the
+            // one alert nobody wants.
+            DashNotificationKind.Music -> return
+            DashNotificationKind.Scraping -> dashScrapeId
+            DashNotificationKind.Scanning -> dashScanId
+            DashNotificationKind.Update -> dashUpdateId
+            DashNotificationKind.Playtime -> dashPlaytimeId
+            DashNotificationKind.Error -> dashErrorId
+        }
+        play(id)
     }
 
     /** Select / confirm one-shot (`select.wav`) — launcher Confirm and XOrA Emulator overlay. */
@@ -452,6 +488,11 @@ class UiSoundController @Inject constructor(
                     vitaPageId = created.loadQuietly(R.raw.vita_page_navigate)
                     vitaOpenId = created.loadQuietly(R.raw.vita_open)
                     vitaMenuCloseId = created.loadQuietly(R.raw.vita_menu_close)
+                    dashUpdateId = created.loadQuietly(R.raw.notif_chat)
+                    dashPlaytimeId = created.loadQuietly(R.raw.overlay_pause)
+                    dashScrapeId = created.loadQuietly(R.raw.window_chat)
+                    dashScanId = created.loadQuietly(R.raw.chat_send)
+                    dashErrorId = created.loadQuietly(R.raw.error_popup)
                 }
         }.getOrNull()
         soundPool = pool

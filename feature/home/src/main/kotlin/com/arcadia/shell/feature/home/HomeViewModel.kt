@@ -84,6 +84,7 @@ import com.arcadia.shell.launcher.photos.DevicePhoto
 import com.arcadia.shell.launcher.photos.PhotoAccess
 import com.arcadia.shell.launcher.photos.PhotoEditor
 import com.arcadia.shell.launcher.photos.PhotoLibrary
+import com.arcadia.shell.launcher.videos.DeviceVideo
 import com.arcadia.shell.launcher.videos.VideoLibrary
 import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
 import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
@@ -1018,12 +1019,14 @@ class HomeViewModel @Inject constructor(
         val music: MusicUiState = MusicUiState(),
         val photoFolders: List<DeviceMediaFolder> = emptyList(),
         val videoFolders: List<DeviceMediaFolder> = emptyList(),
+        val videoFiles: List<DeviceVideo> = emptyList(),
         val customMediaEpoch: Int = 0,
     )
 
     private data class MediaFolders(
         val photos: List<DeviceMediaFolder> = emptyList(),
         val videos: List<DeviceMediaFolder> = emptyList(),
+        val videoFiles: List<DeviceVideo> = emptyList(),
     )
 
     private val mediaFolders = MutableStateFlow(MediaFolders())
@@ -1100,6 +1103,7 @@ class HomeViewModel @Inject constructor(
                 music = music,
                 photoFolders = folders.photos,
                 videoFolders = folders.videos,
+                videoFiles = folders.videoFiles,
             )
         },
         customMediaEpoch,
@@ -1610,7 +1614,7 @@ class HomeViewModel @Inject constructor(
                     val game = state.xoraXmb.focusGame
                         ?.takeIf { !it.isAndroidApp }
                         ?.takeIf {
-                            state.xoraXmb.depth == XoraXmbDepth.Roms ||
+                            state.xoraXmb.depth.isGameSelect ||
                                 state.xoraXmb.selectedItem?.action is XoraXmbAction.LaunchGame ||
                                 state.xoraXmb.selectedItem?.action is
                                     XoraXmbAction.LaunchContinueOrFavorite
@@ -2576,6 +2580,11 @@ class HomeViewModel @Inject constructor(
                     hiddenIds = if (showHidden) hiddenIds else emptySet(),
                 )
             }
+            XoraXmbDepth.Favorites -> buildXoraRomItems(
+                games = libraryGames.filter { !it.isAndroidApp && it.favorite },
+                hiddenIds = if (showHidden) hiddenIds else emptySet(),
+            )
+            XoraXmbDepth.VideoFiles -> buildXoraVideoItems(platformChrome.videoFiles)
             XoraXmbDepth.Emulator -> buildXoraEmulatorItems(
                 settings = xoraEmulator,
                 raHardcore = raSettings.hardcore,
@@ -3039,7 +3048,7 @@ class HomeViewModel @Inject constructor(
                 // Prefer the XMB-focused game (ROM list / Continue / Favorite).
                 val xmbBrowsingGame = state.homePage == HomePage.Home &&
                     (
-                        state.xoraXmb.depth == XoraXmbDepth.Roms ||
+                        state.xoraXmb.depth.isGameSelect ||
                             state.xoraXmb.selectedItem?.action is
                                 XoraXmbAction.LaunchContinueOrFavorite ||
                             state.xoraXmb.selectedItem?.action is XoraXmbAction.LaunchGame
@@ -3487,7 +3496,7 @@ class HomeViewModel @Inject constructor(
             }
             NavAction.Cancel -> drillOutXora()
             NavAction.Options -> {
-                if (xmb.depth == XoraXmbDepth.Roms) {
+                if (xmb.depth.isGameSelect) {
                     xmb.focusGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
                         ?: state.selectedGame?.let { emit(HomeEvent.OpenGameOptions(it.id)) }
                     return
@@ -3503,7 +3512,7 @@ class HomeViewModel @Inject constructor(
                     return
                 }
                 val game = when {
-                    xmb.depth == XoraXmbDepth.Roms -> xmb.focusGame ?: state.selectedGame
+                    xmb.depth.isGameSelect -> xmb.focusGame ?: state.selectedGame
                     xmb.focusGame != null &&
                         (xmb.selectedItem?.action is XoraXmbAction.LaunchGame ||
                             xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite) ->
@@ -3516,7 +3525,7 @@ class HomeViewModel @Inject constructor(
                 }
             }
             NavAction.ToggleFavorite -> {
-                if (xmb.depth == XoraXmbDepth.Roms && xmb.focusGame != null) {
+                if (xmb.depth.isGameSelect && xmb.focusGame != null) {
                     focusGameInLibrary(xmb.focusGame)
                     toggleFavorite()
                 }
@@ -3994,6 +4003,11 @@ class HomeViewModel @Inject constructor(
                 xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.Systems)
                 xoraDrilledPlatformId.value = null
             }
+            XoraXmbAction.DrillFavorites -> {
+                rememberXoraFolder(XoraXmbDepth.Category)
+                xoraDepth.value = XoraXmbDepth.Favorites
+                xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.Favorites)
+            }
             XoraXmbAction.PickHomeFolderImage -> requestHomeFolderImage()
             XoraXmbAction.DrillXoraEmulator -> {
                 rememberXoraFolder(XoraXmbDepth.Category)
@@ -4023,7 +4037,16 @@ class HomeViewModel @Inject constructor(
                 openPhotosRung(folderId = action.folderId, folderTitle = item.title)
             }
             XoraXmbAction.VideosStub -> activateVideos()
-            is XoraXmbAction.OpenVideoFolder -> activateVideos(folderTitle = item.title)
+            is XoraXmbAction.OpenVideoFolder ->
+                activateVideos(folderId = action.folderId, folderTitle = item.title)
+            is XoraXmbAction.PlayVideo -> {
+                val video = mediaFolders.value.videoFiles.firstOrNull { it.id == action.videoId }
+                if (video != null) {
+                    emit(HomeEvent.OpenVideoFile(video.uri))
+                } else {
+                    emit(HomeEvent.ShowMessage("That clip is no longer on this device."))
+                }
+            }
             XoraXmbAction.OpenNowPlaying -> {
                 if (!nowPlayingController.state.value.hasTrack) {
                     emit(HomeEvent.ShowMessage("Nothing playing yet — pick a song from Music."))
@@ -4199,6 +4222,8 @@ class HomeViewModel @Inject constructor(
 
     private fun xoraParentDepth(current: XoraXmbDepth): XoraXmbDepth = when (current) {
         XoraXmbDepth.Roms -> XoraXmbDepth.Systems
+        XoraXmbDepth.Favorites -> XoraXmbDepth.Category
+        XoraXmbDepth.VideoFiles -> XoraXmbDepth.Category
         XoraXmbDepth.MusicTracks ->
             if (musicUi.value.drilledAlbumId != null) XoraXmbDepth.MusicAlbums
             else XoraXmbDepth.Category
@@ -4508,7 +4533,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             val photos = runCatching { photoLibrary.folders() }.getOrDefault(emptyList())
             val videos = runCatching { videoLibrary.folders() }.getOrDefault(emptyList())
-            mediaFolders.value = MediaFolders(photos = photos, videos = videos)
+            mediaFolders.update { it.copy(photos = photos, videos = videos) }
         }
     }
 
@@ -4531,15 +4556,23 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun activateVideos(folderTitle: String? = null) {
+    private fun activateVideos(folderId: String? = null, folderTitle: String? = null) {
         val access = videoLibrary.access()
         if (access == PhotoAccess.Denied) {
             emit(HomeEvent.RequestImageAccess(videoLibrary.requiredPermissions()))
             return
         }
-        refreshMediaFolders()
-        val label = folderTitle?.takeIf { it.isNotBlank() } ?: "Videos"
-        emit(HomeEvent.ShowMessage("$label — video player coming soon."))
+        rememberXoraFolder(XoraXmbDepth.Category)
+        viewModelScope.launch {
+            val files = runCatching { videoLibrary.videos(folderId) }.getOrDefault(emptyList())
+            mediaFolders.update { it.copy(videoFiles = files) }
+            xoraDepth.value = XoraXmbDepth.VideoFiles
+            xoraItemIndex.value = restoreXoraItem(XoraXmbDepth.VideoFiles)
+            if (files.isEmpty()) {
+                val label = folderTitle?.takeIf { it.isNotBlank() } ?: "Videos"
+                emit(HomeEvent.ShowMessage("$label — no clips in this folder."))
+            }
+        }
     }
 
     private fun loadPhotos(keepFocusId: String? = null) {

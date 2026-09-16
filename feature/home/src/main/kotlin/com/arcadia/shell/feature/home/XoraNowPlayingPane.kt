@@ -238,11 +238,10 @@ private fun TransportGlyph(
                 onClick = onClick,
             ),
     ) {
-        XmbVectorIcon(
+        XmbTransportIcon(
             icon = icon,
             tint = if (active) Color.White else NowPlayingInk.copy(alpha = 0.9f),
             size = (size * unit).dp,
-            outlined = false,
         )
     }
 }

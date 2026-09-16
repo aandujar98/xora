@@ -98,10 +98,11 @@ fun hintsForPage(
             VitaShortcutTrayEditHints
         homeHub?.vitaShortcutTrayOpen == true -> VitaShortcutTrayHints
         xmbDepth == XoraXmbDepth.Systems -> XoraSystemBrowseHints
-        xmbDepth == XoraXmbDepth.Roms -> XoraRomBrowseHints
+        xmbDepth == XoraXmbDepth.Roms || xmbDepth == XoraXmbDepth.Favorites -> XoraRomBrowseHints
         xmbDepth == XoraXmbDepth.DspAccounts -> XoraDspBrowseHints
         xmbDepth == XoraXmbDepth.MusicAlbums ||
-            xmbDepth == XoraXmbDepth.MusicTracks -> XoraMusicBrowseHints
+            xmbDepth == XoraXmbDepth.MusicTracks ||
+            xmbDepth == XoraXmbDepth.VideoFiles -> XoraMusicBrowseHints
         xmbDepth == XoraXmbDepth.NowPlaying -> XoraNowPlayingHints
         xmbDepth == XoraXmbDepth.Photos -> XoraPhotoHints
         xmbDepth == XoraXmbDepth.Dashboard -> XoraDashboardHints
