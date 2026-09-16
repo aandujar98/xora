@@ -174,14 +174,22 @@ fun XoraHomeXmbPane(
             xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
             xmb.selectedItem?.action is XoraXmbAction.LaunchGame
     }
-    // Playing-track cover + wave stay on the Music column. Browse still paints the
-    // focused album / song when nothing is playing.
+    val gameMediaPath = xmbGameSelectWallpaperPath(
+        game = heroGame,
+        customWallpaperPath = xmb.selectedItem?.heroPath,
+    )
+    val musicPlaying = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying
+    // The playing track's cover + wave follow you off the Music column, and step aside wherever
+    // a game has art of its own. Browse still paints the focused album / song when nothing plays.
     val musicBackdrop = musicCategoryBackdrop(
         category = xmb.category,
         depth = xmb.depth,
-        playing = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying,
+        playing = musicPlaying,
+        hasTrack = state.music.nowPlaying.hasTrack,
         enabled = state.music.categoryArtBackdropEnabled,
         coverPath = state.music.nowPlayingArtPath,
+        backgroundMediaPath = state.music.nowPlayingBackdropPath,
+        gameMediaPresent = gameMediaPath != null,
     )
     val musicArtPath = if (musicBackdrop.showCover) {
         musicBackdrop.coverPath
@@ -194,10 +202,7 @@ fun XoraHomeXmbPane(
             else -> null
         }
     }
-    val backdropArtPath = musicArtPath ?: xmbGameSelectWallpaperPath(
-        game = heroGame,
-        customWallpaperPath = xmb.selectedItem?.heroPath,
-    )
+    val backdropArtPath = musicArtPath ?: gameMediaPath
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
 
@@ -564,12 +569,20 @@ fun XoraXmbHeroDetail(
 ) {
     val xmb = state.xoraXmb
     val heroGame = xmb.focusGame
+    val gameMediaPath = xmbGameSelectWallpaperPath(
+        game = heroGame,
+        customWallpaperPath = xmb.selectedItem?.heroPath,
+    )
+    val musicPlaying = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying
     val musicBackdrop = musicCategoryBackdrop(
         category = xmb.category,
         depth = xmb.depth,
-        playing = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying,
+        playing = musicPlaying,
+        hasTrack = state.music.nowPlaying.hasTrack,
         enabled = state.music.categoryArtBackdropEnabled,
         coverPath = state.music.nowPlayingArtPath,
+        backgroundMediaPath = state.music.nowPlayingBackdropPath,
+        gameMediaPresent = gameMediaPath != null,
     )
     val fullTrailer = state.trailer.active &&
         state.trailer.displayMode == TrailerDisplayMode.FullBackground
