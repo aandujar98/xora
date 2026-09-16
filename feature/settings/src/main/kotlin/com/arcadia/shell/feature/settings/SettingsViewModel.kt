@@ -62,6 +62,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val storageAccess: StorageAccess,
     private val rootManager: LibraryRootManager,
     private val scanner: LibraryScanner,
@@ -338,6 +339,54 @@ class SettingsViewModel @Inject constructor(
                 }
                 .onFailure { transientMessage.value = it.message }
             refresh()
+        }
+    }
+
+    /**
+     * Folders the Videos and Photos tabs should read from. The read permission is taken
+     * persistably, so the choice survives a reboot rather than dying with this process.
+     */
+    val videoFolders: kotlinx.coroutines.flow.StateFlow<List<MediaFolderChoice>> =
+        preferences.videoFolderUris
+            .map { uris -> uris.sorted().map { MediaFolderChoice(it, mediaFolderLabel(it)) } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val photoFolders: kotlinx.coroutines.flow.StateFlow<List<MediaFolderChoice>> =
+        preferences.photoFolderUris
+            .map { uris -> uris.sorted().map { MediaFolderChoice(it, mediaFolderLabel(it)) } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun addVideoFolder(treeUri: Uri) = addMediaFolder(treeUri, video = true)
+
+    fun addPhotoFolder(treeUri: Uri) = addMediaFolder(treeUri, video = false)
+
+    fun removeVideoFolder(uri: String) {
+        viewModelScope.launch { preferences.removeVideoFolderUri(uri) }
+    }
+
+    fun removePhotoFolder(uri: String) {
+        viewModelScope.launch { preferences.removePhotoFolderUri(uri) }
+    }
+
+    private fun addMediaFolder(treeUri: Uri, video: Boolean) {
+        viewModelScope.launch {
+            val held = runCatching {
+                appContext.contentResolver.takePersistableUriPermission(
+                    treeUri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }.isSuccess
+            if (!held) {
+                transientMessage.value = "Couldn't keep access to that folder."
+                return@launch
+            }
+            if (video) {
+                preferences.addVideoFolderUri(treeUri.toString())
+                transientMessage.value = "Videos will include ${mediaFolderLabel(treeUri.toString())}."
+            } else {
+                preferences.addPhotoFolderUri(treeUri.toString())
+                transientMessage.value = "Photos will include ${mediaFolderLabel(treeUri.toString())}."
+            }
         }
     }
 
@@ -894,3 +943,12 @@ class SettingsViewModel @Inject constructor(
         transientMessage.value = null
     }
 }
+
+/** One folder the player pointed a media tab at. */
+data class MediaFolderChoice(val uri: String, val label: String)
+
+/** Last path segment of a SAF tree uri, which is what the folder is actually called. */
+private fun mediaFolderLabel(uri: String): String =
+    uri.substringAfterLast("%2F", "")
+        .ifBlank { uri.substringAfterLast('/', "") }
+        .ifBlank { uri }

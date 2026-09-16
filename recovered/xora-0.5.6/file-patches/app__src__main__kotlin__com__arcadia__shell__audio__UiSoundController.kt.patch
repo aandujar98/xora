@@ -1,0 +1,58 @@
+diff --git a/app/src/main/kotlin/com/arcadia/shell/audio/UiSoundController.kt b/app/src/main/kotlin/com/arcadia/shell/audio/UiSoundController.kt
+--- a/app/src/main/kotlin/com/arcadia/shell/audio/UiSoundController.kt
++++ b/app/src/main/kotlin/com/arcadia/shell/audio/UiSoundController.kt
+@@ -4,6 +4,7 @@
+ import android.media.AudioAttributes
+ import android.media.MediaPlayer
+ import android.media.SoundPool
++import com.arcadia.shell.launcher.notifications.DashNotificationKind
+ import android.os.Build
+ import android.os.SystemClock
+ import android.os.VibrationAttributes
+@@ -74,6 +75,12 @@
+     private var vitaOpenId: Int = 0
+     /** Vita shortcut tray closing back to the XMB (`vita_menu_close.wav`). */
+     private var vitaMenuCloseId: Int = 0
++    // Dash Notification cues, one per kind that makes a sound. Music is deliberately silent.
++    private var dashUpdateId: Int = 0
++    private var dashPlaytimeId: Int = 0
++    private var dashScrapeId: Int = 0
++    private var dashScanId: Int = 0
++    private var dashErrorId: Int = 0
+     /** Active looping peel stream so speed changes replace rather than stack. */
+     private var peelStreamId: Int = 0
+     private var peelSoundId: Int = 0
+@@ -289,6 +296,21 @@
+     }
+ 
+     /** Select / confirm one-shot (`select.wav`) — launcher Confirm and XOrA Emulator overlay. */
++    /** The cue for a Dash Notification; the silent kinds are named at the branch below. */
++    fun playDashCue(kind: DashNotificationKind) {
++        val id = when (kind) {
++            // Music alone is silent — a song announcing itself over its own opening bars is the
++            // one alert nobody wants.
++            DashNotificationKind.Music -> return
++            DashNotificationKind.Scraping -> dashScrapeId
++            DashNotificationKind.Scanning -> dashScanId
++            DashNotificationKind.Update -> dashUpdateId
++            DashNotificationKind.Playtime -> dashPlaytimeId
++            DashNotificationKind.Error -> dashErrorId
++        }
++        play(id)
++    }
++
+     fun playConfirm() = play(okId)
+ 
+     /** Cancel / back one-shot (`nav_back.wav`, GitHub tag `nav-back`). */
+@@ -483,6 +505,11 @@
+                     vitaPageId = created.loadQuietly(R.raw.vita_page_navigate)
+                     vitaOpenId = created.loadQuietly(R.raw.vita_open)
+                     vitaMenuCloseId = created.loadQuietly(R.raw.vita_menu_close)
++                    dashUpdateId = created.loadQuietly(R.raw.notif_chat)
++                    dashPlaytimeId = created.loadQuietly(R.raw.overlay_pause)
++                    dashScrapeId = created.loadQuietly(R.raw.window_chat)
++                    dashScanId = created.loadQuietly(R.raw.chat_send)
++                    dashErrorId = created.loadQuietly(R.raw.error_popup)
+                 }
+         }.getOrNull()
+         soundPool = pool

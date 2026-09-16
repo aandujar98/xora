@@ -94,6 +94,20 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
         )
     }
 
+    is ShellNotification.FriendStatusUpdated -> {
+        val networkLabel = when (network) {
+            FriendNetwork.Discord -> "Discord"
+            FriendNetwork.Steam -> "Steam"
+            FriendNetwork.Xora -> "XOrA Network"
+        }
+        ShellNotificationCopy(
+            category = "Friends",
+            // Their own wording leads; the name rides the subtitle the way a message banner reads.
+            body = status.trim().ifBlank { "Updated their status" },
+            subtitle = "${displayName.trim().ifBlank { "A friend" }} · $networkLabel",
+        )
+    }
+
     is ShellNotification.FriendPlaying -> {
         val networkLabel = when (network) {
             FriendNetwork.Discord -> "Discord"

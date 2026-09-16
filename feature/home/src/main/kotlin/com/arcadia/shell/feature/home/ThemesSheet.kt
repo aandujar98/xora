@@ -89,9 +89,17 @@ enum class CustomizeSection(val label: String) {
     BootAnimation("Boot Animation"),
 }
 
-private const val GRID_COLUMNS = 3
+// Customize is a list now, not a wall of tiles: one row per theme, so Up / Down walks it and
+// Left / Right fall through to the section nav.
+private const val GRID_COLUMNS = 1
 private val PanelShape = RoundedCornerShape(20.dp)
 private val ThumbShape = RoundedCornerShape(8.dp)
+
+/**
+ * Half the old tile, and 16:9 rather than square — a theme preview is a screen, so it is shown
+ * in the shape of one.
+ */
+private val ThumbWidth = 132.dp
 private val FocusRingColor = Color(0xFF8ED6FF)
 
 /** Which half of the window has the stick. */
@@ -559,6 +567,7 @@ private fun customizeEntries(
                         )
                     } else {
                         ArtworkImage(
+                            contentScale = ContentScale.FillBounds,
                             path = theme.wallpaperPath,
                             contentDescription = theme.name,
                             fallbackText = theme.name.take(1).uppercase(Locale.US),
@@ -583,6 +592,7 @@ private fun customizeEntries(
                 onActivate = { onSelectBootAnimation(DEFAULT_BOOT_ANIMATION_ID) },
             ) {
                 ArtworkImage(
+                    contentScale = ContentScale.FillBounds,
                     path = null,
                     contentDescription = "Default boot animation",
                     fallbackText = "B",
@@ -601,6 +611,7 @@ private fun customizeEntries(
                     onSecondary = onClearBootAnimation,
                 ) {
                     ArtworkImage(
+                        contentScale = ContentScale.FillBounds,
                         path = bootAnimationPath,
                         contentDescription = "Your boot animation",
                         fallbackText = "\u25B6",
@@ -635,7 +646,10 @@ private fun ThemeSwatchPreview(theme: ShellTheme) {
         Image(
             painter = painterResource(preview),
             contentDescription = null,
-            contentScale = ContentScale.Crop,
+            // FillBounds, not Crop: the bundled previews are square and the frame is 16:9, so
+            // Crop zoomed into the middle and Fit left bars down the sides. These are gradients
+            // and wallpapers — filling the frame outright costs nothing visible either way.
+            contentScale = ContentScale.FillBounds,
             modifier = Modifier.fillMaxSize(),
         )
         return
@@ -696,7 +710,7 @@ private fun CustomizeGrid(
             columns = GridCells.Fixed(GRID_COLUMNS),
             state = state,
             horizontalArrangement = Arrangement.spacedBy(18.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.weight(1f).fillMaxHeight(),
         ) {
             itemsIndexedKeyed(entries) { index, entry ->
@@ -730,8 +744,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.itemsIndexedKeye
 }
 
 /**
- * Square thumbnail in a light frame with a centred caption — the one card shape every
- * Customize section uses.
+ * One list row: a 16:9 preview in a light frame with the theme's name beside it — the one row
+ * shape every Customize section uses.
  */
 @Composable
 private fun CustomizeGridCard(
@@ -742,14 +756,17 @@ private fun CustomizeGridCard(
     onLongClick: (() -> Unit)?,
     preview: @Composable () -> Unit,
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth(),
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onLongClick = onLongClick, onClick = onClick),
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
+                .width(ThumbWidth)
+                .aspectRatio(16f / 9f)
                 .clip(ThumbShape)
                 .background(
                     if (selected) FocusRingColor else Color.White.copy(alpha = 0.92f),
@@ -762,8 +779,7 @@ private fun CustomizeGridCard(
                         Modifier
                     },
                 )
-                .padding(3.dp)
-                .combinedClickable(onLongClick = onLongClick, onClick = onClick),
+                .padding(3.dp),
         ) {
             Box(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp))) {
                 preview()
@@ -774,9 +790,9 @@ private fun CustomizeGridCard(
             fontSize = 15.sp,
             fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal,
             fillColor = if (focused) FocusRingColor else Color.White,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            textAlign = TextAlign.Start,
+            maxLines = 2,
+            modifier = Modifier.weight(1f),
         )
     }
 }

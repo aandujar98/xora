@@ -1,0 +1,87 @@
+diff --git a/core/datastore/src/main/kotlin/com/arcadia/shell/datastore/ShellPreferences.kt b/core/datastore/src/main/kotlin/com/arcadia/shell/datastore/ShellPreferences.kt
+--- a/core/datastore/src/main/kotlin/com/arcadia/shell/datastore/ShellPreferences.kt
++++ b/core/datastore/src/main/kotlin/com/arcadia/shell/datastore/ShellPreferences.kt
+@@ -266,14 +266,16 @@
+      * After a short idle on Home, play a resolved game trailer over the hero artwork.
+      * On by default; resolution is lazy per selected game and stays silent when none is found.
+      */
+-    /** Off until the player turns Game Icon trailers on themselves. */
+-    val trailerEnabled: Boolean = false,
++    val trailerEnabled: Boolean = true,
+     /**
+      * When true, resolve and persist [com.arcadia.shell.model.Game.trailerUrl] during metadata
+      * scrape and on idle. When false, never fetch; already-stored URLs still play if idle trailers
+      * are enabled.
++     *
++     * Off until the player asks for it: fetching trailers costs network on every scrape, so the
++     * feature plays what is already stored rather than reaching out on a fresh library.
+      */
+-    val trailerScrapeEnabled: Boolean = true,
++    val trailerScrapeEnabled: Boolean = false,
+     /** Which provider(s) to use when [trailerScrapeEnabled] is on. */
+     val trailerSourcePreference: TrailerSourcePreference = TrailerSourcePreference.Auto,
+     val trailerDisplayMode: TrailerDisplayMode = TrailerDisplayMode.InIcon,
+@@ -518,8 +520,8 @@
+             themeMode = prefs[Keys.THEME_MODE]
+                 ?.let { name -> runCatching { ThemeMode.valueOf(name) }.getOrNull() }
+                 ?: ThemeMode.Dark,
+-            trailerEnabled = prefs[Keys.TRAILER_ENABLED] ?: false,
+-            trailerScrapeEnabled = prefs[Keys.TRAILER_SCRAPE_ENABLED] ?: true,
++            trailerEnabled = prefs[Keys.TRAILER_ENABLED] ?: true,
++            trailerScrapeEnabled = prefs[Keys.TRAILER_SCRAPE_ENABLED] ?: false,
+             trailerSourcePreference = prefs[Keys.TRAILER_SOURCE_PREFERENCE]
+                 ?.let { name -> runCatching { TrailerSourcePreference.valueOf(name) }.getOrNull() }
+                 ?: TrailerSourcePreference.Auto,
+@@ -1182,6 +1184,43 @@
+         it.remove(Keys.PENDING_NETPLAY_AT)
+     }
+ 
++    /**
++     * Folders the player pointed at for Videos and Photos, as SAF tree uris. Empty means "use
++     * whatever MediaStore turns up", which is the behaviour these tabs have always had; adding a
++     * folder narrows each tab to the directories chosen, and several may be chosen.
++     */
++    val videoFolderUris: Flow<Set<String>> = dataStore.data.map { prefs ->
++        prefs[Keys.VIDEO_FOLDER_URIS].orEmpty()
++    }
++
++    val photoFolderUris: Flow<Set<String>> = dataStore.data.map { prefs ->
++        prefs[Keys.PHOTO_FOLDER_URIS].orEmpty()
++    }
++
++    suspend fun addVideoFolderUri(uri: String) = addMediaFolder(Keys.VIDEO_FOLDER_URIS, uri)
++
++    suspend fun removeVideoFolderUri(uri: String) = removeMediaFolder(Keys.VIDEO_FOLDER_URIS, uri)
++
++    suspend fun addPhotoFolderUri(uri: String) = addMediaFolder(Keys.PHOTO_FOLDER_URIS, uri)
++
++    suspend fun removePhotoFolderUri(uri: String) = removeMediaFolder(Keys.PHOTO_FOLDER_URIS, uri)
++
++    private suspend fun addMediaFolder(
++        key: androidx.datastore.preferences.core.Preferences.Key<Set<String>>,
++        uri: String,
++    ) = edit { prefs ->
++        val trimmed = uri.trim()
++        if (trimmed.isEmpty()) return@edit
++        prefs[key] = prefs[key].orEmpty() + trimmed
++    }
++
++    private suspend fun removeMediaFolder(
++        key: androidx.datastore.preferences.core.Preferences.Key<Set<String>>,
++        uri: String,
++    ) = edit { prefs ->
++        prefs[key] = prefs[key].orEmpty() - uri
++    }
++
+     /** Notification ids the user already cleared. Survives process death and app updates. */
+     val dismissedShellNotificationIds: Flow<Set<String>> = dataStore.data.map { prefs ->
+         prefs[Keys.DISMISSED_SHELL_NOTIFICATION_IDS].orEmpty()
+@@ -1782,6 +1821,8 @@
+         /** JSON array of `{source,id}` Circle pins (Steam + Discord). */
+         val CIRCLE_PINS = stringPreferencesKey("circle_pins")
+         val FAVORITE_FRIENDS = stringSetPreferencesKey("favorite_friends")
++        val VIDEO_FOLDER_URIS = stringSetPreferencesKey("video_folder_uris")
++        val PHOTO_FOLDER_URIS = stringSetPreferencesKey("photo_folder_uris")
+         val CUSTOM_THEMES = stringPreferencesKey("custom_themes")
+         val PLATFORM_HERO_SLIDESHOWS = stringPreferencesKey("platform_hero_slideshows")
+         val ACTIVE_CUSTOM_THEME_ID = stringPreferencesKey("active_custom_theme_id")

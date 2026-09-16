@@ -1,0 +1,1388 @@
+[
+  {
+    "path": "app/build.gradle.kts",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        8,
+        8,
+        8,
+        8
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: app/build.gradle.kts:41\nerror: app/build.gradle.kts: p",
+    "bytes": 639
+  },
+  {
+    "path": "app/src/main/kotlin/com/arcadia/shell/ArcadiaShell.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        21,
+        6,
+        21
+      ],
+      [
+        true,
+        6,
+        13,
+        6,
+        13
+      ],
+      [
+        true,
+        6,
+        9,
+        6,
+        9
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: app/src/main/kotlin/com/arcadia/shell/ArcadiaShell.kt:",
+    "bytes": 3278
+  },
+  {
+    "path": "app/src/main/kotlin/com/arcadia/shell/MainActivity.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        11,
+        6,
+        11
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: app/src/main/kotlin/com/arcadia/shell/MainActivity.kt:",
+    "bytes": 944
+  },
+  {
+    "path": "app/src/main/kotlin/com/arcadia/shell/audio/UiSoundController.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        12,
+        6,
+        12
+      ],
+      [
+        true,
+        6,
+        21,
+        6,
+        21
+      ],
+      [
+        true,
+        6,
+        11,
+        6,
+        11
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: app/src/main/kotlin/com/arcadia/shell/audio/UiSoundCon",
+    "bytes": 2828
+  },
+  {
+    "path": "core/datastore/src/main/kotlin/com/arcadia/shell/datastore/ShellPreferences.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        14,
+        16,
+        14,
+        16
+      ],
+      [
+        true,
+        8,
+        8,
+        8,
+        8
+      ],
+      [
+        true,
+        6,
+        43,
+        6,
+        43
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: core/datastore/src/main/kotlin/com/arcadia/shell/datas",
+    "bytes": 4655
+  },
+  {
+    "path": "core/launcher/src/main/kotlin/com/arcadia/shell/launcher/PlaySessionTracker.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        18,
+        28,
+        18,
+        28
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 1577
+  },
+  {
+    "path": "core/launcher/src/main/kotlin/com/arcadia/shell/launcher/music/NowPlayingController.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        17,
+        6,
+        17
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        6,
+        56,
+        6,
+        56
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        5,
+        8,
+        5,
+        8
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 4723
+  },
+  {
+    "path": "core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotification.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        31,
+        6,
+        31
+      ],
+      [
+        true,
+        6,
+        12,
+        6,
+        12
+      ],
+      [
+        true,
+        6,
+        20,
+        6,
+        20
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 2998
+  },
+  {
+    "path": "core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotificationCenter.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        16,
+        6,
+        16
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        11,
+        20,
+        11,
+        20
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 2485
+  },
+  {
+    "path": "core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellNotificationCopy.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        21,
+        6,
+        21
+      ],
+      [
+        true,
+        6,
+        36,
+        6,
+        36
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: core/launcher/src/main/kotlin/com/arcadia/shell/launch",
+    "bytes": 2600
+  },
+  {
+    "path": "core/launcher/src/main/kotlin/com/arcadia/shell/launcher/notifications/ShellSystemNotifier.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        11,
+        6,
+        11
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: core/launcher/src/main/kotlin/com/arcadia/shell/launch",
+    "bytes": 1589
+  },
+  {
+    "path": "core/launcher/src/main/kotlin/com/arcadia/shell/launcher/videos/VideoLibrary.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        61,
+        6,
+        61
+      ],
+      [
+        true,
+        5,
+        18,
+        5,
+        18
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 3992
+  },
+  {
+    "path": "core/xoranetwork/src/main/kotlin/com/arcadia/shell/xoranetwork/XoraNetworkPresence.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        31,
+        6,
+        31
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 1657
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/FriendProfileOverlay.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        12,
+        6,
+        12
+      ],
+      [
+        true,
+        19,
+        64,
+        19,
+        64
+      ]
+    ],
+    "applied": "failed: error: feature/home/src/main/kotlin/com/arcadia/shell/feature/home/FriendProfileOverlay.kt: does not exist in index\n",
+    "bytes": 4254
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/GameQuickMenuPane.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        11,
+        6,
+        11
+      ],
+      [
+        true,
+        15,
+        25,
+        15,
+        25
+      ],
+      [
+        true,
+        13,
+        6,
+        13,
+        6
+      ],
+      [
+        true,
+        6,
+        18,
+        6,
+        18
+      ],
+      [
+        true,
+        22,
+        32,
+        22,
+        32
+      ],
+      [
+        true,
+        3,
+        10,
+        3,
+        10
+      ]
+    ],
+    "applied": "failed: error: feature/home/src/main/kotlin/com/arcadia/shell/feature/home/GameQuickMenuPane.kt: does not exist in index\n",
+    "bytes": 5972
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/HomeUiState.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        22,
+        6,
+        22
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        9,
+        12,
+        9,
+        12
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 2335
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/HomeViewModel.kt",
+    "complete": false,
+    "hunks": [
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        7,
+        11,
+        7,
+        11
+      ],
+      [
+        true,
+        6,
+        10,
+        6,
+        10
+      ],
+      [
+        true,
+        7,
+        15,
+        7,
+        15
+      ],
+      [
+        true,
+        6,
+        13,
+        6,
+        13
+      ],
+      [
+        true,
+        9,
+        17,
+        9,
+        17
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        8,
+        9,
+        8,
+        9
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        13,
+        66,
+        13,
+        66
+      ],
+      [
+        true,
+        6,
+        11,
+        6,
+        11
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        25,
+        34,
+        25,
+        34
+      ],
+      [
+        true,
+        9,
+        10,
+        9,
+        10
+      ],
+      [
+        true,
+        33,
+        51,
+        33,
+        51
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        false,
+        8,
+        36,
+        11,
+        108
+      ]
+    ],
+    "applied": "skipped-incomplete",
+    "bytes": 21225
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/MusicCategoryBackdrop.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        7,
+        8,
+        7,
+        8
+      ],
+      [
+        true,
+        17,
+        37,
+        17,
+        37
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: feature/home/src/main/kotlin/com/arcadia/shell/feature",
+    "bytes": 3178
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/RaLibraryPane.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        12,
+        39,
+        12,
+        39
+      ],
+      [
+        true,
+        15,
+        15,
+        15,
+        15
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        11,
+        13,
+        11,
+        13
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: feature/home/src/main/kotlin/com/arcadia/shell/feature",
+    "bytes": 4881
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/ShortcutPinPickerSheet.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        9,
+        6,
+        9
+      ],
+      [
+        true,
+        11,
+        25,
+        11,
+        25
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 2438
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/SocialMenuUiState.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        18,
+        6,
+        18
+      ],
+      [
+        true,
+        7,
+        17,
+        7,
+        17
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: feature/home/src/main/kotlin/com/arcadia/shell/feature",
+    "bytes": 1806
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/ThemesSheet.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        9,
+        17,
+        9,
+        17
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        7,
+        10,
+        7,
+        10
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        8,
+        8,
+        8,
+        8
+      ],
+      [
+        true,
+        14,
+        17,
+        14,
+        17
+      ],
+      [
+        true,
+        8,
+        7,
+        8,
+        7
+      ],
+      [
+        true,
+        9,
+        9,
+        9,
+        9
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 5132
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/VitaLiveAreaChrome.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        7,
+        8,
+        7,
+        8
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 1188
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbFigmaHomeCross.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        12,
+        6,
+        12
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 930
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbIcons.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 1641
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbStatusBar.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        7,
+        8,
+        7,
+        8
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        3,
+        12,
+        3,
+        12
+      ]
+    ],
+    "applied": "failed: error: feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XmbStatusBar.kt: does not exist in index\n",
+    "bytes": 1616
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraHomeXmbPane.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        20,
+        27,
+        20,
+        27
+      ],
+      [
+        true,
+        10,
+        7,
+        10,
+        7
+      ],
+      [
+        true,
+        6,
+        14,
+        6,
+        14
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        17,
+        22,
+        17,
+        22
+      ],
+      [
+        true,
+        13,
+        24,
+        13,
+        24
+      ],
+      [
+        true,
+        13,
+        7,
+        13,
+        7
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        9,
+        17,
+        9,
+        17
+      ],
+      [
+        true,
+        8,
+        7,
+        8,
+        7
+      ],
+      [
+        true,
+        3,
+        7,
+        3,
+        7
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: feature/home/src/main/kotlin/com/arcadia/shell/feature",
+    "bytes": 10515
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraPhotoViewerPane.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        24,
+        23,
+        24,
+        23
+      ],
+      [
+        true,
+        7,
+        6,
+        7,
+        6
+      ],
+      [
+        true,
+        170,
+        19,
+        170,
+        19
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 9754
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraQuickMenu.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        11,
+        6,
+        11
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        13,
+        28,
+        13,
+        28
+      ]
+    ],
+    "applied": "failed: error: feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraQuickMenu.kt: does not exist in index\n",
+    "bytes": 4072
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraXmb.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        13,
+        6,
+        13
+      ],
+      [
+        true,
+        6,
+        10,
+        6,
+        10
+      ],
+      [
+        true,
+        6,
+        9,
+        6,
+        9
+      ],
+      [
+        true,
+        6,
+        9,
+        6,
+        9
+      ],
+      [
+        true,
+        9,
+        16,
+        9,
+        16
+      ],
+      [
+        true,
+        6,
+        15,
+        6,
+        15
+      ],
+      [
+        true,
+        6,
+        20,
+        6,
+        20
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: feature/home/src/main/kotlin/com/arcadia/shell/feature",
+    "bytes": 5431
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/component/NotificationBanner.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        8,
+        6,
+        8
+      ],
+      [
+        true,
+        6,
+        24,
+        6,
+        24
+      ],
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        6,
+        37,
+        6,
+        37
+      ],
+      [
+        true,
+        16,
+        20,
+        16,
+        20
+      ],
+      [
+        true,
+        8,
+        64,
+        8,
+        64
+      ],
+      [
+        true,
+        39,
+        137,
+        39,
+        137
+      ],
+      [
+        true,
+        45,
+        49,
+        45,
+        49
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: feature/home/src/main/kotlin/com/arcadia/shell/feature",
+    "bytes": 17605
+  },
+  {
+    "path": "feature/home/src/main/kotlin/com/arcadia/shell/feature/home/component/SystemPill.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        10,
+        6,
+        10
+      ],
+      [
+        true,
+        7,
+        11,
+        7,
+        11
+      ],
+      [
+        true,
+        9,
+        23,
+        9,
+        23
+      ],
+      [
+        true,
+        18,
+        57,
+        18,
+        57
+      ],
+      [
+        true,
+        7,
+        10,
+        7,
+        10
+      ]
+    ],
+    "applied": "failed: error: repository lacks the necessary blob to perform 3-way merge.\nFalling back to direct application...\nerror: patch failed: feature/home/src/main/kotlin/com/arcadia/shell/feature",
+    "bytes": 5833
+  },
+  {
+    "path": "feature/home/src/test/kotlin/com/arcadia/shell/feature/home/MusicCategoryBackdropTest.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        7,
+        7,
+        7,
+        7
+      ],
+      [
+        true,
+        12,
+        41,
+        12,
+        41
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 2009
+  },
+  {
+    "path": "feature/settings/src/main/kotlin/com/arcadia/shell/feature/settings/SettingsScreen.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        44,
+        6,
+        44
+      ],
+      [
+        true,
+        3,
+        49,
+        3,
+        49
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 4183
+  },
+  {
+    "path": "feature/settings/src/main/kotlin/com/arcadia/shell/feature/settings/SettingsViewModel.kt",
+    "complete": true,
+    "hunks": [
+      [
+        true,
+        6,
+        7,
+        6,
+        7
+      ],
+      [
+        true,
+        6,
+        54,
+        6,
+        54
+      ],
+      [
+        true,
+        3,
+        12,
+        3,
+        12
+      ]
+    ],
+    "applied": "applied",
+    "bytes": 3484
+  }
+]

@@ -23,7 +23,7 @@ class MusicCategoryBackdropTest {
     }
 
     @Test
-    fun otherCategoriesKeepTheThemeWallpaper() {
+    fun otherCategoriesKeepTheMusicWhileItPlays() {
         val backdrop = musicCategoryBackdrop(
             category = XoraXmbCategory.Games,
             depth = XoraXmbDepth.Category,
@@ -31,9 +31,38 @@ class MusicCategoryBackdropTest {
             enabled = true,
             coverPath = "/sdcard/cover.jpg",
         )
+        assertTrue(backdrop.showCover)
+        assertTrue(backdrop.showWaveMask)
+        assertEquals("/sdcard/cover.jpg", backdrop.coverPath)
+    }
+
+    @Test
+    fun gameMediaTakesTheBackdropBackOffTheMusicColumn() {
+        val backdrop = musicCategoryBackdrop(
+            category = XoraXmbCategory.Games,
+            depth = XoraXmbDepth.Roms,
+            playing = true,
+            enabled = true,
+            coverPath = "/sdcard/cover.jpg",
+            gameMediaPresent = true,
+        )
         assertFalse(backdrop.showCover)
         assertFalse(backdrop.showWaveMask)
         assertNull(backdrop.coverPath)
+    }
+
+    @Test
+    fun musicColumnOutranksGameMedia() {
+        val backdrop = musicCategoryBackdrop(
+            category = XoraXmbCategory.Music,
+            depth = XoraXmbDepth.Category,
+            playing = true,
+            enabled = true,
+            coverPath = "/sdcard/cover.jpg",
+            gameMediaPresent = true,
+        )
+        assertTrue(backdrop.showCover)
+        assertTrue(backdrop.showWaveMask)
     }
 
     @Test

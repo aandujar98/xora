@@ -1,0 +1,123 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/component/SystemPill.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/component/SystemPill.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/component/SystemPill.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/component/SystemPill.kt
+@@ -148,6 +148,10 @@
+ import com.arcadia.shell.feature.home.rememberVitaBubbleMotion
+ import com.arcadia.shell.feature.home.vitaBubbleIdleLean
+ import com.arcadia.shell.model.Game
++import androidx.compose.animation.core.FastOutSlowInEasing
++import androidx.compose.ui.zIndex
++import com.arcadia.shell.feature.home.VitaBubbleMotion
++import com.arcadia.shell.feature.home.rememberDeviceTilt
+ import com.arcadia.shell.retroachievements.RaRecentUnlock
+ import com.arcadia.shell.xoranetwork.xoraAppearanceLabel
+ import kotlinx.coroutines.delay
+@@ -1090,7 +1094,11 @@
+ }
+ 
+ @Composable
+-private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
++private fun RecentlyEarnedStrip(
++    unlocks: List<RaRecentUnlock>,
++    /** Index being inspected; every other badge dims out of its way. */
++    selectedIndex: Int? = null,
++) {
+     Column(verticalArrangement = Arrangement.spacedBy(RecentlyEarnedLabelGap)) {
+         CardSectionLabel("RECENTLY EARNED")
+         if (unlocks.isEmpty()) {
+@@ -1105,9 +1113,23 @@
+                 horizontalArrangement = Arrangement.spacedBy(RecentlyEarnedBadgeGap),
+             ) {
+                 val shown = unlocks.take(RecentlyEarnedBadgeSlots)
+-                shown.forEach { unlock ->
++                // One tilt spring, handed only to the picked badge — the same sway the RA grid
++                // gives the badge it has scaled up.
++                val sway = rememberAmbientMotionActive() && selectedIndex != null
++                val tilt = rememberDeviceTilt(active = sway)
++                val badgePx = with(LocalDensity.current) { RecentlyEarnedBadgeSize.toPx() }
++                val badgeMotion = rememberVitaBubbleMotion(
++                    count = 1,
++                    tilt = tilt,
++                    maxShiftPx = badgePx * VITA_BUBBLE_TILT_SHIFT_FRACTION,
++                    enabled = sway,
++                )
++                shown.forEachIndexed { index, unlock ->
+                     AchievementBadge(
+                         unlock = unlock,
++                        selected = index == selectedIndex,
++                        inspecting = selectedIndex != null,
++                        motion = badgeMotion.takeIf { index == selectedIndex },
+                         modifier = Modifier.size(RecentlyEarnedBadgeSize),
+                     )
+                 }
+@@ -1119,18 +1141,57 @@
+     }
+ }
+ 
++/** A picked badge grows by a third; the rest drop to a quarter brightness. */
++private const val FriendBadgePickedScale = 1.35f
++private const val FriendBadgeUnpickedAlpha = 0.25f
++
+ @Composable
+ private fun AchievementBadge(
+     unlock: RaRecentUnlock,
+     modifier: Modifier = Modifier,
++    selected: Boolean = false,
++    /** A badge is being inspected somewhere in the strip — the unpicked ones step back. */
++    inspecting: Boolean = false,
++    motion: VitaBubbleMotion? = null,
+ ) {
+     val platformContext = LocalPlatformContext.current
+     val shape = RoundedCornerShape(8.dp)
++    val picked = inspecting && selected
++    val scale by animateFloatAsState(
++        targetValue = if (picked) FriendBadgePickedScale else 1f,
++        animationSpec = tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing),
++        label = "friendBadgeScale",
++    )
++    // "Dim the others by 75%" — a quarter of their brightness left.
++    val dim by animateFloatAsState(
++        targetValue = if (inspecting && !selected) FriendBadgeUnpickedAlpha else 1f,
++        animationSpec = tween(ArcadiaMotion.Fast, easing = FastOutSlowInEasing),
++        label = "friendBadgeDim",
++    )
+     Box(
+         modifier = modifier
++            .zIndex(if (selected) 1f else 0f)
++            .graphicsLayer {
++                scaleX = scale
++                scaleY = scale
++                alpha = dim
++                if (motion != null) {
++                    // Grows in with the scale, so the lean does not snap on as it is picked.
++                    val grown = ((scale - 1f) / (FriendBadgePickedScale - 1f)).coerceIn(0f, 1f)
++                    val shift = motion.offsetAt(0)
++                    val lean = motion.leanAt(0)
++                    translationX = shift.x * grown
++                    translationY = shift.y * grown
++                    cameraDistance = VITA_BUBBLE_CAMERA_DISTANCE * density
++                    rotationY = (lean.x * VITA_BUBBLE_TILT_DEG * grown)
++                        .coerceIn(-VITA_BUBBLE_TILT_DEG, VITA_BUBBLE_TILT_DEG)
++                    rotationX = (-lean.y * VITA_BUBBLE_TILT_DEG * grown)
++                        .coerceIn(-VITA_BUBBLE_TILT_DEG, VITA_BUBBLE_TILT_DEG)
++                }
++            }
+             .clip(shape)
+             .background(Color.Black.copy(alpha = 0.25f))
+-            .border(2.dp, BadgeBorder, shape),
++            .border(if (picked) 3.dp else 2.dp, if (picked) ScoreAmber else BadgeBorder, shape),
+     ) {
+         AsyncImage(
+             model = ImageRequest.Builder(platformContext)
+@@ -1742,7 +1803,10 @@
+ 
+         // Figma 944:2662: the same sections as your own card, from what the friend shares.
+         Spacer(modifier = Modifier.height(HeaderToRecentGap))
+-        RecentlyEarnedStrip(unlocks = friend.recentUnlocks)
++        RecentlyEarnedStrip(
++            unlocks = friend.recentUnlocks,
++            selectedIndex = friend.selectedBadgeIndex,
++        )
+         friend.favoriteGame?.let { favorite ->
+             Spacer(modifier = Modifier.height(RecentToFavoriteGap))
+             FavoriteGameSection(

@@ -138,7 +138,8 @@ internal fun VitaLiveAreaStatusBar(
         Text(text = timeText, style = style, maxLines = 1)
         Spacer(Modifier.width((18f * unit).dp))
         Text(
-            text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
+            // Charging shows in the cell itself (green fill), so the percentage stays a number.
+            text = "$batteryPercent%",
             style = style,
             maxLines = 1,
         )
@@ -197,7 +198,7 @@ private fun LiveAreaBattery(percent: Int, charging: Boolean, modifier: Modifier 
         )
         val pad = size.height * 0.2f
         drawRoundRect(
-            color = if (charging || percent > 20) Color.White else Color(0xFFFF5C6C),
+            color = batteryFillColor(percent = percent, charging = charging),
             topLeft = Offset(pad, top + pad),
             size = Size(
                 ((bodyW - pad * 2) * (percent / 100f).coerceIn(0f, 1f)),

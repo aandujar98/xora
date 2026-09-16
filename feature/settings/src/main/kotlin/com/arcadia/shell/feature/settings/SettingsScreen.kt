@@ -794,6 +794,44 @@ fun SettingsScreen(
         }
 
         if (section == SetupSection.Media) {
+        // Where the Videos and Photos tabs look. Several folders may be chosen for each.
+        run {
+            val videoFolders by viewModel.videoFolders.collectAsStateWithLifecycle()
+            val photoFolders by viewModel.photoFolders.collectAsStateWithLifecycle()
+            val videoFolderPicker = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.OpenDocumentTree(),
+            ) { uri -> uri?.let(viewModel::addVideoFolder) }
+            val photoFolderPicker = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.OpenDocumentTree(),
+            ) { uri -> uri?.let(viewModel::addPhotoFolder) }
+            SettingsCard(
+                title = "Media folders",
+                iconRes = DsR.drawable.xmb_figma_video,
+                modifier = Modifier,
+            ) {
+                Text(
+                    text = "Point the Videos and Photos tabs at particular folders. With none " +
+                        "chosen each tab shows everything on the device, as it does today.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                MediaFolderList(
+                    label = "Video folders",
+                    folders = videoFolders,
+                    addId = "video_folder_add",
+                    onAdd = { videoFolderPicker.launch(null) },
+                    onRemove = viewModel::removeVideoFolder,
+                )
+                MediaFolderList(
+                    label = "Photo folders",
+                    folders = photoFolders,
+                    addId = "photo_folder_add",
+                    onAdd = { photoFolderPicker.launch(null) },
+                    onRemove = viewModel::removePhotoFolder,
+                )
+            }
+        }
+
         // 4. Trailers — scrape / source / idle (display mode lives under Appearance)
         run {
             SettingsCard(
@@ -2629,4 +2667,50 @@ private fun Context.settingsHostActivity(): Activity? {
         ctx = ctx.baseContext
     }
     return null
+}
+
+/** One media tab's chosen folders, with a row per folder and an Add button under them. */
+@Composable
+private fun MediaFolderList(
+    label: String,
+    folders: List<MediaFolderChoice>,
+    addId: String,
+    onAdd: () -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    SettingsFieldLabel(label)
+    if (folders.isEmpty()) {
+        Text(
+            text = "No folders chosen — showing everything on the device.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    } else {
+        folders.forEach { folder ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = folder.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingsPadRow("remove_${folder.uri.hashCode()}") {
+                    PadChip(
+                        id = "remove_${folder.uri.hashCode()}",
+                        selected = false,
+                        onClick = { onRemove(folder.uri) },
+                        label = "Remove",
+                    )
+                }
+            }
+        }
+    }
+    SettingsPadRow(addId) {
+        PadChip(id = addId, selected = false, onClick = onAdd, label = "Add folder…")
+    }
 }

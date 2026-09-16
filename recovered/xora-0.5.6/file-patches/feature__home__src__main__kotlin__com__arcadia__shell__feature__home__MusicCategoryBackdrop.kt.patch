@@ -1,0 +1,56 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/MusicCategoryBackdrop.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/MusicCategoryBackdrop.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/MusicCategoryBackdrop.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/MusicCategoryBackdrop.kt
+@@ -6,7 +6,8 @@
+ internal const val MUSIC_WAVE_URI = "asset:///$MUSIC_WAVE_ASSET"
+ 
+ /**
+- * When music is playing on the Music column, the XMB backdrop is the track's cover.
++ * While music plays, the XMB backdrop is the track's cover — on the Music column and anywhere
++ * else you wander, so a song keeps the screen instead of ending at the column it started on.
+  * The wave is a separate Screen layer so black in the video drops out.
+  *
+  * [playing] is "actively playing", not "has a track loaded": pausing fades the cover and the
+@@ -29,17 +30,37 @@
+     playing: Boolean,
+     enabled: Boolean,
+     coverPath: String?,
++    /**
++     * A track is loaded, whether or not it is running. Background Media belongs to the song, so
++     * it stays up through a pause — dropping back to the album cover made pausing look like the
++     * song had been unloaded.
++     */
++    hasTrack: Boolean = playing,
+     /** Background Media set on the playing song or its album; beats the cover when present. */
+     backgroundMediaPath: String? = null,
++    /**
++     * The column under the cursor has game art of its own to show — a wallpaper, hero or box art.
++     * Off the Music column that art wins, and the song's backdrop fades out until you leave it.
++     */
++    gameMediaPresent: Boolean = false,
+ ): MusicCategoryBackdrop {
+-    val show = enabled && playing && category == XoraXmbCategory.Music
+-    val media = backgroundMediaPath?.takeIf { show && it.isNotBlank() }
++    // Music owns its own column outright; elsewhere it fills only the screens a game is not
++    // already claiming, so browsing a library still looks like the library.
++    val onMusic = category == XoraXmbCategory.Music
++    val allowed = enabled && (onMusic || !gameMediaPresent)
++    val live = allowed && playing
++    // A paused song keeps its screen on the Music column, where the player is looking at it.
++    // Anywhere else a paused song is just a stale backdrop over what they are actually browsing,
++    // so it fades out and the column gets its own art back.
++    val media = backgroundMediaPath?.takeIf {
++        allowed && (playing || (hasTrack && onMusic)) && it.isNotBlank()
++    }
+     return MusicCategoryBackdrop(
+-        showCover = show,
+-        coverPath = media ?: coverPath?.takeIf { show && it.isNotBlank() },
++        showCover = live || media != null,
++        coverPath = media ?: coverPath?.takeIf { live && it.isNotBlank() },
+         isBackgroundMedia = media != null,
+         // Now Playing is the cover's own page — the wave belongs to the column behind it, and
+         // reading a tracklist through a moving mask is what it is there to decorate.
+-        showWaveMask = show && depth != XoraXmbDepth.NowPlaying,
++        showWaveMask = live && depth != XoraXmbDepth.NowPlaying,
+     )
+ }

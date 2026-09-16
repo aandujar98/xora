@@ -805,6 +805,12 @@ fun ArcadiaShell(
                     notification = state.activeNotification,
                     ltExpanded = state.accountPanelExpanded,
                 )
+                val dashNotification by homeViewModel.dashNotifications.active
+                    .collectAsStateWithLifecycle()
+                DashNotificationBar(
+                    notification = dashNotification,
+                    modifier = Modifier.padding(bottom = 18.dp),
+                )
                 HomeTutorialOverlay(
                     state = state.tutorial,
                     onNext = homeViewModel::advanceHomeTutorial,

@@ -81,6 +81,8 @@ enum class XmbIcon {
     Continue,
     Favorite,
     Folder,
+    /** Plain folder shell (ICONS-2 Folder.png) — the Games column's Favorites folder. */
+    FolderFavorites,
     /** Folder shell with the Photo glyph in the window — image albums under Photos. */
     FolderPhoto,
     /** Folder shell with the Video glyph in the window — video albums under Videos. */
@@ -163,6 +165,7 @@ fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
     XmbIcon.Trophy -> R.drawable.xmb_figma_trophy
     XmbIcon.Device -> R.drawable.xmb_storage
     XmbIcon.Folder -> R.drawable.xmb_folder_img
+    XmbIcon.FolderFavorites -> R.drawable.xmb_folder
     XmbIcon.FolderPhoto -> R.drawable.xmb_folder_photo
     XmbIcon.FolderVideo -> R.drawable.xmb_folder_video
     XmbIcon.FolderMusic -> R.drawable.xmb_folder_music
@@ -197,6 +200,7 @@ fun XmbIcon.intrinsicDesignSize(): Pair<Float, Float> = when (this) {
     XmbIcon.Trophy -> 130f to 120f
     XmbIcon.Device -> 131f to 91f
     XmbIcon.Folder -> 277f to 196f
+    XmbIcon.FolderFavorites -> 277f to 196f
     XmbIcon.FolderPhoto -> 222f to 195f
     XmbIcon.FolderVideo -> 308f to 195f
     XmbIcon.FolderMusic -> 177f to 195f
@@ -694,6 +698,7 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Continue -> drawPlay(tint, stroke)
         XmbIcon.Favorite -> drawStar(tint, stroke)
         XmbIcon.Folder,
+        XmbIcon.FolderFavorites,
         XmbIcon.FolderPhoto,
         XmbIcon.FolderVideo,
         XmbIcon.FolderMusic,

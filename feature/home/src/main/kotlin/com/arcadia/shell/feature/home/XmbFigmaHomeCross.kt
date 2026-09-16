@@ -714,6 +714,12 @@ private fun itemDesignSize(item: XoraXmbItem, focused: Boolean): Pair<Float, Flo
     if (isGamePlate(item)) {
         return if (focused) PLATE_W_FOCUS to PLATE_H_FOCUS else PLATE_W to PLATE_H
     }
+    // Now Playing is the Music column's headline row, so its cover stands as tall as the Game
+    // Icon plate rather than shrinking to the ordinary column box like the rows under it.
+    if (item.isNowPlayingCover()) {
+        val edge = if (focused) PLATE_H_FOCUS else PLATE_H
+        return edge to edge
+    }
     val (w, h) = columnItemDesignSize(item, focused)
     return w * COLUMN_ITEM_SCALE to h * COLUMN_ITEM_SCALE
 }

@@ -1,0 +1,15 @@
+diff --git a/app/src/main/kotlin/com/arcadia/shell/MainActivity.kt b/app/src/main/kotlin/com/arcadia/shell/MainActivity.kt
+--- a/app/src/main/kotlin/com/arcadia/shell/MainActivity.kt
++++ b/app/src/main/kotlin/com/arcadia/shell/MainActivity.kt
+@@ -118,6 +118,11 @@
+                 backgroundMusic.setBootIntroActive(homeState.bootIntroOpen)
+                 uiSounds.setBootIntroActive(bootPlaying)
+             }
++            // Each Dash line that is allowed a sound gets it once, as it appears.
++            val dashCue by homeViewModel.dashNotifications.cue.collectAsStateWithLifecycle()
++            LaunchedEffect(dashCue?.id) {
++                dashCue?.let { uiSounds.playDashCue(it.kind) }
++            }
+             // OMO greets as the Welcome screen opens — wake from sleep or back from a game.
+             val welcomeShowing = homeState.welcomeBackOpen && !shellState.showOnboarding
+             LaunchedEffect(welcomeShowing) {

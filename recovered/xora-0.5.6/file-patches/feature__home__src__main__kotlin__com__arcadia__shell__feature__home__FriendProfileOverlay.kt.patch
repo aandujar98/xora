@@ -1,0 +1,83 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/FriendProfileOverlay.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/FriendProfileOverlay.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/FriendProfileOverlay.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/FriendProfileOverlay.kt
+@@ -21,6 +21,12 @@
+ import com.arcadia.shell.designsystem.ProvideGlassFade
+ import com.arcadia.shell.designsystem.xoraCardFadeIn
+ import com.arcadia.shell.designsystem.xoraCardFadeOut
++import androidx.compose.animation.core.animateDpAsState
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.offset
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.layout.padding
++import androidx.compose.ui.unit.dp
+ import com.arcadia.shell.feature.home.component.FriendProfileCard
+ import com.arcadia.shell.feature.home.component.friendChatLayout
+ 
+@@ -78,19 +84,64 @@
+                 animationSpec = arcadiaTween(ArcadiaMotion.Medium),
+                 label = "friendCardShift",
+             )
++            // Inspecting a badge lifts the card so its details have somewhere to sit beneath
++            // (Figma 973:2055); letting the badge go settles it back.
++            val badge = shown?.selectedBadge
++            val lift by animateDpAsState(
++                targetValue = if (badge != null) FriendCardBadgeLift else 0.dp,
++                animationSpec = arcadiaTween(ArcadiaMotion.Medium),
++                label = "friendCardBadgeLift",
++            )
+             if (shown != null) {
+-                Box(
++                Column(
++                    horizontalAlignment = Alignment.CenterHorizontally,
+                     modifier = Modifier
+                         .align(Alignment.Center)
+-                        .graphicsLayer { translationX = shift },
++                        .graphicsLayer { translationX = shift }
++                        .offset(y = -lift),
+                 ) {
+                     FriendProfileCard(
+                         friend = shown,
+                         onAction = { actions?.onAction?.invoke(it) },
+                     )
++                    AnimatedVisibility(
++                        visible = badge != null,
++                        enter = xoraCardFadeIn(),
++                        exit = xoraCardFadeOut(),
++                    ) {
++                        // Held through the fade so the bar does not blank as it leaves.
++                        val lastBadge = remember { mutableStateOf(badge) }
++                        if (badge != null) lastBadge.value = badge
++                        lastBadge.value?.let { unlock ->
++                            // The very window the RA grid uses for a picked badge (Figma 987:2420).
++                            Box(
++                                modifier = Modifier
++                                    .padding(top = FriendCardBadgeGap)
++                                    .width(FriendBadgeBarWidth),
++                            ) {
++                                RaCheevoInfoBarContent(
++                                    badgeUrl = unlock.badgeUrl,
++                                    title = unlock.title,
++                                    description = unlock.description,
++                                    hardcore = unlock.hardcore,
++                                    dayLabel = formatRaEarnedDate(unlock.date),
++                                    // The card overhead already shows this friend's points, and
++                                    // the bar sits shallower under it than it does under the grid.
++                                    points = null,
++                                    compact = true,
++                                )
++                            }
++                        }
++                    }
+                 }
+             }
+         }
+         }
+     }
+ }
++
++/** Barely a nudge: the card stays where it is and the bar tucks in under it. */
++private val FriendCardBadgeLift = 5.dp
++private val FriendCardBadgeGap = 14.dp
++/** Matches the reference, which runs the bar wider than the card it sits under. */
++private val FriendBadgeBarWidth = 520.dp

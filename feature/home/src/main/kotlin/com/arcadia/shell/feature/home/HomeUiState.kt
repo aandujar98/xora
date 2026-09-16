@@ -431,6 +431,38 @@ data class HomeUiState(
     val systemUpdateOpen: Boolean get() = systemUpdate.open
 
     /**
+     * A pop-up is standing over the shell and the background behind it is meant to recede — the
+     * CRT DIM pass, plus a blur under it, so the card reads as the only thing in focus.
+     *
+     * This is only about windows that obscure the shell. A song's Background Media uses the same
+     * CRT texture as a *surface treatment* and must never blur, so it is deliberately absent here.
+     */
+    val backdropObscuredByPopup: Boolean
+        get() = friendProfile != null ||
+            startSettingsOpen ||
+            homeHub.themesOpen ||
+            systemUpdateOpen ||
+            notificationHistoryOpen ||
+            welcomeBackOpen ||
+            netplayInvitePromptOpen
+
+    /**
+     * A pop-up is standing over the shell and the background behind it is meant to recede — the
+     * CRT DIM pass, plus a blur under it, so the card reads as the only thing in focus.
+     *
+     * This is only about windows that obscure the shell. A song's Background Media uses the same
+     * CRT texture as a *surface treatment* and must never blur, so it is deliberately absent here.
+     */
+    val backdropObscuredByPopup: Boolean
+        get() = friendProfile != null ||
+            startSettingsOpen ||
+            homeHub.themesOpen ||
+            systemUpdateOpen ||
+            notificationHistoryOpen ||
+            welcomeBackOpen ||
+            netplayInvitePromptOpen
+
+    /**
      * True when there are neither ROM folders nor a synced Apps tab yet. Apps alone are enough to
      * leave onboarding, so the shell can act as a home screen before any library roots exist.
      */
@@ -455,6 +487,8 @@ data class NetplayInvitePrompt(
 )
 
 sealed interface HomeEvent {
+    /** Hand a device video to whichever app the player already uses for video. */
+    data class OpenVideoFile(val uri: String) : HomeEvent
     data class ShowMessage(val message: String) : HomeEvent
     data class ShowError(val message: String) : HomeEvent
     data object OpenSettings : HomeEvent
@@ -631,9 +665,12 @@ data class PhotosUiState(
         get() = optionsOpen || fullscreenOpen || deleteConfirmOpen || edit != null
 }
 
-/** 2 rows × 5 columns per gallery page, matching the concept layout. */
+/**
+ * One row of five per gallery page. The tray is a filmstrip under the picture now rather than a
+ * second grid competing with it, so the page steps by a row instead of by a block.
+ */
 const val PHOTO_GRID_COLUMNS = 5
-const val PHOTO_GRID_ROWS = 2
+const val PHOTO_GRID_ROWS = 1
 const val PHOTO_PAGE_SIZE = PHOTO_GRID_COLUMNS * PHOTO_GRID_ROWS
 
 /** Everything the Photo Viewer pane can ask the shell to do (touch and gamepad funnel here). */

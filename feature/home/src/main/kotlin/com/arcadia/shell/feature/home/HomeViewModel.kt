@@ -94,6 +94,8 @@ import com.arcadia.shell.libretro.XoraCoreCatalog
 import com.arcadia.shell.launcher.notifications.FriendNetwork
 import com.arcadia.shell.launcher.notifications.FriendPlayingTracker
 import com.arcadia.shell.launcher.notifications.ShellNotification
+import com.arcadia.shell.launcher.notifications.DashNotificationCenter
+import com.arcadia.shell.launcher.notifications.DashNotificationKind
 import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
 import com.arcadia.shell.launcher.notifications.netplaySessionDismissalKey
@@ -248,6 +250,7 @@ class HomeViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
     private val discordRichPresence: DiscordRichPresence,
     val shellNotifications: ShellNotificationCenter,
+    val dashNotifications: DashNotificationCenter,
     private val shellSystemNotifier: ShellSystemNotifier,
     private val platformEmulatorDetector: PlatformEmulatorDetector,
     private val playerSeeder: PlayerSeeder,
@@ -426,6 +429,8 @@ class HomeViewModel @Inject constructor(
     private var xoraSocialSeeded = false
     private val knownOnlineXoraUsernames = linkedSetOf<String>()
     private val xoraPlayingTracker = FriendPlayingTracker()
+    /** Last custom status seen per friend, so only a genuinely new line toasts. */
+    private val knownXoraCustomStatuses = mutableMapOf<String, String>()
     private val knownXoraInviteUsernames = linkedSetOf<String>()
     private val knownXoraNotificationIds = linkedSetOf<String>()
     private val knownNetplayInviteKeys = linkedSetOf<String>()
@@ -1356,6 +1361,41 @@ class HomeViewModel @Inject constructor(
             .distinctUntilChanged()
             .onEach { xoraNetwork.setPlayingLine(it) }
             .launchIn(viewModelScope)
+        // Artwork scraping runs in the background on WorkManager; the dash is where it reports in.
+        scraperScheduler.isRunning()
+            .distinctUntilChanged()
+            .onEach { running ->
+                if (running == scrapeDashWasRunning) return@onEach
+                scrapeDashWasRunning = running
+                dashNotifications.emit(
+                    text = if (running) "Fetching artwork" else "Artwork updated",
+                    kind = DashNotificationKind.Scraping,
+                )
+            }
+            .launchIn(viewModelScope)
+        // Dash cues go quiet under a song, and a song starting is itself a (silent) dash line.
+        nowPlayingController.state
+            .map { it.takeIf { s -> s.hasTrack && s.isPlaying }?.track }
+            .distinctUntilChanged()
+            .onEach { track ->
+                dashNotifications.musicPlaying = track != null
+                if (track == null) return@onEach
+                val artist = track.artist.trim()
+                dashNotifications.emit(
+                    text = if (artist.isBlank()) track.title else "${track.title} - $artist",
+                    kind = DashNotificationKind.Music,
+                )
+            }
+            .launchIn(viewModelScope)
+        // A booted game takes the speakers: once the shell drops behind one, the soundtrack fades
+        // out and waits. Sleep and other apps are not this — they leave the music playing.
+        combine(
+            standbyGame,
+            appForegroundTracker.isForeground,
+        ) { game, foreground -> game != null && !foreground }
+            .distinctUntilChanged()
+            .onEach { nowPlayingController.setGameStandbyActive(it) }
+            .launchIn(viewModelScope)
         // Poll friends + inbox only while the shell is actually in the foreground — an asleep or
         // backgrounded device must not wake the radio every minute (battery / fan complaint).
         // Inbox is the website `/api/notifications` list (DMs never land in Nakama storage);
@@ -1559,6 +1599,9 @@ class HomeViewModel @Inject constructor(
                 } else {
                     nowPlayingController.setBootIntroActive(false)
                 }
+                // Banners wait out the video too, then play their backlog onto the XMB.
+                shellNotifications.setBootIntroActive(bootPlaying)
+                dashNotifications.setBootIntroActive(bootPlaying)
             }
             .launchIn(viewModelScope)
 
@@ -1787,30 +1830,34 @@ class HomeViewModel @Inject constructor(
     private fun raUnlockKey(unlock: RaRecentUnlock): String =
         "${unlock.achievementId}|${unlock.date}|${unlock.hardcore}"
 
+    /**
+     * A library scan is background housekeeping, so it says its piece on the dash rather than
+     * taking the corner with a banner the player has to watch land.
+     */
     private fun emitLibraryScanBanners(progress: ScanProgress) {
         if (progress.isRunning && !libraryScanWasRunning) {
             libraryScanWasRunning = true
-            shellNotifications.emit(
-                ShellNotification.GameDownloading(
-                    id = "scan-start:${SystemClock.elapsedRealtime()}",
-                    title = "Scanning library",
-                    progressLabel = progress.currentRoot?.let { "Scanning $it…" } ?: "Looking for games…",
-                ),
+            dashNotifications.emit(
+                text = progress.currentRoot?.let { "Scanning $it" } ?: "Looking for games",
+                kind = DashNotificationKind.Scanning,
             )
         }
         if (!progress.isRunning && libraryScanWasRunning) {
             libraryScanWasRunning = false
-            if (progress.error != null) return
-            shellNotifications.emit(
-                ShellNotification.InstallComplete(
-                    id = "scan-done:${progress.finishedAt ?: SystemClock.elapsedRealtime()}",
-                    title = "Library ready",
-                    subtitle = when {
-                        progress.gamesFound <= 0 -> "Scan finished"
-                        progress.gamesFound == 1 -> "1 game found"
-                        else -> "${progress.gamesFound} games found"
-                    },
-                ),
+            if (progress.error != null) {
+                dashNotifications.emit(
+                    text = progress.error ?: "Library scan failed",
+                    kind = DashNotificationKind.Error,
+                )
+                return
+            }
+            dashNotifications.emit(
+                text = when {
+                    progress.gamesFound <= 0 -> "Scan finished"
+                    progress.gamesFound == 1 -> "1 game found"
+                    else -> "${progress.gamesFound} games found"
+                },
+                kind = DashNotificationKind.Scanning,
             )
         }
     }
@@ -1872,6 +1919,7 @@ class HomeViewModel @Inject constructor(
             knownXoraNotificationIds.clear()
             knownNetplayInviteKeys.clear()
             xoraPlayingTracker.reset()
+            knownXoraCustomStatuses.clear()
             return
         }
         if (XoraNetworkBannerGate.shouldWaitForInbox(network)) {
@@ -1895,6 +1943,7 @@ class HomeViewModel @Inject constructor(
                     friend.username.lowercase() to playingGameTitleFromStatus(friend.status)
                 },
             )
+            seedXoraCustomStatuses(network.acceptedFriends)
             xoraSocialSeeded = true
             return
         }
@@ -1914,6 +1963,8 @@ class HomeViewModel @Inject constructor(
         }
         knownOnlineXoraUsernames.retainAll(onlineNames)
         emitXoraFriendPlayingBanners(network.acceptedFriends)
+        emitXoraFriendListeningBanners(network.acceptedFriends)
+        emitXoraFriendStatusBanners(network.acceptedFriends)
 
         // Friend requests can surface twice (friends list edge + inbox item) — announce once.
         val announcedRequests = mutableSetOf<String>()
@@ -2038,6 +2089,78 @@ class HomeViewModel @Inject constructor(
                 ),
             )
         }
+    }
+
+    /** Announces a friend putting a new song on, once per track. */
+    private fun emitXoraFriendListeningBanners(
+        friends: List<com.arcadia.shell.xoranetwork.XoraFriend>,
+    ) {
+        for (friend in friends) {
+            val key = friend.username.lowercase()
+            val listening = friend.takeIf { it.online }
+                ?.let { com.arcadia.shell.xoranetwork.parseXoraListening(it.status) }
+            val track = listening?.first.orEmpty()
+            val previous = knownXoraListening.put(key, track)
+            if (track.isBlank() || previous == null || track == previous) continue
+            emitShellBanner(
+                ShellNotification.FriendListening(
+                    id = "xora-listening:$key:${SystemClock.elapsedRealtime()}",
+                    displayName = friend.displayName.ifBlank { friend.username },
+                    songTitle = track,
+                    artist = listening?.second.orEmpty(),
+                    network = FriendNetwork.Xora,
+                    avatarUrl = friend.resolvedAvatarUrl,
+                ),
+            )
+        }
+        knownXoraListening.keys.retainAll(friends.map { it.username.lowercase() }.toSet())
+    }
+
+    /**
+     * A friend's custom status: whatever they published that is neither a presence keyword nor
+     * the "Playing …" line a launch writes. Blank for anyone offline or not saying anything.
+     */
+    private fun xoraCustomStatusOf(friend: com.arcadia.shell.xoranetwork.XoraFriend): String {
+        if (!friend.online) return ""
+        val raw = friend.status.trim()
+        if (raw.isBlank()) return ""
+        if (raw.startsWith("Playing ", ignoreCase = true)) return ""
+        val reserved = raw.equals("Online", ignoreCase = true) ||
+            raw.equals("Away", ignoreCase = true) ||
+            raw.equals("Busy", ignoreCase = true)
+        return if (reserved) "" else raw
+    }
+
+    private fun seedXoraCustomStatuses(friends: List<com.arcadia.shell.xoranetwork.XoraFriend>) {
+        knownXoraCustomStatuses.clear()
+        friends.forEach { friend ->
+            knownXoraCustomStatuses[friend.username.lowercase()] = xoraCustomStatusOf(friend)
+        }
+    }
+
+    /**
+     * Announces a friend's newly written status. Only a changed, non-empty line toasts — clearing
+     * a status or dropping offline is remembered silently so coming back does not re-announce it.
+     */
+    private fun emitXoraFriendStatusBanners(
+        friends: List<com.arcadia.shell.xoranetwork.XoraFriend>,
+    ) {
+        for (friend in friends) {
+            val key = friend.username.lowercase()
+            val status = xoraCustomStatusOf(friend)
+            val previous = knownXoraCustomStatuses.put(key, status)
+            if (status.isBlank() || previous == null || status == previous) continue
+            emitShellBanner(
+                ShellNotification.FriendStatusUpdated(
+                    id = "xora-status:$key:${SystemClock.elapsedRealtime()}",
+                    displayName = friend.displayName.ifBlank { friend.username },
+                    status = status,
+                    network = FriendNetwork.Xora,
+                    avatarUrl = friend.resolvedAvatarUrl,
+                ),
+            )
+        }
+        knownXoraCustomStatuses.keys.retainAll(friends.map { it.username.lowercase() }.toSet())
     }
 
     private fun emitShellBanner(notification: ShellNotification) {
@@ -5346,6 +5469,7 @@ class HomeViewModel @Inject constructor(
     }
 
     fun toggleNowPlaying() {
+        if (!nowPlayingScreenOpen()) return
         nowPlayingController.togglePlayPause()
     }
 
@@ -8456,6 +8580,12 @@ class HomeViewModel @Inject constructor(
                 return@launch
             }
             preferences.setAnnouncedUpdateVersion(check.release.versionName)
+            dashNotifications.emit(
+                text = "XOrA ${check.release.versionName} is available",
+                kind = DashNotificationKind.Update,
+            )
+            // Still recorded as a banner-grade notification: unlike the other dash lines this one
+            // is actionable, and the history row is what opens the System Update window.
             shellNotifications.emit(
                 ShellNotification.UpdateAvailable(
                     id = "update-available:${check.release.versionName}",
@@ -10565,7 +10695,14 @@ class HomeViewModel @Inject constructor(
         // Keep Playing through the launch handoff. startActivity often pause/resumes the shell
         // for a frame, which used to snap Discord back to Browsing XOrA before the game started.
         maybeRestoreBrowsingPresence()
-        viewModelScope.launch { sessionTracker.settlePendingSession() }
+        viewModelScope.launch {
+            val settled = sessionTracker.settlePendingSession() ?: return@launch
+            val title = libraryRepository.findById(settled.gameId)?.title
+            dashNotifications.emit(
+                text = formatPlaySessionDashLine(title, settled.elapsedMs),
+                kind = DashNotificationKind.Playtime,
+            )
+        }
         refreshInstalledApps()
         gamepadDispatcher.reset()
         refreshTrigger.update { it + 1 }
@@ -10716,7 +10853,32 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /**
+     * "Logged 1h 24m in Persona 3 RELOAD" — the game's name when it is known.
+     *
+     * A session under the hour has no hours to report, so it counts in whole minutes instead of
+     * showing an empty hour: "Logged 45 minutes in …".
+     */
+    private fun formatPlaySessionDashLine(title: String?, elapsedMs: Long): String {
+        val totalMinutes = (elapsedMs / 60_000L).coerceAtLeast(1L)
+        val hours = totalMinutes / 60
+        val minutes = totalMinutes % 60
+        val span = when {
+            hours <= 0L && totalMinutes == 1L -> "1 minute"
+            hours <= 0L -> "$totalMinutes minutes"
+            minutes == 0L -> "${hours}h"
+            else -> "${hours}h ${minutes}m"
+        }
+        val named = title?.trim()?.takeIf { it.isNotEmpty() }
+        return if (named == null) "Logged $span" else "Logged $span in $named"
+    }
+
     private fun emit(event: HomeEvent) {
+        // Errors now say their piece on the dash as well, so a failure is visible even when the
+        // snackbar host is covered by a card or a full-screen page.
+        if (event is HomeEvent.ShowError) {
+            dashNotifications.emit(event.message, DashNotificationKind.Error)
+        }
         events.trySend(event)
     }
 

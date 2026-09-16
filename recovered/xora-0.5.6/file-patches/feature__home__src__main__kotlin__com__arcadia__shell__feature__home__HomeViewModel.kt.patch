@@ -1,0 +1,426 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/HomeViewModel.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/HomeViewModel.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/HomeViewModel.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/HomeViewModel.kt
+@@ -86,6 +86,7 @@
+ import com.arcadia.shell.launcher.photos.PhotoAccess
+ import com.arcadia.shell.launcher.photos.PhotoEditor
+ import com.arcadia.shell.launcher.photos.PhotoLibrary
++import com.arcadia.shell.launcher.videos.DeviceVideo
+ import com.arcadia.shell.launcher.videos.VideoLibrary
+ import com.arcadia.shell.launcher.discord.DiscordDmThreadUiState
+ import com.arcadia.shell.launcher.discord.DiscordPresenceActivity
+@@ -96,6 +97,8 @@
+ import com.arcadia.shell.launcher.notifications.FriendNetwork
+ import com.arcadia.shell.launcher.notifications.FriendPlayingTracker
+ import com.arcadia.shell.launcher.notifications.ShellNotification
++import com.arcadia.shell.launcher.notifications.DashNotificationCenter
++import com.arcadia.shell.launcher.notifications.DashNotificationKind
+ import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
+ import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
+ import com.arcadia.shell.launcher.notifications.netplaySessionDismissalKey
+@@ -253,6 +256,7 @@
+     private val conversationRepository: ConversationRepository,
+     private val discordRichPresence: DiscordRichPresence,
+     val shellNotifications: ShellNotificationCenter,
++    val dashNotifications: DashNotificationCenter,
+     private val shellSystemNotifier: ShellSystemNotifier,
+     private val platformEmulatorDetector: PlatformEmulatorDetector,
+     private val playerSeeder: PlayerSeeder,
+@@ -278,6 +282,8 @@
+     private val xoraItemIndex = MutableStateFlow(GAMES_ITEM_RECENTS)
+     private val xoraDepth = MutableStateFlow(XoraXmbDepth.Category)
+     private val xoraDrilledPlatformId = MutableStateFlow<String?>(null)
++    /** Clips inside the Videos folder currently open, loaded when it is drilled into. */
++    private val videoFiles = MutableStateFlow<List<DeviceVideo>>(emptyList())
+     /** Last hovered item in each XMB folder, restored when backing out. */
+     private val xoraReturnItemIndex = mutableMapOf<XoraXmbDepth, Int>()
+     /** Last hovered ROM in each platform folder, restored when re-entering that system. */
+@@ -377,7 +383,11 @@
+         val raInfo: Map<String, FriendRaInfo>,
+         val favorites: Set<String>,
+         val allFriendsIndex: Int = 0,
++        /** Badge being inspected on the open card, or null while the buttons have focus. */
++        val badgeIndex: Int? = null,
+     )
++    /** Which "Recently Earned" badge the open Profile Card is inspecting. */
++    private val friendProfileBadgeIndex = MutableStateFlow<Int?>(null)
+     /** The card focused on XOrA Network → All Friends. */
+     private val allFriendsIndex = MutableStateFlow(0)
+     /** Set while a friend's card was opened from All Friends, so closing it goes back there. */
+@@ -461,6 +471,10 @@
+     private var xoraSocialSeeded = false
+     private val knownOnlineXoraUsernames = linkedSetOf<String>()
+     private val xoraPlayingTracker = FriendPlayingTracker()
++    /** Last custom status seen per friend, so only a genuinely new line toasts. */
++    private val knownXoraCustomStatuses = mutableMapOf<String, String>()
++    /** Last song seen per friend, so a track only announces itself once. */
++    private val knownXoraListening = mutableMapOf<String, String>()
+     private val knownXoraInviteUsernames = linkedSetOf<String>()
+     private val knownXoraNotificationIds = linkedSetOf<String>()
+     private val knownNetplayInviteKeys = linkedSetOf<String>()
+@@ -474,7 +488,15 @@
+     private val knownFriendUnlockKeys = mutableMapOf<String, MutableSet<String>>()
+     private var raFollowedCache: List<RaFollowedUser> = emptyList()
+     private var raFollowedFetchedAtMs = 0L
++    /**
++     * XOrA friend username (lowercase) → the RetroAchievements name their published card shares.
++     * Blank marks a friend who has published no card, so they are not re-fetched every poll.
++     */
++    private val xoraFriendRaNames = mutableMapOf<String, String>()
++    private var xoraFriendRaNamesFetchedAtMs = 0L
+     private var libraryScanWasRunning = false
++    /** Mirrors the scraper job so start / finish each say their piece once. */
++    private var scrapeDashWasRunning = false
+ 
+     private val events = Channel<HomeEvent>(Channel.BUFFERED)
+     val eventFlow: Flow<HomeEvent> = events.receiveAsFlow()
+@@ -495,6 +517,13 @@
+         bottomSheetNavOpen.value = open
+     }
+ 
++    /**
++     * Newest library snapshot, so a banner can look a friend's game up by name without a database
++     * round trip on the notification path.
++     */
++    @Volatile
++    private var libraryGamesCache: List<Game> = emptyList()
++
+     private val libraryFlow = combine(
+         libraryRepository.observeGames(),
+         libraryRepository.observePlatformSummaries(),
+@@ -747,9 +776,17 @@
+                 friendProfileFocus,
+                 friendRaInfo,
+                 preferences.favoriteFriendKeys,
+-                allFriendsIndex,
+-                ::FriendProfileBits,
+-            ),
++                combine(allFriendsIndex, friendProfileBadgeIndex) { index, badge -> index to badge },
++            ) { target, focus, raInfo, favorites, indices ->
++                FriendProfileBits(
++                    target = target,
++                    focus = focus,
++                    raInfo = raInfo,
++                    favorites = favorites,
++                    allFriendsIndex = indices.first,
++                    badgeIndex = indices.second,
++                )
++            },
+         ) { network, bits -> network to bits },
+     ) { tab, partners, accountIndex, editRequest, networkAndFriend ->
+         val (xora, friendBits) = networkAndFriend
+@@ -1090,6 +1127,8 @@
+         val music: MusicUiState = MusicUiState(),
+         val photoFolders: List<DeviceMediaFolder> = emptyList(),
+         val videoFolders: List<DeviceMediaFolder> = emptyList(),
++        /** Clips inside the Videos folder that is open, empty at every other rung. */
++        val videoFiles: List<DeviceVideo> = emptyList(),
+         val customMediaEpoch: Int = 0,
+         val slideshowModes: Map<String, HeroSlideshowMode> = emptyMap(),
+         val gameUploads: Map<String, List<String>> = emptyMap(),
+@@ -1174,8 +1213,9 @@
+             platformArtStore.bannerByPlatformId,
+             spotifyTokenStore.linked,
+             musicFlow,
+-            mediaFolders,
+-        ) { scraped, custom, spotifyLinked, music, folders ->
++            combine(mediaFolders, videoFiles) { folders, clips -> folders to clips },
++        ) { scraped, custom, spotifyLinked, music, foldersAndClips ->
++            val folders = foldersAndClips.first
+             PlatformChrome(
+                 // A banner the player picked themselves always beats the scraped system media.
+                 artByPlatformId = scraped + custom,
+@@ -1184,6 +1224,7 @@
+                 music = music,
+                 photoFolders = folders.photos,
+                 videoFolders = folders.videos,
++                videoFiles = foldersAndClips.second,
+             )
+         },
+         customMediaEpoch,
+@@ -1461,13 +1502,66 @@
+             .launchIn(viewModelScope)
+         // XOrA Network friends see what is being played from the launch itself, not only when
+         // Discord happens to be set up to report it.
++        // A game in hand outranks everything; otherwise the custom status you wrote is what
++        // friends read, and only when you have not written one does the Discord line stand in.
+         combine(
+             discordRichPresence.state.map { resolveActivityStatusLine(it.activity) },
+             standbyGame,
+-        ) { discordLine, game -> game?.let { "playing ${it.title}" } ?: discordLine }
++            preferences.profile.map { it.customStatus?.takeIf { status -> status.isNotBlank() } },
++            nowPlayingController.state.map { it.takeIf { s -> s.hasTrack && s.isPlaying }?.track },
++        ) { discordLine, game, customStatus, track ->
++            when {
++                game != null -> "playing ${game.title}"
++                customStatus != null -> customStatus
++                // Nothing you wrote yourself, but a song is on: friends see the track.
++                track != null -> com.arcadia.shell.xoranetwork.encodeXoraListening(
++                    title = track.title,
++                    artist = track.artist,
++                )
++                else -> discordLine
++            }
++        }
+             .distinctUntilChanged()
+             .onEach { xoraNetwork.setPlayingLine(it) }
+             .launchIn(viewModelScope)
++        libraryRepository.observeGames()
++            .onEach { libraryGamesCache = it }
++            .launchIn(viewModelScope)
++        // Artwork scraping runs in the background on WorkManager; the dash is where it reports in.
++        scraperScheduler.isRunning()
++            .distinctUntilChanged()
++            .onEach { running ->
++                if (running == scrapeDashWasRunning) return@onEach
++                scrapeDashWasRunning = running
++                dashNotifications.emit(
++                    text = if (running) "Fetching artwork" else "Artwork updated",
++                    kind = DashNotificationKind.Scraping,
++                )
++            }
++            .launchIn(viewModelScope)
++        // Dash cues go quiet under a song, and a song starting is itself a (silent) dash line.
++        nowPlayingController.state
++            .map { it.takeIf { s -> s.hasTrack && s.isPlaying }?.track }
++            .distinctUntilChanged()
++            .onEach { track ->
++                dashNotifications.musicPlaying = track != null
++                if (track == null) return@onEach
++                val artist = track.artist.trim()
++                dashNotifications.emit(
++                    text = if (artist.isBlank()) track.title else "${track.title} - $artist",
++                    kind = DashNotificationKind.Music,
++                )
++            }
++            .launchIn(viewModelScope)
++        // A booted game takes the speakers: once the shell drops behind one, the soundtrack fades
++        // out and waits. Sleep and other apps are not this — they leave the music playing.
++        combine(
++            standbyGame,
++            appForegroundTracker.isForeground,
++        ) { game, foreground -> game != null && !foreground }
++            .distinctUntilChanged()
++            .onEach { nowPlayingController.setGameStandbyActive(it) }
++            .launchIn(viewModelScope)
+         // Poll friends + inbox only while the shell is actually in the foreground — an asleep or
+         // backgrounded device must not wake the radio every minute (battery / fan complaint).
+         // Inbox is the website `/api/notifications` list (DMs never land in Nakama storage);
+@@ -1664,6 +1758,11 @@
+         // Focused ROM sound bite: imported clip, or Game name.mp3 / .wav next to the ROM.
+         // Boot video and launch cinematics own the speakers — never start a bite under them.
+         uiState
++            .map { it.bootIntroOpen }
++            .distinctUntilChanged()
++            .onEach { dashNotifications.setBootIntroActive(it) }
++            .launchIn(viewModelScope)
++        uiState
+             .map { it.bootIntroOpen && !it.homeIntroReveal }
+             .distinctUntilChanged()
+             .onEach { bootPlaying ->
+@@ -1673,6 +1772,8 @@
+                 } else {
+                     nowPlayingController.setBootIntroActive(false)
+                 }
++                // Banners wait out the video too, then play their backlog onto the XMB.
++                shellNotifications.setBootIntroActive(bootPlaying)
+             }
+             .launchIn(viewModelScope)
+ 
+@@ -2003,25 +2104,34 @@
+         }
+     }
+ 
++    /**
++     * Trophy banners for people on XOrA Network, not for whoever this account follows on
++     * RetroAchievements: a friend is announced only when their own published card tells us which
++     * RA name to watch, which keeps the feed to players actually on the network.
++     */
+     private suspend fun pollFriendAchievementUnlocks() {
+         val raPrefs = preferences.retroAchievementsSettings.first()
+         if (!raPrefs.enabled || !raPrefs.unlockNotifications) return
+         if (!retroAchievements.credentials.first().isConfigured) return
++        val friends = xoraNetwork.state.value.acceptedFriends
++        if (friends.isEmpty()) return
+         val now = System.currentTimeMillis()
+-        if (raFollowedCache.isEmpty() || now - raFollowedFetchedAtMs > RA_FOLLOWED_REFRESH_MS) {
+-            raFollowedCache = retroAchievements.fetchUsersIFollow().getOrElse { return }
+-            raFollowedFetchedAtMs = now
++        if (now - xoraFriendRaNamesFetchedAtMs > RA_FOLLOWED_REFRESH_MS) {
++            refreshXoraFriendRaNames(friends)
++            xoraFriendRaNamesFetchedAtMs = now
+         }
+-        for (friend in raFollowedCache.take(RA_FRIEND_POLL_LIMIT)) {
++        for (friend in friends.take(RA_FRIEND_POLL_LIMIT)) {
++            val raName = xoraFriendRaNames[friend.username.lowercase()]
++                ?.takeIf { it.isNotBlank() } ?: continue
+             val recent = retroAchievements
+-                .fetchRecentUnlocksFor(friend.profileLookup, RA_FRIEND_WINDOW_MINUTES)
++                .fetchRecentUnlocksFor(raName, RA_FRIEND_WINDOW_MINUTES)
+                 .getOrNull() ?: continue
+-            val seen = knownFriendUnlockKeys[friend.profileLookup]
++            val seen = knownFriendUnlockKeys[raName]
+             val keys = recent.map { raUnlockKey(it) }
+             if (seen == null) {
+                 // First look at this player: whatever is already there happened before we started
+                 // watching, so it is remembered rather than announced.
+-                knownFriendUnlockKeys[friend.profileLookup] = keys.toMutableSet()
++                knownFriendUnlockKeys[raName] = keys.toMutableSet()
+                 continue
+             }
+             recent.filter { raUnlockKey(it) !in seen }.asReversed().forEach { unlock ->
+@@ -2029,9 +2139,10 @@
+                 seen += key
+                 shellNotifications.emit(
+                     ShellNotification.FriendAchievementUnlocked(
+-                        id = "ra-friend:${friend.profileLookup}:$key",
+-                        displayName = friend.username,
+-                        avatarUrl = friend.userPicUrl,
++                        id = "xora-friend-trophy:${friend.username.lowercase()}:$key",
++                        // Their XOrA identity, so the banner reads as the friend you know here.
++                        displayName = friend.displayName.ifBlank { friend.username },
++                        avatarUrl = friend.resolvedAvatarUrl,
+                         title = unlock.title,
+                         badgeUrl = unlock.badgeUrl,
+                         gameTitle = unlock.gameTitle.takeIf { it.isNotBlank() },
+@@ -2045,33 +2156,51 @@
+         }
+     }
+ 
++    /**
++     * Re-reads each friend's published card for the RA name to watch. A friend who has published
++     * none is cached blank rather than retried, so the poll does not hammer storage for them.
++     */
++    private suspend fun refreshXoraFriendRaNames(
++        friends: List<com.arcadia.shell.xoranetwork.XoraFriend>,
++    ) {
++        friends.take(RA_FRIEND_POLL_LIMIT).forEach { friend ->
++            val card = runCatching { xoraNetwork.fetchProfileCard(friend.username) }.getOrNull()
++            xoraFriendRaNames[friend.username.lowercase()] = card?.raUsername?.trim().orEmpty()
++        }
++        knownFriendUnlockKeys.keys.retainAll(xoraFriendRaNames.values.toSet())
++    }
++
+     private fun raUnlockKey(unlock: RaRecentUnlock): String =
+         "${unlock.achievementId}|${unlock.date}|${unlock.hardcore}"
+ 
++    /**
++     * A library scan is background housekeeping, so it says its piece on the dash rather than
++     * taking the corner with a banner the player has to watch land.
++     */
+     private fun emitLibraryScanBanners(progress: ScanProgress) {
+         if (progress.isRunning && !libraryScanWasRunning) {
+             libraryScanWasRunning = true
+-            shellNotifications.emit(
+-                ShellNotification.GameDownloading(
+-                    id = "scan-start:${SystemClock.elapsedRealtime()}",
+-                    title = "Scanning library",
+-                    progressLabel = progress.currentRoot?.let { "Scanning $it…" } ?: "Looking for games…",
+-                ),
++            dashNotifications.emit(
++                text = progress.currentRoot?.let { "Scanning $it" } ?: "Looking for games",
++                kind = DashNotificationKind.Scanning,
+             )
+         }
+         if (!progress.isRunning && libraryScanWasRunning) {
+             libraryScanWasRunning = false
+-            if (progress.error != null) return
+-            shellNotifications.emit(
+-                ShellNotification.InstallComplete(
+-                    id = "scan-done:${progress.finishedAt ?: SystemClock.elapsedRealtime()}",
+-                    title = "Library ready",
+-                    subtitle = when {
+-                        progress.gamesFound <= 0 -> "Scan finished"
+-                        progress.gamesFound == 1 -> "1 game found"
+-                        else -> "${progress.gamesFound} games found"
+-                    },
+-                ),
++            if (progress.error != null) {
++                dashNotifications.emit(
++                    text = progress.error ?: "Library scan failed",
++                    kind = DashNotificationKind.Error,
++                )
++                return
++            }
++            dashNotifications.emit(
++                text = when {
++                    progress.gamesFound <= 0 -> "Scan finished"
++                    progress.gamesFound == 1 -> "1 game found"
++                    else -> "${progress.gamesFound} games found"
++                },
++                kind = DashNotificationKind.Scanning,
+             )
+         }
+     }
+@@ -2116,6 +2245,7 @@
+                     gameTitle = game,
+                     network = FriendNetwork.Steam,
+                     avatarUrl = friend.avatarUrl,
++                    gameIconPath = libraryGameIconFor(game),
+                 ),
+             )
+         }
+@@ -2133,6 +2263,8 @@
+             knownXoraNotificationIds.clear()
+             knownNetplayInviteKeys.clear()
+             xoraPlayingTracker.reset()
++            knownXoraCustomStatuses.clear()
++            knownXoraListening.clear()
+             return
+         }
+         if (XoraNetworkBannerGate.shouldWaitForInbox(network)) {
+@@ -2156,6 +2288,8 @@
+                     friend.username.lowercase() to playingGameTitleFromStatus(friend.status)
+                 },
+             )
++            seedXoraCustomStatuses(network.acceptedFriends)
++            seedXoraListening(network.acceptedFriends)
+             xoraSocialSeeded = true
+             return
+         }
+@@ -2175,6 +2309,8 @@
+         }
+         knownOnlineXoraUsernames.retainAll(onlineNames)
+         emitXoraFriendPlayingBanners(network.acceptedFriends)
++        emitXoraFriendListeningBanners(network.acceptedFriends)
++        emitXoraFriendStatusBanners(network.acceptedFriends)
+ 
+         // Friend requests can surface twice (friends list edge + inbox item) — announce once.
+         val announcedRequests = mutableSetOf<String>()
+@@ -2296,11 +2432,108 @@
+                     gameTitle = game,
+                     network = FriendNetwork.Xora,
+                     avatarUrl = friend.resolvedAvatarUrl,
++                    gameIconPath = libraryGameIconFor(game),
+                 ),
+             )
+         }
+     }
+ 
++    /** Announces a friend putting a new song on, once per track. */
++    private fun emitXoraFriendListeningBanners(
++        friends: List<com.arcadia.shell.xoranetwork.XoraFriend>,
++    ) {
++        for (friend in friends) {
++            val key = friend.username.lowercase()
++            val listening = friend.takeIf { it.online }
++                ?.let { com.arcadia.shell.xoranetwork.parseXoraListening(it.status) }
++            val track = listening?.first.orEmpty()
++            val previous = knownXoraListening.put(key, track)
++            if (track.isBlank() || previous == null || track == previous) continue
++            emitShellBanner(
++                ShellNotification.FriendListening(
++                    id = "xora-listening:$key:${SystemClock.elapsedRealtime()}",
++                    displayName = friend.displayName.ifBlank { friend.username },
++                    songTitle = track,
++                    artist = listening?.second.orEmpty(),
++                    network = FriendNetwork.Xora,
++                    avatarUrl = friend.resolvedAvatarUrl,
++                ),
++            )
++        }
++        knownXoraListening.keys.retainAll(friends.map { it.username.lowercase() }.toSet())
++    }
++
++    /**
++     * A friend's custom status: whatever they published that is neither a presence keyword nor

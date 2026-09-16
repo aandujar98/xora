@@ -268,6 +268,18 @@ fun xoraFriendActivity(friend: com.arcadia.shell.xoranetwork.XoraFriend?): Strin
     }
 }
 
+/**
+ * Sort weight for the All Friends page: in a game first, then anyone otherwise reachable, then
+ * the offline block. Lower sorts earlier.
+ */
+fun friendPresenceRank(presence: SocialPresence): Int = when (presence) {
+    SocialPresence.InGame -> 0
+    SocialPresence.Online -> 1
+    SocialPresence.Away -> 2
+    SocialPresence.Busy -> 3
+    SocialPresence.Offline -> 4
+}
+
 fun discordFriendPresence(friend: DiscordFriendEntry?): SocialPresence = when (friend?.group) {
     "online_game" -> SocialPresence.InGame
     "online_elsewhere" -> SocialPresence.Online

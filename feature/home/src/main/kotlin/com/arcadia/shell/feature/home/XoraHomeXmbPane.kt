@@ -230,6 +230,14 @@ fun XoraHomeXmbPane(
         animationSpec = tween(durationMillis = XMB_TRAY_BLUR_MS, easing = FastOutSlowInEasing),
         label = "xmbTrayBlur",
     )
+    // A pop-up's CRT DIM sits on a blurred shell, so the window is the only thing in focus.
+    // Separate from the tray's blur so a card opened over an open tray does not double it.
+    val popupBlur by animateDpAsState(
+        targetValue = if (state.backdropObscuredByPopup) XMB_POPUP_BLUR_RADIUS else 0.dp,
+        animationSpec = tween(durationMillis = XMB_POPUP_BLUR_MS, easing = FastOutSlowInEasing),
+        label = "xmbPopupBlur",
+    )
+    val backdropBlur = maxOf(trayBlur, popupBlur)
     // Keep the XMB cross composed under RA so it can zoom out instead of sliding away.
     var underlayDepth by remember {
         mutableStateOf(
@@ -263,7 +271,7 @@ fun XoraHomeXmbPane(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (trayBlur > 0.dp) Modifier.blur(trayBlur) else Modifier)
+                .then(if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier)
                 .clipToBounds()
                 .then(
                     if (groupForParticles) {
@@ -639,13 +647,7 @@ fun XoraXmbHeroDetail(
                             xmb.depth == XoraXmbDepth.MusicAlbums ||
                                 xmb.depth == XoraXmbDepth.MusicTracks
                         }
-                        ?: xmbGameSelectWallpaperPath(
-                            heroGame?.takeIf {
-                                xmb.depth == XoraXmbDepth.Roms ||
-                                    xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
-                                    xmb.selectedItem?.action is XoraXmbAction.LaunchGame
-                            },
-                        )
+                        ?: xmbGameSelectWallpaperPath(selectedGame)
                 },
                 showWaveMask = musicBackdrop.showWaveMask,
                 settleMs = if (xmb.depth == XoraXmbDepth.Roms) {
@@ -1120,6 +1122,13 @@ private fun XoraXmbPillChrome(
     ProfileEditRequestEffect(state.profileEditRequest) { profileEditing = true }
     val launching = state.isLaunching
     val launchPageOpen = state.homeHub.vitaLaunchPageOpen
+    val musicPlaying = state.music.nowPlaying.hasTrack && state.music.nowPlaying.isPlaying
+    // Matches the backdrop's own tray blur in [XoraHomeXmbPane] so the corner recedes with it.
+    val trayBlur by animateDpAsState(
+        targetValue = if (state.homeHub.vitaShortcutTrayOpen) XMB_TRAY_BLUR_RADIUS else 0.dp,
+        animationSpec = tween(durationMillis = XMB_TRAY_BLUR_MS, easing = FastOutSlowInEasing),
+        label = "miniPlayerTrayBlur",
+    )
     val reduceMotion = rememberReduceMotion()
     val introSlide = rememberIntroSlide(
         reveal = state.homeIntroReveal,
@@ -1291,3 +1300,7 @@ private const val XMB_DEPTH_SLIDE_MS = 300
  */
 private val XMB_TRAY_BLUR_RADIUS = 18.dp
 private const val XMB_TRAY_BLUR_MS = 280
+
+/** Softer than the tray's: a card's CRT DIM already carries most of the separation. */
+private val XMB_POPUP_BLUR_RADIUS = 14.dp
+private const val XMB_POPUP_BLUR_MS = 220

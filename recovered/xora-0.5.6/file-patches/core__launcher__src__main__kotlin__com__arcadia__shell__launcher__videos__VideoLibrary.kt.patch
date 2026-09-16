@@ -1,0 +1,84 @@
+diff --git a/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/videos/VideoLibrary.kt b/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/videos/VideoLibrary.kt
+--- a/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/videos/VideoLibrary.kt
++++ b/core/launcher/src/main/kotlin/com/arcadia/shell/launcher/videos/VideoLibrary.kt
+@@ -111,6 +111,61 @@
+             }
+         }
+ 
++    /**
++     * The videos inside one folder, newest first — the Videos column drills into this the way
++     * Music drills from an album into its tracks.
++     */
++    suspend fun videos(folderId: String?, limit: Int = VIDEO_LIMIT): List<DeviceVideo> =
++        withContext(Dispatchers.IO) {
++            if (access() == PhotoAccess.Denied) return@withContext emptyList()
++            val projection = arrayOf(
++                MediaStore.Video.Media._ID,
++                MediaStore.Video.Media.DISPLAY_NAME,
++                MediaStore.Video.Media.BUCKET_ID,
++                MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
++                MediaStore.Video.Media.DURATION,
++                MediaStore.Video.Media.SIZE,
++            )
++            val where = folderId?.takeIf { it.isNotBlank() }
++                ?.let { "${MediaStore.Video.Media.BUCKET_ID} = ?" }
++            val args = folderId?.takeIf { it.isNotBlank() }?.let { arrayOf(it) }
++            val out = mutableListOf<DeviceVideo>()
++            runCatching {
++                context.contentResolver.query(
++                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
++                    projection,
++                    where,
++                    args,
++                    "${MediaStore.Video.Media.DATE_ADDED} DESC",
++                )?.use { cursor ->
++                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
++                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
++                    val bucketCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_ID)
++                    val albumCol =
++                        cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
++                    val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
++                    val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
++                    while (cursor.moveToNext() && out.size < limit) {
++                        val id = cursor.getLong(idCol)
++                        out += DeviceVideo(
++                            id = id.toString(),
++                            title = cursor.getString(nameCol)?.takeIf { it.isNotBlank() }
++                                ?: "Video",
++                            uri = ContentUris.withAppendedId(
++                                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
++                                id,
++                            ).toString(),
++                            bucketId = cursor.getString(bucketCol).orEmpty(),
++                            album = cursor.getString(albumCol).orEmpty(),
++                            durationMs = runCatching { cursor.getLong(durationCol) }.getOrDefault(0L),
++                            sizeBytes = runCatching { cursor.getLong(sizeCol) }.getOrDefault(0L),
++                        )
++                    }
++                }
++            }
++            out
++        }
++
+     private class FolderAcc(
+         val title: String,
+         val coverUri: String,
+@@ -123,5 +178,18 @@
+     private companion object {
+         const val FOLDER_LIMIT = 32
+         const val VIDEO_SCAN_LIMIT = 4000
++        const val VIDEO_LIMIT = 500
+     }
+ }
++
++/** One playable video file on the device. */
++data class DeviceVideo(
++    val id: String,
++    val title: String,
++    /** MediaStore content uri, handed to whichever player the device has. */
++    val uri: String,
++    val bucketId: String,
++    val album: String,
++    val durationMs: Long,
++    val sizeBytes: Long,
++)

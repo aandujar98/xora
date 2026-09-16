@@ -205,6 +205,9 @@ class ShellSystemNotifier @Inject constructor(
                 notification.id.substringBeforeLast(':').ifBlank { notification.id }
             is ShellNotification.FriendPlaying ->
                 "friend-playing:${notification.network.name}:${notification.displayName}"
+            // One status row per friend: a new line replaces the last rather than stacking.
+            is ShellNotification.FriendStatusUpdated ->
+                "friend-status:${notification.network.name}:${notification.displayName}"
             is ShellNotification.GameDownloading ->
                 "download:${notification.title}"
             else -> notification.id

@@ -1,0 +1,102 @@
+diff --git a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraQuickMenu.kt b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraQuickMenu.kt
+--- a/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraQuickMenu.kt
++++ b/feature/home/src/main/kotlin/com/arcadia/shell/feature/home/XoraQuickMenu.kt
+@@ -31,6 +31,7 @@
+ import androidx.compose.runtime.snapshotFlow
+ import kotlinx.coroutines.flow.first
+ import androidx.compose.ui.Alignment
++import androidx.compose.ui.BiasAlignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.draw.drawBehind
+@@ -41,6 +42,7 @@
+ import androidx.compose.ui.graphics.BlendMode
+ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.SolidColor
+ import androidx.compose.ui.graphics.CompositingStrategy
+ import androidx.compose.ui.graphics.ImageBitmap
+ import androidx.compose.ui.graphics.Shadow
+@@ -135,6 +137,11 @@
+     val path: String?,
+     val shape: QuickPreviewShape,
+     val fallback: String,
++    /** Tapping the tile: enters pan mode for that face. Null leaves it a plain preview. */
++    val onClick: (() -> Unit)? = null,
++    /** Where the art sits inside the tile, -1..1 on each axis. Pan moves this live. */
++    val alignX: Float = 0f,
++    val alignY: Float = 0f,
+ )
+ 
+ internal data class QuickMenuButton(
+@@ -269,6 +276,8 @@
+     rows: List<QuickMenuRow>,
+     focus: QuickMenuFocus,
+     modifier: Modifier = Modifier,
++    /** Key of the face being panned, which is lit while the D-pad is moving its art. */
++    panningKey: String? = null,
+ ) {
+     val status = rememberVitaLiveAreaStatus()
+     BoxWithConstraints(
+@@ -306,6 +315,7 @@
+                         previews = previews,
+                         focusedButton = focus.index.takeIf { it < buttons.size },
+                         unit = unit,
++                        panningKey = panningKey,
+                     )
+                 }
+                 itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
+@@ -414,6 +424,7 @@
+     previews: List<QuickMenuPreview>,
+     focusedButton: Int?,
+     unit: Float,
++    panningKey: String? = null,
+ ) {
+     val density = LocalDensity.current
+     fun u(value: Float): Dp = (value * unit).dp
+@@ -455,6 +466,7 @@
+             val left = right - w
+             QuickPreviewTile(
+                 preview = preview,
++                panning = preview.key == panningKey,
+                 unit = unit,
+                 modifier = Modifier
+                     .offset(x = u(left), y = u(PREVIEW_BOTTOM - h))
+@@ -470,6 +482,7 @@
+     preview: QuickMenuPreview,
+     unit: Float,
+     modifier: Modifier = Modifier,
++    panning: Boolean = false,
+ ) {
+     val shape = if (preview.shape == QuickPreviewShape.Bubble) {
+         CircleShape
+@@ -505,13 +518,28 @@
+                     }
+                 }
+             }
+-            .border((3f * unit).dp, Color.White, shape),
++            .border(
++                width = ((if (panning) 5f else 3f) * unit).dp,
++                brush = if (panning) XoraHoverStroke else SolidColor(Color.White),
++                shape = shape,
++            )
++            .then(
++                preview.onClick?.let { click ->
++                    Modifier.clickable(onClick = click)
++                } ?: Modifier,
++            ),
+     ) {
+         ArtworkImage(
+             path = preview.path,
+             contentDescription = preview.key,
+             fallbackText = preview.fallback,
+             contentScale = ContentScale.Crop,
++            // Same bias the XMB crops these with, so the tile shows the frame that will ship
++            // rather than a centred guess — and it moves as the D-pad pans.
++            alignment = BiasAlignment(
++                horizontalBias = preview.alignX.coerceIn(-1f, 1f),
++                verticalBias = preview.alignY.coerceIn(-1f, 1f),
++            ),
+             decodeMaxEdgePx = HERO_DECODE_MAX_EDGE_PX,
+             modifier = Modifier.fillMaxSize(),
+         )
