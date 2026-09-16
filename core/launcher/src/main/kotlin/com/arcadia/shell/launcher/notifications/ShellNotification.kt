@@ -113,31 +113,6 @@ sealed interface ShellNotification {
         val avatarUrl: String? = null,
     ) : ShellNotification
 
-    /**
-     * A friend wrote a new custom status. [status] is their own wording, carried into the banner
-     * so the update reads as what they said rather than "changed their status".
-     */
-    data class FriendStatusUpdated(
-        override val id: String,
-        val displayName: String,
-        val status: String,
-        val network: FriendNetwork,
-        val avatarUrl: String? = null,
-    ) : ShellNotification
-
-    /**
-     * A friend put a song on. The banner reads "<name> is now listening to" over
-     * "<song> by <artist>", so the track is the line that carries the weight.
-     */
-    data class FriendListening(
-        override val id: String,
-        val displayName: String,
-        val songTitle: String,
-        val artist: String,
-        val network: FriendNetwork,
-        val avatarUrl: String? = null,
-    ) : ShellNotification
-
     /** A friend on Steam, Discord, or XOrA Network started (or switched) a game. */
     data class FriendPlaying(
         override val id: String,
@@ -210,13 +185,6 @@ fun ShellNotification.dismissalKeys(): Set<String> = buildSet {
             val song = self.songTitle.trim().lowercase()
             if (name.isNotBlank() && song.isNotBlank()) {
                 add("friend-listening:${self.network.name.lowercase()}:$name:$song")
-            }
-        }
-        is ShellNotification.FriendStatusUpdated -> {
-            val name = self.displayName.trim().lowercase()
-            val status = self.status.trim().lowercase()
-            if (name.isNotBlank() && status.isNotBlank()) {
-                add("friend-status:${self.network.name.lowercase()}:$name:$status")
             }
         }
         is ShellNotification.FriendStatusUpdated -> {

@@ -208,3 +208,11 @@ private fun LiveAreaBattery(percent: Int, charging: Boolean, modifier: Modifier 
         )
     }
 }
+
+/** Charging lights the cell green; a flat battery reds it; otherwise it is plain white. */
+internal fun batteryFillColor(percent: Int, charging: Boolean): Color = when {
+    charging -> Color(0xFF5BE37D)
+    percent > 20 -> Color.White
+    else -> Color(0xFFFF5C6C)
+}
+

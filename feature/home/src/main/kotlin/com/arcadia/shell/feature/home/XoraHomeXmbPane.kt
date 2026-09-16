@@ -647,7 +647,13 @@ fun XoraXmbHeroDetail(
                             xmb.depth == XoraXmbDepth.MusicAlbums ||
                                 xmb.depth == XoraXmbDepth.MusicTracks
                         }
-                        ?: xmbGameSelectWallpaperPath(selectedGame)
+                        ?: xmbGameSelectWallpaperPath(
+                            heroGame?.takeIf {
+                                xmb.depth == XoraXmbDepth.Roms ||
+                                    xmb.selectedItem?.action is XoraXmbAction.LaunchContinueOrFavorite ||
+                                    xmb.selectedItem?.action is XoraXmbAction.LaunchGame
+                            },
+                        )
                 },
                 showWaveMask = musicBackdrop.showWaveMask,
                 settleMs = if (xmb.depth == XoraXmbDepth.Roms) {

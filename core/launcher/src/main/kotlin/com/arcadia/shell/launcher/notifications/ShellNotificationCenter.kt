@@ -76,16 +76,6 @@ class ShellNotificationCenter @Inject constructor(
         bootIntroHold.value = active
     }
 
-    /**
-     * True while the boot video owns the screen. Banners queue behind it rather than showing over
-     * it, and the backlog plays out once the XMB lands.
-     */
-    private val bootIntroHold = MutableStateFlow(false)
-
-    fun setBootIntroActive(active: Boolean) {
-        bootIntroHold.value = active
-    }
-
     @Volatile var discordFriendOnlineEnabled: Boolean = true
     @Volatile var steamFriendOnlineEnabled: Boolean = true
     @Volatile var xoraFriendOnlineEnabled: Boolean = true

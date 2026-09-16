@@ -60,9 +60,3 @@ data class SettledPlaySession(
     val gameId: String,
     val elapsedMs: Long,
 )
-
-/** A play session that was just banked against a game. */
-data class SettledPlaySession(
-    val gameId: String,
-    val elapsedMs: Long,
-)

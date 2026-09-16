@@ -83,6 +83,7 @@ import com.arcadia.shell.libretro.GameSaveEntry
 import com.arcadia.shell.feature.home.XmbVolumeMixer
 import com.arcadia.shell.feature.home.XoraXmbHeroDetail
 import com.arcadia.shell.feature.home.component.GuidePanel
+import com.arcadia.shell.feature.home.component.DashNotificationBar
 import com.arcadia.shell.feature.home.component.HomeSlotNotificationBanner
 import com.arcadia.shell.feature.home.component.LocalShellNotificationBanner
 import com.arcadia.shell.feature.home.component.NotificationHistoryPanel
@@ -457,6 +458,21 @@ fun ArcadiaShell(
         homeViewModel.eventFlow.collect { event ->
             when (event) {
                 is HomeEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                // XOrA has no video player of its own; the clip goes to whatever the device uses.
+                is HomeEvent.OpenVideoFile -> {
+                    val opened = runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(Uri.parse(event.uri), "video/*")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            },
+                        )
+                    }.isSuccess
+                    if (!opened) {
+                        snackbarHostState.showSnackbar("No app on this device can play that video.")
+                    }
+                }
                 is HomeEvent.ShowError -> snackbarHostState.showSnackbar(
                     message = event.message,
                     duration = SnackbarDuration.Long,
@@ -807,9 +823,10 @@ fun ArcadiaShell(
                 )
                 val dashNotification by homeViewModel.dashNotifications.active
                     .collectAsStateWithLifecycle()
+                // Flush to the bottom edge — the bar's own gradient is its only inset. Nothing
+                // shows while the boot video owns the screen; the queue holds it until the XMB.
                 DashNotificationBar(
-                    notification = dashNotification,
-                    modifier = Modifier.padding(bottom = 18.dp),
+                    notification = dashNotification.takeUnless { state.bootIntroOpen },
                 )
                 HomeTutorialOverlay(
                     state = state.tutorial,

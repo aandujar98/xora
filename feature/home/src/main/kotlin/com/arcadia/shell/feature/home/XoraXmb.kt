@@ -114,6 +114,11 @@ fun XoraXmbItem.isMusicCoverArt(): Boolean {
     }
 }
 
+/** Now Playing is the Music column's headline row — its cover stands as tall as a Game Icon. */
+fun XoraXmbItem.isNowPlayingCover(): Boolean =
+    action is XoraXmbAction.OpenNowPlaying || id == "now"
+
+
 /** Stable id for custom cover / wallpaper files on an album or track row. */
 fun XoraXmbItem.musicCustomMediaId(): String? = when (val action = action) {
     is XoraXmbAction.DrillMusicAlbum -> "album_${action.albumId}"

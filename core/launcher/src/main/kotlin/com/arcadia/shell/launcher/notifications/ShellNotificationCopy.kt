@@ -17,6 +17,21 @@ fun netplayInviteHeadline(displayName: String, gameTitle: String): String {
     return "$who invited you to play $game"
 }
 
+/** `"Sora is now listening to"` — the first line of the friend-listening toast. */
+fun friendListeningHeadline(displayName: String): String =
+    "${displayName.trim().ifBlank { "A friend" }} is now listening to"
+
+/** "<song> by <artist>", or just the song when no artist came across. */
+fun friendListeningTrackLine(songTitle: String, artist: String): String {
+    val song = songTitle.trim()
+    val by = artist.trim()
+    return when {
+        song.isEmpty() -> ""
+        by.isEmpty() -> song
+        else -> "$song by $by"
+    }
+}
+
 fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
     is ShellNotification.AchievementUnlocked -> {
         val points = points?.takeIf { it > 0 }?.let { "$it pts" }
@@ -105,6 +120,22 @@ fun ShellNotification.toCopy(): ShellNotificationCopy = when (this) {
             // Their own wording leads; the name rides the subtitle the way a message banner reads.
             body = status.trim().ifBlank { "Updated their status" },
             subtitle = "${displayName.trim().ifBlank { "A friend" }} · $networkLabel",
+        )
+    }
+
+    is ShellNotification.FriendListening -> {
+        val networkLabel = when (network) {
+            FriendNetwork.Discord -> "Discord"
+            FriendNetwork.Steam -> "Steam"
+            FriendNetwork.Xora -> "XOrA Network"
+        }
+        ShellNotificationCopy(
+            category = "Friends",
+            body = friendListeningHeadline(displayName),
+            subtitle = listOfNotNull(
+                friendListeningTrackLine(songTitle, artist).takeIf { it.isNotBlank() },
+                networkLabel,
+            ).joinToString(" · "),
         )
     }
 

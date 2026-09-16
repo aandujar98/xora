@@ -47,6 +47,28 @@ class ShellNotificationCopyTest {
     }
 
     @Test
+    fun friendListeningHeadlineNamesTheUserAndTrack() {
+        assertEquals(
+            "Sora is now listening to",
+            friendListeningHeadline("Sora"),
+        )
+        assertEquals(
+            "Celeste by Lena Raine",
+            friendListeningTrackLine("Celeste", "Lena Raine"),
+        )
+        val copy = ShellNotification.FriendListening(
+            id = "xora-listening:1",
+            displayName = "Sora",
+            songTitle = "First Steps",
+            artist = "Lena Raine",
+            network = FriendNetwork.Xora,
+        ).toCopy()
+        assertEquals("Friends", copy.category)
+        assertEquals("Sora is now listening to", copy.body)
+        assertEquals("First Steps by Lena Raine · XOrA Network", copy.subtitle)
+    }
+
+    @Test
     fun friendPlayingHeadlineNamesTheUserAndGame() {
         val copy = ShellNotification.FriendPlaying(
             id = "steam-playing:1",

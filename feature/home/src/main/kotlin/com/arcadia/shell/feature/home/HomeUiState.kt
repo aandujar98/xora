@@ -438,24 +438,7 @@ data class HomeUiState(
      * CRT texture as a *surface treatment* and must never blur, so it is deliberately absent here.
      */
     val backdropObscuredByPopup: Boolean
-        get() = friendProfile != null ||
-            startSettingsOpen ||
-            homeHub.themesOpen ||
-            systemUpdateOpen ||
-            notificationHistoryOpen ||
-            welcomeBackOpen ||
-            netplayInvitePromptOpen
-
-    /**
-     * A pop-up is standing over the shell and the background behind it is meant to recede — the
-     * CRT DIM pass, plus a blur under it, so the card reads as the only thing in focus.
-     *
-     * This is only about windows that obscure the shell. A song's Background Media uses the same
-     * CRT texture as a *surface treatment* and must never blur, so it is deliberately absent here.
-     */
-    val backdropObscuredByPopup: Boolean
-        get() = friendProfile != null ||
-            startSettingsOpen ||
+        get() = startSettingsOpen ||
             homeHub.themesOpen ||
             systemUpdateOpen ||
             notificationHistoryOpen ||

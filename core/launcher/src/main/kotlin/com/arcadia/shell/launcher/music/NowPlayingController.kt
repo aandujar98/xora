@@ -99,17 +99,6 @@ class NowPlayingController @Inject constructor(
     private var standbyFade: Float = 1f
     private var standbyFadeJob: Job? = null
 
-    /**
-     * True once a game has booted and the shell has gone to standby behind it. Unlike sleep or
-     * stepping out to another app — where the soundtrack is meant to keep running — the game owns
-     * the speakers, so the music ramps down and waits for the player to come back.
-     */
-    private var gameStandbyActive: Boolean = false
-    private var gameStandbyPausedDevice: Boolean = false
-    /** 0 = silent under a launched game, 1 = full. Multiplied into the output gain. */
-    private var standbyFade: Float = 1f
-    private var standbyFadeJob: Job? = null
-
     init {
         scope.launch {
             val volume = preferences.settings.first().musicVolume
@@ -463,56 +452,6 @@ class NowPlayingController @Inject constructor(
     }
 
     /**
-     * A game booted and the shell dropped to standby behind it. The music ramps down over
-     * [fadeMs] and then pauses, and coming back out ramps it in again from where it stopped.
-     *
-     * This is only for a launched game. Sleep and stepping out to another app leave the
-     * soundtrack alone — [onShellBackgrounded] is deliberately a no-op.
-     */
-    fun setGameStandbyActive(active: Boolean, fadeMs: Long = STANDBY_FADE_MS) {
-        if (gameStandbyActive == active) return
-        gameStandbyActive = active
-        standbyFadeJob?.cancel()
-        if (active) {
-            val current = stateFlow.value
-            val fading = current.track?.source == MusicSource.Device && current.isPlaying
-            if (!fading) {
-                standbyFade = 0f
-                applyPlayerVolume()
-                return
-            }
-            standbyFadeJob = scope.launch {
-                rampStandbyFade(to = 0f, fadeMs = fadeMs)
-                // Paused only after the ramp, so the last of the song is heard out rather than cut.
-                if (gameStandbyActive) {
-                    pauseDevice()
-                    gameStandbyPausedDevice = true
-                }
-            }
-        } else {
-            val resume = gameStandbyPausedDevice
-            gameStandbyPausedDevice = false
-            standbyFadeJob = scope.launch {
-                if (resume && !stateFlow.value.isPlaying) resumeDevice()
-                rampStandbyFade(to = 1f, fadeMs = fadeMs)
-            }
-        }
-    }
-
-    /** Steps [standbyFade] to [to] over [fadeMs], applying the gain as it goes. */
-    private suspend fun rampStandbyFade(to: Float, fadeMs: Long) {
-        val from = standbyFade
-        val steps = (fadeMs / STANDBY_FADE_STEP_MS).coerceAtLeast(1L).toInt()
-        for (step in 1..steps) {
-            standbyFade = from + (to - from) * (step.toFloat() / steps)
-            applyPlayerVolume()
-            delay(STANDBY_FADE_STEP_MS)
-        }
-        standbyFade = to
-        applyPlayerVolume()
-    }
-
-    /**
      * The shell UI left the foreground (emulator session, Home, another app). Device Now Playing
      * keeps running — [MusicPlaybackSession] holds a media foreground service so playback survives
      * outside the XMB and on the lock screen. Spotify is untouched.
@@ -635,9 +574,6 @@ class NowPlayingController @Inject constructor(
     companion object {
         private const val POSITION_TICK_MS = 250L
         private const val RESTART_THRESHOLD_MS = 3_000L
-        /** Long enough to read as the music stepping aside for the game, not as a cut. */
-        const val STANDBY_FADE_MS = 1_200L
-        private const val STANDBY_FADE_STEP_MS = 40L
         /** Long enough to read as the music stepping aside for the game, not as a cut. */
         const val STANDBY_FADE_MS = 1_200L
         private const val STANDBY_FADE_STEP_MS = 40L

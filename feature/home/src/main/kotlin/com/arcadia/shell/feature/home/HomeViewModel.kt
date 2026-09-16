@@ -431,6 +431,8 @@ class HomeViewModel @Inject constructor(
     private val xoraPlayingTracker = FriendPlayingTracker()
     /** Last custom status seen per friend, so only a genuinely new line toasts. */
     private val knownXoraCustomStatuses = mutableMapOf<String, String>()
+    /** Last song seen per friend, so a track only announces itself once. */
+    private val knownXoraListening = mutableMapOf<String, String>()
     private val knownXoraInviteUsernames = linkedSetOf<String>()
     private val knownXoraNotificationIds = linkedSetOf<String>()
     private val knownNetplayInviteKeys = linkedSetOf<String>()
@@ -438,6 +440,8 @@ class HomeViewModel @Inject constructor(
     private var raUnlockSeeded = false
     private val knownRaUnlockKeys = linkedSetOf<String>()
     private var libraryScanWasRunning = false
+    /** Mirrors the scraper job so start / finish each say their piece once. */
+    private var scrapeDashWasRunning = false
 
     private val events = Channel<HomeEvent>(Channel.BUFFERED)
     val eventFlow: Flow<HomeEvent> = events.receiveAsFlow()
@@ -1386,15 +1390,6 @@ class HomeViewModel @Inject constructor(
                     kind = DashNotificationKind.Music,
                 )
             }
-            .launchIn(viewModelScope)
-        // A booted game takes the speakers: once the shell drops behind one, the soundtrack fades
-        // out and waits. Sleep and other apps are not this — they leave the music playing.
-        combine(
-            standbyGame,
-            appForegroundTracker.isForeground,
-        ) { game, foreground -> game != null && !foreground }
-            .distinctUntilChanged()
-            .onEach { nowPlayingController.setGameStandbyActive(it) }
             .launchIn(viewModelScope)
         // Poll friends + inbox only while the shell is actually in the foreground — an asleep or
         // backgrounded device must not wake the radio every minute (battery / fan complaint).
@@ -5469,7 +5464,6 @@ class HomeViewModel @Inject constructor(
     }
 
     fun toggleNowPlaying() {
-        if (!nowPlayingScreenOpen()) return
         nowPlayingController.togglePlayPause()
     }
 

@@ -1116,6 +1116,43 @@ class ShellPreferences @Inject constructor(
         it.remove(Keys.PENDING_NETPLAY_AT)
     }
 
+    /**
+     * Folders the player pointed at for Videos and Photos, as SAF tree uris. Empty means "use
+     * whatever MediaStore turns up", which is the behaviour these tabs have always had; adding a
+     * folder narrows each tab to the directories chosen, and several may be chosen.
+     */
+    val videoFolderUris: kotlinx.coroutines.flow.Flow<Set<String>> = dataStore.data.map { prefs ->
+        prefs[Keys.VIDEO_FOLDER_URIS].orEmpty()
+    }
+
+    val photoFolderUris: kotlinx.coroutines.flow.Flow<Set<String>> = dataStore.data.map { prefs ->
+        prefs[Keys.PHOTO_FOLDER_URIS].orEmpty()
+    }
+
+    suspend fun addVideoFolderUri(uri: String) = addMediaFolder(Keys.VIDEO_FOLDER_URIS, uri)
+
+    suspend fun removeVideoFolderUri(uri: String) = removeMediaFolder(Keys.VIDEO_FOLDER_URIS, uri)
+
+    suspend fun addPhotoFolderUri(uri: String) = addMediaFolder(Keys.PHOTO_FOLDER_URIS, uri)
+
+    suspend fun removePhotoFolderUri(uri: String) = removeMediaFolder(Keys.PHOTO_FOLDER_URIS, uri)
+
+    private suspend fun addMediaFolder(
+        key: androidx.datastore.preferences.core.Preferences.Key<Set<String>>,
+        uri: String,
+    ) = edit { prefs ->
+        val trimmed = uri.trim()
+        if (trimmed.isEmpty()) return@edit
+        prefs[key] = prefs[key].orEmpty() + trimmed
+    }
+
+    private suspend fun removeMediaFolder(
+        key: androidx.datastore.preferences.core.Preferences.Key<Set<String>>,
+        uri: String,
+    ) = edit { prefs ->
+        prefs[key] = prefs[key].orEmpty() - uri
+    }
+
     /** Notification ids the user already cleared. Survives process death and app updates. */
     val dismissedShellNotificationIds: Flow<Set<String>> = dataStore.data.map { prefs ->
         prefs[Keys.DISMISSED_SHELL_NOTIFICATION_IDS].orEmpty()
@@ -1684,6 +1721,8 @@ class ShellPreferences @Inject constructor(
         val CIRCLE_FRIEND_IDS = stringPreferencesKey("circle_friend_ids")
         /** JSON array of `{source,id}` Circle pins (Steam + Discord). */
         val CIRCLE_PINS = stringPreferencesKey("circle_pins")
+        val VIDEO_FOLDER_URIS = stringSetPreferencesKey("video_folder_uris")
+        val PHOTO_FOLDER_URIS = stringSetPreferencesKey("photo_folder_uris")
         val CUSTOM_THEMES = stringPreferencesKey("custom_themes")
         val BOOT_ANIMATION_ID = stringPreferencesKey("boot_animation_id")
         val BOOT_ANIMATION_PATH = stringPreferencesKey("boot_animation_path")

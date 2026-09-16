@@ -165,7 +165,7 @@ fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
     XmbIcon.Trophy -> R.drawable.xmb_figma_trophy
     XmbIcon.Device -> R.drawable.xmb_storage
     XmbIcon.Folder -> R.drawable.xmb_folder_img
-    XmbIcon.FolderFavorites -> R.drawable.xmb_folder
+    XmbIcon.FolderFavorites -> R.drawable.xmb_folder_img
     XmbIcon.FolderPhoto -> R.drawable.xmb_folder_photo
     XmbIcon.FolderVideo -> R.drawable.xmb_folder_video
     XmbIcon.FolderMusic -> R.drawable.xmb_folder_music

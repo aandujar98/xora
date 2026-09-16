@@ -182,6 +182,8 @@ class ShellSystemNotifier @Inject constructor(
         -> NotificationCompat.CATEGORY_MESSAGE
         is ShellNotification.FriendOnline,
         is ShellNotification.FriendPlaying,
+        is ShellNotification.FriendStatusUpdated,
+        is ShellNotification.FriendListening,
         is ShellNotification.XoraFriendRequest,
         is ShellNotification.XoraNetplayInvite,
         is ShellNotification.XoraSessionJoined,
@@ -208,6 +210,8 @@ class ShellSystemNotifier @Inject constructor(
             // One status row per friend: a new line replaces the last rather than stacking.
             is ShellNotification.FriendStatusUpdated ->
                 "friend-status:${notification.network.name}:${notification.displayName}"
+            is ShellNotification.FriendListening ->
+                "friend-listening:${notification.network.name}:${notification.displayName}"
             is ShellNotification.GameDownloading ->
                 "download:${notification.title}"
             else -> notification.id
