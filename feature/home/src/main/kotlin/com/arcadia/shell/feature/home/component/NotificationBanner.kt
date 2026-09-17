@@ -49,7 +49,11 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -346,8 +350,22 @@ fun NotificationBanner(
                     modifier = Modifier.padding(top = 1.dp),
                 )
                 if (content.subtitle.isNotBlank()) {
+                    val emphasis = content.subtitleEmphasis
+                        ?.takeIf { it.isNotBlank() && content.subtitle.startsWith(it) }
                     Text(
-                        text = content.subtitle,
+                        text = if (emphasis == null) {
+                            AnnotatedString(content.subtitle)
+                        } else {
+                            buildAnnotatedString {
+                                withStyle(
+                                    SpanStyle(
+                                        fontWeight = FontWeight.Bold,
+                                        color = glass.content,
+                                    ),
+                                ) { append(emphasis) }
+                                append(content.subtitle.removePrefix(emphasis))
+                            }
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = glass.contentMuted,
                         maxLines = 1,
@@ -418,6 +436,11 @@ private data class BannerContent(
     val avatarUrl: String?,
     val avatarFallback: String,
     val accent: Color,
+    /**
+     * Leading run of [subtitle] to set in bold, with the remainder staying light — a song title
+     * ahead of " by artist". Null leaves the subtitle uniform.
+     */
+    val subtitleEmphasis: String? = null,
     val progressFraction: Float? = null,
 )
 
@@ -548,6 +571,8 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             categoryIconRes = R.drawable.ic_banner_friends,
             body = copy.body,
             subtitle = copy.subtitle,
+            // The track is the news: its title carries the weight, " by artist" trails off it.
+            subtitleEmphasis = notification.songTitle.trim().takeIf { it.isNotEmpty() },
             avatarUrl = notification.avatarUrl,
             avatarFallback = notification.displayName.take(1).ifBlank { "F" },
             accent = when (notification.network) {
@@ -562,7 +587,9 @@ private fun bannerContent(notification: ShellNotification): BannerContent {
             categoryIconRes = R.drawable.ic_banner_friends,
             body = copy.body,
             subtitle = copy.subtitle,
-            avatarUrl = notification.avatarUrl,
+            // What they are playing is the news; the game's own bubble icon says it faster than
+            // their avatar does, and their name is already in the line.
+            avatarUrl = notification.gameIconPath ?: notification.avatarUrl,
             avatarFallback = notification.displayName.take(1).ifBlank { "F" },
             accent = when (notification.network) {
                 FriendNetwork.Discord -> Color(0xFF5865F2)

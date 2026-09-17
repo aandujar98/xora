@@ -1461,7 +1461,8 @@ private fun ProfileCardFooter(
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(
-            text = if (charging) "$batteryPercent%+" else "$batteryPercent%",
+            // Charging is said by the bars turning green, so the number stays a plain percentage.
+            text = "$batteryPercent%",
             style = footerStyle,
         )
     }
