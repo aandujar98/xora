@@ -278,6 +278,12 @@ fun ArcadiaShell(
         pendingGameMediaId = null
         if (uri != null && gameId != null) homeViewModel.setGameIdleVideo(gameId, uri)
     }
+    val restoreBackupPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) homeViewModel.restoreShellData(uri)
+    }
+
     val gameManualPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -363,6 +369,12 @@ fun ArcadiaShell(
                         pendingGameMediaId = request.gameId
                         gameIdleVideoPicker.launch(arrayOf("video/*"))
                     }
+                    HomeMediaPickerRequest.RestoreBackup ->
+                        // Some file managers hand zips out as octet-stream, so do not narrow
+                        // this to application/zip or the backup becomes unpickable.
+                        restoreBackupPicker.launch(
+                            arrayOf("application/zip", "application/octet-stream", "*/*"),
+                        )
                     is HomeMediaPickerRequest.GameManual -> {
                         pendingGameMediaId = request.gameId
                         // Manuals are usually PDFs, but ScreenScraper also serves cbz and plain

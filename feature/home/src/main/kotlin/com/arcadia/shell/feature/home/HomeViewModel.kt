@@ -39,6 +39,7 @@ import com.arcadia.shell.datastore.PlatformArtStore
 import com.arcadia.shell.datastore.ProfileAvatarStore
 import com.arcadia.shell.datastore.PlatformEmulatorChoice
 import com.arcadia.shell.datastore.RetroAchievementsSettings
+import com.arcadia.shell.datastore.ShellDataBackup
 import com.arcadia.shell.datastore.ShellPreferences
 import com.arcadia.shell.datastore.ShellSettings
 import com.arcadia.shell.datastore.ThemeMode
@@ -267,6 +268,7 @@ class HomeViewModel @Inject constructor(
     val gamepadDispatcher: GamepadDispatcher,
     private val githubReleaseUpdater: GithubReleaseUpdater,
     private val chirpPlayer: ChirpPlayer,
+    private val shellDataBackup: ShellDataBackup,
 ) : ViewModel() {
 
     /** Companion bottom-screen session, non-null only while a qualifying game is running. */
@@ -4058,6 +4060,8 @@ class HomeViewModel @Inject constructor(
                 emit(HomeEvent.ShowMessage("Guest Mode — coming soon."))
             is XoraXmbAction.OpenSettingsCategory -> openStartSettings(action.category)
             XoraXmbAction.InstallLatestUpdate -> openSystemUpdate()
+            XoraXmbAction.BackupData -> backupShellData()
+            XoraXmbAction.RestoreData -> requestRestorePicker()
             XoraXmbAction.OpenRaLibrary -> openRaLibrary()
             XoraXmbAction.LaunchContinueOrFavorite -> launchContinueOrFavorite()
             XoraXmbAction.DrillAllGames -> {
@@ -6247,6 +6251,73 @@ class HomeViewModel @Inject constructor(
         noteUserActivity()
         viewModelScope.launch {
             runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.Bgm) }
+        }
+    }
+
+    /**
+     * Back Up Data. Zipping several hundred megabytes of artwork is not instant, so the Dash says
+     * it has started and says again, by name, where the file landed.
+     */
+    fun backupShellData() {
+        noteUserActivity()
+        viewModelScope.launch {
+            dashNotifications.emit(
+                text = "Backing up your library…",
+                kind = DashNotificationKind.Scraping,
+            )
+            val result = shellDataBackup.backup()
+            result.fold(
+                onSuccess = { name ->
+                    dashNotifications.emit(
+                        text = "Backup saved to Downloads as $name",
+                        kind = DashNotificationKind.Update,
+                    )
+                },
+                onFailure = { error ->
+                    dashNotifications.emit(
+                        text = error.message ?: "Backup failed.",
+                        kind = DashNotificationKind.Error,
+                    )
+                },
+            )
+        }
+    }
+
+    fun requestRestorePicker() {
+        noteUserActivity()
+        viewModelScope.launch {
+            runCatching { mediaPickerRequests.send(HomeMediaPickerRequest.RestoreBackup) }
+        }
+    }
+
+    /**
+     * Restore Data. The preference store and the database are both open and holding the old
+     * contents in memory, so the files on disk are not what the running app is reading — nothing
+     * a restore writes takes effect until XOrA is started again, and the banner says so rather
+     * than leaving the player wondering why nothing changed.
+     */
+    fun restoreShellData(uri: Uri) {
+        noteUserActivity()
+        viewModelScope.launch {
+            dashNotifications.emit(
+                text = "Restoring your library…",
+                kind = DashNotificationKind.Scraping,
+            )
+            shellDataBackup.restore(uri).fold(
+                onSuccess = {
+                    emit(
+                        HomeEvent.ShowMessage(
+                            "Restored. Close XOrA and open it again to see your library.",
+                        ),
+                    )
+                },
+                onFailure = { error ->
+                    dashNotifications.emit(
+                        text = error.message ?: "Restore failed.",
+                        kind = DashNotificationKind.Error,
+                    )
+                },
+            )
         }
     }
 

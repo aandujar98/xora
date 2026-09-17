@@ -88,9 +88,15 @@ to a game — both borrowing the scraping icon and sound. Playtime logs **minute
 
 ## Settings
 
-- [ ] Backup Data (`Upload.png`) and Restore Data (`Download.png`) above Update.
-      Backup zips artwork, metadata, playtime, shortcuts, layout/config to Downloads;
-      Restore reads that zip back. For moving to a new device.
+- [x] Backup Data and Restore Data above About XOrA, as `ShellDataBackup` in `core:datastore`.
+      One zip in Downloads holding the preference store, the database and the artwork /
+      manual / avatar / theme-media directories — artwork, metadata, playtime, shortcuts and
+      layout, as asked. ROMs, cores, BIOS and save data stay out: large, re-downloadable, or
+      the emulator's business rather than the shell's.
+      Restore replaces what it finds and needs a restart, because the preference store and the
+      database are open and still holding the old contents; the banner says so.
+      Entries are checked against their resolved path, so a hand-made zip cannot write outside
+      the app's own storage.
 
 ## Chirper voices — new subsystem
 

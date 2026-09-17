@@ -150,6 +150,12 @@ sealed interface XoraXmbAction {
     data class OpenSettingsCategory(val category: StartSettingsCategory) : XoraXmbAction
     /** Open the System Update window (check GitHub Releases, download, install). */
     data object InstallLatestUpdate : XoraXmbAction
+
+    /** Write artwork, metadata, playtime, shortcuts and layout to a zip in Downloads. */
+    data object BackupData : XoraXmbAction
+
+    /** Read one of those zips back over this device. */
+    data object RestoreData : XoraXmbAction
     data object OpenRaLibrary : XoraXmbAction
     data object LaunchContinueOrFavorite : XoraXmbAction
     data object DrillAllGames : XoraXmbAction
@@ -385,6 +391,20 @@ fun buildXoraCategoryItems(
             subtitle = "Banners & sounds",
             action = XoraXmbAction.OpenSettingsCategory(StartSettingsCategory.Notifications),
             icon = XmbIcon.Notifications,
+        ),
+        XoraXmbItem(
+            id = "set_backup",
+            title = "Back Up Data",
+            subtitle = "Artwork, playtime & layout to Downloads",
+            action = XoraXmbAction.BackupData,
+            icon = XmbIcon.BackupData,
+        ),
+        XoraXmbItem(
+            id = "set_restore",
+            title = "Restore Data",
+            subtitle = "Read a backup zip back in",
+            action = XoraXmbAction.RestoreData,
+            icon = XmbIcon.RestoreData,
         ),
         XoraXmbItem(
             id = "set_update",

@@ -78,6 +78,10 @@ enum class XmbIcon {
     Scrape,
     Social,
     Notifications,
+    /** Settings → Back Up Data. */
+    BackupData,
+    /** Settings → Restore Data. */
+    RestoreData,
     /** Settings → Update. */
     Update,
     Trophy,
@@ -164,6 +168,8 @@ fun XmbIcon.vectorDrawableRes(): Int? = when (this) {
     XmbIcon.Scrape -> R.drawable.xmb_settings_layout
     XmbIcon.Social -> R.drawable.xmb_settings_chat
     XmbIcon.Notifications -> R.drawable.xmb_stack
+    XmbIcon.BackupData -> R.drawable.xmb_backup
+    XmbIcon.RestoreData -> R.drawable.xmb_restore
     XmbIcon.Update -> R.drawable.xmb_update
     XmbIcon.Trophy -> R.drawable.xmb_figma_trophy
     XmbIcon.Device -> R.drawable.xmb_storage
@@ -239,6 +245,8 @@ fun XmbIcon.intrinsicDesignSize(): Pair<Float, Float> = when (this) {
     XmbIcon.Scrape -> 152f to 153f
     XmbIcon.Social -> 158f to 181f
     XmbIcon.Notifications -> 121f to 61f
+    XmbIcon.BackupData -> 129f to 134f
+    XmbIcon.RestoreData -> 127f to 90f
     XmbIcon.Update -> 171f to 136f
     XmbIcon.Trophy -> 130f to 120f
     XmbIcon.Device -> 131f to 91f
@@ -735,6 +743,9 @@ private fun DrawScope.drawXmbIconContent(icon: XmbIcon, tint: Color, stroke: Str
         XmbIcon.Scrape -> drawScrape(tint, stroke)
         XmbIcon.Social -> drawChat(tint, stroke)
         XmbIcon.Notifications -> drawBell(tint, stroke)
+        // No drawn fallback of their own; the storage glyph reads as both directions.
+        XmbIcon.BackupData,
+        XmbIcon.RestoreData,
         XmbIcon.Update -> drawGear(tint, stroke)
         XmbIcon.Trophy -> drawTrophy(tint, stroke)
         XmbIcon.Emulator -> drawFigmaGlyph(FigmaGlyph.GAMES, tint)

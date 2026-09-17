@@ -586,6 +586,9 @@ sealed interface HomeMediaPickerRequest {
 
     /** Gallery still for the Games column Folder_IMG window. */
     data object HomeFolderImage : HomeMediaPickerRequest
+
+    /** A backup zip written by Settings -> Back Up Data, being read back in. */
+    data object RestoreBackup : HomeMediaPickerRequest
 }
 
 /** Where the user wants to pick a profile photo from. */
