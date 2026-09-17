@@ -63,6 +63,7 @@ import com.arcadia.shell.designsystem.xoraModalGlass
 import com.arcadia.shell.feature.home.PhotoImportSource
 import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.input.NavAction
+import com.arcadia.shell.model.ChirperVoice
 import com.arcadia.shell.xoranetwork.XoraPresenceMode
 import com.arcadia.shell.xoranetwork.parseXoraPresenceMode
 
@@ -90,7 +91,7 @@ private val FocusEdge = Color(0xFF6E7BFF)
 private val FocusFill = Color(0xFF6E7BFF).copy(alpha = 0.28f)
 
 /** Vertical focus stops. Horizontal movement is within whichever row is current. */
-private enum class ProfileRow { Source, Preset, Name, Presence, Actions }
+private enum class ProfileRow { Source, Preset, Chirp, Name, Presence, Actions }
 
 /**
  * One avatar source, mapped 1:1 onto [AvatarSource] so the chip row and the stored source can
@@ -132,11 +133,20 @@ fun ProfileEditSheet(
     onClearAvatar: () -> Unit,
     xoraSignedIn: Boolean = false,
     onXoraPresenceMode: (XoraPresenceMode) -> Unit = {},
+    onSelectChirper: (ChirperVoice) -> Unit = {},
+    onTestChirp: () -> Unit = {},
 ) {
+    // Read off the profile rather than passed in: the stored id is the single source of truth,
+    // and an unknown one (a voice added by a newer build) falls back instead of throwing.
+    val chirperVoice = ChirperVoice.fromId(profile.chirperVoiceId)
     var name by remember(profile.displayName) { mutableStateOf(profile.displayName) }
     var presetId by remember(profile.avatarPresetId) { mutableStateOf(profile.avatarPresetId) }
     var photoChooserOpen by remember { mutableStateOf(false) }
     var photoChooserIndex by remember { mutableIntStateOf(0) }
+    var chirpPickerOpen by remember { mutableStateOf(false) }
+    var chirpIndex by remember(chirperVoice) {
+        mutableIntStateOf(ChirperVoice.entries.indexOf(chirperVoice).coerceAtLeast(0))
+    }
 
     fun closePhotoChooser() {
         photoChooserOpen = false
@@ -201,6 +211,7 @@ fun ProfileEditSheet(
         buildList {
             add(ProfileRow.Source)
             add(ProfileRow.Preset)
+            add(ProfileRow.Chirp)
             add(ProfileRow.Name)
             if (presenceShown) add(ProfileRow.Presence)
             add(ProfileRow.Actions)
@@ -219,12 +230,17 @@ fun ProfileEditSheet(
     }
     val requestDismiss = { transition.targetState = false }
     BackHandler(onBack = {
-        if (photoChooserOpen) closePhotoChooser() else requestDismiss()
+        when {
+            chirpPickerOpen -> chirpPickerOpen = false
+            photoChooserOpen -> closePhotoChooser()
+            else -> requestDismiss()
+        }
     })
 
     fun cellCount(target: ProfileRow): Int = when (target) {
         ProfileRow.Source -> sources.size
         ProfileRow.Preset -> AvatarPresets.size
+        ProfileRow.Chirp -> 2
         ProfileRow.Name -> 1
         ProfileRow.Presence -> XoraPresenceMode.entries.size
         ProfileRow.Actions -> 2
@@ -239,6 +255,11 @@ fun ProfileEditSheet(
             ProfileRow.Preset -> AvatarPresets.getOrNull(colIndex)?.let { preset ->
                 presetId = preset.id
                 onSelectAvatarPreset(preset.id)
+            }
+            ProfileRow.Chirp -> if (colIndex == 0) {
+                chirpPickerOpen = true
+            } else {
+                onTestChirp()
             }
             ProfileRow.Name -> editingName = true
             ProfileRow.Presence -> XoraPresenceMode.entries.getOrNull(colIndex)
@@ -259,13 +280,28 @@ fun ProfileEditSheet(
         sheetNav?.setCapturing(true)
         onDispose { sheetNav?.setCapturing(false) }
     }
-    LaunchedEffect(sheetNav, rows, editingName, photoChooserOpen) {
+    LaunchedEffect(sheetNav, rows, editingName, photoChooserOpen, chirpPickerOpen) {
         val flow = sheetNav?.actions ?: return@LaunchedEffect
         flow.collect { action ->
             if (editingName) {
                 // The keyboard owns everything else while a name is being typed.
                 when (action) {
                     NavAction.Confirm, NavAction.Cancel -> editingName = false
+                    else -> Unit
+                }
+                return@collect
+            }
+            if (chirpPickerOpen) {
+                // Confirm both chooses the voice and plays it — the chirp is the confirmation.
+                when (action) {
+                    NavAction.Up ->
+                        chirpIndex = (chirpIndex - 1 + ChirperVoice.entries.size) %
+                            ChirperVoice.entries.size
+                    NavAction.Down ->
+                        chirpIndex = (chirpIndex + 1) % ChirperVoice.entries.size
+                    NavAction.Confirm ->
+                        ChirperVoice.entries.getOrNull(chirpIndex)?.let(onSelectChirper)
+                    NavAction.Cancel -> chirpPickerOpen = false
                     else -> Unit
                 }
                 return@collect
@@ -414,6 +450,32 @@ fun ProfileEditSheet(
                     }
                 }
 
+                Section(label = "CHIRP:") {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        ChirperIcon(
+                            voice = chirperVoice,
+                            playing = row == ProfileRow.Chirp,
+                            size = 56.dp,
+                        )
+                        SelectAChirpBubble(
+                            focused = row == ProfileRow.Chirp && colIndex == 0,
+                            onClick = { chirpPickerOpen = true },
+                        )
+                        TestAudioButton(
+                            focused = row == ProfileRow.Chirp && colIndex == 1,
+                            onClick = onTestChirp,
+                        )
+                    }
+                    XoraSecondaryText(
+                        text = "${chirperVoice.displayName} speaks for you when your status changes.",
+                        fontSize = 12.sp,
+                        fillColor = MutedInk,
+                    )
+                }
+
                 Section(label = "USERNAME:") {
                     OutlinedTextField(
                         value = name,
@@ -484,7 +546,52 @@ fun ProfileEditSheet(
                 }
             }
         }
+        if (chirpPickerOpen) {
+            // Over the sheet rather than replacing it, so the avatar stays visible behind the
+            // card the way the design has it.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { chirpPickerOpen = false },
+                    ),
+            )
+            ChirperPicker(
+                selected = chirperVoice,
+                focusedIndex = chirpIndex,
+                onAudition = { voice ->
+                    chirpIndex = ChirperVoice.entries.indexOf(voice).coerceAtLeast(0)
+                    onSelectChirper(voice)
+                },
+            )
+        }
     }
+    }
+}
+
+/** `Test Audio` beside the chirp bubble: plays the live voice without opening the picker. */
+@Composable
+private fun TestAudioButton(
+    focused: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .clip(ChipShape)
+            .background(if (focused) FocusFill else RestFill)
+            .border(
+                width = if (focused) 3.dp else 1.5.dp,
+                color = if (focused) FocusEdge else RestEdge,
+                shape = ChipShape,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        XoraSecondaryText(text = "Test Audio", fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }
 }
 

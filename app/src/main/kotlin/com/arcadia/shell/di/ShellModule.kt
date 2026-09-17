@@ -1,7 +1,9 @@
 package com.arcadia.shell.di
 
 import android.content.Context
+import com.arcadia.shell.audio.ChirpSoundPlayer
 import com.arcadia.shell.display.DisplayTopologyMonitor
+import com.arcadia.shell.model.ChirpPlayer
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -18,4 +20,12 @@ object ShellModule {
     fun provideDisplayTopologyMonitor(
         @ApplicationContext context: Context,
     ): DisplayTopologyMonitor = DisplayTopologyMonitor(context)
+
+    /**
+     * Feature modules make a profile speak through the `ChirpPlayer` interface in `core:model`;
+     * only the app layer knows which SoundPool is behind it.
+     */
+    @Provides
+    @Singleton
+    fun provideChirpPlayer(player: ChirpSoundPlayer): ChirpPlayer = player
 }

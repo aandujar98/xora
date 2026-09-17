@@ -113,6 +113,8 @@ fun VerticalGameSelectorPane(
     onUseDiscordAvatar: () -> Unit,
     onUseXoraAvatar: () -> Unit,
     onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
+    onSelectChirper: (com.arcadia.shell.model.ChirperVoice) -> Unit = {},
+    onTestChirp: () -> Unit = {},
     onClearAvatar: () -> Unit,
     onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit,
@@ -345,6 +347,8 @@ fun VerticalGameSelectorPane(
                     onUseDiscordAvatar = onUseDiscordAvatar,
                     onUseXoraAvatar = onUseXoraAvatar,
                     onXoraPresenceMode = onXoraPresenceMode,
+                    onSelectChirper = onSelectChirper,
+                    onTestChirp = onTestChirp,
                     onClearAvatar = onClearAvatar,
                     xoraSignedIn = state.dashboard.network.signedIn,
                 )

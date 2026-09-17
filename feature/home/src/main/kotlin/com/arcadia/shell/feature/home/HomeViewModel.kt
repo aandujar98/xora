@@ -101,6 +101,8 @@ import com.arcadia.shell.launcher.notifications.ShellNotificationCenter
 import com.arcadia.shell.launcher.notifications.ShellSystemNotifier
 import com.arcadia.shell.launcher.notifications.netplaySessionDismissalKey
 import com.arcadia.shell.launcher.notifications.playingGameTitleFromStatus
+import com.arcadia.shell.model.ChirpPlayer
+import com.arcadia.shell.model.ChirperVoice
 import com.arcadia.shell.model.Game
 import com.arcadia.shell.model.GamePlatform
 import com.arcadia.shell.model.RomSoundBiteLocator
@@ -264,6 +266,7 @@ class HomeViewModel @Inject constructor(
     private val xoraNetwork: XoraNetworkRepository,
     val gamepadDispatcher: GamepadDispatcher,
     private val githubReleaseUpdater: GithubReleaseUpdater,
+    private val chirpPlayer: ChirpPlayer,
 ) : ViewModel() {
 
     /** Companion bottom-screen session, non-null only while a qualifying game is running. */
@@ -7291,6 +7294,9 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             val draft = systemStatusDraft.value.trim()
             preferences.setProfileCustomStatus(draft.ifBlank { null })
+            // A status your friends are about to see is exactly the moment the chirper speaks.
+            // Clearing one is not an announcement, so only setting chirps.
+            if (draft.isNotBlank()) chirpOwnStatus()
             closeStatusEditor()
         }
     }
@@ -9584,6 +9590,27 @@ class HomeViewModel @Inject constructor(
             xoraNetwork.setPresenceMode(mode)
         }
     }
+
+    /**
+     * Picking a chirper plays it straight away — the sound is how you tell them apart, so an
+     * audition that needed a second button would be one button too many.
+     */
+    fun setChirperVoice(voice: ChirperVoice) {
+        chirpPlayer.chirp(voice)
+        viewModelScope.launch { preferences.setChirperVoice(voice.id) }
+    }
+
+    /**
+     * The local player's own voice, for a status change friends will see. Friends' updates chirp
+     * in *their* voice once XOrA Network carries the field; until then only this device's own
+     * updates speak.
+     */
+    private fun chirpOwnStatus() {
+        chirpPlayer.chirp(ChirperVoice.fromId(uiState.value.profile.chirperVoiceId))
+    }
+
+    /** `Test Audio`: the live voice, without changing it. */
+    fun testChirp() = chirpOwnStatus()
 
     /**
      * RT pill identity follows the signed-in XOrA Network username + avatar. [forceAvatar] is true

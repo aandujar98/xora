@@ -13,6 +13,7 @@ import coil3.disk.DiskCache
 import coil3.gif.AnimatedImageDecoder
 import coil3.memory.MemoryCache
 import com.arcadia.shell.designsystem.readDeviceVisualBudget
+import com.arcadia.shell.audio.ChirpSoundPlayer
 import com.arcadia.shell.audio.BackgroundMusicController
 import com.arcadia.shell.audio.OnboardingMusicController
 import com.arcadia.shell.companion.CompanionOverlayService
@@ -54,6 +55,7 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var discordRichPresence: DiscordRichPresence
     @Inject lateinit var backgroundMusic: BackgroundMusicController
     @Inject lateinit var onboardingMusic: OnboardingMusicController
+    @Inject lateinit var chirpPlayer: ChirpSoundPlayer
     @Inject lateinit var appForegroundTracker: AppForegroundTracker
     @Inject lateinit var shellSystemNotifier: ShellSystemNotifier
     @Inject lateinit var gameCompanionController: GameCompanionController
@@ -174,6 +176,7 @@ class ArcadiaApplication : Application(), SingletonImageLoader.Factory {
                 level == ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
                 runCatching { backgroundMusic.releaseForTrim() }
                 runCatching { onboardingMusic.releaseForTrim() }
+                runCatching { chirpPlayer.releaseForTrim() }
                 runCatching { SingletonImageLoader.get(this).memoryCache?.clear() }
             }
             level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||

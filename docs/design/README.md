@@ -33,7 +33,7 @@ which.
 
 ## Where the mapped assets went
 
-Icons are `core/designsystem/src/main/res/raw/chirper_<id>.gif`, resized 960² → 320² (they are
+Icons are `feature/home/src/main/res/raw/chirper_<id>.gif`, resized 960² → 320² (they are
 never drawn larger than a 220dp circle, and the originals cost 7.9 MB against 816 KB).
 Sounds are `app/src/main/res/raw/chirp_<id>_<n>.wav`. The `usagishade` and `iprinceangel` takes
 arrived as 32-bit float WAV, which `SoundPool` will not decode — all of them are normalised to

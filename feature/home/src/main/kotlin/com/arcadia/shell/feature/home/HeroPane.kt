@@ -120,6 +120,8 @@ fun HeroPane(
     onUseDiscordAvatar: () -> Unit,
     onUseXoraAvatar: () -> Unit,
     onXoraPresenceMode: (com.arcadia.shell.xoranetwork.XoraPresenceMode) -> Unit = {},
+    onSelectChirper: (com.arcadia.shell.model.ChirperVoice) -> Unit = {},
+    onTestChirp: () -> Unit = {},
     onClearAvatar: () -> Unit,
     onClearNotifications: () -> Unit = {},
     onFriendSearchChange: (String) -> Unit = {},
@@ -309,6 +311,8 @@ fun HeroPane(
                 onUseDiscordAvatar = onUseDiscordAvatar,
                 onUseXoraAvatar = onUseXoraAvatar,
                 onXoraPresenceMode = onXoraPresenceMode,
+                onSelectChirper = onSelectChirper,
+                onTestChirp = onTestChirp,
                 onClearAvatar = onClearAvatar,
                 xoraSignedIn = xoraSignedIn,
             )

@@ -114,7 +114,22 @@ updates — custom message, in-game activity, messages.
 | l y n | `CHIRPER LYN.gif` | `lyn_[1-3].wav` |
 | marlix | `CHIRPER MARLIX.gif` | `marlix_[1-4].wav` |
 
-Assets not yet in the repo: CHIRPER.zip (icons + audio), Sound.png.
+Assets are in the repo now — icons at `feature/home/res/raw/chirper_<id>.gif`, takes at
+`app/res/raw/chirp_<id>_<n>.wav`, `Sound.png` as `xmb_sound`. See `docs/design/README.md`.
+
+Built: `ChirperVoice` + `ChirpPlayer` (`core:model`), `ChirpSoundPlayer` (`app`), the picker and
+the `Select a Chirp` / `Test Audio` row in the profile editor, and the chirp on the local player's
+own status change.
+
+Still open:
+- Friends' updates chirp in *their* voice: XOrA Network has no chirper field yet, so a friend's
+  banner is silent where the request wants it to speak. Needs a protocol change, not UI work.
+- In-game activity and messages do not chirp yet — only a custom status does.
+- `CHIRPER REGINA.gif` has no sound set and `0_[1-3].wav` / `00_[1-2].wav` have no chirper. Both
+  are parked verbatim in `docs/design/chirper-unassigned/` waiting on which is which.
+- The picker's pills are built from `docs/design/reference/EditProfile-SelectaChirp.jpg`, which
+  shows light glass — not the `#000000 → #222222` at 75% the written request describes. The
+  design won.
 
 ## Notes
 

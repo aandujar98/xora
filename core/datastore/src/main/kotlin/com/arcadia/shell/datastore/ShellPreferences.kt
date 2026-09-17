@@ -387,6 +387,11 @@ data class LocalProfile(
      * Only published while signed in.
      */
     val xoraPresenceMode: String = "Online",
+    /**
+     * Which chirper speaks for this profile — a [com.arcadia.shell.model.ChirperVoice] id. Stored
+     * as the raw id so an unknown value from a newer build falls back rather than crashing.
+     */
+    val chirperVoiceId: String = "usagishade",
 )
 
 data class ScraperCredentials(
@@ -664,6 +669,8 @@ class ShellPreferences @Inject constructor(
             favoriteLibraryGameId = prefs[Keys.PROFILE_FAVORITE_LIBRARY_GAME_ID]
                 ?.takeIf { it.isNotBlank() },
             xoraPresenceMode = prefs[Keys.XORA_PRESENCE_MODE]?.takeIf { it.isNotBlank() } ?: "Online",
+            chirperVoiceId = prefs[Keys.PROFILE_CHIRPER_VOICE]?.takeIf { it.isNotBlank() }
+                ?: "usagishade",
         )
     }
 
@@ -1389,6 +1396,10 @@ class ShellPreferences @Inject constructor(
         it[Keys.XORA_PRESENCE_MODE] = mode.trim().ifBlank { "Online" }
     }
 
+    suspend fun setChirperVoice(voiceId: String) = edit {
+        it[Keys.PROFILE_CHIRPER_VOICE] = voiceId.trim().ifBlank { "usagishade" }
+    }
+
     suspend fun setProfileFavoriteLibraryGame(gameId: String?) = edit {
         val trimmed = gameId?.trim().orEmpty()
         if (trimmed.isBlank()) {
@@ -1713,6 +1724,7 @@ class ShellPreferences @Inject constructor(
         val PROFILE_AVATAR_FILE = stringPreferencesKey("profile_avatar_file")
         val PROFILE_CUSTOM_STATUS = stringPreferencesKey("profile_custom_status")
         val XORA_PRESENCE_MODE = stringPreferencesKey("xora_presence_mode")
+        val PROFILE_CHIRPER_VOICE = stringPreferencesKey("profile_chirper_voice")
         val PROFILE_FAVORITE_LIBRARY_GAME_ID =
             stringPreferencesKey("profile_favorite_library_game_id")
         val RA_USER = stringPreferencesKey("retroachievements_user")
