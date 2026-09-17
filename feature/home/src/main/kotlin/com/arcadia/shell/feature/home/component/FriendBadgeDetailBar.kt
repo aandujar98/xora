@@ -9,37 +9,47 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import com.arcadia.shell.designsystem.xoraModalGlass
+import com.arcadia.shell.designsystem.XoraSecondaryText
 import com.arcadia.shell.retroachievements.RaRecentUnlock
 
 /** Matches the card above it, so the two read as one object that grew a drawer. */
 private val DetailShape = RoundedCornerShape(14.dp)
-private val DetailBadgeSize = 52.dp
+private val DetailBadgeSize = 44.dp
 private val DetailHardcore = Color(0xFFFFA22B)
 private val DetailRim = Color(0xFFFECF67)
 
 /**
- * Figma 973:2055: the inspected badge's details, sitting under the Profile Card — art on the left,
- * name over description in the middle, and points / hardcore / date stacked on the right.
+ * The light silver bar the design has, not the dark glass the rest of the card is made of — it is
+ * meant to read as a caption laid over the shell rather than another panel of the same card.
+ */
+private val DetailFill = Brush.horizontalGradient(
+    0f to Color(0xFFE8ECF0),
+    0.5f to Color(0xFFD4DCE2),
+    1f to Color(0xFFBFCAD4),
+)
+
+/**
+ * The inspected badge's details: art on the left, name over description in the middle, and
+ * hardcore over the date on the right.
+ *
+ * No points pill, and thinner than it first was — this sits under a card that already says how
+ * many points the player has, and the badge's own score was the least interesting thing on it.
  */
 @Composable
 fun FriendBadgeDetailBar(
@@ -49,18 +59,19 @@ fun FriendBadgeDetailBar(
     val context = LocalContext.current
     Row(
         modifier = modifier
-            .width(FriendBadgeDetailWidth)
-            .xoraModalGlass(DetailShape)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .clip(DetailShape)
+            .background(DetailFill)
+            .border(1.dp, Color.White.copy(alpha = 0.6f), DetailShape)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(
             modifier = Modifier
                 .size(DetailBadgeSize)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(7.dp))
                 .background(Color.Black.copy(alpha = 0.3f))
-                .border(2.dp, DetailRim, RoundedCornerShape(8.dp))
+                .border(2.dp, DetailRim, RoundedCornerShape(7.dp))
                 .padding(2.dp),
         ) {
             AsyncImage(
@@ -70,68 +81,53 @@ fun FriendBadgeDetailBar(
                     .build(),
                 contentDescription = unlock.title,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)),
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(5.dp)),
             )
         }
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
-            Text(
+            // White over light silver only reads because of the outline these carry.
+            XoraSecondaryText(
                 text = unlock.title,
-                style = MaterialTheme.typography.titleMedium,
+                fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             // A card-published badge carries no description; the game stands in for it.
             val detail = unlock.description.trim().ifBlank { unlock.gameTitle.trim() }
             if (detail.isNotEmpty()) {
-                Text(
+                XoraSecondaryText(
                     text = detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.72f),
+                    fontSize = 13.sp,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
         Column(
             horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
-            if (unlock.points > 0) {
-                Text(
-                    text = "${unlock.points} PTS",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
-                    textAlign = TextAlign.End,
-                )
-            }
             if (unlock.hardcore) {
-                Text(
+                XoraSecondaryText(
                     text = "HARDCORE",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = DetailHardcore,
+                    fillColor = DetailHardcore,
                     textAlign = TextAlign.End,
+                    maxLines = 1,
                 )
             }
             val date = unlock.date.trim()
             if (date.isNotEmpty()) {
-                Text(
+                XoraSecondaryText(
                     text = date,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.6f),
-                    maxLines = 1,
+                    fontSize = 12.sp,
                     textAlign = TextAlign.End,
+                    maxLines = 1,
                 )
             }
         }
     }
 }
-
-/** Wider than the card, as the reference has it, so the details are not cramped under it. */
-val FriendBadgeDetailWidth = 480.dp

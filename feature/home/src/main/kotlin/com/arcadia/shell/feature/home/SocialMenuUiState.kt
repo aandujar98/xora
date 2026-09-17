@@ -301,11 +301,23 @@ fun discordFriendActivity(friend: DiscordFriendEntry?): String? {
 /**
  * Focusable rows inside the expanded RT profile card.
  */
+/**
+ * How many Recently Earned badges the profile card shows. Shared so the row model, the strip and
+ * the badge cursor cannot disagree about how many there are to move between.
+ */
+const val RECENT_BADGE_SLOTS = 6
+
 sealed interface SystemPanelRow {
     /** RT bell notification history. */
     data object Notifications : SystemPanelRow
     /** Activity / custom status bubble. */
     data object Status : SystemPanelRow
+    /**
+     * The Recently Earned strip, as one vertical stop. Left/Right pick a badge inside it rather
+     * than giving every badge its own row, so Down still steps past the whole strip in one press.
+     * Only present when there is something to earn.
+     */
+    data object RecentBadges : SystemPanelRow
     /** Favorite library game (plus placeholder when unset). */
     data object FavoriteGame : SystemPanelRow
     data object EditProfile : SystemPanelRow
@@ -326,6 +338,7 @@ fun buildSystemPanelRows(
     jumpBackGames: List<String> = emptyList(),
     favoritePickerOpen: Boolean = false,
     favoritePickerGameIds: List<String> = emptyList(),
+    recentBadgeCount: Int = 0,
 ): List<SystemPanelRow> =
     if (favoritePickerOpen) {
         buildList {
@@ -335,6 +348,7 @@ fun buildSystemPanelRows(
     } else {
         buildList {
             add(SystemPanelRow.Status)
+            if (recentBadgeCount > 0) add(SystemPanelRow.RecentBadges)
             add(SystemPanelRow.FavoriteGame)
             add(SystemPanelRow.EditProfile)
             add(SystemPanelRow.Notifications)

@@ -21,6 +21,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -129,6 +130,7 @@ import com.arcadia.shell.feature.home.VITA_BUBBLE_ROCK_CYCLE_MS
 import com.arcadia.shell.feature.home.VITA_BUBBLE_SHEEN_TRAVEL
 import com.arcadia.shell.feature.home.VITA_BUBBLE_TILT_DEG
 import com.arcadia.shell.feature.home.VITA_BUBBLE_TILT_SHIFT_FRACTION
+import com.arcadia.shell.feature.home.RECENT_BADGE_SLOTS
 import com.arcadia.shell.feature.home.buildSystemPanelRows
 import com.arcadia.shell.feature.home.rememberDeviceTilt
 import com.arcadia.shell.feature.home.rememberVitaBubbleMotion
@@ -153,6 +155,9 @@ private val AwayAmber = Color(0xFFFFC24B)
 private val BusyRose = Color(0xFFFF5C6C)
 private val FocusRing = Color(0xFF4AE39A)
 private val BadgeBorder = Color(0xFFFECF67)
+
+/** The rim of the badge being inspected — the same gold, lit rather than a different colour. */
+private val BadgeBorderLit = Color(0xFFFFE9A8)
 
 /** Frosted plate rim — thicker glass edge on the profile modal. */
 private val OutlineInk = Color.Black
@@ -190,7 +195,23 @@ private val ProfileCardPadTop = 16.dp
 private val ProfileCardPadBottom = 4.dp
 private val ProfileIdentityGap = 10.dp
 private val StatusBubbleTextSize = 16.sp
-private val RecentlyEarnedBadgeSlots = 6
+private val RecentlyEarnedBadgeSlots = RECENT_BADGE_SLOTS
+
+/**
+ * How far the inspected badge rises. Five pixels, arrived at by trying fifty and ten first: the
+ * point is that one badge is standing slightly proud of its row, not that it has left it.
+ */
+private val BadgeLift = 5.dp
+
+/** What the badges that are not being inspected drop to — dimmed by three quarters. */
+private const val BadgeDim = 0.25f
+
+/**
+ * The lift and the dim run on the same curve, and it is a soft one: a badge cursor moving along
+ * a row of six is a pointer, not a transition, so nothing about it should snap.
+ */
+private val BadgeEasing = CubicBezierEasing(0.22f, 0.61f, 0.36f, 1f)
+private const val BadgeMoveMs = 220
 private val RecentlyEarnedBadgeSize = 60.dp
 private val RecentlyEarnedBadgeGap = 12.dp
 private val RecentlyEarnedLabelGap = 10.dp
@@ -198,6 +219,7 @@ private val FavoriteLabelGap = 10.dp
 private val HeaderToRecentGap = 16.dp
 private val RecentToFavoriteGap = 12.dp
 private val FavoriteToFooterGap = 6.dp
+private val BadgeDetailGap = 8.dp
 private val PresenceDotSize = 12.dp
 private val TrophyGlyphW = 24.dp
 private val TrophyGlyphH = TrophyGlyphW * (120f / 130f)
@@ -267,6 +289,7 @@ fun SystemPill(
     onToggle: () -> Unit,
     onSelectRow: (Int) -> Unit,
     onActivateRow: (Int?) -> Unit,
+    onSelectBadge: (Int) -> Unit = {},
     onStatusDraftChange: (String) -> Unit,
     onSaveCustomStatus: () -> Unit,
     onClearCustomStatus: () -> Unit,
@@ -343,6 +366,10 @@ fun SystemPill(
             onActivateRow(idx)
         }
     }
+
+    // Same trick the Dash bar uses: hold the last one through the collapse so the drawer does not
+    // blank on the frame it starts closing.
+    val lastInspectedBadge = remember { mutableStateOf<RaRecentUnlock?>(null) }
 
     BoxWithConstraints(modifier = modifier) {
         val cardWidth = min(ProfileCardWidth, maxWidth)
@@ -445,7 +472,18 @@ fun SystemPill(
 
                     Spacer(modifier = Modifier.height(HeaderToRecentGap))
 
-                    RecentlyEarnedStrip(unlocks = recentAchievements)
+                    RecentlyEarnedStrip(
+                        unlocks = recentAchievements,
+                        inspecting = (
+                            systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.RecentBadges
+                            ),
+                        selectedIndex = systemProfile.selectedBadgeIndex,
+                        onSelectBadge = { index ->
+                            val idx = systemRows.indexOfFirst { it is SystemPanelRow.RecentBadges }
+                            if (idx >= 0) onSelectRow(idx)
+                            onSelectBadge(index)
+                        },
+                    )
 
                     Spacer(modifier = Modifier.height(RecentToFavoriteGap))
 
@@ -501,6 +539,37 @@ fun SystemPill(
                     cardWidth = cardWidth,
                     onClick = if (expanded) onEditProfile else onToggle,
                     modifier = Modifier.graphicsLayer { alpha = profileIconAlpha },
+                )
+            }
+        }
+
+        val inspectedBadge = recentAchievements
+            .take(RecentlyEarnedBadgeSlots)
+            .getOrNull(systemProfile.selectedBadgeIndex)
+            ?.takeIf {
+                expanded &&
+                    !systemProfile.favoritePickerOpen &&
+                    systemRows.getOrNull(selectedRowIndex) is SystemPanelRow.RecentBadges
+            }
+        if (inspectedBadge != null) lastInspectedBadge.value = inspectedBadge
+        androidx.compose.animation.AnimatedVisibility(
+            visible = inspectedBadge != null,
+            enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)) + expandVertically(
+                expandFrom = Alignment.Top,
+                animationSpec = arcadiaTween<IntSize>(ArcadiaMotion.Medium),
+            ),
+            exit = fadeOut(arcadiaTween(ArcadiaMotion.Fast)) + shrinkVertically(
+                shrinkTowards = Alignment.Top,
+                animationSpec = arcadiaTween<IntSize>(ArcadiaMotion.Fast),
+            ),
+        ) {
+            val shown = inspectedBadge ?: lastInspectedBadge.value
+            if (shown != null) {
+                FriendBadgeDetailBar(
+                    unlock = shown,
+                    modifier = Modifier
+                        .padding(top = BadgeDetailGap)
+                        .width(cardWidth),
                 )
             }
         }
@@ -1055,7 +1124,12 @@ private fun StatusBubble(
 }
 
 @Composable
-private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
+private fun RecentlyEarnedStrip(
+    unlocks: List<RaRecentUnlock>,
+    inspecting: Boolean,
+    selectedIndex: Int,
+    onSelectBadge: (Int) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(RecentlyEarnedLabelGap)) {
         CardSectionLabel("RECENTLY EARNED")
         if (unlocks.isEmpty()) {
@@ -1070,9 +1144,14 @@ private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
                 horizontalArrangement = Arrangement.spacedBy(RecentlyEarnedBadgeGap),
             ) {
                 val shown = unlocks.take(RecentlyEarnedBadgeSlots)
-                shown.forEach { unlock ->
+                shown.forEachIndexed { index, unlock ->
                     AchievementBadge(
                         unlock = unlock,
+                        // Nothing lifts or dims until the cursor is actually on the strip; off it
+                        // the row reads as the plain summary it was before.
+                        lifted = inspecting && index == selectedIndex,
+                        dimmed = inspecting && index != selectedIndex,
+                        onClick = { onSelectBadge(index) },
                         modifier = Modifier.size(RecentlyEarnedBadgeSize),
                     )
                 }
@@ -1087,15 +1166,35 @@ private fun RecentlyEarnedStrip(unlocks: List<RaRecentUnlock>) {
 @Composable
 private fun AchievementBadge(
     unlock: RaRecentUnlock,
+    lifted: Boolean,
+    dimmed: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val platformContext = LocalPlatformContext.current
     val shape = RoundedCornerShape(8.dp)
+    val lift by animateFloatAsState(
+        targetValue = if (lifted) 1f else 0f,
+        animationSpec = tween(BadgeMoveMs, easing = BadgeEasing),
+        label = "badgeLift",
+    )
+    val brightness by animateFloatAsState(
+        targetValue = if (dimmed) BadgeDim else 1f,
+        animationSpec = tween(BadgeMoveMs, easing = BadgeEasing),
+        label = "badgeDim",
+    )
     Box(
         modifier = modifier
+            .offset(y = -BadgeLift * lift)
+            .alpha(brightness)
             .clip(shape)
             .background(Color.Black.copy(alpha = 0.25f))
-            .border(2.dp, BadgeBorder, shape),
+            .border(
+                width = if (lifted) 3.dp else 2.dp,
+                color = if (lifted) BadgeBorderLit else BadgeBorder,
+                shape = shape,
+            )
+            .clickable(onClick = onClick),
     ) {
         AsyncImage(
             model = ImageRequest.Builder(platformContext)

@@ -23,6 +23,11 @@ data class SystemProfileCardState(
     val xoraNetworkOnline: Boolean = false,
     val xoraPresenceMode: com.arcadia.shell.xoranetwork.XoraPresenceMode =
         com.arcadia.shell.xoranetwork.XoraPresenceMode.Online,
+    /**
+     * Which Recently Earned badge the cursor is on. Only drawn while [SystemPanelRow.RecentBadges]
+     * is the selected row — off that row the strip goes back to reading as a plain summary.
+     */
+    val selectedBadgeIndex: Int = 0,
 )
 
 data class SystemFavoriteGame(

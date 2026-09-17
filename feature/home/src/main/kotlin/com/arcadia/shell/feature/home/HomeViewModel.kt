@@ -370,6 +370,8 @@ class HomeViewModel @Inject constructor(
     private val profileEditRequest = MutableStateFlow(0)
     private val systemPanelExpanded = MutableStateFlow(false)
     private val systemPanelSelectedIndex = MutableStateFlow(0)
+    /** Which badge the Recently Earned strip is inspecting. Only meaningful on that row. */
+    private val systemBadgeIndex = MutableStateFlow(0)
     private val notificationHistoryOpen = MutableStateFlow(false)
     private val notificationHistorySelectedIndex = MutableStateFlow(0)
     private val pendingNetplayInvite = MutableStateFlow<NetplayInvitePrompt?>(null)
@@ -6978,6 +6980,10 @@ class HomeViewModel @Inject constructor(
         when (action) {
             NavAction.Up -> moveSystemPanelSelection(-1)
             NavAction.Down -> moveSystemPanelSelection(1)
+            // Left/Right are free everywhere else in this panel, so the badge strip can have them
+            // without taking anything away from the rows above and below it.
+            NavAction.Left -> moveSystemBadgeSelection(-1)
+            NavAction.Right -> moveSystemBadgeSelection(1)
             NavAction.Confirm -> activateSystemPanelSelection()
             NavAction.Cancel -> {
                 when {
@@ -6990,6 +6996,23 @@ class HomeViewModel @Inject constructor(
             NavAction.ToggleAccountPanel -> toggleAccountPanel()
             else -> Unit
         }
+    }
+
+    /** Clicking or tapping a badge inspects it, the same as walking the cursor onto it. */
+    fun selectSystemBadge(index: Int) {
+        noteUserActivity()
+        val count = uiState.value.achievements.recent.take(RECENT_BADGE_SLOTS).size
+        if (count == 0) return
+        systemBadgeIndex.value = index.coerceIn(0, count - 1)
+    }
+
+    private fun moveSystemBadgeSelection(delta: Int) {
+        val rows = currentSystemPanelRows()
+        val row = rows.getOrNull(systemPanelSelectedIndex.value)
+        if (row !is SystemPanelRow.RecentBadges) return
+        val count = uiState.value.achievements.recent.take(RECENT_BADGE_SLOTS).size
+        if (count == 0) return
+        systemBadgeIndex.update { (it + delta).coerceIn(0, count - 1) }
     }
 
     private fun moveSystemPanelSelection(delta: Int) {
@@ -7033,6 +7056,9 @@ class HomeViewModel @Inject constructor(
                     openStatusEditor()
                 }
             }
+            // Inspecting is what the row is for, and Left/Right already does it; Confirm has
+            // nothing further to open.
+            SystemPanelRow.RecentBadges -> Unit
             SystemPanelRow.FavoriteGame -> openFavoritePicker()
             SystemPanelRow.ClearFavorite -> {
                 clearFavoriteLibraryGame()
@@ -7183,6 +7209,7 @@ class HomeViewModel @Inject constructor(
             jumpBackGames = jumpIds,
             favoritePickerOpen = systemFavoritePickerOpen.value,
             favoritePickerGameIds = systemFavoritePickerGames.value.map { it.id },
+            recentBadgeCount = uiState.value.achievements.recent.size,
         )
     }
 
@@ -7191,7 +7218,11 @@ class HomeViewModel @Inject constructor(
         discordRichPresence.state,
         libraryRepository.observeGames(),
         combine(
-            combine(systemStatusEditorOpen, systemStatusDraft) { open, draft -> open to draft },
+            combine(
+                systemStatusEditorOpen,
+                systemStatusDraft,
+                systemBadgeIndex,
+            ) { open, draft, badge -> SystemProfileStatusBits(open, draft, badge) },
             combine(
                 systemFavoritePickerOpen,
                 systemFavoritePickerLoading,
@@ -7207,8 +7238,9 @@ class HomeViewModel @Inject constructor(
             },
         ) { status, picker ->
             SystemProfileChromeBits(
-                statusEditorOpen = status.first,
-                statusDraft = status.second,
+                statusEditorOpen = status.editorOpen,
+                statusDraft = status.draft,
+                selectedBadgeIndex = status.badgeIndex,
                 favoritePickerOpen = picker.favoritePickerOpen,
                 favoritePickerLoading = picker.favoritePickerLoading,
                 favoritePickerGames = picker.favoritePickerGames,
@@ -7243,8 +7275,15 @@ class HomeViewModel @Inject constructor(
             xoraNetworkSignedIn = xora.signedIn,
             xoraNetworkOnline = xora.selfOnline,
             xoraPresenceMode = xora.presenceMode,
+            selectedBadgeIndex = chrome.selectedBadgeIndex,
         )
     }
+
+    private data class SystemProfileStatusBits(
+        val editorOpen: Boolean,
+        val draft: String,
+        val badgeIndex: Int,
+    )
 
     private data class SystemProfilePickerBits(
         val favoritePickerOpen: Boolean,
@@ -7256,6 +7295,7 @@ class HomeViewModel @Inject constructor(
     private data class SystemProfileChromeBits(
         val statusEditorOpen: Boolean,
         val statusDraft: String,
+        val selectedBadgeIndex: Int,
         val favoritePickerOpen: Boolean,
         val favoritePickerLoading: Boolean,
         val favoritePickerGames: List<Game>,
