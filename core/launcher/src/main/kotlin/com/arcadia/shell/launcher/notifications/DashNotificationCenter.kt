@@ -14,6 +14,29 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
+ * Where a new line goes in the queue.
+ *
+ * Playtime jumps ahead of everything still waiting, because it is posted on the way back from a
+ * game — exactly when a scrape or a scan the session kicked off is likely to be sitting in front
+ * of it, and "you played for two hours" arriving fourth is news about nothing. It goes behind any
+ * playtime line already queued rather than in front of it, so two of them stay in the order they
+ * happened.
+ *
+ * Everything else is first in, first out.
+ */
+internal fun enqueueDashLine(
+    queue: ArrayDeque<DashNotification>,
+    notification: DashNotification,
+) {
+    if (notification.kind != DashNotificationKind.Playtime) {
+        queue.addLast(notification)
+        return
+    }
+    val insertAt = queue.indexOfFirst { it.kind != DashNotificationKind.Playtime }
+    if (insertAt < 0) queue.addLast(notification) else queue.add(insertAt, notification)
+}
+
+/**
  * Queue behind the bottom-left Dash line. One shows at a time, for [dashNotificationDurationMs],
  * and the rest wait their turn rather than stacking up the corner.
  */
@@ -21,7 +44,18 @@ import kotlinx.coroutines.launch
 class DashNotificationCenter @Inject constructor() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val inbound = Channel<DashNotification>(Channel.UNLIMITED)
+
+    /**
+     * The waiting lines, in the order they will be shown. A deque rather than a channel because
+     * playtime jumps to the front: it is posted on the way back from a game, which is exactly
+     * when a scrape or a scan the session kicked off is likely to be queued ahead of it, and
+     * "you played for two hours" arriving fourth is news about nothing.
+     */
+    private val queue = ArrayDeque<DashNotification>()
+    private val queueLock = Any()
+
+    /** Wakes the pump. Conflated: one nudge is as good as ten when the deque holds the work. */
+    private val nudge = Channel<Unit>(Channel.CONFLATED)
 
     private val _active = MutableStateFlow<DashNotification?>(null)
     val active: StateFlow<DashNotification?> = _active.asStateFlow()
@@ -48,7 +82,12 @@ class DashNotificationCenter @Inject constructor() {
 
     init {
         scope.launch {
-            for (notification in inbound) {
+            while (true) {
+                val notification = takeNext()
+                if (notification == null) {
+                    nudge.receive()
+                    continue
+                }
                 // Nothing shows over the boot video; the queue waits it out.
                 bootIntroHold.first { !it }
                 _active.value = notification
@@ -67,8 +106,11 @@ class DashNotificationCenter @Inject constructor() {
     fun emit(notification: DashNotification) {
         if (!enabled) return
         if (!admits(notification)) return
-        inbound.trySend(notification)
+        synchronized(queueLock) { enqueueDashLine(queue, notification) }
+        nudge.trySend(Unit)
     }
+
+    private fun takeNext(): DashNotification? = synchronized(queueLock) { queue.removeFirstOrNull() }
 
     /**
      * Keeps the dash from chattering. A kind that has just spoken stays quiet for
@@ -118,6 +160,7 @@ class DashNotificationCenter @Inject constructor() {
     }
 
     fun clear() {
+        synchronized(queueLock) { queue.clear() }
         _active.value = null
         _cue.value = null
     }

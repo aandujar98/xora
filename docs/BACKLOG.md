@@ -47,8 +47,15 @@ Rate limit: one alert per category per minute. Exceptions: playtime logged, and 
 | File scanning | `dash_search_device` | `chat_send.wav` |
 | Errors | `dash_power` | `error_popup.wav` |
 
-All sounds muted while a song is playing. Also carries: Vita bubble moved/updated, media applied
-to a game — both borrowing the scraping icon and sound. Playtime logs **minutes** when under an hour.
+All sounds muted while a song is playing. Playtime logs **minutes** when under an hour.
+
+Built: the bar and its queue, the icon and sound per kind, the rate limiter, the boot hold, and
+the duration curve. Playtime now jumps whatever is still waiting (`enqueueDashLine`) — it is
+posted on the way back from a game, which is exactly when a scrape or a scan that session started
+is likely to be queued ahead of it. Two playtime lines keep the order they happened in.
+
+Vita bubble moves and artwork landing on a game are Dash lines now rather than snackbars, borrowing
+the scraping icon and sound as asked.
 
 ## Music
 

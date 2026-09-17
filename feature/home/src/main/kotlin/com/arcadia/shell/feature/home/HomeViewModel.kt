@@ -3876,7 +3876,7 @@ class HomeViewModel @Inject constructor(
         val order = homeShortcuts.value
         viewModelScope.launch { preferences.setHomeShortcuts(order) }
         if (announce) {
-            emit(HomeEvent.ShowMessage("Placed ${order.getOrNull(moved)?.title ?: "shortcut"}."))
+            dashMediaApplied("Moved ${order.getOrNull(moved)?.title ?: "shortcut"}")
         }
     }
 
@@ -6976,7 +6976,7 @@ class HomeViewModel @Inject constructor(
             runCatching {
                 val path = themeMediaStore.importShortcutArt(uri, shortcutId)
                 replaceShortcutArt(shortcutId, path)
-                emit(HomeEvent.ShowMessage("Shortcut icon updated."))
+                dashMediaApplied("Shortcut icon updated")
             }.onFailure { error ->
                 emit(HomeEvent.ShowError(error.message ?: "Could not import that icon."))
             }
@@ -9768,6 +9768,15 @@ class HomeViewModel @Inject constructor(
         chirpPlayer.chirp(ChirperVoice.fromId(uiState.value.profile.chirperVoiceId))
     }
 
+    /**
+     * Artwork landing on a game, and a Vita bubble finding a new home, are both ambient: worth
+     * mentioning, not worth a banner with history behind it. They borrow the scraping line's icon
+     * and sound, which is the same news arriving from a different direction.
+     */
+    private fun dashMediaApplied(text: String) {
+        dashNotifications.emit(text = text, kind = DashNotificationKind.Scraping)
+    }
+
     /** `Test Audio`: the live voice, without changing it. */
     fun testChirp() = chirpOwnStatus()
 
@@ -10418,7 +10427,7 @@ class HomeViewModel @Inject constructor(
             runCatching {
                 val path = gameCustomMediaStore.importBoxArt(gameId, uri)
                 libraryRepository.setBoxArtPath(gameId, path)
-                emit(HomeEvent.ShowMessage("Box art updated."))
+                dashMediaApplied("Box art updated")
             }.onFailure { error ->
                 emit(HomeEvent.ShowError(error.message ?: "Could not import box art."))
             }
@@ -10430,7 +10439,7 @@ class HomeViewModel @Inject constructor(
             runCatching {
                 val path = gameCustomMediaStore.importShortcutIcon(gameId, uri)
                 libraryRepository.setShortcutIconPath(gameId, path)
-                emit(HomeEvent.ShowMessage("Shortcut icon updated."))
+                dashMediaApplied("Shortcut icon updated")
             }.onFailure { error ->
                 emit(HomeEvent.ShowError(error.message ?: "Could not import shortcut icon."))
             }
@@ -10442,7 +10451,7 @@ class HomeViewModel @Inject constructor(
             runCatching {
                 val path = gameCustomMediaStore.importBackground(gameId, uri)
                 libraryRepository.setHeroImagePath(gameId, path)
-                emit(HomeEvent.ShowMessage("Background updated."))
+                dashMediaApplied("Background updated")
             }.onFailure { error ->
                 emit(HomeEvent.ShowError(error.message ?: "Could not import background."))
             }
