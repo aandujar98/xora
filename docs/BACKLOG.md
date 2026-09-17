@@ -52,7 +52,8 @@ to a game — both borrowing the scraping icon and sound. Playtime logs **minute
 
 ## Music
 
-- [ ] Player controls inert outside Now Playing
+- [x] Player controls inert outside Now Playing — the mini pill has no transport at all, and
+      Up / Down / Confirm are transport keys only at `XoraXmbDepth.NowPlaying`
 - [x] Hide mini player when game media is shown — `showsGameMedia`, and it yields the corner to
       the Achievement Card rather than stacking with it
 - [x] Paused song keeps its custom Background Media — `MusicCategoryBackdrop` holds `hasTrack`
@@ -60,8 +61,13 @@ to a game — both borrowing the scraping icon and sound. Playtime logs **minute
 - [x] Background Media fades when paused outside the Music tab — off the Music column the
       backdrop only fills screens a game is not already claiming
 - [x] Background media fades on navigating away — same rule, driven by `gameMediaPresent`
-- [ ] Main music player raised so it clears the Dash Notification (mini player unchanged)
-- [ ] Now Playing icon sized to match the Game Icon
+- [x] Main music player raised clear of the Dash Notification, by the bar's own height plus a
+      gap rather than a guessed constant. Mini player untouched.
+- [ ] Now Playing icon sized to match the Game Icon — the rung already carries `artPath`; what
+      is left is the XMB item renderer, which sizes art rungs differently from game rungs
+- [ ] The player card is also narrower and lower than
+      `docs/design/reference/HOME-MUSIC-TRACK(nowplaying).jpg` has it: measured 496/798/928x251
+      against the built 583/830/753x234. Needs the inner column re-laid out, not just the box
 
 ## Library / editor
 

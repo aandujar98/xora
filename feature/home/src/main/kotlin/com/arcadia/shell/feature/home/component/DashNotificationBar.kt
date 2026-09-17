@@ -41,7 +41,8 @@ import com.arcadia.shell.launcher.notifications.DashNotification
 import com.arcadia.shell.launcher.notifications.DashNotificationKind
 
 // 10% up on the original 32/18/15 — the line reads from a couch without becoming chrome.
-private val DashBarHeight = 35.dp
+/** Public so the full music player can lift itself clear of the bar rather than guess at it. */
+val DashNotificationBarHeight = 35.dp
 private val DashIconSize = 20.dp
 private val DashTextSize = 16.5.sp
 
@@ -92,7 +93,7 @@ fun BoxScope.DashNotificationBar(
             Row(
                 modifier = Modifier
                     .widthIn(max = maxWidth)
-                    .height(DashBarHeight)
+                    .height(DashNotificationBarHeight)
                     .background(DashBarFill)
                     .padding(start = 16.dp, end = 32.dp)
                     .semantics { contentDescription = shown.text },

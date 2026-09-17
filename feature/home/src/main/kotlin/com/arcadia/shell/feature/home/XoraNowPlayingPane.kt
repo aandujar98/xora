@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arcadia.shell.designsystem.XoraFonts
 import com.arcadia.shell.designsystem.xoraModalGlass
+import com.arcadia.shell.feature.home.component.DashNotificationBarHeight
 import com.arcadia.shell.feature.home.component.CoverArt
 import com.arcadia.shell.feature.home.component.ProgressTrack
 import com.arcadia.shell.launcher.music.NowPlayingState
@@ -45,6 +46,15 @@ private const val CARD_RADIUS = 31f
 private const val ART_SIZE = 183f
 private const val ART_LEFT = 603f
 private const val ART_TOP = 853f
+
+/**
+ * How far the player sits above where the concept put it. The Dash bar is flush to the bottom
+ * edge and the card's own bottom was 16 design-px off it, so the two overlapped whenever a line
+ * came up mid-song. Expressed in dp rather than design units because the bar is sized in dp and
+ * the conversion between the two moves with the screen. The mini player is deliberately not
+ * lifted — it already sits well clear.
+ */
+private val PlayerDashClearance = DashNotificationBarHeight + 10.dp
 
 /**
  * Music → Now Playing, drawn over the track's cover art (the pane's backdrop supplies the art).
@@ -74,7 +84,7 @@ fun XoraNowPlayingPane(
             modifier = Modifier
                 .offset(
                     x = (originX + (CARD_LEFT * unit)).dp,
-                    y = (originY + (CARD_TOP * unit)).dp,
+                    y = (originY + (CARD_TOP * unit)).dp - PlayerDashClearance,
                 )
                 .size(
                     width = (CARD_WIDTH * unit).dp,
@@ -92,7 +102,7 @@ fun XoraNowPlayingPane(
             corner = (25f * unit).toInt().coerceAtLeast(4),
             modifier = Modifier.offset(
                 x = (originX + (ART_LEFT * unit)).dp,
-                y = (originY + (ART_TOP * unit)).dp,
+                y = (originY + (ART_TOP * unit)).dp - PlayerDashClearance,
             ),
         )
 
@@ -101,7 +111,7 @@ fun XoraNowPlayingPane(
             modifier = Modifier
                 .offset(
                     x = (originX + (801f * unit)).dp,
-                    y = (originY + (846f * unit)).dp,
+                    y = (originY + (846f * unit)).dp - PlayerDashClearance,
                 )
                 .width((489f * unit).dp),
         ) {
