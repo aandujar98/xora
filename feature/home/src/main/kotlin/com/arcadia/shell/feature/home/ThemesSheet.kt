@@ -646,10 +646,12 @@ private fun ThemeSwatchPreview(theme: ShellTheme) {
         Image(
             painter = painterResource(preview),
             contentDescription = null,
-            // FillBounds, not Crop: the bundled previews are square and the frame is 16:9, so
-            // Crop zoomed into the middle and Fit left bars down the sides. These are gradients
-            // and wallpapers — filling the frame outright costs nothing visible either way.
-            contentScale = ContentScale.FillBounds,
+            // The bundled previews are square (512x512) and the frame is 16:9, so something has
+            // to give: FillBounds fills by stretching, Fit leaves bars down the sides, Crop fills
+            // by taking a band out of the middle. Crop wins because these are gradients — a
+            // gradient cropped still reads as the same gradient, while a stretched one visibly
+            // skews. A true uncropped fill needs 16:9 source art, not a different scale mode.
+            contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
         return

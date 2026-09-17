@@ -1241,22 +1241,26 @@ private fun XoraXmbPillChrome(
         // so the mini player hides there and comes back on exit. The RA capsule stays off the
         // Vita launch page — no chrome card, no in-peel copy.
         val musicFocused = state.xoraXmb.category == XoraXmbCategory.Music
-        // While a song is actually playing the pill follows you out of Music and stays up
-        // wherever you browse — the transport should be reachable without walking back. Music
-        // still shows it when merely focused, so a paused queue keeps its controls. Now Playing
-        // has its own transport, and game media still wins the corner.
-        val showMiniPlayer = !launchPageOpen &&
-            // The Vita tray takes the screen outright: the pill leaves rather than sitting
-            // blurred behind it, and comes back when the XMB does.
-            !state.homeHub.vitaShortcutTrayOpen &&
-            (musicFocused || musicPlaying) &&
-            state.xoraXmb.depth != XoraXmbDepth.NowPlaying &&
-            state.xoraXmb.depth != XoraXmbDepth.RaLibrary &&
-            !state.xoraXmb.showsGameMedia
         val showAchievementsCard = !launchPageOpen &&
             !musicFocused &&
             state.xoraXmb.showsAchievementsCard &&
             state.xoraXmb.depth != XoraXmbDepth.RaLibrary
+        // While a song is actually playing the pill follows you out of Music and stays up
+        // wherever you browse — the transport should be reachable without walking back. Music
+        // still shows it when merely focused, so a paused queue keeps its controls.
+        //
+        // Both this and the achievement card live in the bottom-right corner, and once the pill
+        // started leaving Music they could want it at once. The card wins: it is tied to whatever
+        // is under the cursor, while the pill is ambient and has the rest of the shell to sit in.
+        val showMiniPlayer = !launchPageOpen &&
+            // The Vita tray takes the screen outright: the pill leaves rather than sitting
+            // blurred behind it, and comes back when the XMB does.
+            !state.homeHub.vitaShortcutTrayOpen &&
+            !showAchievementsCard &&
+            (musicFocused || musicPlaying) &&
+            state.xoraXmb.depth != XoraXmbDepth.NowPlaying &&
+            state.xoraXmb.depth != XoraXmbDepth.RaLibrary &&
+            !state.xoraXmb.showsGameMedia
         AnimatedVisibility(
             visible = showMiniPlayer,
             enter = fadeIn(arcadiaTween(ArcadiaMotion.Medium)),
