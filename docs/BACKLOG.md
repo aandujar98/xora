@@ -84,7 +84,8 @@ the scraping icon and sound as asked.
       the row list into that column is a restructure of the whole editor, so it wants a look
       before it is built
 - [x] Favorites folder in Games under All Games — `XoraXmbAction.DrillFavorites`, `FolderFavorites`
-- [ ] Favorites icons sized as All Games icons
+- [x] Favorites icons sized as All Games icons — `XoraXmbDepth.Favorites` is built by
+      `buildXoraRomItems` and drawn by `CardBrowseMode.Roms`, the same two as All Games
 - [ ] Remove the More Options bar from the Media Editor
 - [ ] Tap a thumbnail to pan it, with live preview; touch drag and Left Stick both pan
 - [ ] Panning is per-thumbnail: bubble → shortcut icon, banner → XMB / Vita game icon,
