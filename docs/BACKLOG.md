@@ -71,14 +71,19 @@ to a game — both borrowing the scraping icon and sound. Playtime logs **minute
 
 ## Library / editor
 
-- [ ] Media Editor: Hide → Favorite / Unfavorite; third option "Hide" (XMB) or "Unpin" (Vita)
+- [ ] Media Editor: Hide → Favorite / Unfavorite; third option "Hide" (XMB) or "Unpin" (Vita).
+      Favourite and Hide both exist, but as rows in `romEditorRows`, not as the left-hand button
+      column `docs/design/reference/MUSIC-EDIT.jpg` shows (Edit Title / Hide / Remove). Turning
+      the row list into that column is a restructure of the whole editor, so it wants a look
+      before it is built
 - [x] Favorites folder in Games under All Games — `XoraXmbAction.DrillFavorites`, `FolderFavorites`
 - [ ] Favorites icons sized as All Games icons
 - [ ] Remove the More Options bar from the Media Editor
 - [ ] Tap a thumbnail to pan it, with live preview; touch drag and Left Stick both pan
 - [ ] Panning is per-thumbnail: bubble → shortcut icon, banner → XMB / Vita game icon,
       wallpaper → XMB / Vita wallpaper. Wallpapers and bubbles pannable where applicable
-- [ ] Vita pin picker: platform list does not scroll — fix
+- [x] Vita pin picker scrolls — the platform column is a `LazyColumn` that follows the cursor;
+      the plain `Column` it replaced left everything past the panel's height unreachable
 
 ## UI
 
