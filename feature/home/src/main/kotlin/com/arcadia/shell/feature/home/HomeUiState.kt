@@ -197,7 +197,49 @@ data class VitaShortcutLaunchUi(
     val game: Game? = null,
     val artAlignX: Float = 0f,
     val artAlignY: Float = 0f,
+    val status: VitaLaunchStatus? = null,
 )
+
+/** Badge thumbnails the expanded LiveArea panel has room for. */
+const val VITA_LAUNCH_BADGE_SLOTS = 7
+
+/** Friend faces the panel draws before the rest become a `+N` chip. */
+const val VITA_LAUNCH_FRIEND_SLOTS = 4
+
+/**
+ * The status panel in the LiveArea page's bottom-right corner: how far through the title's
+ * achievements this player is, and which friends are in it.
+ *
+ * Read off what is already loaded — the RetroAchievements library list and live friend presence —
+ * rather than hashing the ROM, because this is built on the way into a launch and a launch should
+ * not wait on the network.
+ */
+data class VitaLaunchStatus(
+    val boxArtUrl: String = "",
+    val title: String = "",
+    /** Console name from RetroAchievements, or the library platform. Drawn as the corner chip. */
+    val platformLabel: String = "",
+    val earned: Int = 0,
+    val total: Int = 0,
+    /** Recently earned badge art for this title, newest first. Empty keeps the panel compact. */
+    val badgeUrls: List<String> = emptyList(),
+    val friendAvatars: List<String> = emptyList(),
+    /** Friends in this title beyond the ones with room to be drawn — the `+3` chip. */
+    val friendOverflow: Int = 0,
+) {
+    val hasTrophies: Boolean get() = total > 0
+
+    val progressLabel: String get() = "$earned/$total"
+
+    val fraction: Float
+        get() = if (total <= 0) 0f else (earned.toFloat() / total).coerceIn(0f, 1f)
+
+    /** Nothing to say: no trophies and nobody playing it. */
+    val isEmpty: Boolean get() = !hasTrophies && friendAvatars.isEmpty()
+
+    /** The full card is only worth the room once there is badge art to put in it. */
+    val expanded: Boolean get() = badgeUrls.isNotEmpty()
+}
 
 /** Idle trailer overlay for the hero pane. */
 data class HeroTrailerState(

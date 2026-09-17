@@ -3749,7 +3749,55 @@ class HomeViewModel @Inject constructor(
             game = game,
             artAlignX = alignment.x,
             artAlignY = alignment.y,
+            status = resolveVitaLaunchStatus(shortcut.title, game),
         )
+    }
+
+    /**
+     * The LiveArea page's corner panel. Built from state that is already in memory — the
+     * RetroAchievements library list and live friend presence — because this runs on the way into
+     * a launch, and a launch that waits on a ROM hash and two API calls is a launch that stutters.
+     *
+     * Returns null when there is nothing to say: no trophies for the title and nobody in it.
+     */
+    private fun resolveVitaLaunchStatus(shortcutTitle: String, game: Game?): VitaLaunchStatus? {
+        val state = uiState.value
+        val wanted = loosePlayTitleKey(game?.title ?: shortcutTitle)
+        val raRow = state.raLibrary.games.firstOrNull {
+            titlesLooselyMatch(loosePlayTitleKey(it.game.title), wanted)
+        }
+        // Current activity is all presence carries; nobody publishes a play history, so "recently
+        // played" means the friends who are in it right now.
+        val inGame = state.socialMenu.circleMembers.filter { member ->
+            val activity = member.activityLabel?.let(::loosePlayTitleKey).orEmpty()
+            activity.isNotEmpty() && titlesLooselyMatch(activity, wanted)
+        }
+        val avatars = inGame.mapNotNull { it.avatarUrl?.takeIf(String::isNotBlank) }
+        if (raRow == null && avatars.isEmpty()) return null
+        return VitaLaunchStatus(
+            boxArtUrl = raRow?.game?.imageIconUrl.orEmpty(),
+            title = raRow?.game?.title ?: game?.title ?: shortcutTitle,
+            platformLabel = raRow?.game?.consoleName ?: game?.platform?.displayName.orEmpty(),
+            earned = raRow?.game?.numAwarded ?: 0,
+            total = raRow?.game?.maxPossible ?: 0,
+            badgeUrls = raRow?.recentBadgeUrls.orEmpty().take(VITA_LAUNCH_BADGE_SLOTS),
+            friendAvatars = avatars.take(VITA_LAUNCH_FRIEND_SLOTS),
+            friendOverflow = (avatars.size - VITA_LAUNCH_FRIEND_SLOTS).coerceAtLeast(0),
+        )
+    }
+
+    /**
+     * Titles arrive from three places that all spell them differently — the shortcut, the library,
+     * and whatever a friend's client publishes — so matching is on letters and digits only, and
+     * either being a prefix of the other counts ("Phantasy Star Online" against
+     * "Phantasy Star Online ver.2").
+     */
+    private fun loosePlayTitleKey(raw: String): String =
+        raw.substringAfter("Playing ", raw).filter { it.isLetterOrDigit() }.lowercase()
+
+    private fun titlesLooselyMatch(a: String, b: String): Boolean {
+        if (a.isEmpty() || b.isEmpty()) return false
+        return a.startsWith(b) || b.startsWith(a)
     }
 
     /**
