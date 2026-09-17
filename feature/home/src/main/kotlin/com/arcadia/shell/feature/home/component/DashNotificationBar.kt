@@ -40,8 +40,10 @@ import com.arcadia.shell.feature.home.R
 import com.arcadia.shell.launcher.notifications.DashNotification
 import com.arcadia.shell.launcher.notifications.DashNotificationKind
 
-private val DashBarHeight = 32.dp
-private val DashIconSize = 18.dp
+// 10% up on the original 32/18/15 — the line reads from a couch without becoming chrome.
+private val DashBarHeight = 35.dp
+private val DashIconSize = 20.dp
+private val DashTextSize = 16.5.sp
 
 /**
  * Figma 974:2199: near-black at the left edge fading out to the right, so the line reads over
@@ -106,7 +108,7 @@ fun BoxScope.DashNotificationBar(
                 Text(
                     text = shown.text,
                     fontFamily = XoraFonts.XmbLabel,
-                    fontSize = 15.sp,
+                    fontSize = DashTextSize,
                     fontWeight = FontWeight.Medium,
                     color = Color.White,
                     maxLines = 1,

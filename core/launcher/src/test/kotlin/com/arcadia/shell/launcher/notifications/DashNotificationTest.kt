@@ -7,11 +7,20 @@ import org.junit.Test
 class DashNotificationTest {
 
     @Test
-    fun everyLineLandsInsideTheStatedThreeToFiveSeconds() {
+    fun everyLineLandsInsideTheStatedBand() {
         val short = dashNotificationDurationMs("Scan finished")
         assertTrue("a two-word line sits just off the floor", short in DASH_MIN_MS..(DASH_MIN_MS + 500))
-        val long = "Logged 12h 30m in a game with a very long name indeed and then some more words"
+        // Built from the constants rather than a hand-counted sentence, so raising the ceiling
+        // cannot quietly stop this line from reaching it — which is what happened when the
+        // maximum went from 5s to 6.75s and a 17-word string no longer clamped.
+        val wordsToClamp = ((DASH_MAX_MS - DASH_MIN_MS) / DASH_MS_PER_WORD_FOR_TEST).toInt() + 2
+        val long = List(wordsToClamp) { "word" }.joinToString(" ")
         assertEquals(DASH_MAX_MS, dashNotificationDurationMs(long))
+    }
+
+    /** Mirrors the production per-word step; kept here so the test reads without opening the file. */
+    private companion object {
+        const val DASH_MS_PER_WORD_FOR_TEST = 180L
     }
 
     @Test

@@ -36,5 +36,10 @@ fun dashNotificationDurationMs(text: String): Long {
 }
 
 const val DASH_MIN_MS = 3_000L
-const val DASH_MAX_MS = 5_000L
+
+/**
+ * Was 5s. Raised by half so a longer line has time to be read, then trimmed 10% off that, which
+ * lands at 6.75s: long enough for a full sentence, short enough not to linger.
+ */
+const val DASH_MAX_MS = 6_750L
 private const val DASH_MS_PER_WORD = 180L
