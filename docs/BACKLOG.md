@@ -14,15 +14,19 @@ earlier one. Kept in the repo so the list survives the session.
 - [x] Standby fade wired to game launch / return
 - [x] Mini player **fades out entirely** behind the Vita tray (revised from blur)
 
-## Blocked — needs the profile card system
+## Badge inspection, and what the friend card still needs
 
 `XoraProfileCard` / `XoraProfileBadge` / `XoraProfileCards` / `fetchProfileCard` /
-`publishProfileCard` / `FriendProfileAction` are absent from this source (present in DNU-0.5.6).
+`publishProfileCard` / `FriendProfileAction` are absent from this source (present in DNU-0.5.6),
+so there is no *friend* card to select a badge on. The behaviour is built on the RT profile card
+instead, which has the same Recently Earned strip and the same layout; the components move across
+unchanged once the friend card lands.
 
-- [ ] Friend card badge selection: dim others 75%, scale + tilt, info bar beneath
-- [ ] Badge info modal identical to the RA Grid modal; card lifts **5px**; thinner bar; no Points pill
-- [ ] Badge description beneath the title, title larger than description
-- [ ] Smoother easing on the card lift / return
+- [x] Badge selection, on the profile card that exists: 5px lift, others to a quarter, both on
+      one soft curve. The *friend* card still needs `XoraProfileCard` before it can have one.
+- [x] Badge info bar: thinner, no points pill, light silver per the RA Grid design
+- [x] Badge description beneath the title, title larger than description
+- [x] Smoother easing on the lift and the return — `BadgeEasing`
 - [ ] Friend achievement notifications (banner exists, no emitter — data is friends' recent badges)
 
 ## Dash Notifications
@@ -49,17 +53,20 @@ to a game — both borrowing the scraping icon and sound. Playtime logs **minute
 ## Music
 
 - [ ] Player controls inert outside Now Playing
-- [ ] Hide mini player when game media is shown (currently conflicts with the Achievement Card)
-- [ ] Paused song keeps its custom Background Media instead of reverting to cover art
-- [ ] Background Media fades when paused **outside** the Music tab
-- [ ] Background media fades on navigating to another song / leaving the folder
+- [x] Hide mini player when game media is shown — `showsGameMedia`, and it yields the corner to
+      the Achievement Card rather than stacking with it
+- [x] Paused song keeps its custom Background Media — `MusicCategoryBackdrop` holds `hasTrack`
+      through a pause, because dropping back to the cover made pausing look like an unload
+- [x] Background Media fades when paused outside the Music tab — off the Music column the
+      backdrop only fills screens a game is not already claiming
+- [x] Background media fades on navigating away — same rule, driven by `gameMediaPresent`
 - [ ] Main music player raised so it clears the Dash Notification (mini player unchanged)
 - [ ] Now Playing icon sized to match the Game Icon
 
 ## Library / editor
 
 - [ ] Media Editor: Hide → Favorite / Unfavorite; third option "Hide" (XMB) or "Unpin" (Vita)
-- [ ] Favorites folder in Games under All Games, `xmb_folder` icon, browsable as a Game Select
+- [x] Favorites folder in Games under All Games — `XoraXmbAction.DrillFavorites`, `FolderFavorites`
 - [ ] Favorites icons sized as All Games icons
 - [ ] Remove the More Options bar from the Media Editor
 - [ ] Tap a thumbnail to pan it, with live preview; touch drag and Left Stick both pan
@@ -69,19 +76,19 @@ to a game — both borrowing the scraping icon and sound. Playtime logs **minute
 
 ## UI
 
-- [ ] CRT DIM gains a blur beneath it for pop-ups / cards only — **not** the Music Player's CRT DIM
-- [ ] Themes UI: icons 50% smaller, stacked list, name beside icon, 16:9 thumbnails,
-      filling the boundary — not zoomed, not stretched
-- [ ] Friend listening banner: "[user] is now listening to" over "**[song]** by [artist]",
-      song bold, artist smaller and lighter
-- [ ] Friend playing banner uses the game's bubble icon (`gameIconPath` already on the type)
-- [ ] Notifications suppressed until the boot video finishes
-- [ ] Charging: drop the "+" and turn the battery bars green
-- [ ] Vita Launch Menu status bar reuses the Media Editor's status bar asset
+- [x] CRT DIM blur for pop-ups only — `popupBlur` in `XoraHomeXmbPane`, maxed with the tray blur
+- [x] Themes thumbnails fill their boundary — `ContentScale.FillBounds`.
+      **Still open:** the stacked list layout with 50%-smaller icons and the name beside them
+- [x] Friend listening banner — `BannerContent.subtitleEmphasis` carries the bold song title
+- [x] Friend playing banner uses `gameIconPath ?: avatarUrl`
+- [x] Notifications suppressed until the boot video finishes — `bootIntroHold.first { !it }`
+- [x] Charging: green cells, no "+" — `batteryFillColor` and `BatteryGlyph`
+- [x] Vita Launch Menu status bar — `VitaLiveAreaStatusBar`, plus the corner status panel from
+      `docs/design/reference/HOME-SHORTCUT-PSO*.jpg`
 
 ## Media tabs
 
-- [ ] Video tab organised by folder, like Music
+- [x] Video tab organised by folder — `videoFolderItems`, same shape as photos
 - [ ] Photo viewer: remove the left info modal, centre the preview, 30px corners,
       library strip thinned to one row
 - [ ] Advanced Settings → Media: choosable directories for Video and for Photos, multiple each
