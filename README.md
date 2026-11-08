@@ -1,4 +1,4 @@
-# Project Tuzi
+# xora early access
 
 A landscape, controller-first Android emulation frontend (branded **SoraTuzi**). It organizes a ROM
 library, scrapes artwork, and launches games — either through an embedded **Libretro host**
